@@ -127,3 +127,77 @@ def test_simulate_portfolios_with_bounds(synthetic_returns):
         allow_short=False,
     )
     assert len(df) > 0
+
+
+from optimizer import optimize_max_sharpe, equal_weight_portfolio
+
+
+def test_optimize_max_sharpe_converges(synthetic_returns):
+    result = optimize_max_sharpe(
+        synthetic_returns,
+        rf_rate=0.0001,
+        periods_per_year=252,
+        weight_bounds=(0.0, 1.0),
+        allow_short=False,
+    )
+    assert result["converged"] is True
+
+
+def test_optimize_max_sharpe_weights_sum_to_one(synthetic_returns):
+    result = optimize_max_sharpe(
+        synthetic_returns,
+        rf_rate=0.0001,
+        periods_per_year=252,
+        weight_bounds=(0.0, 1.0),
+        allow_short=False,
+    )
+    assert abs(result["weights"].sum() - 1.0) < 1e-4
+
+
+def test_optimize_max_sharpe_weights_non_negative_when_no_short(synthetic_returns):
+    result = optimize_max_sharpe(
+        synthetic_returns,
+        rf_rate=0.0001,
+        periods_per_year=252,
+        weight_bounds=(0.0, 1.0),
+        allow_short=False,
+    )
+    assert all(w >= -1e-6 for w in result["weights"])
+
+
+def test_optimize_max_sharpe_returns_risk_contribution(synthetic_returns):
+    result = optimize_max_sharpe(
+        synthetic_returns,
+        rf_rate=0.0001,
+        periods_per_year=252,
+        weight_bounds=(0.0, 1.0),
+        allow_short=False,
+    )
+    assert "risk_contribution" in result
+    assert len(result["risk_contribution"]) == 3
+
+
+def test_optimize_max_sharpe_respects_bounds(synthetic_returns):
+    result = optimize_max_sharpe(
+        synthetic_returns,
+        rf_rate=0.0001,
+        periods_per_year=252,
+        weight_bounds=(0.1, 0.6),
+        allow_short=False,
+    )
+    if result["converged"]:
+        assert all(w >= 0.1 - 1e-4 for w in result["weights"])
+        assert all(w <= 0.6 + 1e-4 for w in result["weights"])
+
+
+def test_equal_weight_portfolio_weights_are_equal(synthetic_returns):
+    result = equal_weight_portfolio(synthetic_returns, rf_rate=0.0001, periods_per_year=252)
+    assert abs(result["weights"][0] - 1/3) < 1e-6
+    assert abs(result["weights"].sum() - 1.0) < 1e-6
+
+
+def test_equal_weight_portfolio_returns_metrics(synthetic_returns):
+    result = equal_weight_portfolio(synthetic_returns, rf_rate=0.0001, periods_per_year=252)
+    assert "annual_return" in result
+    assert "annual_vol" in result
+    assert "sharpe" in result
