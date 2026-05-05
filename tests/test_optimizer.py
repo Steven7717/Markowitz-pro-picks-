@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 import pytest
-from optimizer import portfolio_metrics, validate_constraints, risk_contribution
+from optimizer import portfolio_metrics, validate_constraints, risk_contribution, simulate_portfolios
 
 
 @pytest.fixture
@@ -82,3 +82,48 @@ def test_validate_constraints_exactly_feasible_max():
     # 3 assets, max=1/3 → 3 * 1/3 = 1.0 exactly
     ok, _ = validate_constraints(n_assets=3, weight_min=0.0, weight_max=1/3)
     assert ok is True
+
+
+def test_simulate_portfolios_returns_dataframe(synthetic_returns):
+    df = simulate_portfolios(
+        synthetic_returns,
+        rf_rate=0.0001,
+        periods_per_year=252,
+        weight_bounds=(0.0, 1.0),
+        allow_short=False,
+    )
+    assert isinstance(df, pd.DataFrame)
+    assert set(df.columns) == {"ret", "vol", "sharpe"}
+
+
+def test_simulate_portfolios_not_empty(synthetic_returns):
+    df = simulate_portfolios(
+        synthetic_returns,
+        rf_rate=0.0001,
+        periods_per_year=252,
+        weight_bounds=(0.0, 1.0),
+        allow_short=False,
+    )
+    assert len(df) > 0
+
+
+def test_simulate_portfolios_vol_positive(synthetic_returns):
+    df = simulate_portfolios(
+        synthetic_returns,
+        rf_rate=0.0001,
+        periods_per_year=252,
+        weight_bounds=(0.0, 1.0),
+        allow_short=False,
+    )
+    assert (df["vol"] > 0).all()
+
+
+def test_simulate_portfolios_with_bounds(synthetic_returns):
+    df = simulate_portfolios(
+        synthetic_returns,
+        rf_rate=0.0001,
+        periods_per_year=252,
+        weight_bounds=(0.1, 0.6),
+        allow_short=False,
+    )
+    assert len(df) > 0

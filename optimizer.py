@@ -44,3 +44,35 @@ def validate_constraints(
             f"{n_assets} activos = {weight_max * n_assets:.0%} < 100%"
         )
     return True, "OK"
+
+
+def simulate_portfolios(
+    returns: pd.DataFrame,
+    rf_rate: float,
+    periods_per_year: int,
+    weight_bounds: tuple[float, float],
+    allow_short: bool,
+) -> pd.DataFrame:
+    n = len(returns.columns)
+    mean_returns = returns.mean().values
+    cov_matrix = returns.cov().values
+    lb, ub = weight_bounds
+    rng = np.random.default_rng(42)
+    rows = []
+
+    for _ in range(N_SIMULATIONS):
+        if allow_short:
+            w = rng.standard_normal(n)
+        else:
+            w = rng.dirichlet(np.ones(n))
+
+        w = np.clip(w, lb, ub)
+        total = w.sum()
+        if total == 0:
+            continue
+        w = w / total
+
+        ret, vol, sharpe = portfolio_metrics(w, mean_returns, cov_matrix, rf_rate, periods_per_year)
+        rows.append({"ret": ret, "vol": vol, "sharpe": sharpe})
+
+    return pd.DataFrame(rows)
