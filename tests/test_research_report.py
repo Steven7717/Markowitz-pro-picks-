@@ -134,7 +134,8 @@ def test_the_markdown_report_shows_the_passive_baseline():
 def test_the_markdown_report_shows_the_cost_sensitivity():
     verdict = build_verdict([_gate_a()], {"s": _gate_b()})
     text = to_markdown(verdict, coverage_summary="n/a", passive_sharpe=0.6)
-    assert "optimista" in text and "conservador" in text
+    lowered = text.lower()
+    assert "optimista" in lowered and "conservador" in lowered
 
 
 def test_the_markdown_report_warns_when_the_control_passed():

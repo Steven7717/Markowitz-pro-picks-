@@ -115,7 +115,7 @@ def to_markdown(verdict: dict[str, dict], coverage_summary: str, passive_sharpe:
         "",
         "Spread neto anualizado bajo los tres escenarios pre-registrados.",
         "",
-        "| Señal | Horizonte | optimista (5 bps) | base (10 bps) | conservador (25 bps) |",
+        "| Señal | Horizonte | Optimista (5 bps) | Base (10 bps) | Conservador (25 bps) |",
         "|---|---|---|---|---|",
     ]
     for name, entry in verdict.items():
