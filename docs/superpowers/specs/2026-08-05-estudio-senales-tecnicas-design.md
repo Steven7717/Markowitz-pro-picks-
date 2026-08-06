@@ -159,6 +159,7 @@ research/
 ├── __init__.py
 ├── universe.py       # Quiénes son los miembros del universo
 ├── loader.py         # Panel OHLCV con caché en disco
+├── indicators.py     # Matemática pura de indicadores, sin desplazamientos
 ├── signals.py        # Las 7 señales evaluadas + el control aleatorio
 ├── costs.py          # Costes de transacción y rotación
 ├── evaluation.py     # Puerta A: IC, quintiles, sub-periodos, BH
@@ -177,6 +178,7 @@ Cada módulo tiene una responsabilidad única y se puede entender y probar por s
 |---|---|---|
 | `universe.py` | `sp500_members() -> list[str]` | Lee el snapshot congelado del CSV commiteado. No consulta la red: la reproducibilidad del estudio depende de que el universo no cambie entre corridas. |
 | `loader.py` | `load_ohlcv(tickers, start, end) -> tuple[pd.DataFrame, CoverageReport]` | Panel con columnas MultiIndex (campo, ticker). El reporte de cobertura lista tickers excluidos y el motivo. |
+| `indicators.py` | `rsi`, `macd_histogram`, `sma`, `rolling_max`, `bollinger_position` | Funciones puras sobre un DataFrame de cierres. **Ninguna desplaza nada** — el desplazamiento vive entero en `signals.py`. |
 | `signals.py` | `SIGNALS: dict[str, Callable]` | 8 entradas. Cada señal: `(panel) -> pd.DataFrame` indexado por fecha, columnas tickers, **ya desplazada**. |
 | `costs.py` | `apply_costs(returns, turnover, bps) -> pd.Series` | Retornos netos. |
 | `evaluation.py` | `evaluate(signal, forward_returns, horizon) -> GateAResult` | IC medio, t-stat Newey-West, p-value, spread por quintil, resultados por sub-periodo, rotación. |
@@ -262,6 +264,8 @@ Desarrollo guiado por tests, siguiendo el estilo del repositorio: tests que desc
 |---|---|
 | `tests/test_research_universe.py` | El snapshot se lee del CSV commiteado; formato y recuento; no hay llamadas de red |
 | `tests/test_research_loader.py` | Acierto y fallo de caché; troceado en lotes; exclusión por historia corta; el reporte de cobertura cuadra con los tickers realmente devueltos; los fallos de red se distinguen de las exclusiones |
+| `tests/test_research_indicators.py` | Valores conocidos por construcción (RSI de una serie estrictamente creciente = 100, de una plana = 50); contraste opcional contra `pandas-ta-classic` |
+| `tests/test_research_run.py` | La grilla ejecutada son los 28 tests pre-registrados; los horizontes y el periodo coinciden con el criterio |
 | `tests/test_research_signals.py` | Valores conocidos sobre series sintéticas (RSI de una rampa monótona, momentum de una recta, Bollinger de una serie constante); **test de truncamiento sobre las 8 señales del registro**; el oráculo se excluye y tiene su propio test que verifica que sí espía |
 | `tests/test_research_costs.py` | Aplicar coste reduce el retorno en la cantidad esperada dada la rotación; coste cero es identidad |
 | `tests/test_research_evaluation.py` | Señal oráculo → IC ≈ 1; señal aleatoria → IC ≈ 0; Newey-West amplía el error estándar cuando hay solape; BH correcto sobre p-values conocidos; los sub-periodos particionan sin solape ni huecos |
@@ -276,11 +280,12 @@ Test opcional adicional, siguiendo el patrón ya establecido en `requirements.tx
 
 | Paquete | Uso | Obligatoria |
 |---|---|---|
-| `alphalens-reloaded` | IC, retornos por quintil, decaimiento de factor | Sí |
 | `pyarrow` | Caché parquet del panel OHLCV | Sí |
 | `pandas-ta-classic` | Referencia cruzada de los indicadores en tests | Sólo tests |
 
 `numpy`, `pandas`, `scipy` y `yfinance` ya están en el proyecto.
+
+**`alphalens-reloaded` se descarta**, pese a haber sido el hallazgo que motivó este enfoque. Al detallar la implementación quedó claro que no aporta: el criterio necesita t-stats con Newey-West, partición en sub-periodos y Benjamini-Hochberg, y nada de eso existe en la librería, así que la matemática hay que escribirla igual. Como referencia cruzada del IC, `scipy.stats.spearmanr` — ya dependencia del proyecto — hace el mismo trabajo sin reformatear los datos a su esquema. Los tear sheets se sustituyen por las tablas del veredicto, que es lo que se lee para decidir. Añadir una dependencia que nunca se importa sería peor que no añadirla.
 
 **Los 5 indicadores de F3 se implementan nativamente** (≈60 líneas de pandas) en lugar de depender de una librería de indicadores en el camino crítico. Da control total sobre la disciplina de desplazamiento y sigue el patrón que el repositorio ya usa con Ledoit-Wolf.
 
