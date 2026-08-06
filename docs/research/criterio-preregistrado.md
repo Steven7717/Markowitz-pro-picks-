@@ -98,3 +98,39 @@ Sin solapamiento. Una señal que sólo funciona en un régimen no pasa.
 **Caso base: 10 puntos básicos por operación ida y vuelta.** Análisis de sensibilidad a **5 bps** y **25 bps**.
 
 F3 tiene rotación alta por diseño, así que los costes son la variable con más capacidad de decidir su veredicto. El reporte debe presentar retorno bruto y neto por separado, junto con la rotación medida de cada señal.
+
+---
+
+## Enmiendas
+
+Esta sección se añade **por debajo** del criterio original, que no se modifica. El texto de arriba es el que se congeló en el commit `cd4db7e` (2026-08-05) y sigue siendo palabra por palabra el mismo. Cualquiera puede verificarlo con:
+
+```bash
+git show cd4db7e:docs/research/criterio-preregistrado.md
+```
+
+Cada enmienda registra qué decía el texto original, qué hace el código, por qué difieren, y en qué dirección afecta a la conclusión. Se anotan aquí en vez de editar el criterio precisamente porque el valor de un pre-registro está en poder auditar lo que cambió y cuándo.
+
+### E1 — Unidades de la longitud de bloque del bootstrap (2026-08-06)
+
+**Texto original (§3.5):** «bootstrap por bloques (longitud de bloque 63 días, 1.000 remuestreos)».
+
+**Implementación:** `research/timing.py` usa `BOOTSTRAP_BLOCK = 8`.
+
+**Por qué:** el bootstrap no opera sobre días de calendario, sino sobre el vector de ~500 observaciones emparejadas ordenadas por fecha de decisión. Un bloque se mide en observaciones consecutivas, no en días. Las 500 fechas se muestrean de ~4.100 días hábiles, así que están separadas ~8,2 días en promedio; los 63 días de solapamiento que el texto quiere preservar equivalen a 63 / 8,2 ≈ 8 observaciones. El código implementa la intención del texto en las unidades correctas; el texto original fue ambiguo sobre las unidades, no sobre la sustancia.
+
+**Dirección del efecto:** un bloque de 63 observaciones sobre una muestra de 500 degeneraría el bootstrap (los bloques cubrirían el 12,6% de la muestra cada uno) y *reduciría* artificialmente el error estándar, haciendo la Puerta B más fácil de pasar. La corrección es la conservadora.
+
+### E2 — Qué significa «el día del disparo» (2026-08-06)
+
+**Texto original (§3.5):** «Entrar en la apertura del día siguiente al disparo».
+
+**Implementación:** `research/timing.py` entra en la apertura del **mismo día** en que el disparo está marcado.
+
+**Por qué:** el texto original no dijo si «el disparo» se refiere a la fila ya desplazada o a la fecha del indicador crudo, y las dos lecturas imponen retrasos distintos. Todos los disparos pasan por `_as_of` en `research/signals.py`, que los desplaza un período: el disparo fechado *d* se calcula únicamente con datos hasta el cierre de *d−1*. Entrar en la apertura de *d* ya es un día completo después de la información. Entrar en *d+1* aplicaría el retraso dos veces, y sólo al brazo de la señal — el brazo inmediato nunca lo sufre. Eso no mide timing, mide un handicap que la propia medición inventa.
+
+**Dirección del efecto:** quitar el retraso duplicado hace la Puerta B **más fácil** de pasar. Se registra explícitamente porque es la dirección incómoda: si el estudio acaba concluyendo que el análisis técnico no aporta ventaja, esa conclusión se habrá alcanzado con el listón más bajo, no más alto.
+
+### Estado de los resultados en el momento de estas enmiendas
+
+**Ninguno.** El estudio no se había ejecutado cuando se escribieron E1 y E2. No existía ningún IC, ningún spread, ningún Sharpe ni ningún veredicto — ni siquiera parcial. Ambas enmiendas salieron de revisiones de código sobre datos sintéticos, no de mirar resultados y ajustar el criterio para que salieran mejor. El historial de git lo respalda: el primer documento de veredicto es posterior a este commit.

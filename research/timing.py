@@ -9,8 +9,13 @@ BASKET_SIZE = 20
 WAIT_DAYS = 10
 HOLD_DAYS = 63
 N_RESAMPLES = 1000
-BOOTSTRAP_BLOCK = 8
 SEED = 20260805
+
+# Block length in *observations*, not calendar days. The criterion asks to
+# preserve 63 days of overlap; N_DATES decision dates sampled from ~4,100
+# trading days sit ~8.2 days apart, so 63 days is 63 / 8.2 ~= 8 observations.
+# See enmienda E1 in docs/research/criterio-preregistrado.md.
+BOOTSTRAP_BLOCK = 8
 
 
 @dataclass(frozen=True)
@@ -106,7 +111,6 @@ def compare_entry_timing(
     n_forced = 0
 
     for offset in sorted(candidates):
-        decision = dates[offset]
         window = opens.iloc[offset + 1 : offset + 1 + wait_days + hold_days + 1]
         eligible = window.columns[window.notna().all()]
         if len(eligible) < basket_size:
