@@ -1898,7 +1898,9 @@ git commit -m "feat: Puerta A con IC, t-stat Newey-West, quintiles y Benjamini-H
 
 **El detalle que no se puede omitir:** si la señal no dispara dentro de la ventana de espera, se entra igualmente el último día de la ventana. Comparar sólo las entradas que llegaron a disparar seleccionaría a posteriori los casos favorables e inventaría una ventaja que no existe.
 
-**Sobre el error estándar:** las 500 fechas se muestrean de ~4.100 días con tenencias de 63 días, así que las canastas se solapan. La fórmula de Lo (2002) de `validation.sharpe_standard_error` supone independencia y subestimaría el error. Se usa bootstrap por bloques, con la fórmula i.i.d. sólo como contraste de cordura.
+**Sobre el error estándar:** las 500 fechas se muestrean de ~4.100 días con tenencias de 63 días, así que las canastas se solapan y las observaciones no son independientes. Se usa bootstrap por bloques.
+
+`validation.sharpe_standard_error` **no** sirve aquí, ni siquiera como contraste: implementa Lo (2002) para el Sharpe de un solo brazo bajo independencia, mientras que la Puerta B necesita la incertidumbre de la *diferencia emparejada* entre dos brazos medidos en las mismas fechas, donde el movimiento de mercado compartido se cancela. Son estadísticos distintos, no versiones más o menos estrictas del mismo — compararlos produciría una discrepancia de 10-15× que no significa nada.
 
 - [ ] **Step 1: Escribir los tests que fallan**
 
@@ -1967,7 +1969,17 @@ def test_the_same_seed_reproduces_the_same_numbers(panel):
 def test_different_seeds_give_different_samples(panel):
     first = compare_entry_timing("always", _always, panel, n_dates=40, seed=7)
     second = compare_entry_timing("always", _always, panel, n_dates=40, seed=99)
-    assert first.delta != second.delta
+    assert first.sharpe_immediate != second.sharpe_immediate
+
+
+def test_a_trigger_that_fires_at_once_is_indistinguishable_from_entering_immediately(panel):
+    """Waiting for a signal that says 'now' is the same action as not waiting.
+
+    Any non-zero delta here would be a lag the measurement invented rather than
+    a property of the signal.
+    """
+    result = compare_entry_timing("always", _always, panel, n_dates=40, seed=7)
+    assert result.delta == pytest.approx(0.0)
 
 
 def test_delta_is_the_gap_between_the_two_arms(panel):
@@ -2068,6 +2080,12 @@ def block_bootstrap_stderr(
     Resampling individual observations would assume independence the data does
     not have: baskets sampled days apart share most of their holding period.
     Resampling contiguous blocks preserves that dependence.
+
+    Deliberately not validation.sharpe_standard_error: that implements Lo (2002)
+    for an unpaired Sharpe level under an independence assumption this data does
+    not satisfy. What Gate B needs is the uncertainty of the paired difference
+    between two arms measured on the same dates, where the shared market move
+    cancels — a different statistic, not a stricter version of the same one.
     """
     x = np.asarray(values, dtype=float)
     n = x.size
@@ -2148,7 +2166,12 @@ def compare_entry_timing(
             fired = triggers.iloc[offset + 1 : offset + 1 + wait_days][ticker]
             hit = fired[fired].index
             if len(hit):
-                entry_offset = dates.get_loc(hit[0]) + 1
+                # A trigger dated d was computed from data through d-1, so it can
+                # be acted on at d's open. Entering at d+1 instead would apply a
+                # one-day handicap to the signal arm and to nothing else, which
+                # is a lag the measurement invented rather than a property of
+                # the signal. The forced branch below lands on the same footing.
+                entry_offset = dates.get_loc(hit[0])
             else:
                 entry_offset = offset + wait_days
                 n_forced += 1
@@ -2188,28 +2211,9 @@ def compare_entry_timing(
 - [ ] **Step 4: Correr los tests para verificar que pasan**
 
 Run: `pytest tests/test_research_timing.py -v`
-Expected: 13 passed
-
-- [ ] **Step 5: Contraste de cordura contra la fórmula i.i.d.**
-
-Añade a `tests/test_research_timing.py`:
-
-```python
-def test_the_block_bootstrap_is_never_more_optimistic_than_the_iid_formula(panel):
-    """If overlapping data looked more precise than independent data, we have a bug."""
-    from validation import sharpe_standard_error
-
-    result = compare_entry_timing("always", _always, panel, n_dates=80, seed=13)
-    iid = sharpe_standard_error(
-        sharpe=result.sharpe_immediate, n_periods=80, periods_per_year=252 / result.hold_days
-    )
-    assert result.stderr <= iid * 3.0
-```
-
-Run: `pytest tests/test_research_timing.py -v`
 Expected: 14 passed
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
 git add research/timing.py tests/test_research_timing.py
