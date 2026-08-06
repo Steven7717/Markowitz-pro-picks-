@@ -45,5 +45,15 @@ def test_the_first_period_counts_as_building_the_position():
     assert turnover_from_weights(weights).iloc[0] == pytest.approx(1.0)
 
 
+def test_a_mid_series_all_nan_row_does_not_get_treated_as_a_fresh_build():
+    """Only the genuine first row is a cold start. A predecessor that happens to
+    be all-NaN mid-series must not make the following row look like one too, or
+    it gets charged the un-halved full book instead of a normal half-turn
+    against an assumed-empty prior position.
+    """
+    weights = pd.DataFrame([[0.5, 0.5], [np.nan, np.nan], [1.0, 0.0]], columns=["A", "B"])
+    assert turnover_from_weights(weights).iloc[2] == pytest.approx(0.5)
+
+
 def test_the_three_pre_registered_cost_scenarios_are_available():
     assert COST_SCENARIOS == {"optimista": 5.0, "base": 10.0, "conservador": 25.0}

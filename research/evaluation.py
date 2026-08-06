@@ -148,7 +148,7 @@ def quintile_spread(
     aligned_signal, aligned_forward = signal.align(forward, join="inner")
     dates = aligned_signal.index[::horizon]
 
-    top_weights: list[pd.Series] = []
+    book_weights: list[pd.Series] = []
     period_returns: list[float] = []
     for date in dates:
         row_s = aligned_signal.loc[date]
@@ -162,14 +162,18 @@ def quintile_spread(
         if top.empty or bottom.empty:
             continue
         period_returns.append(float(top.mean() - bottom.mean()))
-        membership = pd.Series(0.0, index=aligned_signal.columns)
-        membership[top.index] = 1.0 / len(top)
-        top_weights.append(membership)
+        # Both legs are actively managed, so both are charged. Costing only the
+        # long side understates turnover by roughly half, and costs are the
+        # variable most likely to decide the verdict for high-rotation signals.
+        book = pd.Series(0.0, index=aligned_signal.columns)
+        book[top.index] = 1.0 / len(top)
+        book[bottom.index] = -1.0 / len(bottom)
+        book_weights.append(book)
 
     if not period_returns:
         return 0.0, 0.0, 0.0
 
-    weights = pd.DataFrame(top_weights).reset_index(drop=True)
+    weights = pd.DataFrame(book_weights).reset_index(drop=True)
     turnover = turnover_from_weights(weights)
 
     gross = pd.Series(period_returns)
@@ -187,21 +191,27 @@ def evaluate(
     signal: pd.DataFrame,
     close: pd.DataFrame,
     horizon: int,
-    bps: float,
 ) -> GateAResult:
-    """Everything Gate A needs about one signal at one horizon."""
+    """Everything Gate A needs about one signal at one horizon.
+
+    Costs come solely from COST_SCENARIOS rather than a caller-supplied `bps`,
+    so spread_net and spread_net_by_scenario["base"] cannot drift apart: there
+    is exactly one place the base cost is defined, not two that happen to
+    agree because every call site currently passes the same number.
+    """
     forward = forward_returns(close, horizon)
     ic = information_coefficient(signal, forward).dropna()
 
     t_stat = newey_west_tstat(ic, lag=max(horizon - 1, 0))
     p_value = float(2.0 * (1.0 - stats.norm.cdf(abs(t_stat))))
 
-    spread_gross, spread_net, turnover = quintile_spread(signal, forward, horizon, bps=bps)
-
     by_scenario = {
         label: quintile_spread(signal, forward, horizon, bps=scenario_bps)[1]
         for label, scenario_bps in COST_SCENARIOS.items()
     }
+    spread_gross, spread_net, turnover = quintile_spread(
+        signal, forward, horizon, bps=COST_SCENARIOS["base"]
+    )
 
     subperiod_pass: dict[str, bool] = {}
     for label, (start, end) in SUBPERIODS.items():
@@ -212,7 +222,9 @@ def evaluate(
             continue
         window_forward = forward_returns(window_close, horizon)
         window_ic = information_coefficient(window_signal, window_forward).dropna()
-        _, window_net, _ = quintile_spread(window_signal, window_forward, horizon, bps=bps)
+        _, window_net, _ = quintile_spread(
+            window_signal, window_forward, horizon, bps=COST_SCENARIOS["base"]
+        )
         subperiod_pass[label] = bool(
             len(window_ic) > 0 and window_ic.mean() >= MIN_IC and window_net > 0.0
         )

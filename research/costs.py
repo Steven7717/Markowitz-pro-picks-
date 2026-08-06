@@ -15,7 +15,8 @@ def turnover_from_weights(weights: pd.DataFrame) -> pd.Series:
     period counts as a full trade, because the position has to be built.
     """
     previous = weights.shift(1)
-    first_period = previous.isna().all(axis=1)
+    first_period = pd.Series(False, index=weights.index)
+    first_period.iloc[0] = True
     traded = (weights - previous.fillna(0.0)).abs().sum(axis=1) / 2.0
     return traded.where(~first_period, weights.abs().sum(axis=1))
 

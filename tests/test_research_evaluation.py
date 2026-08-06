@@ -132,15 +132,50 @@ def test_a_sign_flipped_oracle_produces_a_negative_quintile_spread(close):
 
 
 def test_quintile_spread_also_reports_turnover(close):
+    """Both legs of the Q5-Q1 book are costed, so a full rotation of both legs
+    caps turnover at 2.0, not 1.0 (see turnover_from_weights)."""
     forward = forward_returns(close, horizon=21)
     _, _, turnover = quintile_spread(forward, forward, horizon=21)
-    assert 0.0 <= turnover <= 1.0
+    assert 0.0 <= turnover <= 2.0
 
 
 def test_costs_never_improve_the_quintile_spread(close):
     forward = forward_returns(close, horizon=21)
     gross, net, _ = quintile_spread(forward, forward, horizon=21, bps=25.0)
     assert net <= gross
+
+
+def test_quintile_spread_charges_turnover_on_both_legs_of_the_book():
+    """The spread is Q5 - Q1: both legs are actively managed and both pay to trade.
+
+    The long leg (T8, T9) never changes here; the short leg alternates completely
+    between {T0, T1} and {T2, T3} every rebalance. A turnover measure that only
+    looks at the long leg would see a constant book and report almost no
+    trading, hiding exactly the rotation that costs money.
+    """
+    tickers = [f"T{i}" for i in range(10)]
+    dates = pd.bdate_range("2020-01-01", periods=4)
+
+    signal = pd.DataFrame(index=dates, columns=tickers, dtype=float)
+    for i, date in enumerate(dates):
+        values = {t: 5.0 + j for j, t in enumerate(tickers)}
+        if i % 2 == 0:
+            values["T0"], values["T1"] = -10.0, -9.0
+            values["T2"], values["T3"] = 1.0, 2.0
+        else:
+            values["T2"], values["T3"] = -10.0, -9.0
+            values["T0"], values["T1"] = 1.0, 2.0
+        values["T8"], values["T9"] = 100.0, 101.0
+        signal.loc[date] = values
+
+    forward = pd.DataFrame(0.01, index=dates, columns=tickers)
+
+    _, _, turnover = quintile_spread(signal, forward, horizon=1)
+    # Long-only bookkeeping (weighting only the winners) reports ~0.25: the
+    # fixed long leg contributes nothing after the first period. Costing both
+    # legs reports ~1.25, reflecting the short leg's complete rotation every
+    # period plus the first period's full build.
+    assert turnover == pytest.approx(1.25)
 
 
 # ── Línea base pasiva ─────────────────────────────────────────────────────────
@@ -180,7 +215,7 @@ def test_the_subperiods_cover_the_whole_study_window():
 
 def test_evaluate_reports_every_field_the_criterion_needs(close):
     forward = forward_returns(close, horizon=21)
-    result = evaluate("oracle", forward, close, horizon=21, bps=10.0)
+    result = evaluate("oracle", forward, close, horizon=21)
     assert isinstance(result, GateAResult)
     assert result.signal == "oracle"
     assert result.horizon == 21
@@ -190,30 +225,30 @@ def test_evaluate_reports_every_field_the_criterion_needs(close):
 
 def test_evaluate_gives_the_oracle_a_huge_ic(close):
     forward = forward_returns(close, horizon=21)
-    assert evaluate("oracle", forward, close, horizon=21, bps=10.0).mean_ic > 0.9
+    assert evaluate("oracle", forward, close, horizon=21).mean_ic > 0.9
 
 
 def test_evaluate_gives_random_noise_an_ic_near_zero(close):
     rng = np.random.default_rng(47)
     noise = pd.DataFrame(rng.uniform(size=close.shape), index=close.index, columns=close.columns)
-    assert abs(evaluate("noise", noise, close, horizon=21, bps=10.0).mean_ic) < 0.02
+    assert abs(evaluate("noise", noise, close, horizon=21).mean_ic) < 0.02
 
 
 def test_evaluate_reports_the_three_pre_registered_cost_scenarios(close):
     forward = forward_returns(close, horizon=21)
-    result = evaluate("oracle", forward, close, horizon=21, bps=10.0)
+    result = evaluate("oracle", forward, close, horizon=21)
     assert set(result.spread_net_by_scenario) == {"optimista", "base", "conservador"}
 
 
 def test_higher_costs_never_produce_a_better_net_spread(close):
     forward = forward_returns(close, horizon=21)
-    scenarios = evaluate("oracle", forward, close, horizon=21, bps=10.0).spread_net_by_scenario
+    scenarios = evaluate("oracle", forward, close, horizon=21).spread_net_by_scenario
     assert scenarios["conservador"] <= scenarios["base"] <= scenarios["optimista"]
 
 
 def test_the_base_scenario_is_the_one_the_criterion_uses(close):
     forward = forward_returns(close, horizon=21)
-    result = evaluate("oracle", forward, close, horizon=21, bps=10.0)
+    result = evaluate("oracle", forward, close, horizon=21)
     assert result.spread_net == pytest.approx(result.spread_net_by_scenario["base"])
 
 
