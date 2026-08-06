@@ -1327,7 +1327,10 @@ def turnover_from_weights(weights: pd.DataFrame) -> pd.Series:
     period counts as a full trade, because the position has to be built.
     """
     previous = weights.shift(1)
-    first_period = previous.isna().all(axis=1)
+    # Scoped to the actual first row, not "any row whose predecessor is all-NaN":
+    # the latter charges a cold-start build after any gap mid-series.
+    first_period = pd.Series(False, index=weights.index)
+    first_period.iloc[0] = True
     traded = (weights - previous.fillna(0.0)).abs().sum(axis=1) / 2.0
     return traded.where(~first_period, weights.abs().sum(axis=1))
 
@@ -1456,10 +1459,15 @@ def test_newey_west_shrinks_the_t_stat_of_an_autocorrelated_series():
     assert abs(newey_west_tstat(smoothed, lag=19)) < abs(newey_west_tstat(smoothed, lag=0))
 
 
-def test_a_series_with_no_variation_has_no_measurable_t_stat():
-    assert np.isinf(newey_west_tstat(pd.Series([0.05] * 100), lag=0)) or newey_west_tstat(
-        pd.Series([0.05] * 100), lag=0
-    ) == 0.0
+def test_a_series_with_no_variation_reports_no_evidence_rather_than_certainty():
+    """Infinity would read as unlimited confidence and clear every gate downstream.
+
+    Subtracting a float64 mean from identical values leaves residuals around
+    1e-17, so a variance-based guard silently fails to fire and the function
+    returns ~3.6e16 — which passes the t >= 2 threshold and Benjamini-Hochberg
+    on a completely degenerate input.
+    """
+    assert newey_west_tstat(pd.Series([0.05] * 100), lag=0) == 0.0
 
 
 # ── Benjamini-Hochberg ────────────────────────────────────────────────────────
@@ -1499,9 +1507,11 @@ def test_a_sign_flipped_oracle_produces_a_negative_quintile_spread(close):
 
 
 def test_quintile_spread_also_reports_turnover(close):
+    """Upper bound is 2.0, not 1.0: building a fully invested long-short book
+    trades one unit of notional per leg."""
     forward = forward_returns(close, horizon=21)
     _, _, turnover = quintile_spread(forward, forward, horizon=21)
-    assert 0.0 <= turnover <= 1.0
+    assert 0.0 <= turnover <= 2.0
 
 
 def test_costs_never_improve_the_quintile_spread(close):
@@ -1547,7 +1557,7 @@ def test_the_subperiods_cover_the_whole_study_window():
 
 def test_evaluate_reports_every_field_the_criterion_needs(close):
     forward = forward_returns(close, horizon=21)
-    result = evaluate("oracle", forward, close, horizon=21, bps=10.0)
+    result = evaluate("oracle", forward, close, horizon=21)
     assert isinstance(result, GateAResult)
     assert result.signal == "oracle"
     assert result.horizon == 21
@@ -1557,30 +1567,30 @@ def test_evaluate_reports_every_field_the_criterion_needs(close):
 
 def test_evaluate_gives_the_oracle_a_huge_ic(close):
     forward = forward_returns(close, horizon=21)
-    assert evaluate("oracle", forward, close, horizon=21, bps=10.0).mean_ic > 0.9
+    assert evaluate("oracle", forward, close, horizon=21).mean_ic > 0.9
 
 
 def test_evaluate_gives_random_noise_an_ic_near_zero(close):
     rng = np.random.default_rng(47)
     noise = pd.DataFrame(rng.uniform(size=close.shape), index=close.index, columns=close.columns)
-    assert abs(evaluate("noise", noise, close, horizon=21, bps=10.0).mean_ic) < 0.02
+    assert abs(evaluate("noise", noise, close, horizon=21).mean_ic) < 0.02
 
 
 def test_evaluate_reports_the_three_pre_registered_cost_scenarios(close):
     forward = forward_returns(close, horizon=21)
-    result = evaluate("oracle", forward, close, horizon=21, bps=10.0)
+    result = evaluate("oracle", forward, close, horizon=21)
     assert set(result.spread_net_by_scenario) == {"optimista", "base", "conservador"}
 
 
 def test_higher_costs_never_produce_a_better_net_spread(close):
     forward = forward_returns(close, horizon=21)
-    scenarios = evaluate("oracle", forward, close, horizon=21, bps=10.0).spread_net_by_scenario
+    scenarios = evaluate("oracle", forward, close, horizon=21).spread_net_by_scenario
     assert scenarios["conservador"] <= scenarios["base"] <= scenarios["optimista"]
 
 
 def test_the_base_scenario_is_the_one_the_criterion_uses(close):
     forward = forward_returns(close, horizon=21)
-    result = evaluate("oracle", forward, close, horizon=21, bps=10.0)
+    result = evaluate("oracle", forward, close, horizon=21)
     assert result.spread_net == pytest.approx(result.spread_net_by_scenario["base"])
 
 
@@ -1713,10 +1723,17 @@ def newey_west_tstat(series: pd.Series, lag: int) -> float:
     With a horizon of h days, consecutive IC observations share h-1 days of
     return, so the naive standard error understates the true uncertainty and
     manufactures significance. Bartlett weights, lag = h-1.
+
+    A series with no variation returns 0 rather than infinity. Infinity would
+    read as unlimited confidence and clear every gate downstream; 0 reads as no
+    evidence, which is the honest answer for a degenerate input. The check uses
+    the raw range rather than the computed variance because subtracting a
+    float64 mean from identical values leaves residuals around 1e-17, so a
+    variance-based guard silently fails to fire.
     """
     x = series.dropna().to_numpy(dtype=float)
     n = x.size
-    if n < 2:
+    if n < 2 or float(np.ptp(x)) == 0.0:
         return 0.0
     mu = float(x.mean())
     e = x - mu
@@ -1762,7 +1779,7 @@ def quintile_spread(
     aligned_signal, aligned_forward = signal.align(forward, join="inner")
     dates = aligned_signal.index[::horizon]
 
-    top_weights: list[pd.Series] = []
+    book_weights: list[pd.Series] = []
     period_returns: list[float] = []
     for date in dates:
         row_s = aligned_signal.loc[date]
@@ -1776,14 +1793,18 @@ def quintile_spread(
         if top.empty or bottom.empty:
             continue
         period_returns.append(float(top.mean() - bottom.mean()))
-        membership = pd.Series(0.0, index=aligned_signal.columns)
-        membership[top.index] = 1.0 / len(top)
-        top_weights.append(membership)
+        # Both legs are actively managed, so both are charged. Costing only the
+        # long side understates turnover by roughly half, and costs are the
+        # variable most likely to decide the verdict for high-rotation signals.
+        book = pd.Series(0.0, index=aligned_signal.columns)
+        book[top.index] = 1.0 / len(top)
+        book[bottom.index] = -1.0 / len(bottom)
+        book_weights.append(book)
 
     if not period_returns:
         return 0.0, 0.0, 0.0
 
-    weights = pd.DataFrame(top_weights).reset_index(drop=True)
+    weights = pd.DataFrame(book_weights).reset_index(drop=True)
     turnover = turnover_from_weights(weights)
 
     gross = pd.Series(period_returns)
@@ -1801,21 +1822,28 @@ def evaluate(
     signal: pd.DataFrame,
     close: pd.DataFrame,
     horizon: int,
-    bps: float,
 ) -> GateAResult:
-    """Everything Gate A needs about one signal at one horizon."""
+    """Everything Gate A needs about one signal at one horizon.
+
+    Costs come from COST_SCENARIOS rather than a parameter. A caller-supplied
+    base rate could silently drift from the scenario table, leaving spread_net
+    meaning something other than spread_net_by_scenario["base"] despite the
+    names promising otherwise.
+    """
     forward = forward_returns(close, horizon)
     ic = information_coefficient(signal, forward).dropna()
 
     t_stat = newey_west_tstat(ic, lag=max(horizon - 1, 0))
     p_value = float(2.0 * (1.0 - stats.norm.cdf(abs(t_stat))))
 
-    spread_gross, spread_net, turnover = quintile_spread(signal, forward, horizon, bps=bps)
-
-    by_scenario = {
-        label: quintile_spread(signal, forward, horizon, bps=scenario_bps)[1]
-        for label, scenario_bps in COST_SCENARIOS.items()
-    }
+    by_scenario: dict[str, float] = {}
+    spread_gross = 0.0
+    turnover = 0.0
+    for label, scenario_bps in COST_SCENARIOS.items():
+        gross, net, turn = quintile_spread(signal, forward, horizon, bps=scenario_bps)
+        by_scenario[label] = net
+        spread_gross, turnover = gross, turn
+    spread_net = by_scenario["base"]
 
     subperiod_pass: dict[str, bool] = {}
     for label, (start, end) in SUBPERIODS.items():
@@ -1826,7 +1854,9 @@ def evaluate(
             continue
         window_forward = forward_returns(window_close, horizon)
         window_ic = information_coefficient(window_signal, window_forward).dropna()
-        _, window_net, _ = quintile_spread(window_signal, window_forward, horizon, bps=bps)
+        _, window_net, _ = quintile_spread(
+            window_signal, window_forward, horizon, bps=COST_SCENARIOS["base"]
+        )
         subperiod_pass[label] = bool(
             len(window_ic) > 0 and window_ic.mean() >= MIN_IC and window_net > 0.0
         )
@@ -2560,7 +2590,6 @@ import sys
 from datetime import date
 from pathlib import Path
 
-from research.costs import COST_SCENARIOS
 from research.evaluation import equal_weight_sharpe, evaluate
 from research.loader import load_ohlcv
 from research.report import build_verdict, to_markdown
@@ -2596,14 +2625,13 @@ def main() -> int:
         return 1
 
     close = panel["Close"]
-    bps = COST_SCENARIOS["base"]
 
     gate_a = []
     for name, build in SIGNALS.items():
         signal = build(panel)
         for horizon in HORIZONS:
             print(f"  Puerta A: {name} @ {horizon}d")
-            gate_a.append(evaluate(name, signal, close, horizon=horizon, bps=bps))
+            gate_a.append(evaluate(name, signal, close, horizon=horizon))
 
     gate_b = {}
     for name, trigger in TRIGGERS.items():
