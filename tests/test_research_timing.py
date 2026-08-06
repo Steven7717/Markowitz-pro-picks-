@@ -60,7 +60,17 @@ def test_the_same_seed_reproduces_the_same_numbers(panel):
 def test_different_seeds_give_different_samples(panel):
     first = compare_entry_timing("always", _always, panel, n_dates=40, seed=7)
     second = compare_entry_timing("always", _always, panel, n_dates=40, seed=99)
-    assert first.delta != second.delta
+    assert first.sharpe_immediate != second.sharpe_immediate
+
+
+def test_a_trigger_that_fires_at_once_is_indistinguishable_from_entering_immediately(panel):
+    """Waiting for a signal that says 'now' is the same action as not waiting.
+
+    Any non-zero delta here would be a lag the measurement invented rather than
+    a property of the signal.
+    """
+    result = compare_entry_timing("always", _always, panel, n_dates=40, seed=7)
+    assert result.delta == pytest.approx(0.0)
 
 
 def test_delta_is_the_gap_between_the_two_arms(panel):
@@ -110,14 +120,3 @@ def test_block_bootstrap_reports_more_uncertainty_than_an_iid_estimate_when_data
     overlapping = pd.Series(rng.normal(0, 1, 2000)).rolling(20).mean().dropna().to_numpy()
     iid_stderr = overlapping.std(ddof=1) / np.sqrt(len(overlapping))
     assert block_bootstrap_stderr(overlapping, block=20, n_resamples=400, seed=1) > iid_stderr
-
-
-def test_the_block_bootstrap_is_never_more_optimistic_than_the_iid_formula(panel):
-    """If overlapping data looked more precise than independent data, we have a bug."""
-    from validation import sharpe_standard_error
-
-    result = compare_entry_timing("always", _always, panel, n_dates=80, seed=13)
-    iid = sharpe_standard_error(
-        sharpe=result.sharpe_immediate, n_periods=80, periods_per_year=252 / result.hold_days
-    )
-    assert result.stderr <= iid * 3.0

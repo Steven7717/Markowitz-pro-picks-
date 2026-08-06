@@ -37,6 +37,12 @@ def block_bootstrap_stderr(
     Resampling individual observations would assume independence the data does
     not have: baskets sampled days apart share most of their holding period.
     Resampling contiguous blocks preserves that dependence.
+
+    Deliberately not validation.sharpe_standard_error: that implements Lo (2002)
+    for an unpaired Sharpe level under an independence assumption this data does
+    not satisfy. What Gate B needs is the uncertainty of the paired difference
+    between two arms measured on the same dates, where the shared market move
+    cancels — a different statistic, not a stricter version of the same one.
     """
     x = np.asarray(values, dtype=float)
     n = x.size
@@ -117,7 +123,7 @@ def compare_entry_timing(
             fired = triggers.iloc[offset + 1 : offset + 1 + wait_days][ticker]
             hit = fired[fired].index
             if len(hit):
-                entry_offset = dates.get_loc(hit[0]) + 1
+                entry_offset = dates.get_loc(hit[0])
             else:
                 entry_offset = offset + wait_days
                 n_forced += 1
