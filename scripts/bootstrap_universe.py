@@ -9,6 +9,7 @@ from pathlib import Path
 import pandas as pd
 
 WIKIPEDIA_URL = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
+# Al refrescar el snapshot, actualiza también _SNAPSHOT en research/universe.py
 OUTPUT = Path(__file__).resolve().parent.parent / "research" / "data" / "sp500_members_2026-08-05.csv"
 
 # Wikipedia rejects requests carrying urllib's default User-Agent (HTTP 403).

@@ -2,6 +2,7 @@ from pathlib import Path
 
 import pandas as pd
 
+# Al refrescar el snapshot, actualiza también OUTPUT en scripts/bootstrap_universe.py
 _SNAPSHOT = Path(__file__).parent / "data" / "sp500_members_2026-08-05.csv"
 
 
