@@ -61,7 +61,12 @@ def _fetch_batch(
 ) -> pd.DataFrame | None:
     path = _cache_path(cache_dir, tickers, start, end)
     if path.exists():
-        return pd.read_parquet(path)
+        try:
+            return pd.read_parquet(path)
+        except Exception:
+            # A run killed mid-write leaves a truncated file. Treat it as a
+            # cache miss rather than letting it poison every future run.
+            path.unlink(missing_ok=True)
 
     for attempt in range(max_retries):
         try:
@@ -72,7 +77,9 @@ def _fetch_batch(
             time.sleep(2.0**attempt)
             continue
         cache_dir.mkdir(parents=True, exist_ok=True)
-        frame.to_parquet(path)
+        tmp_path = path.with_suffix(".tmp")
+        frame.to_parquet(tmp_path)
+        tmp_path.replace(path)  # atomic rename: a reader never sees a partial file
         return frame
     return None
 
