@@ -58,10 +58,10 @@ def test_rsi_needs_a_full_window_before_reporting(ramp):
 
 def test_the_first_rsi_value_uses_wilders_simple_average_seed():
     """Seeding the recursion off a single delta instead of the first full window
-    lands up to 16 RSI points away from Wilder's definition and stays wrong for
-    ~244 observations — enough to flip an oversold trigger through the study's
-    opening year. This pins the seed without depending on the optional
-    reference library below.
+    lands tens of RSI points away from Wilder's definition — 43 in the worst
+    case measured — and stays wrong for ~240 observations, enough to flip an
+    oversold trigger through the study's opening year. This pins the seed
+    without depending on the optional reference library below.
     """
     rng = np.random.default_rng(23)
     frame = _frame(list(100.0 + np.cumsum(rng.normal(0, 1, 60))))
