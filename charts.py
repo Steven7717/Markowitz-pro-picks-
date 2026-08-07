@@ -27,6 +27,7 @@ def plot_efficient_frontier(
     benchmark: dict | None,
     equal_weight: dict,
     tickers: list[str],
+    strategy_label: str = "Óptimo",
 ) -> go.Figure:
     fig = go.Figure()
 
@@ -69,8 +70,8 @@ def plot_efficient_frontier(
         y=[optimal["annual_return"]],
         mode="markers",
         marker=dict(symbol="star", size=20, color=_GREEN, line=dict(color="white", width=1)),
-        name=f"Óptimo (Sharpe: {optimal['sharpe']:.2f})",
-        hovertemplate="Óptimo<br>Vol: %{x:.2%}<br>Ret: %{y:.2%}<extra></extra>",
+        name=f"{strategy_label} (Sharpe: {optimal['sharpe']:.2f})",
+        hovertemplate=f"{strategy_label}<br>Vol: %{{x:.2%}}<br>Ret: %{{y:.2%}}<extra></extra>",
     ))
 
     fig.update_layout(

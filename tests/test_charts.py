@@ -74,3 +74,32 @@ def test_plot_comparison_returns_figure():
     )
     assert isinstance(fig, go.Figure)
     assert len(fig.data) == 2
+
+
+# ── The chart must name the strategy actually plotted ─────────────────────────
+
+def _frontier(**kw):
+    return plot_efficient_frontier(
+        sim_df=_sim_df(),
+        optimal={"annual_return": 0.18, "annual_vol": 0.14, "sharpe": 1.3,
+                 "weights": np.array([0.5, 0.3, 0.2])},
+        benchmark=None,
+        equal_weight={"annual_return": 0.13, "annual_vol": 0.15, "sharpe": 0.87},
+        tickers=["AAPL", "MSFT", "GOOGL"],
+        **kw,
+    )
+
+
+def test_frontier_marker_defaults_to_a_generic_optimum_label():
+    names = [t.name for t in _frontier().data]
+    assert any("Óptimo" in n for n in names)
+
+
+def test_frontier_marker_uses_the_supplied_strategy_label():
+    names = [t.name for t in _frontier(strategy_label="Mínima varianza").data]
+    assert any("Mínima varianza" in n for n in names)
+
+
+def test_frontier_marker_still_shows_the_sharpe_ratio():
+    names = [t.name for t in _frontier(strategy_label="Paridad de riesgo").data]
+    assert any("Sharpe" in n for n in names)
