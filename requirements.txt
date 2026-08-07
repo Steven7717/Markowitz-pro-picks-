@@ -8,3 +8,14 @@ fpdf2>=2.7.9
 openpyxl>=3.1.2
 kaleido>=0.2.1
 pytest>=8.0.0
+# Opcional (solo tests): valida nuestra implementación nativa de Ledoit-Wolf
+# contra la de referencia. El test se omite solo si no está instalado.
+scikit-learn>=1.4.0
+# Estudio de señales técnicas (paquete research/)
+pyarrow>=15.0.0
+# Opcional (solo tests): contrasta nuestros indicadores nativos contra una
+# implementación de referencia. El test se omite solo si no está instalado,
+# igual que ya hace scikit-learn con Ledoit-Wolf.
+pandas-ta-classic>=0.4.0
+# Solo para regenerar el snapshot del universo (scripts/bootstrap_universe.py).
+lxml>=5.0
