@@ -3,6 +3,7 @@
 The study must reproduce exactly across runs, so the universe is never queried
 live. Refreshing it is a deliberate, reviewed change to a committed file.
 """
+import os
 import sys
 from pathlib import Path
 
@@ -15,7 +16,14 @@ OUTPUT = Path(__file__).resolve().parent.parent / "research" / "data" / "sp500_m
 # Wikipedia rejects requests carrying urllib's default User-Agent (HTTP 403).
 # This identifies the client per the Wikimedia User-Agent policy; it does not
 # change what is fetched or from where.
-_HEADERS = {"User-Agent": "markowitz-pro-picks-research/1.0 (esteban.110203@gmail.com)"}
+#
+# The contact is read from the environment rather than hard-coded, so nobody's
+# personal address ends up in a committed file. Wikimedia asks for a real
+# contact on high-volume use; this script fetches a single page, by hand, once.
+# Set BOOTSTRAP_CONTACT before running if you want to identify yourself:
+#     BOOTSTRAP_CONTACT="tu@correo.com" python scripts/bootstrap_universe.py
+_CONTACT = os.environ.get("BOOTSTRAP_CONTACT", "sin contacto declarado")
+_HEADERS = {"User-Agent": f"markowitz-pro-picks-research/1.0 ({_CONTACT})"}
 
 
 def normalise(symbol: str) -> str:
