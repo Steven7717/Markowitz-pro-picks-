@@ -98,3 +98,76 @@ def test_fetch_market_data_uses_fallback_when_irx_missing(mock_dl):
     result = fetch_market_data(("AAPL",), "1 Mes")
     assert result["rf_rate"] == RF_FALLBACK / 252
     assert result.get("rf_available") is False
+
+
+# ── Risk-free rate: audit finding D ───────────────────────────────────────────
+
+import warnings
+
+from data import compute_returns, compute_rf_rate
+
+
+def test_risk_free_rate_averages_over_the_whole_sample_period():
+    """A single spot yield does not describe the decade the returns came from."""
+    irx = pd.Series([1.0, 3.0, 5.0])  # percent quotes averaging 3%
+    rf, available = compute_rf_rate(irx, periods_per_year=12)
+    assert available
+    assert np.isclose(rf, 0.03 / 12)
+
+
+def test_risk_free_rate_ignores_the_last_observation_alone():
+    irx = pd.Series([1.0, 1.0, 9.0])
+    rf, _ = compute_rf_rate(irx, periods_per_year=1)
+    assert not np.isclose(rf, 0.09)
+
+
+def test_risk_free_rate_falls_back_when_the_series_is_empty():
+    rf, available = compute_rf_rate(pd.Series(dtype=float), periods_per_year=12)
+    assert available is False
+    assert np.isclose(rf, RF_FALLBACK / 12)
+
+
+def test_risk_free_rate_falls_back_when_every_value_is_missing():
+    rf, available = compute_rf_rate(pd.Series([np.nan, np.nan]), periods_per_year=12)
+    assert available is False
+
+
+# ── Return construction: gap handling ─────────────────────────────────────────
+
+def test_returns_do_not_invent_flat_periods_across_price_gaps():
+    """Forward-filling missing prices manufactures fake zero-return days."""
+    prices = pd.DataFrame({"A": [100.0, 101.0, np.nan, np.nan, 106.0, 107.0]})
+    r = compute_returns(prices)
+    assert not (r["A"] == 0.0).any()
+
+
+def test_returns_drop_the_span_covering_a_gap_instead_of_mislabelling_it():
+    prices = pd.DataFrame({"A": [100.0, 101.0, np.nan, np.nan, 106.0, 107.0]})
+    r = compute_returns(prices)
+    assert len(r) == 2
+    assert np.isclose(r["A"].iloc[0], 0.01)
+    assert np.isclose(r["A"].iloc[1], 107.0 / 106.0 - 1.0)
+
+
+def test_returns_keep_only_dates_where_every_asset_traded():
+    prices = pd.DataFrame({
+        "A": [100.0, 101.0, 102.0, 103.0],
+        "B": [50.0, np.nan, 52.0, 53.0],
+    })
+    r = compute_returns(prices)
+    assert not r.isna().any().any()
+
+
+def test_return_construction_raises_no_pandas_deprecation_warning():
+    """pandas 3.0 removes the implicit pad; this must not rely on it."""
+    prices = pd.DataFrame({"A": [100.0, 101.0, np.nan, 106.0]})
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", FutureWarning)
+        compute_returns(prices)
+
+
+@patch("data.yf.download")
+def test_fetch_market_data_reports_the_observation_count(mock_dl):
+    mock_dl.return_value = _make_mock_download(["AAPL", "MSFT"], n_rows=100)
+    result = fetch_market_data(("AAPL", "MSFT"), "1 Mes")
+    assert result["n_obs"] == len(result["returns"])
