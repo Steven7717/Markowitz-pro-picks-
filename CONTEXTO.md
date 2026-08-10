@@ -1,24 +1,7 @@
 # Contexto del proyecto — para retomar en una sesión nueva
 
-**Última actualización:** 2026-08-06
-**Rama:** `master` · **Tests:** 290 pasando (`pytest tests/ -q`)
-
----
-
-## ⚠️ Lo primero: hay trabajo sin commitear que se puede perder
-
-`git status` muestra archivos **sin trackear** que contienen mejoras reales al optimizador y que no están en ningún commit:
-
-```
-?? estimators.py          Ledoit-Wolf + James-Stein (shrinkage)
-?? validation.py          walk-forward out-of-sample + error estándar del Sharpe
-?? tests/test_estimators.py
-?? tests/test_strategies.py
-?? tests/test_validation.py
- M app.py, optimizer.py, charts.py, data.py, exporter.py, y sus tests
-```
-
-Un `git clean` o un checkout descuidado los borra. **Antes de cualquier otra cosa, commitéalos.** El estudio del sub-proyecto D depende de `validation.py`, así que el repo no está completo sin ellos.
+**Última actualización:** 2026-08-10
+**Rama:** `master` · **Tests:** 290 pasando (`pytest tests/ -q`) · árbol limpio
 
 ---
 
@@ -32,7 +15,7 @@ El objetivo mayor es construir, **aguas arriba de esa app**, un sistema donde un
 
 | # | Sub-proyecto | Entrega | Estado |
 |---|---|---|---|
-| A | Universo + motor de fundamentales | Ingesta determinista de KPIs trimestrales | **pendiente — siguiente** |
+| A | Universo + motor de fundamentales | Ingesta determinista de KPIs trimestrales | **diseñado y planificado — sin implementar** |
 | B | Agente(s) de análisis y ranking | Top 10–15 con razones trazables | pendiente |
 | C | Handoff + gate de aprobación | UI de revisión → tickers al optimizador | pendiente |
 | D | ¿El análisis técnico aporta ventaja? | Veredicto reproducible | ✅ **terminado** |
@@ -60,8 +43,8 @@ Hallazgo clave del diagnóstico: la Puerta B tiene un sesgo positivo de ~0.04 de
 app.py           UI Streamlit
 data.py          descarga de precios (yfinance, @st.cache_data, sólo Close)
 optimizer.py     Markowitz: max Sharpe / mín varianza / paridad de riesgo
-estimators.py    Ledoit-Wolf + James-Stein          ← SIN COMMITEAR
-validation.py    walk-forward out-of-sample          ← SIN COMMITEAR
+estimators.py    Ledoit-Wolf + James-Stein
+validation.py    walk-forward out-of-sample
 charts.py        Plotly
 exporter.py      PDF (fpdf2) + Excel (openpyxl)
 ```
@@ -90,7 +73,10 @@ Correr el estudio: `python -m research.run` (~5 min; la segunda vez lee de cach�
 - **Enfoque escalonado.** D se corrió primero, con universo actual y sesgo de supervivencia documentado, porque el sesgo infla resultados: un negativo es concluyente sin pagar la corrección cara.
 - **`alphalens-reloaded` descartado.** No trae Newey-West, sub-periodos ni Benjamini-Hochberg — la matemática hay que escribirla igual. `scipy.stats.spearmanr` sirve de referencia cruzada del IC.
 - **TradingAgents / ai-hedge-fund: referencia arquitectónica, no dependencia.** Producen señales buy/sell por ticker en vez de rankings de candidatos, son no deterministas (misma entrada → distinta salida) y no tienen evidencia publicada de rentabilidad.
-- **Herramientas investigadas y validadas para A:** [edgartools](https://github.com/dgunning/edgartools) (XBRL de 10-Q/10-K, gratis, sin API key) y [OpenBB Platform](https://github.com/OpenBB-finance/OpenBB) (AGPLv3 — ojo con la licencia si el proyecto se distribuye).
+- **edgartools es la fuente de A**, no OpenBB. [edgartools](https://github.com/dgunning/edgartools) da XBRL de 10-Q/10-K gratis y sin API key, y trae fecha de presentación. [OpenBB](https://github.com/OpenBB-finance/OpenBB) queda descartado: AGPLv3, y sus proveedores buenos piden API key de pago. yfinance tampoco sirve como fuente — no dice cuándo se publicó cada cifra, así que no permite verificar ausencia de look-ahead; queda como contraste externo en test opcional.
+- **GICS, no SIC, para agrupar sectores.** Medido, no argumentado: sobre las 502 empresas del S&P 500 con SIC resuelto, SIC de 4 dígitos deja **87 solas en su grupo**, donde el z-score sectorial vale 0 por construcción y es indistinguible de "esta empresa es el promedio de su sector". GICS Sector no deja ninguna: 11 grupos, mínimo 21 empresas. Detalle y tabla completa en el diseño de A.
+- **El snapshot de universo de D no se regenera.** `research/data/sp500_members_2026-08-05.csv` es la membresía contra la que reproduce el estudio; regenerarlo la cambiaría. Los sectores van en un fichero nuevo y aparte.
+- **Los múltiplos se cotizan en la fecha de publicación, no al cierre del trimestre.** Un trimestre que cierra el 31 de marzo no es público hasta que se presenta el 10-Q, semanas después. Cotizar al cierre es look-ahead.
 - **B no admite backtest honesto.** Los LLM ya conocen lo que pasó con estas acciones en su entrenamiento; ver [Look-Ahead-Bench](https://arxiv.org/abs/2601.13770). Cualquier validación histórica de los agentes estará contaminada. Hay que diseñar B sabiéndolo.
 - **Los agentes proponen, nunca ejecutan.** El gate humano de C no es opcional.
 
@@ -124,19 +110,31 @@ Todos estaban en código escrito con cuidado y revisado a ojo. Ninguno era visib
 
 Lección: **ejecutar y medir, no leer y asumir.** Y `hashlib.md5` en vez de `hash()` para claves de caché — Python aleatoriza el hash de strings entre procesos.
 
+La misma disciplina atrapó dos defectos más al **diseñar** A, antes de escribir código:
+
+| Defecto | Cómo se detectó |
+|---|---|
+| SIC recomendado sobre GICS con dos ejemplos falsos y sin medir | Se midieron los tamaños de grupo: 87 empresas quedaban solas |
+| Múltiplos cotizados al cierre del trimestre, cuando los resultados aún no eran públicos | Al revisar el plan contra el spec, buscando huecos |
+
 ---
 
-## Lo siguiente: sub-proyecto A
+## Lo siguiente: implementar el sub-proyecto A
 
-**Universo + motor de fundamentales.** Ingesta determinista de KPIs del último trimestre para un universo configurable, cacheada, sin IA todavía.
+El diseño está cerrado y el plan escrito. **No hay ni una línea de código todavía: el paquete `fundamentals/` no existe.**
 
-Preguntas de diseño abiertas:
-- ¿Qué universos? (S&P 500 ya resuelto; falta lista personalizada desde noticias, y multi-capitalización)
-- ¿Qué KPIs concretos, y de qué fuente? edgartools da XBRL crudo; hay que decidir el conjunto y cómo normalizarlo entre sectores
-- ¿Cómo se cachean los fundamentales y con qué política de refresco? (los trimestrales llegan escalonados)
-- ¿Cuántas acciones debería tener el portafolio final? Quedó pendiente de responder con datos en el diseño de B — interactúa con el hecho de que Markowitz concentra pesos, así que 15 candidatos no son 15 posiciones
+- [`docs/superpowers/specs/2026-08-10-motor-fundamentales-design.md`](docs/superpowers/specs/2026-08-10-motor-fundamentales-design.md) — el diseño, con las decisiones y lo que se descartó.
+- [`docs/superpowers/plans/2026-08-10-motor-fundamentales.md`](docs/superpowers/plans/2026-08-10-motor-fundamentales.md) — 12 tareas en TDD, con el código de cada test y de cada implementación.
+
+**Empezar por la Task 1**, que es un spike de verificación: `edgartools` no está instalado y ninguno de los supuestos sobre su API se ha comprobado ejecutando. El plan asume que `periods=12, annual=False` devuelve 12 columnas, que el índice trae conceptos XBRL crudos y no etiquetas legibles, y que las columnas de periodo son fechas de cierre de trimestre. Si algo de eso falla, la Task 1 dice qué ajustar.
+
+Lo que el motor entregará: 16 KPIs por trimestre, 12 trimestres de profundidad, desde el XBRL de SEC, con z-score dentro del sector GICS y reporte de cobertura que declara cada ausencia en vez de imputarla.
+
+Las cadenas de conceptos XBRL de `concepts.py` son conjeturas informadas sobre qué etiquetas usa cada emisor. La corrida real de la Task 12 mide la cobertura por KPI: **cualquiera por debajo del 50% significa que falta una etiqueta en la cadena**, no que las empresas no la reporten.
 
 Reutilizable de D: `research/loader.py` (patrón de caché + reporte de cobertura), `research/universe.py` (snapshot congelado), y todo el patrón de tests.
+
+Sigue sin responder, y es de B: **¿cuántas acciones debería tener el portafolio final?** Interactúa con que Markowitz concentra pesos, así que 15 candidatos no son 15 posiciones.
 
 ---
 
