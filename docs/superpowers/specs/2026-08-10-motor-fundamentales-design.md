@@ -102,6 +102,13 @@ La caché replica el patrón ya probado de `research/loader.py`:
 - si la lectura del parquet falla, se borra el fichero y se trata como fallo de
   caché, en vez de envenenar todas las corridas siguientes
 
+Un fichero por ticker, no uno por universo: los trimestrales llegan escalonados,
+así que una caché con clave sobre el universo entero se invalidaría completa cada
+vez que una sola empresa presenta.
+
+El refresco es un parámetro explícito, apagado por defecto. Una caché que se
+refrescara sola cambiaría los números entre dos corridas sin que nadie lo pida.
+
 ### `kpis.py`
 
 Funciones puras del panel crudo a los 16 KPIs:
@@ -120,11 +127,22 @@ devolvía `t = 3.6e16`; el defecto era invisible leyendo el código y sólo apar
 al ejecutarlo con una serie constante.
 
 Los cuatro KPIs de valoración necesitan precio y no salen del XBRL. `run.py` los
-obtiene llamando a `research.loader.load_ohlcv` sobre los mismos tickers, y toma
-el cierre de la fecha de presentación de cada trimestre — no el cierre de hoy,
-que mezclaría un precio actual con unos fundamentales de hace tres años. El
+obtiene llamando a `research.loader.load_ohlcv` sobre los mismos tickers. El
 número de acciones sí sale del XBRL. Un ticker sin precio en esa fecha recibe sus
 cuatro KPIs de valoración ausentes, y los otros doce normales.
+
+**El precio se toma en la fecha en que los resultados se hicieron públicos, no al
+cierre del trimestre.** Un trimestre que cierra el 31 de marzo no se conoce hasta
+que el 10-Q se presenta, semanas después; cotizar el múltiplo al 31 de marzo usa
+cifras que el mercado todavía no tenía, que es look-ahead. Tampoco se usa el
+precio de hoy, que emparejaría una cotización actual con fundamentales de hace
+tres años y produciría un múltiplo que nunca existió.
+
+Si edgartools expone la fecha de presentación real, se usa. Si no, se aproxima
+con cierre de trimestre + 45 días, apenas por encima del plazo de 40 días que la
+SEC concede a los grandes emisores. **La aproximación yerra hacia tarde a
+propósito:** un precio posterior a la publicación es sólo información algo
+rancia, mientras que uno anterior es información que nadie tenía.
 
 Un trimestre necesita su homólogo de hace cuatro trimestres para tener KPI de
 crecimiento. Los tres trimestres más antiguos de cada empresa, y cualquiera cuyo
