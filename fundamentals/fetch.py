@@ -122,8 +122,12 @@ def _load_one(
 
         cache_dir.mkdir(parents=True, exist_ok=True)
         tmp = path.with_suffix(".tmp")
-        # SEC mixes types in the raw value column; parquet needs one per column.
-        frame.astype({"value": "string"}, errors="ignore").to_parquet(tmp)
+        # SEC mixes types in the raw value column and parquet needs one per
+        # column. astype's errors="ignore" does not cover a missing key — it
+        # still raises KeyError — so the column is checked before casting.
+        if "value" in frame.columns:
+            frame = frame.astype({"value": "string"})
+        frame.to_parquet(tmp)
         tmp.replace(path)  # atomic rename: a reader never sees a partial file
         return frame, None
 
