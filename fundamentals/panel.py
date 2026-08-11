@@ -55,6 +55,50 @@ def _por_duracion(df: pd.DataFrame, minimo: int, maximo: int) -> pd.DataFrame:
     return dur.drop_duplicates(["concept", "period_start", "period_end"], keep="last")
 
 
+def _descumulados(df: pd.DataFrame) -> pd.DataFrame:
+    """Split cumulative year-to-date figures into the quarters they contain.
+
+    Cash flow and, for many filers, the income statement are not reported one
+    quarter at a time. A 10-Q gives the year to date: three months, then six,
+    then nine, all sharing the fiscal year's start date. Keeping only windows
+    that are already 80-100 days long therefore captures the first quarter of
+    each year and silently drops the other three — which is what held free cash
+    flow coverage at 12% before this existed.
+
+    Consecutive differences within a shared start date recover the missing
+    quarters: six months minus three gives Q2, nine minus six gives Q3.
+    """
+    dur = df[df["period_type"] == "duration"]
+    if dur.empty:
+        return dur.iloc[:0]
+
+    dur = dur.drop_duplicates(["concept", "period_start", "period_end"], keep="last")
+    dur = dur.sort_values(["concept", "period_start", "period_end"], kind="stable")
+
+    salida: list[dict] = []
+    for (concepto, inicio), grupo in dur.groupby(["concept", "period_start"], sort=False):
+        if len(grupo) < 2 or pd.isna(inicio):
+            continue
+        fines = grupo["period_end"].tolist()
+        valores = grupo["numeric_value"].tolist()
+        for anterior, actual, v_anterior, v_actual in zip(fines, fines[1:], valores, valores[1:]):
+            dias = (actual - anterior).days
+            if not _DIAS_TRIMESTRE[0] <= dias <= _DIAS_TRIMESTRE[1]:
+                continue
+            salida.append(
+                {
+                    "concept": concepto,
+                    "numeric_value": v_actual - v_anterior,
+                    "period_type": "duration",
+                    "period_start": anterior + pd.Timedelta(days=1),
+                    "period_end": actual,
+                }
+            )
+
+    return pd.DataFrame(salida, columns=["concept", "numeric_value", "period_type",
+                                         "period_start", "period_end"])
+
+
 def _cuartos_derivados(trimestres: pd.DataFrame, anuales: pd.DataFrame) -> pd.DataFrame:
     """Rebuild the missing Q4 as the year minus the three reported quarters.
 
@@ -112,13 +156,18 @@ def quarterly_panel(
 
     trimestres = _por_duracion(df, *_DIAS_TRIMESTRE)
     anuales = _por_duracion(df, *_DIAS_ANO)
-    piezas = [trimestres.drop(columns="_orden", errors="ignore"), _cuartos_derivados(trimestres, anuales)]
+    # Order matters: a quarter the company reported outright beats one recovered
+    # from a cumulative series, which in turn beats one backed out of the annual
+    # figure. drop_duplicates(keep="first") below enforces exactly that ranking.
+    piezas = [
+        trimestres.drop(columns="_orden", errors="ignore"),
+        _descumulados(df),
+        _cuartos_derivados(trimestres, anuales),
+    ]
     # Concatenating empty frames is deprecated in pandas and changes dtype
     # inference; dropping them keeps the result float64 either way.
     piezas = [p for p in piezas if not p.empty]
     flujos = pd.concat(piezas, ignore_index=True) if piezas else trimestres.iloc[:0]
-    # A reported quarter always wins over a derived one: the derivation exists
-    # only to fill the gap the 10-K leaves.
     flujos = flujos.drop_duplicates(["concept", "period_end"], keep="first")
 
     fechas = pd.DatetimeIndex(sorted(flujos["period_end"].unique()))

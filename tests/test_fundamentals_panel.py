@@ -56,14 +56,22 @@ def test_only_quarter_length_durations_are_kept():
     assert list(panel["Revenues"].dropna()) == [10.0]
 
 
-def test_half_year_and_nine_month_durations_are_excluded():
-    """Las presentaciones acumulan periodos: 6 y 9 meses aparecen junto a los trimestres."""
+def test_cumulative_windows_never_enter_the_panel_at_face_value():
+    """Las presentaciones acumulan: 6 y 9 meses aparecen junto a los trimestres.
+
+    Sus cifras en crudo son varios trimestres sumados. Colarlas tal cual
+    multiplicaria los ingresos del trimestre; lo correcto es la diferencia
+    consecutiva, que este mismo caso produce como 545 y 222.
+    """
     filas = _trimestres()[:1] + [
         _hecho("us-gaap:Revenues", 555.0, "2025-01-01", "2025-06-30", fy=2025, fp="Q2"),
         _hecho("us-gaap:Revenues", 777.0, "2025-01-01", "2025-09-30", fy=2025, fp="Q3"),
     ]
     panel = quarterly_panel(_facts(filas), {"Revenues"})
-    assert list(panel["Revenues"].dropna()) == [10.0]
+    valores = panel["Revenues"].dropna().tolist()
+    assert 555.0 not in valores
+    assert 777.0 not in valores
+    assert valores == [10.0, 545.0, 222.0]
 
 
 def test_a_restated_quarter_keeps_the_most_recent_version():
@@ -106,6 +114,59 @@ def test_a_reported_fourth_quarter_is_not_overwritten_by_the_derived_one():
     ]
     panel = quarterly_panel(_facts(filas), {"Revenues"})
     assert panel.loc[pd.Timestamp("2025-12-31"), "Revenues"] == pytest.approx(40.0)
+
+
+def _acumulados(concept="us-gaap:NetCashProvidedByUsedInOperatingActivities",
+                valores=(10.0, 25.0, 45.0), ano=2025):
+    """Como reportan de verdad el flujo de caja: tres meses, seis, nueve.
+
+    Todos comparten la fecha de inicio del ano fiscal.
+    """
+    fines = [f"{ano}-03-31", f"{ano}-06-30", f"{ano}-09-30"]
+    return [
+        _hecho(concept, v, f"{ano}-01-01", f, fy=ano, fp=f"Q{n + 1}")
+        for n, (v, f) in enumerate(zip(valores, fines))
+    ]
+
+
+def test_cumulative_year_to_date_figures_are_split_into_quarters():
+    """El flujo de caja no viene por trimestre suelto sino acumulado.
+
+    Sin descumular, solo el primer trimestre de cada ano pasa el filtro de
+    duracion: es lo que tenia la cobertura del flujo de caja libre en el 12%.
+    """
+    panel = quarterly_panel(_facts(_acumulados()), {"NetCashProvidedByUsedInOperatingActivities"})
+    serie = panel["NetCashProvidedByUsedInOperatingActivities"]
+    assert serie.loc[pd.Timestamp("2025-03-31")] == pytest.approx(10.0)
+    assert serie.loc[pd.Timestamp("2025-06-30")] == pytest.approx(15.0)  # 25 - 10
+    assert serie.loc[pd.Timestamp("2025-09-30")] == pytest.approx(20.0)  # 45 - 25
+
+
+def test_a_reported_quarter_beats_one_recovered_from_a_cumulative_series():
+    """Si la empresa declara el trimestre, esa cifra manda sobre la resta."""
+    filas = _acumulados() + [
+        _hecho("us-gaap:NetCashProvidedByUsedInOperatingActivities", 99.0,
+               "2025-04-01", "2025-06-30", fy=2025, fp="Q2")
+    ]
+    panel = quarterly_panel(_facts(filas), {"NetCashProvidedByUsedInOperatingActivities"})
+    valor = panel.loc[pd.Timestamp("2025-06-30"), "NetCashProvidedByUsedInOperatingActivities"]
+    assert valor == pytest.approx(99.0)
+
+
+def test_a_gap_in_the_cumulative_series_does_not_produce_a_double_quarter():
+    """De tres meses a nueve hay medio ano: esa resta no es un trimestre."""
+    filas = _acumulados(valores=(10.0, 45.0))[:1] + [
+        _hecho("us-gaap:NetCashProvidedByUsedInOperatingActivities", 45.0,
+               "2025-01-01", "2025-09-30", fy=2025, fp="Q3")
+    ]
+    panel = quarterly_panel(_facts(filas), {"NetCashProvidedByUsedInOperatingActivities"})
+    assert pd.Timestamp("2025-09-30") not in panel.index
+
+
+def test_cumulative_splitting_does_not_touch_series_with_different_start_dates():
+    """Dos trimestres sueltos no son una serie acumulada; restarlos inventaria un dato."""
+    panel = quarterly_panel(_facts(_trimestres()[:2]), {"Revenues"})
+    assert panel["Revenues"].tolist() == [10.0, 20.0]
 
 
 def test_balance_sheet_instants_are_kept_at_their_own_date():
