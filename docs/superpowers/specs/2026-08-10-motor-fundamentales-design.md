@@ -219,3 +219,73 @@ Aplicando los estándares que hicieron creíble el resultado de D:
 - Cuántas posiciones debe tener el portafolio final. Sigue pendiente para B, y
   interactúa con que Markowitz concentra pesos: 15 candidatos no son 15
   posiciones.
+
+---
+
+## Enmienda 1 — 2026-08-11: la API real de edgartools
+
+El texto de arriba queda intacto. Esto anota en qué difiere el código, por qué, y
+en qué dirección afecta a lo que el motor entrega.
+
+Se escribió antes de instalar edgartools. Al ejecutarlo por primera vez —el spike
+que el plan puso como primera tarea justamente para esto— cinco supuestos
+resultaron falsos.
+
+### Qué decía el diseño y qué hace el código
+
+**1. La fuente de los estados financieros.** El diseño asumía
+`income_statement(periods=12, annual=False)`. Ese método devuelve 18 columnas, de
+las cuales 6 son metadatos, y etiqueta los periodos por **trimestre fiscal**
+(`'Q3 2026'`) en vez de por fecha. El código usa `facts.to_dataframe()`, que
+entrega la tabla larga de hechos con `period_start` y `period_end` reales.
+
+**2. La alineación entre empresas.** Consecuencia de lo anterior, y el defecto más
+serio que se evitó. El año fiscal de Apple termina en septiembre y el de
+JPMorgan en diciembre: su `Q3 2026` no es el mismo periodo natural. Agrupar por
+esa etiqueta para el z-score habría comparado trimestres distintos y producido
+números plausibles y falsos. El código agrupa por **trimestre natural** derivado
+de `period_end`.
+
+**3. Un módulo nuevo, `panel.py`.** El diseño no previó el trabajo de convertir la
+tabla larga en panel trimestral. Son cuatro operaciones que no estaban:
+
+- filtrar por duración, porque cada presentación repite el mismo renglón para el
+  trimestre, el semestre, los nueve meses y el año — confundirlos multiplicaría
+  cualquier magnitud de flujo;
+- deduplicar reexpresiones, quedándose con la versión más reciente. Apple tiene
+  72 filas de ingresos trimestrales, 25 de ellas repitiendo concepto y fecha;
+- **derivar el cuarto trimestre**, que nadie presenta porque va dentro del 10-K
+  como cifra anual. Sin esto, uno de cada cuatro trimestres quedaría vacío en
+  todos los KPIs de flujo. Se calcula restando los tres trimestres al año, y sólo
+  si los tres están: con dos daría un Q4 inflado que parece un dato real;
+- restringir los instantes de balance a la rejilla de trimestres, porque los 10-K
+  traen instantes en fechas sueltas que inventarían trimestres falsos.
+
+**4. Son 17 KPIs, no 16.** La tabla del diseño lista 5 de rentabilidad, 3 de
+crecimiento, 3 de solidez, 2 de calidad del beneficio y 4 de valoración. Suman
+17. El «16» era una suma mal hecha, y lo atrapó un test que comparaba el recuento
+contra el número prometido. **El conjunto de KPIs no cambió.**
+
+**5. La fecha de publicación sigue siendo aproximada.** El diseño decía que si
+edgartools exponía la fecha de presentación real se usaría. No la expone en esta
+tabla, así que se mantiene el desfase de 45 días sobre `period_end` — pero ahora
+anclado a una fecha natural real en vez de a una etiqueta fiscal.
+
+### En qué dirección afecta a la conclusión
+
+Ninguno de los cinco cambia lo que el motor promete entregar. Los tres primeros
+corrigen defectos que habrían producido números incorrectos sin avisar; el cuarto
+es aritmética; el quinto deja la aproximación donde ya estaba, mejor anclada.
+
+Un hallazgo sí matiza el alcance, y hacia abajo: **las financieras salen mucho más
+vacías de lo previsto.** JPMorgan resuelve 9 de las 17 líneas contables. No es un
+fallo de las cadenas sino de cómo reportan los bancos — no publican coste de
+ventas, ni beneficio operativo, ni activo o pasivo corriente, y dejaron de
+etiquetar `Revenues` trimestral en 2014. El reporte de cobertura lo declara
+empresa por empresa, que era exactamente el propósito de tenerlo.
+
+Decisión relacionada, tomada en contra de la cobertura: el beneficio antes de
+impuestos **no** entra como alternativa del beneficio operativo. Subiría la
+cobertura de 13 a 17 de cada 20 empresas, pero ya tiene los intereses restados y
+haría que la cobertura de intereses fuese el cociente de otra magnitud. Un hueco
+declarado vale más que un número plausible y equivocado.
