@@ -219,3 +219,169 @@ Aplicando los estándares que hicieron creíble el resultado de D:
 - Cuántas posiciones debe tener el portafolio final. Sigue pendiente para B, y
   interactúa con que Markowitz concentra pesos: 15 candidatos no son 15
   posiciones.
+
+---
+
+## Enmienda 1 — 2026-08-11: la API real de edgartools
+
+El texto de arriba queda intacto. Esto anota en qué difiere el código, por qué, y
+en qué dirección afecta a lo que el motor entrega.
+
+Se escribió antes de instalar edgartools. Al ejecutarlo por primera vez —el spike
+que el plan puso como primera tarea justamente para esto— cinco supuestos
+resultaron falsos.
+
+### Qué decía el diseño y qué hace el código
+
+**1. La fuente de los estados financieros.** El diseño asumía
+`income_statement(periods=12, annual=False)`. Ese método devuelve 18 columnas, de
+las cuales 6 son metadatos, y etiqueta los periodos por **trimestre fiscal**
+(`'Q3 2026'`) en vez de por fecha. El código usa `facts.to_dataframe()`, que
+entrega la tabla larga de hechos con `period_start` y `period_end` reales.
+
+**2. La alineación entre empresas.** Consecuencia de lo anterior, y el defecto más
+serio que se evitó. El año fiscal de Apple termina en septiembre y el de
+JPMorgan en diciembre: su `Q3 2026` no es el mismo periodo natural. Agrupar por
+esa etiqueta para el z-score habría comparado trimestres distintos y producido
+números plausibles y falsos. El código agrupa por **trimestre natural** derivado
+de `period_end`.
+
+**3. Un módulo nuevo, `panel.py`.** El diseño no previó el trabajo de convertir la
+tabla larga en panel trimestral. Son cuatro operaciones que no estaban:
+
+- filtrar por duración, porque cada presentación repite el mismo renglón para el
+  trimestre, el semestre, los nueve meses y el año — confundirlos multiplicaría
+  cualquier magnitud de flujo;
+- deduplicar reexpresiones, quedándose con la versión más reciente. Apple tiene
+  72 filas de ingresos trimestrales, 25 de ellas repitiendo concepto y fecha;
+- **derivar el cuarto trimestre**, que nadie presenta porque va dentro del 10-K
+  como cifra anual. Sin esto, uno de cada cuatro trimestres quedaría vacío en
+  todos los KPIs de flujo. Se calcula restando los tres trimestres al año, y sólo
+  si los tres están: con dos daría un Q4 inflado que parece un dato real;
+- restringir los instantes de balance a la rejilla de trimestres, porque los 10-K
+  traen instantes en fechas sueltas que inventarían trimestres falsos.
+
+**4. Son 17 KPIs, no 16.** La tabla del diseño lista 5 de rentabilidad, 3 de
+crecimiento, 3 de solidez, 2 de calidad del beneficio y 4 de valoración. Suman
+17. El «16» era una suma mal hecha, y lo atrapó un test que comparaba el recuento
+contra el número prometido. **El conjunto de KPIs no cambió.**
+
+**5. La fecha de publicación sigue siendo aproximada.** El diseño decía que si
+edgartools exponía la fecha de presentación real se usaría. No la expone en esta
+tabla, así que se mantiene el desfase de 45 días sobre `period_end` — pero ahora
+anclado a una fecha natural real en vez de a una etiqueta fiscal.
+
+### En qué dirección afecta a la conclusión
+
+Ninguno de los cinco cambia lo que el motor promete entregar. Los tres primeros
+corrigen defectos que habrían producido números incorrectos sin avisar; el cuarto
+es aritmética; el quinto deja la aproximación donde ya estaba, mejor anclada.
+
+Un hallazgo sí matiza el alcance, y hacia abajo: **las financieras salen mucho más
+vacías de lo previsto.** JPMorgan resuelve 9 de las 17 líneas contables. No es un
+fallo de las cadenas sino de cómo reportan los bancos — no publican coste de
+ventas, ni beneficio operativo, ni activo o pasivo corriente, y dejaron de
+etiquetar `Revenues` trimestral en 2014. El reporte de cobertura lo declara
+empresa por empresa, que era exactamente el propósito de tenerlo.
+
+Decisión relacionada, tomada en contra de la cobertura: el beneficio antes de
+impuestos **no** entra como alternativa del beneficio operativo. Subiría la
+cobertura de 13 a 17 de cada 20 empresas, pero ya tiene los intereses restados y
+haría que la cobertura de intereses fuese el cociente de otra magnitud. Un hueco
+declarado vale más que un número plausible y equivocado.
+
+---
+
+## Enmienda 2 — 2026-08-11: cobertura medida sobre el S&P 500
+
+Corrida real sobre las 503 empresas del snapshot. **503 incluidas, cero fallos de
+descarga, cero sin CIK, cero sin sector.** El panel resultante tiene 6.004 filas
+—502 empresas × hasta 12 trimestres— y cubre 17 trimestres naturales distintos,
+porque los cierres fiscales no coinciden entre empresas.
+
+### Un defecto que sólo apareció al correrlo entero
+
+La primera corrida dejó siete KPIs por debajo del 50%, todos dependientes del
+flujo de caja: `crecimiento_fcf` al 11,9%, `precio_fcf` al 17,3%, `margen_fcf` al
+23,1%.
+
+La causa estaba en el histograma de duraciones del primer spike —
+`{90: 4885, 272: 1984, 181: 1830}`— y se leyó mal. **Las empresas no reportan el
+flujo de caja por trimestre suelto, sino acumulado desde el inicio del
+ejercicio:** tres meses, luego seis, luego nueve. El filtro que aceptaba ventanas
+de 80 a 100 días se quedaba con el primer trimestre de cada año y descartaba los
+otros tres sin que nada fallara.
+
+Las diferencias consecutivas dentro de una misma fecha de inicio los recuperan.
+Es la misma aritmética que ya reconstruía el Q4, generalizada.
+
+| KPI | Antes | Después |
+|---|---:|---:|
+| margen_fcf | 23,1% | **83,7%** |
+| fcf_sobre_beneficio | 23,5% | **84,5%** |
+| precio_fcf | 17,3% | **58,3%** |
+| crecimiento_fcf | 11,9% | **47,4%** |
+
+Un segundo arreglo, menor: 76 emisores etiquetan depreciación y amortización por
+separado en vez de usar la etiqueta combinada. Sumarlas —exigiendo que ambas
+estén, porque media suma subestima— bajó las empresas sin esa línea de 88 a 44.
+
+### Cobertura final por KPI
+
+| KPI | Cobertura | | KPI | Cobertura |
+|---|---:|---|---|---:|
+| roe | 95,7% | | margen_bruto | 56,2% |
+| margen_neto | 93,8% | | deuda_neta_ebitda | 48,9% |
+| per | 89,0% | | crecimiento_fcf | 47,4% |
+| fcf_sobre_beneficio | 84,5% | | cobertura_intereses | 37,4% |
+| margen_fcf | 83,7% | | ev_ebitda | 37,3% |
+| razon_corriente | 83,3% | | | |
+| precio_valor_libro | 74,4% | | | |
+| margen_operativo | 74,3% | | | |
+| roic | 65,6% | | | |
+| crecimiento_ingresos | 63,3% | | | |
+| crecimiento_bpa | 59,0% | | | |
+| precio_fcf | 58,3% | | | |
+
+Dos cosas hay que saber para leer esta tabla sin sacar conclusiones falsas.
+
+**Los tres KPIs de crecimiento tienen un techo del 66,7%.** Los primeros cuatro
+trimestres de cada empresa no tienen homólogo interanual contra el que
+compararse. `crecimiento_ingresos` al 63,3% está prácticamente en su máximo, no
+bajo.
+
+**Los cuatro que siguen por debajo del 50% lo están por carencia real, no por
+cadena incompleta.** Se midió antes de concluirlo: los cuatro dependen del
+beneficio operativo, que falta en 106 empresas. Lo que esas empresas sí declaran
+es `CostsAndExpenses` y `OperatingExpenses` —gastos, no beneficio— y 51 no tienen
+nada parecido. Bancos, aseguradoras y REITs sencillamente no publican un
+beneficio operativo. Lo mismo con `coste_de_ventas`, ausente en 204 empresas: las
+alternativas que aparecen son variantes de gasto por intereses, porque son
+bancos.
+
+### Cobertura por sector
+
+| Sector | Cobertura media |
+|---|---:|
+| Information Technology | 76,7% |
+| Consumer Staples | 76,5% |
+| Industrials | 73,0% |
+| Health Care | 72,6% |
+| Consumer Discretionary | 70,5% |
+| Materials | 68,3% |
+| Communication Services | 64,9% |
+| Energy | 63,4% |
+| Utilities | 62,5% |
+| Real Estate | 61,1% |
+| **Financials** | **51,1%** |
+
+Las financieras quedan las últimas por diseño de su contabilidad, no por un fallo
+del motor. Como el z-score es sectorial, se comparan entre ellas, todas igual de
+incompletas — que era precisamente el argumento para normalizar dentro del sector
+y no contra el universo.
+
+### Rendimiento
+
+Primera corrida 657 s; con los hechos en caché, 130 s, dominados por la descarga
+de precios. La caché de hechos es un parquet por ticker en `fundamentals/.cache/`,
+fuera del control de versiones.
