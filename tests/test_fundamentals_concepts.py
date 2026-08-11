@@ -74,8 +74,43 @@ def test_no_line_declares_an_empty_chain():
 
 def test_the_concept_set_covers_every_chain():
     """panel.py filtra por este conjunto; una omision vaciaria la linea entera."""
+    from fundamentals.concepts import _aplanar
+
     for cadena in LINEAS.values():
-        assert set(cadena) <= CONCEPTOS
+        for entrada in cadena:
+            assert set(_aplanar(entrada)) <= CONCEPTOS
+
+
+def test_a_split_line_is_recovered_by_summing_its_parts():
+    """76 emisores etiquetan depreciacion y amortizacion por separado.
+
+    Sin sumarlas, el EBITDA de esas empresas no se puede calcular, y con el se
+    caen deuda_neta_ebitda y ev_ebitda.
+    """
+    panel = _panel({"Depreciation": [30.0], "AmortizationOfIntangibleAssets": [20.0]})
+    lineas, ausentes = resolve_lines(panel)
+    assert lineas["depreciacion_amortizacion"].iloc[0] == 50.0
+    assert "depreciacion_amortizacion" not in ausentes
+
+
+def test_a_split_line_with_one_part_missing_stays_missing():
+    """Sumar solo una mitad subestima el importe y parece un dato completo."""
+    panel = _panel({"Depreciation": [30.0]})
+    lineas, ausentes = resolve_lines(panel)
+    assert np.isnan(lineas["depreciacion_amortizacion"].iloc[0])
+    assert "depreciacion_amortizacion" in ausentes
+
+
+def test_the_combined_tag_wins_over_the_summed_parts():
+    panel = _panel(
+        {
+            "DepreciationDepletionAndAmortization": [99.0],
+            "Depreciation": [30.0],
+            "AmortizationOfIntangibleAssets": [20.0],
+        }
+    )
+    lineas, _ = resolve_lines(panel)
+    assert lineas["depreciacion_amortizacion"].iloc[0] == 99.0
 
 
 def test_operating_income_does_not_fall_back_to_pretax_income():

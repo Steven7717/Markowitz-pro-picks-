@@ -48,12 +48,17 @@ LINEAS: dict[str, tuple[str, ...]] = {
         "DepreciationDepletionAndAmortization",
         "DepreciationAndAmortization",
         "DepreciationAmortizationAndAccretionNet",
+        # 76 filers tag depreciation and amortisation separately instead of
+        # combined. Adding them is exact arithmetic; taking either alone would
+        # understate the EBITDA add-back, so both must be present.
+        ("Depreciation", "AmortizationOfIntangibleAssets"),
     ),
     "gasto_por_intereses": (
         "InterestExpense",
         "InterestExpenseNonoperating",
         "InterestExpenseDebt",
         "InterestExpenseOperating",
+        "InterestAndDebtExpense",
     ),
     "activos_totales": ("Assets",),
     "activos_corrientes": ("AssetsCurrent",),
@@ -88,7 +93,16 @@ LINEAS: dict[str, tuple[str, ...]] = {
     ),
 }
 
-CONCEPTOS = {concepto for cadena in LINEAS.values() for concepto in cadena}
+def _aplanar(entrada: str | tuple[str, ...]) -> tuple[str, ...]:
+    return (entrada,) if isinstance(entrada, str) else entrada
+
+
+CONCEPTOS = {
+    concepto
+    for cadena in LINEAS.values()
+    for entrada in cadena
+    for concepto in _aplanar(entrada)
+}
 
 
 def resolve_lines(panel: pd.DataFrame) -> tuple[pd.DataFrame, list[str]]:
@@ -101,6 +115,11 @@ def resolve_lines(panel: pd.DataFrame) -> tuple[pd.DataFrame, list[str]]:
     company ever reported it: JPMorgan stopped tagging quarterly Revenues in
     2014, so for a recent window that column exists and is entirely empty.
 
+    A chain entry may be a tuple of concepts, which is used only when every one
+    of them carries data and is then summed. That covers filers who split a line
+    the standard tag combines; a partial sum would understate the total, so a
+    tuple with any member missing is skipped rather than added up.
+
     The result always has one column per line in LINEAS, even for lines this
     filer never reports — a panel whose columns depend on the company cannot be
     concatenated across a universe. Returns the frame and the names of the lines
@@ -112,10 +131,15 @@ def resolve_lines(panel: pd.DataFrame) -> tuple[pd.DataFrame, list[str]]:
     ausentes: list[str] = []
 
     for linea, cadena in LINEAS.items():
-        for concepto in cadena:
-            if concepto in panel.columns and panel[concepto].notna().any():
-                lineas[linea] = pd.to_numeric(panel[concepto], errors="coerce")
-                break
+        for entrada in cadena:
+            partes = _aplanar(entrada)
+            if not all(
+                c in panel.columns and panel[c].notna().any() for c in partes
+            ):
+                continue
+            valores = sum(pd.to_numeric(panel[c], errors="coerce") for c in partes)
+            lineas[linea] = valores
+            break
         else:
             ausentes.append(linea)
 
