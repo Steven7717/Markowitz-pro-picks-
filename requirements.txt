@@ -17,5 +17,10 @@ pyarrow>=15.0.0
 # implementación de referencia. El test se omite solo si no está instalado,
 # igual que ya hace scikit-learn con Ledoit-Wolf.
 pandas-ta-classic>=0.4.0
-# Solo para regenerar el snapshot del universo (scripts/bootstrap_universe.py).
+# Solo para regenerar el snapshot del universo (scripts/bootstrap_universe.py)
+# y la tabla de sectores (scripts/bootstrap_sectors.py).
 lxml>=5.0
+# Motor de fundamentales (paquete fundamentals/): XBRL de 10-Q/10-K desde SEC,
+# gratis y sin API key. Necesita EDGAR_IDENTITY en el entorno: la SEC exige un
+# contacto en el User-Agent.
+edgartools>=5.0
