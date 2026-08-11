@@ -1,7 +1,7 @@
 # Contexto del proyecto — para retomar en una sesión nueva
 
-**Última actualización:** 2026-08-10
-**Rama:** `master` · **Tests:** 290 pasando (`pytest tests/ -q`) · árbol limpio
+**Última actualización:** 2026-08-11
+**Rama:** `feat/motor-fundamentales` · **Tests:** 391 pasando (`pytest tests/ -q -m "not red"`)
 
 ---
 
@@ -15,7 +15,7 @@ El objetivo mayor es construir, **aguas arriba de esa app**, un sistema donde un
 
 | # | Sub-proyecto | Entrega | Estado |
 |---|---|---|---|
-| A | Universo + motor de fundamentales | Ingesta determinista de KPIs trimestrales | **diseñado y planificado — sin implementar** |
+| A | Universo + motor de fundamentales | Ingesta determinista de KPIs trimestrales | ✅ **terminado** |
 | B | Agente(s) de análisis y ranking | Top 10–15 con razones trazables | pendiente |
 | C | Handoff + gate de aprobación | UI de revisión → tickers al optimizador | pendiente |
 | D | ¿El análisis técnico aporta ventaja? | Veredicto reproducible | ✅ **terminado** |
@@ -65,6 +65,27 @@ scripts/bootstrap_universe.py   regenera el snapshot (una sola vez)
 ```
 
 Correr el estudio: `python -m research.run` (~5 min; la segunda vez lee de caché en `research/.cache/`, que está en `.gitignore`).
+
+### El motor de fundamentales
+```
+fundamentals/
+├── universe.py     S&P 500 congelado o lista arbitraria de tickers
+├── panel.py        tabla larga de SEC → panel trimestral
+├── concepts.py     cadenas de conceptos XBRL, medidas sobre 20 emisores
+├── fetch.py        descarga, caché por ticker, reporte de cobertura
+├── kpis.py         los 17 KPIs, con guardas de división verificadas
+├── sectors.py      GICS y z-score sectorial
+└── run.py          orquestación
+scripts/bootstrap_sectors.py    regenera la tabla de sectores
+```
+
+Necesita `EDGAR_IDENTITY` en el entorno: la SEC exige un contacto en el User-Agent.
+
+```bash
+EDGAR_IDENTITY="tu@correo.com" python -c "from fundamentals.fetch import set_sec_identity; set_sec_identity(); from fundamentals.run import build_panel; p,m,c = build_panel('sp500', con_zscore=True); print(c.summary()); print(p.shape)"
+```
+
+Primera corrida ~11 min; con caché, ~2 min (dominados por la descarga de precios). La caché vive en `fundamentals/.cache/`, en `.gitignore`.
 
 ---
 
@@ -117,32 +138,59 @@ La misma disciplina atrapó dos defectos más al **diseñar** A, antes de escrib
 | SIC recomendado sobre GICS con dos ejemplos falsos y sin medir | Se midieron los tamaños de grupo: 87 empresas quedaban solas |
 | Múltiplos cotizados al cierre del trimestre, cuando los resultados aún no eran públicos | Al revisar el plan contra el spec, buscando huecos |
 
+Y cuatro más al **implementarlo**. Ninguno lanzaba error; todos producían un panel plausible con menos datos o con datos mal alineados:
+
+| Defecto | Cómo se detectó |
+|---|---|
+| Empresas agrupadas por trimestre fiscal, que no es el mismo periodo natural para Apple que para JPMorgan | El spike de verificación, antes de escribir código |
+| Flujo de caja descartado en 3 de cada 4 trimestres: viene acumulado, no suelto | La corrida real dejó `crecimiento_fcf` en 11,9% |
+| Depreciación y amortización etiquetadas por separado en 76 emisores, dejando su EBITDA sin calcular | Se midió qué declaraban las empresas a las que faltaba la línea |
+| `astype(errors="ignore")` no ignora una clave ausente: sigue lanzando `KeyError` | Los tests de orquestación |
+
+El de mayor coste evitado fue el primero: los z-scores habrían comparado trimestres distintos entre empresas, produciendo rankings plausibles y falsos.
+
 ---
 
-## Lo siguiente: implementar el sub-proyecto A
+## Resultado del sub-proyecto A
 
-El diseño está cerrado y el plan escrito. **No hay ni una línea de código todavía: el paquete `fundamentals/` no existe.**
+**503 de 503 empresas del S&P 500, cero fallos de descarga, cero sin CIK, cero sin sector.** Panel de 6.004 filas: 502 empresas × hasta 12 trimestres, cubriendo 17 trimestres naturales distintos porque los cierres fiscales no coinciden entre empresas.
 
-- [`docs/superpowers/specs/2026-08-10-motor-fundamentales-design.md`](docs/superpowers/specs/2026-08-10-motor-fundamentales-design.md) — el diseño, con las decisiones y lo que se descartó.
-- [`docs/superpowers/plans/2026-08-10-motor-fundamentales.md`](docs/superpowers/plans/2026-08-10-motor-fundamentales.md) — 12 tareas en TDD, con el código de cada test y de cada implementación.
+Documentos:
+- [`docs/superpowers/specs/2026-08-10-motor-fundamentales-design.md`](docs/superpowers/specs/2026-08-10-motor-fundamentales-design.md) — diseño, más dos enmiendas fechadas con lo que la implementación desmintió.
+- [`docs/superpowers/plans/2026-08-10-motor-fundamentales.md`](docs/superpowers/plans/2026-08-10-motor-fundamentales.md) — el plan de implementación.
 
-**Empezar por la Task 1**, que es un spike de verificación: `edgartools` no está instalado y ninguno de los supuestos sobre su API se ha comprobado ejecutando. El plan asume que `periods=12, annual=False` devuelve 12 columnas, que el índice trae conceptos XBRL crudos y no etiquetas legibles, y que las columnas de periodo son fechas de cierre de trimestre. Si algo de eso falla, la Task 1 dice qué ajustar.
+Cobertura más alta: ROE 95,7%, margen neto 93,8%, PER 89,0%. Más baja: EV/EBITDA 37,3%, cobertura de intereses 37,4%.
 
-Lo que el motor entregará: 16 KPIs por trimestre, 12 trimestres de profundidad, desde el XBRL de SEC, con z-score dentro del sector GICS y reporte de cobertura que declara cada ausencia en vez de imputarla.
+**Dos advertencias para leer esas cifras sin sacar conclusiones falsas:**
 
-Las cadenas de conceptos XBRL de `concepts.py` son conjeturas informadas sobre qué etiquetas usa cada emisor. La corrida real de la Task 12 mide la cobertura por KPI: **cualquiera por debajo del 50% significa que falta una etiqueta en la cadena**, no que las empresas no la reporten.
+Los tres KPIs de crecimiento **tienen un techo del 66,7%**: los primeros cuatro trimestres de cada empresa no tienen homólogo interanual. `crecimiento_ingresos` al 63,3% está en su máximo, no bajo.
 
-Reutilizable de D: `research/loader.py` (patrón de caché + reporte de cobertura), `research/universe.py` (snapshot congelado), y todo el patrón de tests.
+Los cuatro por debajo del 50% lo están por **carencia real, no por cadena incompleta** — se midió antes de concluirlo. Dependen del beneficio operativo, que falta en 106 empresas; lo que esas empresas declaran es `CostsAndExpenses` y `OperatingExpenses`, que son gastos y no beneficio. Bancos, aseguradoras y REITs no publican beneficio operativo. Financials queda en 51,1% de cobertura media frente al 76,7% de tecnología, y como el z-score es sectorial se comparan entre ellas — que era justamente el argumento para normalizar dentro del sector.
 
-Sigue sin responder, y es de B: **¿cuántas acciones debería tener el portafolio final?** Interactúa con que Markowitz concentra pesos, así que 15 candidatos no son 15 posiciones.
+---
+
+## Lo siguiente: sub-proyecto B
+
+**Agente(s) de análisis y ranking.** El motor de A ya entrega el panel; B tiene que convertirlo en un top 10–15 razonado y trazable.
+
+Restricción heredada, ya decidida: **B no admite backtest honesto**, porque los LLM conocen lo que pasó con estas acciones. Hay que diseñarlo sabiéndolo.
+
+Sigue sin responder: **¿cuántas acciones debería tener el portafolio final?** Interactúa con que Markowitz concentra pesos, así que 15 candidatos no son 15 posiciones.
 
 ---
 
 ## Comandos
 
 ```bash
-pytest tests/ -q                    # 290 tests
+pytest tests/ -q -m "not red"       # 391 tests, sin red
 python -m research.run              # correr el estudio (~5 min, luego caché)
 streamlit run app.py                # la app
 python scripts/bootstrap_universe.py   # regenerar el snapshot del universo
+python scripts/bootstrap_sectors.py    # regenerar la tabla de sectores GICS
+```
+
+Los tests marcados `red` contrastan los KPIs nativos contra yfinance y necesitan conexión y `EDGAR_IDENTITY`:
+
+```bash
+EDGAR_IDENTITY="tu@correo.com" pytest tests/ -q -m red
 ```
