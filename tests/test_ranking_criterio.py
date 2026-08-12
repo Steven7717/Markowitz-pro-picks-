@@ -26,3 +26,12 @@ def test_los_multiplos_y_la_deuda_van_invertidos():
 def test_los_pesos_suman_uno_y_cubren_los_pilares():
     assert sum(criterio.PESOS.values()) == 1.0
     assert set(criterio.PESOS) == set(criterio.PILARES)
+
+
+def test_los_demas_kpis_van_en_signo_natural():
+    # Sin esto, un signo volteado por error de copia en cualquiera de los doce
+    # restantes pasaría los cuatro tests anteriores sin dejar rastro.
+    invertidos = {"per", "ev_ebitda", "precio_fcf", "precio_valor_libro", "deuda_neta_ebitda"}
+    for kpi, signo in criterio.SIGNOS.items():
+        if kpi not in invertidos:
+            assert signo == 1, kpi

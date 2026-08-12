@@ -66,6 +66,9 @@ SIGNOS: dict[str, int] = {
     "precio_valor_libro": -1,
 }
 
+# Rationale for each threshold, and the two readings each one deliberately
+# excludes, are in the "Umbrales" section of
+# docs/superpowers/specs/2026-08-12-agentes-analisis-ranking-design.md
 TRIMESTRES_VENTANA = 4
 MIN_TRIMESTRES_HISTORIA = 4
 MAX_ANTIGUEDAD_TRIMESTRES = 2
