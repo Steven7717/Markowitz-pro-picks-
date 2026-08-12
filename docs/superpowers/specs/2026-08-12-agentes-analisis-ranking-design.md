@@ -350,3 +350,30 @@ real a la API para comprobar que el esquema y el modelo siguen encajando.
   razón arriba.
 - Cuántas posiciones debe tener la cartera final. B entrega 15 candidatos;
   cuántos sobreviven al optimizador es una decisión de C y del optimizador.
+
+---
+
+## Enmienda 1 — 2026-08-12: la re-estandarización es por sector, no por sector-trimestre
+
+**Qué decía el diseño:** la cuarta guarda re-estandariza el compuesto "dentro de
+sector-trimestre" antes del orden global.
+
+**Qué es posible:** re-estandarizar **dentro de sector**, sin dimensión temporal.
+
+**Por qué difieren:** después de promediar la ventana de 4 trimestres queda una
+sola fila por empresa, así que ya no hay eje de trimestre sobre el que agrupar.
+Agrupar por (sector, último trimestre de la empresa) tampoco sirve: los cierres
+fiscales no coinciden, así que produciría grupos diminutos —el mismo problema
+que en A descartó SIC de 4 dígitos, donde 87 empresas quedaban solas.
+
+**En qué dirección afecta:** en ninguna, respecto al propósito de la guarda. El
+artefacto que corrige es la varianza inflada de los compuestos calculados sobre
+pocos KPIs, y esa comparación es entre empresas del mismo sector, no entre
+trimestres. Los insumos ya venían normalizados por sector **y** trimestre desde
+A, así que el eje temporal ya estaba tratado aguas arriba.
+
+**Consecuencia operativa:** se reutiliza `zscore_within_sector` de
+`fundamentals/sectors.py`, que ya devuelve NaN —nunca 0— cuando el grupo tiene
+menos de 3 pares o dispersión nula. Un sector con menos de 3 empresas
+supervivientes deja a las suyas con compuesto NaN, y eso **se registra como
+motivo de exclusión explícito**, no como una caída silenciosa del ranking.
