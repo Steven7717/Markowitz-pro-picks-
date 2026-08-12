@@ -24,3 +24,7 @@ lxml>=5.0
 # gratis y sin API key. Necesita EDGAR_IDENTITY en el entorno: la SEC exige un
 # contacto en el User-Agent.
 edgartools>=5.0
+# Fichas del sub-proyecto B (paquete ranking/). Necesita ANTHROPIC_API_KEY en el
+# entorno; sin ella el ranking sale igual con fichas de plantilla.
+anthropic>=0.100
+pydantic>=2.0
