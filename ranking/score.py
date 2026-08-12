@@ -70,7 +70,7 @@ def puntuaciones_por_pilar(medias: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataF
     into a penalty.
     """
     if medias.empty:
-        vacio = pd.DataFrame(columns=list(PILARES), dtype="float64")
+        vacio = pd.DataFrame(index=medias.index, columns=list(PILARES), dtype="float64")
         return vacio, vacio.copy().astype("int64")
 
     con_signo = medias.mul(pd.Series(SIGNOS), axis=1)

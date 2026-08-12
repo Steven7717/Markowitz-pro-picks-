@@ -126,7 +126,10 @@ from ranking.score import puntuaciones_por_pilar
 def medias_falsas(por_ticker: dict[str, dict[str, float]]) -> pd.DataFrame:
     """Tabla con la forma que devuelve media_ventana(): ticker x 17 KPIs."""
     marco = pd.DataFrame(
-        np.nan, index=sorted(por_ticker), columns=list(TODOS_LOS_KPIS), dtype="float64"
+        np.nan,
+        index=pd.Index(sorted(por_ticker), name="ticker"),
+        columns=list(TODOS_LOS_KPIS),
+        dtype="float64",
     )
     for ticker, valores in por_ticker.items():
         for kpi, valor in valores.items():
@@ -168,3 +171,8 @@ def test_medias_vacias_no_revientan():
     pilares, conteo = puntuaciones_por_pilar(medias_falsas({}))
     assert list(pilares.columns) == list(PILARES)
     assert pilares.empty and conteo.empty
+    # El índice se hereda del panel, no se inventa: media_ventana ya devuelve
+    # uno llamado "ticker" y unir resultados de un panel vacío con uno lleno
+    # tiene que funcionar.
+    assert pilares.index.name == "ticker"
+    assert pilares is not conteo
