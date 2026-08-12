@@ -1,7 +1,7 @@
 import pandas as pd
 
 from fundamentals.kpis import TODOS_LOS_KPIS
-from ranking.criterio import TRIMESTRES_VENTANA
+from ranking.criterio import PILARES, SIGNOS, TRIMESTRES_VENTANA
 
 COLUMNAS_Z = tuple(f"z_{kpi}" for kpi in TODOS_LOS_KPIS)
 
@@ -55,3 +55,30 @@ def media_ventana(
         }
     )
     return z, valores, historial
+
+
+def puntuaciones_por_pilar(medias: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Average the available KPIs of each pillar, applying the declared signs.
+
+    Returns (pilares, conteo): the four scores per company, and how many KPIs
+    actually carried data in each — the guards need the count, and so does the
+    ficha, because a pillar resting on two KPIs is a weaker claim than one
+    resting on seven.
+
+    Signs are applied here rather than upstream so `medias` stays readable as
+    raw z-scores: a +2 in `per` means expensive, and only the pillar turns that
+    into a penalty.
+    """
+    if medias.empty:
+        vacio = pd.DataFrame(columns=list(PILARES), dtype="float64")
+        return vacio, vacio.copy().astype("int64")
+
+    con_signo = medias.mul(pd.Series(SIGNOS), axis=1)
+
+    pilares = pd.DataFrame(index=medias.index, dtype="float64")
+    conteo = pd.DataFrame(index=medias.index, dtype="int64")
+    for pilar, kpis in PILARES.items():
+        bloque = con_signo[list(kpis)]
+        pilares[pilar] = bloque.mean(axis=1)
+        conteo[pilar] = bloque.notna().sum(axis=1)
+    return pilares, conteo

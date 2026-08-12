@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd
 
 from fundamentals.kpis import TODOS_LOS_KPIS
+from ranking.criterio import PILARES
 from ranking.score import media_ventana
 
 
@@ -117,3 +118,53 @@ def test_panel_vacio_no_revienta():
     # el return a `vacio, vacio, historial`, ambos serían el mismo objeto y una
     # mutación de uno corrompería al otro sin que ningún test lo notara.
     assert z is not valores
+
+
+from ranking.score import puntuaciones_por_pilar
+
+
+def medias_falsas(por_ticker: dict[str, dict[str, float]]) -> pd.DataFrame:
+    """Tabla con la forma que devuelve media_ventana(): ticker x 17 KPIs."""
+    marco = pd.DataFrame(
+        np.nan, index=sorted(por_ticker), columns=list(TODOS_LOS_KPIS), dtype="float64"
+    )
+    for ticker, valores in por_ticker.items():
+        for kpi, valor in valores.items():
+            marco.loc[ticker, kpi] = valor
+    return marco
+
+
+def test_un_multiplo_alto_penaliza_en_vez_de_premiar():
+    # PER con z = +2 significa caro. Sin invertir el signo, el pilar de
+    # valoración saldría +2 y el ranking premiaría lo caro.
+    medias = medias_falsas({"AAA": {"per": 2.0}})
+    pilares, _ = puntuaciones_por_pilar(medias)
+    assert pilares.loc["AAA", "valoracion"] == -2.0
+
+
+def test_la_deuda_alta_penaliza_en_solidez():
+    medias = medias_falsas({"AAA": {"deuda_neta_ebitda": 1.0, "razon_corriente": 1.0}})
+    pilares, _ = puntuaciones_por_pilar(medias)
+    assert pilares.loc["AAA", "solidez"] == 0.0
+
+
+def test_promedia_solo_los_kpis_con_dato_del_pilar():
+    medias = medias_falsas({"AAA": {"roe": 2.0, "roic": 4.0}})
+    pilares, conteo = puntuaciones_por_pilar(medias)
+    assert pilares.loc["AAA", "calidad"] == 3.0
+    assert conteo.loc["AAA", "calidad"] == 2
+
+
+def test_un_pilar_sin_ningun_dato_queda_en_nan_no_en_cero():
+    # Un 0 se leería como "exactamente la media del sector", que es una
+    # afirmación; NaN dice "no medido", que es la verdad.
+    medias = medias_falsas({"AAA": {"roe": 1.0}})
+    pilares, conteo = puntuaciones_por_pilar(medias)
+    assert pd.isna(pilares.loc["AAA", "crecimiento"])
+    assert conteo.loc["AAA", "crecimiento"] == 0
+
+
+def test_medias_vacias_no_revientan():
+    pilares, conteo = puntuaciones_por_pilar(medias_falsas({}))
+    assert list(pilares.columns) == list(PILARES)
+    assert pilares.empty and conteo.empty
