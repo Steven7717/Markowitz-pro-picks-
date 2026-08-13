@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 from unittest.mock import patch
 
@@ -9,7 +10,10 @@ CRUDO = {
     "formulario": "10-K",
     "fecha": "2025-10-31",
     "accession": "0000320193-25-000079",
-    "texto": "A" * 500,
+    # Guion largo, no ASCII: en cp1252 y en utf-8 no ocupa los mismos bytes.
+    # Con "A" * 500 (puro ASCII) las dos codificaciones coinciden y la
+    # restricción de encoding="utf-8" en ranking.filings queda sin defensor.
+    "texto": "—" * 500,
 }
 
 
@@ -30,7 +34,7 @@ def test_devuelve_la_seccion_con_su_procedencia(cache):
     assert riesgos.fecha == "2025-10-31"
     assert riesgos.accession == "0000320193-25-000079"
     assert riesgos.seccion == "Item 1A"
-    assert riesgos.texto == "A" * 500
+    assert riesgos.texto == "—" * 500
     assert riesgos.caracteres_totales == 500
     assert riesgos.recortado is False
 
@@ -48,25 +52,18 @@ def test_la_segunda_llamada_no_vuelve_a_descargar(cache):
         primera = cargar_riesgos("AAPL", cache_dir=cache)
         segunda = cargar_riesgos("AAPL", cache_dir=cache)
     assert descarga.call_count == 1
-    assert segunda.accession == primera.accession
+    # Riesgos es un dataclass frozen: comparar por igualdad cubre los ocho
+    # campos, no sólo accession.
+    assert segunda == primera
 
 
 def test_el_tope_se_aplica_sobre_la_cache_sin_redescargar(cache):
     """La caché guarda el texto COMPLETO; el recorte ocurre al leer.
 
-    La versión rota que este test tiene que descartar es tan plausible como la
-    correcta: recortar ANTES de escribir a disco
-    (``crudo["texto"] = crudo["texto"][:max_caracteres]``). Con esa versión,
-    escrita con un max_caracteres bajo, el resto del filing se pierde para
-    siempre y ninguna llamada posterior con un tope más alto lo recupera sin
+    La primera llamada usa el tope MÁS BAJO a propósito: así, si el recorte se
+    aplicara antes de escribir a disco, el resto del filing se perdería para
+    siempre y una llamada posterior con un tope más alto no lo recuperaría sin
     una descarga nueva.
-
-    Por eso el orden importa: la primera llamada usa el tope MÁS BAJO. El test
-    original de este archivo hacía lo contrario (primero max_caracteres=500,
-    que no recorta nada porque el texto de prueba mide exactamente 500
-    caracteres, y luego 50) y por eso no distinguía las dos implementaciones:
-    con un texto que ya cabía entero, cachear "500 caracteres recortados" y
-    cachear "500 caracteres completos" produce el mismo fichero.
     """
     with patch("ranking.filings._descargar", return_value=CRUDO) as descarga:
         recortada = cargar_riesgos("AAPL", cache_dir=cache, max_caracteres=100)
@@ -80,16 +77,10 @@ def test_el_tope_se_aplica_sobre_la_cache_sin_redescargar(cache):
 
 
 def test_sin_seccion_devuelve_none_y_no_lo_cachea(cache):
-    """Un filing sin Item 1A extraíble no se cachea.
-
-    Decisión de diseño: se prefiere reintentar la descarga en cada corrida
-    antes que cachear el None, por dos motivos. Primero, una ausencia de hoy
-    puede dejar de serlo mañana (la empresa presenta su 10-K, o edgartools
-    corrige cómo extrae risk_factors) y una caché negativa la escondería hasta
-    que alguien la borrase a mano. Segundo, es el mismo trato que
-    fundamentals/fetch.py:_load_one ya da a sus dos fallos (unresolved_cik y
-    failed_download): ninguno de los dos se escribe en caché, sólo los
-    resultados con datos se persisten.
+    """Una ausencia de hoy puede dejar de serlo mañana (la empresa presenta su
+    10-K), así que no se cachea: se reintenta la descarga en cada corrida,
+    igual que fundamentals/fetch.py:_load_one hace con unresolved_cik y
+    failed_download.
     """
     with patch("ranking.filings._descargar", return_value=None) as descarga:
         primera = cargar_riesgos("XYZ", cache_dir=cache)
@@ -114,6 +105,23 @@ def test_cache_corrupta_se_trata_como_fallo_y_se_vuelve_a_descargar(cache):
         cargar_riesgos("AAPL", cache_dir=cache)
     fichero = cache / "AAPL.json"
     fichero.write_text("{esto no es json valido", encoding="utf-8")
+
+    with patch("ranking.filings._descargar", return_value=CRUDO) as descarga:
+        riesgos = cargar_riesgos("AAPL", cache_dir=cache)
+    assert descarga.call_count == 1
+    assert riesgos.accession == "0000320193-25-000079"
+
+
+def test_cache_con_esquema_viejo_se_trata_como_fallo_y_se_vuelve_a_descargar(cache):
+    # JSON válido pero sin la clave "texto" (p.ej. un esquema de una versión
+    # anterior de este módulo). Sin validar la forma, esto pasaría _leer_cache
+    # y reventaría más abajo con KeyError en vez de tratarse como caché rota.
+    cache.mkdir(parents=True)
+    fichero = cache / "AAPL.json"
+    fichero.write_text(
+        json.dumps({"formulario": "10-K", "fecha": "2025-10-31"}),
+        encoding="utf-8",
+    )
 
     with patch("ranking.filings._descargar", return_value=CRUDO) as descarga:
         riesgos = cargar_riesgos("AAPL", cache_dir=cache)
