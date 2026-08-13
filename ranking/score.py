@@ -1,7 +1,15 @@
 import pandas as pd
 
 from fundamentals.kpis import TODOS_LOS_KPIS
-from ranking.criterio import PILARES, SIGNOS, TRIMESTRES_VENTANA
+from ranking.criterio import (
+    MAX_ANTIGUEDAD_TRIMESTRES,
+    MIN_KPIS_CON_DATO,
+    MIN_PILARES_CON_DATO,
+    MIN_TRIMESTRES_HISTORIA,
+    PILARES,
+    SIGNOS,
+    TRIMESTRES_VENTANA,
+)
 
 COLUMNAS_Z = tuple(f"z_{kpi}" for kpi in TODOS_LOS_KPIS)
 
@@ -85,3 +93,57 @@ def puntuaciones_por_pilar(medias: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataF
         index=medias.index,
     )
     return pilares, conteo
+
+
+def _rezago_trimestres(ultimos: pd.Series, trimestre_max: str) -> pd.Series:
+    """How many calendar quarters behind the panel's newest bucket each company is.
+
+    Measured against the panel, not against today's date: the panel is what the
+    ranking is computed from, and a run made three months later must not start
+    excluding companies that were current when the data was fetched.
+    """
+    ordinales = pd.PeriodIndex(ultimos.astype(str), freq="Q").asi8
+    tope = pd.Period(trimestre_max, freq="Q").ordinal
+    return pd.Series(tope - ordinales, index=ultimos.index)
+
+
+def aplicar_guardas(
+    pilares: pd.DataFrame,
+    conteo: pd.DataFrame,
+    historial: pd.DataFrame,
+    trimestre_max: str,
+) -> pd.Series:
+    """Name why each company is excluded, or NaN when it survives.
+
+    Every exclusion is named and returned rather than dropped, because a company
+    that silently vanishes from a ranking is indistinguishable from one that
+    scored badly — and the difference matters when reading the result.
+
+    The first failing guard wins, so the reported reason is the most fundamental
+    one rather than whichever check happened to run last.
+    """
+    motivos = pd.Series(pd.NA, index=pilares.index, dtype="object")
+    if pilares.empty:
+        return motivos
+
+    historial = historial.reindex(pilares.index)
+
+    # Negar >= en vez de usar <, porque NaN < 4 es False: una empresa ausente
+    # del historial pasaría la guarda por no saber nada de ella.
+    corta = ~(historial["trimestres"] >= MIN_TRIMESTRES_HISTORIA)
+    motivos[corta & motivos.isna()] = "historia_corta"
+
+    ultimos = historial["ultimo_trimestre"]
+    conocidos = ultimos.notna()
+    rezago = pd.Series(float("nan"), index=motivos.index)
+    if conocidos.any():
+        rezago[conocidos] = _rezago_trimestres(ultimos[conocidos], trimestre_max)
+    motivos[(rezago > MAX_ANTIGUEDAD_TRIMESTRES) & motivos.isna()] = "datos_rancios"
+
+    sin_pilar = (conteo > 0).sum(axis=1) < MIN_PILARES_CON_DATO
+    motivos[sin_pilar & motivos.isna()] = "pilar_sin_datos"
+
+    pocos = conteo.sum(axis=1) < MIN_KPIS_CON_DATO
+    motivos[pocos & motivos.isna()] = "cobertura_insuficiente"
+
+    return motivos

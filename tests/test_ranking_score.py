@@ -3,7 +3,7 @@ import pandas as pd
 
 from fundamentals.kpis import TODOS_LOS_KPIS
 from ranking.criterio import PILARES
-from ranking.score import media_ventana, puntuaciones_por_pilar
+from ranking.score import aplicar_guardas, media_ventana, puntuaciones_por_pilar
 
 
 def panel_falso(
@@ -185,3 +185,97 @@ def test_cada_empresa_se_puntua_por_separado():
     assert conteo.loc["BBB", "calidad"] == 1
     assert pilares.loc["AAA", "calidad"] == 3.0
     assert pilares.loc["BBB", "calidad"] == 1.0
+
+
+PILARES_CRECIMIENTO = PILARES["crecimiento"]
+
+
+def historial_falso(por_ticker: dict[str, tuple[int, str]]) -> pd.DataFrame:
+    """Historial con la forma que devuelve media_ventana()."""
+    tickers = sorted(por_ticker)
+    return pd.DataFrame(
+        [
+            {"trimestres": por_ticker[t][0], "ultimo_trimestre": por_ticker[t][1]}
+            for t in tickers
+        ],
+        index=pd.Index(tickers, name="ticker"),
+    )
+
+
+def _completa(**cambios) -> dict[str, float]:
+    """Empresa que supera todas las guardas, para alterar una sola cosa."""
+    base = {kpi: 1.0 for kpi in TODOS_LOS_KPIS}
+    base.update(cambios)
+    return base
+
+
+def test_una_empresa_completa_no_se_excluye():
+    medias = medias_falsas({"AAA": _completa()})
+    pilares, conteo = puntuaciones_por_pilar(medias)
+    motivos = aplicar_guardas(
+        pilares, conteo, historial_falso({"AAA": (4, "2025Q2")}), "2025Q2"
+    )
+    assert pd.isna(motivos["AAA"])
+
+
+def test_historia_corta_excluye():
+    medias = medias_falsas({"AAA": _completa()})
+    pilares, conteo = puntuaciones_por_pilar(medias)
+    motivos = aplicar_guardas(
+        pilares, conteo, historial_falso({"AAA": (3, "2025Q2")}), "2025Q2"
+    )
+    assert motivos["AAA"] == "historia_corta"
+
+
+def test_datos_rancios_excluye_a_partir_del_tercer_trimestre_de_rezago():
+    medias = medias_falsas({"AAA": _completa(), "BBB": _completa()})
+    pilares, conteo = puntuaciones_por_pilar(medias)
+    motivos = aplicar_guardas(
+        pilares,
+        conteo,
+        historial_falso({"AAA": (4, "2024Q4"), "BBB": (4, "2024Q3")}),
+        "2025Q2",
+    )
+    assert pd.isna(motivos["AAA"]), "2 trimestres de rezago están dentro del límite"
+    assert motivos["BBB"] == "datos_rancios"
+
+
+def test_un_pilar_sin_datos_excluye():
+    sin_crecimiento = {
+        kpi: 1.0 for kpi in TODOS_LOS_KPIS if kpi not in PILARES_CRECIMIENTO
+    }
+    medias = medias_falsas({"AAA": sin_crecimiento})
+    pilares, conteo = puntuaciones_por_pilar(medias)
+    motivos = aplicar_guardas(
+        pilares, conteo, historial_falso({"AAA": (4, "2025Q2")}), "2025Q2"
+    )
+    assert motivos["AAA"] == "pilar_sin_datos"
+
+
+def test_menos_de_ocho_kpis_excluye_aunque_haya_cuatro_pilares():
+    # Uno en calidad, dos en cada uno de los otros tres: 7 KPIs, 4 pilares.
+    escasa = {
+        "roe": 1.0,
+        "crecimiento_ingresos": 1.0,
+        "crecimiento_bpa": 1.0,
+        "per": 1.0,
+        "ev_ebitda": 1.0,
+        "razon_corriente": 1.0,
+        "cobertura_intereses": 1.0,
+    }
+    medias = medias_falsas({"AAA": escasa})
+    pilares, conteo = puntuaciones_por_pilar(medias)
+    motivos = aplicar_guardas(
+        pilares, conteo, historial_falso({"AAA": (4, "2025Q2")}), "2025Q2"
+    )
+    assert motivos["AAA"] == "cobertura_insuficiente"
+
+
+def test_una_empresa_ausente_del_historial_se_excluye():
+    # NaN < 4 es False: una comparación ingenua dejaría pasar a una empresa de
+    # la que no sabemos nada, que es el peor de los casos posibles.
+    medias = medias_falsas({"AAA": _completa()})
+    pilares, conteo = puntuaciones_por_pilar(medias)
+    vacio = pd.DataFrame(columns=["trimestres", "ultimo_trimestre"])
+    motivos = aplicar_guardas(pilares, conteo, vacio, "2025Q2")
+    assert motivos["AAA"] == "historia_corta"
