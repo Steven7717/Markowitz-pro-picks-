@@ -82,8 +82,9 @@ def test_control_negativo_el_score_no_premia_la_cobertura():
     # La tolerancia sale del ruido medido, no del ojo. Sobre estas 40 semillas
     # el error estándar de la proporción es ~0,009, el caso correcto queda a
     # 0,002 de lo esperado, y desactivar la re-estandarización de compuesto()
-    # lo lleva a ~0,073 (Financials pasa del 25% al 33% del top). 0,04 separa
-    # los dos casos con margen por ambos lados.
+    # lo lleva a 0,087: Financials pasa del 25,2% al 33,7% del top. Con 0,04 el
+    # caso correcto tiene 4,4 errores estándar de margen antes de fallar por
+    # ruido, y el roto queda 5,3 por encima del umbral.
     #
     # Una tolerancia de 0,10 —la que tenía este test al escribirse— dejaba
     # pasar el caso roto: el control existía y no controlaba nada.
