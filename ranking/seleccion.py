@@ -2,6 +2,29 @@ import pandas as pd
 
 from ranking.criterio import TAMANO_TOP, TOPE_POR_SECTOR
 
+_DTIPOS_ELEGIDAS = {
+    "ticker": "object",
+    "sector": "object",
+    "compuesto": "float64",
+    "puesto_global": "int64",
+    "puesto": "int64",
+}
+_DTIPOS_DESPLAZADAS = {
+    "ticker": "object",
+    "sector": "object",
+    "puesto_global": "int64",
+    "bloqueada_por": "object",
+}
+
+
+def _marco(filas: list[dict], tipos: dict[str, str]) -> pd.DataFrame:
+    """Build the frame with declared dtypes, so empty and populated agree.
+
+    Without this an empty result comes back with every column as object, and the
+    first concat of an empty and a populated frame upcasts the numbers.
+    """
+    return pd.DataFrame(filas, columns=list(tipos)).astype(tipos)
+
 
 def seleccionar(
     compuestos: pd.Series,
@@ -18,8 +41,10 @@ def seleccionar(
     blocked it. A company outside the unrestricted top n was never going to be
     selected regardless of the cap, so it is not "displaced" by it.
 
-    Ties break on ticker, so two runs over the same panel return the same list.
-    Without it the system would stop being auditable for a silly reason.
+    Ties break on ticker. Two companies with the same composite are otherwise
+    ordered by whatever the input happened to hold, so the same panel could
+    yield a different shortlist on a second run — and a ranking that changes
+    without its inputs changing cannot be reviewed or reproduced.
     """
     tabla = pd.DataFrame(
         {
@@ -29,9 +54,7 @@ def seleccionar(
         }
     ).dropna(subset=["compuesto"])
 
-    tabla = tabla.sort_values(
-        ["compuesto", "ticker"], ascending=[False, True], kind="mergesort"
-    )
+    tabla = tabla.sort_values(["compuesto", "ticker"], ascending=[False, True])
     tabla["puesto_global"] = range(1, len(tabla) + 1)
 
     elegidas: list[dict] = []
@@ -67,16 +90,18 @@ def seleccionar(
             }
         )
 
-    columnas_elegidas = ["ticker", "sector", "compuesto", "puesto_global", "puesto"]
-    columnas_desplazadas = ["ticker", "sector", "puesto_global", "bloqueada_por"]
-    return (
-        pd.DataFrame(elegidas, columns=columnas_elegidas),
-        pd.DataFrame(desplazadas, columns=columnas_desplazadas),
-    )
+    return _marco(elegidas, _DTIPOS_ELEGIDAS), _marco(desplazadas, _DTIPOS_DESPLAZADAS)
 
 
 def desplazamientos_por_ticker(desplazadas: pd.DataFrame) -> dict[str, list[str]]:
-    """Map each admitted ticker to the tickers it kept out through the cap."""
+    """Map each admitted ticker to the tickers it kept out through the cap.
+
+    Expects `bloqueada_por` to hold real tuples, as `seleccionar` produced them.
+    A frame round-tripped through CSV brings the column back as the string
+    "('T1', 'T2')", and this loop would then iterate it character by character
+    and return silent nonsense rather than raising. Keep this frame in memory or
+    serialise it as JSON, which preserves the sequence.
+    """
     mapa: dict[str, list[str]] = {}
     for fila in desplazadas.itertuples(index=False):
         for bloqueadora in fila.bloqueada_por:

@@ -33,6 +33,8 @@ def test_el_tope_sectorial_deja_fuera_a_la_cuarta_del_sector():
     )
     elegidas, desplazadas = seleccionar(compuestos, sectores, tope=3, n=5)
     assert list(elegidas["ticker"]) == ["T1", "T2", "T3", "H1"]
+    assert list(elegidas["puesto"]) == [1, 2, 3, 4]
+    assert list(elegidas["puesto_global"]) == [1, 2, 3, 5], "H1 es la 5ª global"
     assert list(desplazadas["ticker"]) == ["T4"]
     assert desplazadas.loc[0, "puesto_global"] == 4
     assert desplazadas.loc[0, "bloqueada_por"] == ("T1", "T2", "T3")
@@ -108,3 +110,12 @@ def test_sin_candidatos_no_revienta():
     assert list(elegidas.columns) == [
         "ticker", "sector", "compuesto", "puesto_global", "puesto"
     ]
+    assert list(desplazadas.columns) == [
+        "ticker", "sector", "puesto_global", "bloqueada_por"
+    ]
+    # Vacío o no, los tipos deben coincidir: un concat posterior con un marco
+    # poblado no debe degradar las columnas numéricas a object.
+    assert elegidas["compuesto"].dtype == "float64"
+    assert elegidas["puesto_global"].dtype == "int64"
+    assert desplazadas["puesto_global"].dtype == "int64"
+    assert desplazamientos_por_ticker(desplazadas) == {}
