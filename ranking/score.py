@@ -1,7 +1,7 @@
 import pandas as pd
 
 from fundamentals.kpis import TODOS_LOS_KPIS
-from fundamentals.sectors import zscore_within_sector
+from fundamentals.sectors import MIN_PARES, zscore_within_sector
 from ranking.criterio import (
     MAX_ANTIGUEDAD_TRIMESTRES,
     MIN_KPIS_CON_DATO,
@@ -183,15 +183,31 @@ def compuesto(
     return normalizado["compuesto"]
 
 
-def marcar_sin_pares(motivos: pd.Series, compuestos: pd.Series) -> pd.Series:
+def marcar_sin_pares(
+    motivos: pd.Series,
+    compuestos: pd.Series,
+    sectores: pd.Series,
+    min_pares: int = MIN_PARES,
+) -> pd.Series:
     """Name the exclusion for companies the sector re-standardisation dropped.
 
-    zscore_within_sector returns NaN — never 0 — when a sector has fewer than
-    three peers or no dispersion. Those companies would otherwise fall out of
-    the ranking with no reason attached, which is the one thing the guards exist
-    to prevent.
+    zscore_within_sector returns NaN — never 0 — for three different reasons:
+    an unknown sector, a peer group too small to have a spread, and a sector
+    where every company reports the same value. Collapsing all three into "too
+    few peers" would put a false statement in the exclusions report, which is
+    the one artefact of this pipeline that has to be trustworthy.
+
+    The three are told apart from the sector column alone, without repeating
+    the z-score arithmetic that produced the NaN.
     """
     motivos = motivos.copy()
+    sectores = sectores.reindex(motivos.index)
     huerfanas = compuestos.reindex(motivos.index).isna() & motivos.isna()
-    motivos[huerfanas] = "sector_sin_pares"
+    if not huerfanas.any():
+        return motivos
+
+    tamanos = sectores.map(sectores.value_counts())
+    motivos[huerfanas & sectores.isna()] = "sector_desconocido"
+    motivos[huerfanas & motivos.isna() & (tamanos < min_pares)] = "sector_sin_pares"
+    motivos[huerfanas & motivos.isna()] = "sin_dispersion_sectorial"
     return motivos

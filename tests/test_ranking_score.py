@@ -309,7 +309,16 @@ def test_el_compuesto_se_reestandariza_dentro_del_sector():
 
 
 def test_una_empresa_excluida_no_puntua():
-    medias = medias_falsas({t: {kpi: 1.0 for kpi in TODOS_LOS_KPIS} for t in "ABC"})
+    # Las tres llevan valores distintos a propósito. Si fueran iguales, el
+    # sector tendría dispersión cero, zscore_within_sector devolvería NaN para
+    # todas, y el test pasaría aunque la máscara de exclusión no existiera.
+    medias = medias_falsas(
+        {
+            "A": {kpi: 1.0 for kpi in TODOS_LOS_KPIS},
+            "B": {kpi: 2.0 for kpi in TODOS_LOS_KPIS},
+            "C": {kpi: 3.0 for kpi in TODOS_LOS_KPIS},
+        }
+    )
     pilares, _ = puntuaciones_por_pilar(medias)
     motivos = pd.Series(pd.NA, index=pilares.index, dtype="object")
     motivos["A"] = "historia_corta"
@@ -318,6 +327,7 @@ def test_una_empresa_excluida_no_puntua():
     puntos = compuesto(pilares, motivos, sectores)
 
     assert pd.isna(puntos["A"])
+    assert puntos.notna().sum() == 2, "B y C sí deben puntuar"
 
 
 def test_un_pilar_en_nan_deja_el_compuesto_en_nan():
@@ -346,7 +356,35 @@ def test_un_sector_con_menos_de_tres_pares_se_nombra_como_exclusion():
     sectores = pd.Series("Utilities", index=pilares.index)
 
     puntos = compuesto(pilares, motivos, sectores)
-    motivos = marcar_sin_pares(motivos, puntos)
+    motivos = marcar_sin_pares(motivos, puntos, sectores)
 
     assert motivos["A"] == "sector_sin_pares"
     assert motivos["B"] == "sector_sin_pares"
+
+
+def test_un_sector_sin_dispersion_no_se_confunde_con_uno_sin_pares():
+    # Tres pares son suficientes; lo que falla aquí es que todas declaran lo
+    # mismo. Llamarlo "sin pares" sería falso en el informe de exclusiones.
+    medias = medias_falsas({t: {kpi: 1.0 for kpi in TODOS_LOS_KPIS} for t in "ABC"})
+    pilares, _ = puntuaciones_por_pilar(medias)
+    motivos = pd.Series(pd.NA, index=pilares.index, dtype="object")
+    sectores = pd.Series("Tech", index=pilares.index)
+
+    puntos = compuesto(pilares, motivos, sectores)
+    motivos = marcar_sin_pares(motivos, puntos, sectores)
+
+    assert set(motivos) == {"sin_dispersion_sectorial"}
+
+
+def test_un_sector_desconocido_se_nombra_como_tal():
+    medias = medias_falsas(
+        {t: {kpi: float(i) for kpi in TODOS_LOS_KPIS} for i, t in enumerate("ABC", 1)}
+    )
+    pilares, _ = puntuaciones_por_pilar(medias)
+    motivos = pd.Series(pd.NA, index=pilares.index, dtype="object")
+    sectores = pd.Series([None, "Tech", "Tech"], index=pilares.index, dtype="object")
+
+    puntos = compuesto(pilares, motivos, sectores)
+    motivos = marcar_sin_pares(motivos, puntos, sectores)
+
+    assert motivos["A"] == "sector_desconocido"
