@@ -388,3 +388,17 @@ def test_un_sector_desconocido_se_nombra_como_tal():
     motivos = marcar_sin_pares(motivos, puntos, sectores)
 
     assert motivos["A"] == "sector_desconocido"
+
+
+def test_compuesto_y_motivos_vacios_no_revientan():
+    vacias = medias_falsas({})
+    pilares, _ = puntuaciones_por_pilar(vacias)
+    motivos = pd.Series(pd.NA, index=pilares.index, dtype="object")
+    sectores = pd.Series(dtype="object", index=pilares.index)
+
+    puntos = compuesto(pilares, motivos, sectores)
+    resultado = marcar_sin_pares(motivos, puntos, sectores)
+
+    assert puntos.empty and resultado.empty
+    assert puntos.index.name == "ticker"
+    assert puntos.name == "compuesto"

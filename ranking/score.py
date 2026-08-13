@@ -169,7 +169,7 @@ def compuesto(
     See amendment 1 of the design document.
     """
     if pilares.empty:
-        return pd.Series(dtype="float64", index=pilares.index)
+        return pd.Series(dtype="float64", index=pilares.index, name="compuesto")
 
     pesos = pd.Series(PESOS)
     # min_count exige los cuatro pilares: una empresa con tres medidos no
@@ -184,10 +184,7 @@ def compuesto(
 
 
 def marcar_sin_pares(
-    motivos: pd.Series,
-    compuestos: pd.Series,
-    sectores: pd.Series,
-    min_pares: int = MIN_PARES,
+    motivos: pd.Series, compuestos: pd.Series, sectores: pd.Series
 ) -> pd.Series:
     """Name the exclusion for companies the sector re-standardisation dropped.
 
@@ -208,6 +205,6 @@ def marcar_sin_pares(
 
     tamanos = sectores.map(sectores.value_counts())
     motivos[huerfanas & sectores.isna()] = "sector_desconocido"
-    motivos[huerfanas & motivos.isna() & (tamanos < min_pares)] = "sector_sin_pares"
+    motivos[huerfanas & motivos.isna() & (tamanos < MIN_PARES)] = "sector_sin_pares"
     motivos[huerfanas & motivos.isna()] = "sin_dispersion_sectorial"
     return motivos

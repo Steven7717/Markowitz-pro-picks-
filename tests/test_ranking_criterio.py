@@ -35,3 +35,12 @@ def test_los_demas_kpis_van_en_signo_natural():
     for kpi, signo in criterio.SIGNOS.items():
         if kpi not in invertidos:
             assert signo == 1, kpi
+
+
+def test_los_pilares_exigidos_coinciden_con_los_ponderados():
+    # Si se exigieran menos pilares de los que pesan, una empresa con un pilar
+    # sin medir pasaría las guardas y su compuesto saldría NaN por min_count.
+    # marcar_sin_pares la etiquetaría entonces como "sin_dispersion_sectorial",
+    # que es falso: la causa sería la cobertura, no el sector. Este test existe
+    # para que una enmienda del criterio rompa aquí y no en el informe.
+    assert criterio.MIN_PILARES_CON_DATO == len(criterio.PESOS)
