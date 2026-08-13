@@ -13,8 +13,10 @@ def seleccionar(
 
     Returns (elegidas, desplazadas). The second frame is not a debugging aid: a
     sector cap that silently reshapes the list would be invisible in the output,
-    so every company passed over on the way to n is recorded with the tickers
-    that blocked it.
+    so it records every company that would have ranked in the unrestricted top
+    n but was kept out by its sector's cap, together with the tickers that
+    blocked it. A company outside the unrestricted top n was never going to be
+    selected regardless of the cap, so it is not "displaced" by it.
 
     Ties break on ticker, so two runs over the same panel return the same list.
     Without it the system would stop being auditable for a silly reason.
@@ -41,14 +43,18 @@ def seleccionar(
             break
         ocupadas = ocupacion.setdefault(fila.sector, [])
         if len(ocupadas) >= tope:
-            desplazadas.append(
-                {
-                    "ticker": fila.ticker,
-                    "sector": fila.sector,
-                    "puesto_global": fila.puesto_global,
-                    "bloqueada_por": tuple(ocupadas),
-                }
-            )
+            # Sólo cuenta como desplazada si habría entrado en el top sin el
+            # tope. Sin esta condición, un sector copado registraría a todos
+            # los que bloqueó alguna vez, incluidos los que nunca iban a entrar.
+            if fila.puesto_global <= n:
+                desplazadas.append(
+                    {
+                        "ticker": fila.ticker,
+                        "sector": fila.sector,
+                        "puesto_global": fila.puesto_global,
+                        "bloqueada_por": tuple(ocupadas),
+                    }
+                )
             continue
         ocupadas.append(fila.ticker)
         elegidas.append(

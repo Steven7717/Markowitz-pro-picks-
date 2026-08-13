@@ -62,6 +62,20 @@ def test_menos_candidatos_que_el_top_devuelve_los_que_haya():
     assert len(elegidas) == 1
 
 
+def test_el_top_se_corta_en_n():
+    # Seis empresas, cada una en su sector, así que el tope nunca dispara y lo
+    # único que puede recortar la lista es n. Ningún otro test tiene más
+    # candidatos admisibles que n.
+    compuestos, sectores = entradas(
+        [
+            (f"{letra}1", valor, letra)
+            for letra, valor in zip("ABCDEF", [6.0, 5.0, 4.0, 3.0, 2.0, 1.0])
+        ]
+    )
+    elegidas, _ = seleccionar(compuestos, sectores, tope=3, n=4)
+    assert list(elegidas["ticker"]) == ["A1", "B1", "C1", "D1"]
+
+
 def test_el_mapa_de_desplazamientos_atribuye_a_las_bloqueadoras():
     compuestos, sectores = entradas(
         [
@@ -74,6 +88,17 @@ def test_el_mapa_de_desplazamientos_atribuye_a_las_bloqueadoras():
     _, desplazadas = seleccionar(compuestos, sectores, tope=3, n=4)
     mapa = desplazamientos_por_ticker(desplazadas)
     assert mapa == {"T1": ["T4"], "T2": ["T4"], "T3": ["T4"]}
+
+
+def test_solo_se_registran_las_que_perdieron_un_puesto_del_top():
+    # Un sector copado y muchos candidatos. Sin acotar, "desplazadas" recogería
+    # a todos los que el tope bloqueó alguna vez, incluidos los que nunca
+    # habrían entrado en el top: ruido, no información.
+    pares = [(f"T{i:02d}", 10.0 - i, "Tech") for i in range(10)]
+    compuestos, sectores = entradas(pares)
+    elegidas, desplazadas = seleccionar(compuestos, sectores, tope=3, n=5)
+    assert list(elegidas["ticker"]) == ["T00", "T01", "T02"]
+    assert list(desplazadas["ticker"]) == ["T03", "T04"]
 
 
 def test_sin_candidatos_no_revienta():
