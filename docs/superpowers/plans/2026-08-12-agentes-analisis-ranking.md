@@ -2619,6 +2619,51 @@ git commit -m "docs: sub-proyecto B terminado, con la cobertura de las guardas m
 
 ---
 
+## Estado de ejecución — actualizado 2026-08-13
+
+**Tareas 1 a 8 completas**, todas revisadas y en verde. Rama `feat/agentes-ranking`, HEAD `2caf6bf`, **445 tests pasando** (`pytest tests/ -q -m "not red"`), árbol limpio.
+
+| Task | Commits | Suite |
+|---|---|---:|
+| 1 · Criterio congelado | `4d45e9b` · `b95fcc1` | 396 |
+| 2 · Ventana de 4 trimestres | `b39465e` · `9647863` | 402 |
+| 3 · Pilares con signos | `9e63517` · `4b46940` · `7732310` | 408 |
+| 4 · Guardas de exclusión | `3d0b91f` | 414 |
+| 5 · Compuesto por sector | `2757398` · `5b91678` · `66939e3` | 422 |
+| 6 · Control negativo | `f826d2a` · `a448af8` | 425 |
+| 7 · Selección | `8f18bdc` · `fa7f6c0` · `a2f27c4` | 434 |
+| 8 · Fichas numéricas | `b5b585d` · `2caf6bf` | 445 |
+
+**Siguiente: Task 9** (extracción del Item 1A). Las tareas 9 a 15 siguen tal como están escritas arriba, con dos correcciones que la ejecución ya introdujo y que hay que respetar:
+
+- `marcar_sin_pares` tiene la firma `(motivos, compuestos, sectores)` — sin `min_pares`. El código de la Task 14 en este plan la llama con dos argumentos; corregir al integrarla.
+- Las etiquetas de exclusión son seis, no cuatro: `historia_corta`, `datos_rancios`, `pilar_sin_datos`, `cobertura_insuficiente`, `sector_desconocido`, `sin_dispersion_sectorial`.
+
+### La disciplina que hay que mantener
+
+Siete de las ocho revisiones encontraron un defecto real, y **los siete eran tests que no podían fallar**: verificaban el caso feliz sin comprobar nunca que distinguían el caso roto. No eran fallos de implementación — el código salía bien casi siempre.
+
+El remedio es barato y hay que exigirlo en cada tarea: **romper a propósito la cosa que el test dice verificar, comprobar que el test falla, restaurar, y reportar la salida literal.** Desde que se pidió en cada despacho, los implementadores empezaron a encontrar los huecos ellos mismos antes de la revisión.
+
+Casos concretos que se colaron y lo que los cazó:
+
+| Hueco | Lo habría pasado por alto |
+|---|---|
+| Signos fijados sólo en 5 de 17 KPIs | `roe: -1` invertía el ranking en silencio |
+| `valores` sin cobertura real | Promediar las columnas `z_` en vez de las crudas |
+| Fixtures de un solo ticker | Un escalar repartido a todas las filas |
+| Tolerancia ±0,10 en el control negativo | El artefacto que buscaba mide 0,087 |
+| El límite `n` sin test | El "15" de "top 15" |
+| `puesto` compactado sin aserción | Filtrar el rango global en su lugar |
+| `json.dumps` sin `allow_nan=False` | Escribir el literal `NaN`, que no es JSON |
+
+### Desviaciones conscientes de la skill de ejecución
+
+- A partir de la Task 4 las dos revisiones (spec y calidad) van en **un solo subagente**, primero una y luego la otra, por presupuesto de sesión. Pierde el contexto fresco e independiente entre ambas.
+- La Task 7 se aceptó sin tercera ronda de revisión: las cinco correcciones eran aplicación mecánica de código especificado literalmente, con bite-check verbatim.
+
+---
+
 ## Comprobación final
 
 - [ ] `pytest tests/ -q -m "not red"` en verde
