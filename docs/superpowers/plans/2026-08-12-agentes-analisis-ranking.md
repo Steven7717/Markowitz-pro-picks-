@@ -2621,7 +2621,7 @@ git commit -m "docs: sub-proyecto B terminado, con la cobertura de las guardas m
 
 ## Estado de ejecución — actualizado 2026-08-13
 
-**Tareas 1 a 8 completas**, todas revisadas y en verde. Rama `feat/agentes-ranking`, HEAD `2caf6bf`, **445 tests pasando** (`pytest tests/ -q -m "not red"`), árbol limpio.
+**Tareas 1 a 9 completas**, todas revisadas y en verde. Rama `feat/agentes-ranking`, HEAD `5fe9179`, **453 tests pasando** (`pytest tests/ -q -m "not red"`), árbol limpio.
 
 | Task | Commits | Suite |
 |---|---|---:|
@@ -2633,11 +2633,15 @@ git commit -m "docs: sub-proyecto B terminado, con la cobertura de las guardas m
 | 6 · Control negativo | `f826d2a` · `a448af8` | 425 |
 | 7 · Selección | `8f18bdc` · `fa7f6c0` · `a2f27c4` | 434 |
 | 8 · Fichas numéricas | `b5b585d` · `2caf6bf` | 445 |
+| 9 · Item 1A con caché | `9e30f85` · `5fe9179` | 453 |
 
-**Siguiente: Task 9** (extracción del Item 1A). Las tareas 9 a 15 siguen tal como están escritas arriba, con dos correcciones que la ejecución ya introdujo y que hay que respetar:
+**Siguiente: Task 10** (verificadores de cita y de dígitos). Las tareas 10 a 15 siguen tal como están escritas arriba, con tres correcciones que la ejecución ya introdujo y que hay que respetar:
 
 - `marcar_sin_pares` tiene la firma `(motivos, compuestos, sectores)` — sin `min_pares`. El código de la Task 14 en este plan la llama con dos argumentos; corregir al integrarla.
 - Las etiquetas de exclusión son seis, no cuatro: `historia_corta`, `datos_rancios`, `pilar_sin_datos`, `cobertura_insuficiente`, `sector_desconocido`, `sin_dispersion_sectorial`.
+- `ranking/filings.py` tiene ocho tests, no seis, y `cargar_riesgos` sanea la caché corrupta o con esquema viejo por su cuenta. La Task 14 no necesita envolverla en un `try`.
+
+**Aviso para la Task 14 — un hazard dormido.** `_escribir_cache` deriva el nombre del temporal sólo del ticker (`fichero.with_suffix(".tmp")`), así que dos procesos cargando el mismo ticker comparten un único `.tmp` y uno puede hacer `replace()` de un fichero que el otro aún escribe, anulando justo la atomicidad que el temporal existe para dar. En un programa de un solo hilo no puede pasar, y por eso se dejó como está. **Despierta en cuanto se paralelicen las 502 descargas** — que es lo natural de querer, siendo ésta la etapa limitada por red. El seguro es barato: `tempfile.mkstemp(dir=...)` o el pid en el nombre. `fundamentals/fetch.py:124` tiene la forma idéntica, así que arreglar uno solo sería peor que arreglar los dos o ninguno.
 
 ### La disciplina que hay que mantener
 
@@ -2656,6 +2660,14 @@ Casos concretos que se colaron y lo que los cazó:
 | El límite `n` sin test | El "15" de "top 15" |
 | `puesto` compactado sin aserción | Filtrar el rango global en su lugar |
 | `json.dumps` sin `allow_nan=False` | Escribir el literal `NaN`, que no es JSON |
+| Fixture de caché en ASCII puro | Escribir el filing en cp1252 y no volver a leerlo nunca |
+
+**La Task 9 cambió de dónde salieron los huecos.** Por primera vez los siete tests del plan mordían para lo que cada uno decía verificar —el implementador cazó él solo el único que no, y la revisión lo reprodujo—. Los dos hallazgos importantes estaban en otro sitio: en las **dos features de robustez que el implementador añadió sin que se le pidieran** (escritura atómica y auto-sanado de caché corrupta). Añadió el código y no lo cubrió bien:
+
+- La fixture heredada era `"A" * 500`, ASCII puro, donde cp1252 y utf-8 dan los mismos bytes: quitar el `encoding="utf-8"` dejaba los siete tests en verde. Y el auto-sanado recién añadido **convertía ese fallo en invisible** — `UnicodeDecodeError` → borrar el fichero → tratarlo como fallo de caché → redescargar en cada corrida, para siempre, sin error. Un Item 1A real va lleno de comillas tipográficas. Arreglo: `"—" * 500`.
+- El auto-sanado sólo cubría JSON no parseable. Un JSON válido con otra forma lo atravesaba y reventaba después con `KeyError: 'texto'`, que es justo el atasco permanente que la función existía para evitar.
+
+La lección que generaliza: **cuando un implementador añade robustez que no se le pidió, hay que revisar esa parte con más escrutinio que el resto, no con menos.** No hay test escrito de antemano que la cubra, y el propio mecanismo defensivo tiende a enmascarar el fallo que debería denunciar.
 
 ### Desviaciones conscientes de la skill de ejecución
 
