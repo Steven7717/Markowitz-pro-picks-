@@ -1,5 +1,8 @@
+import json
+
 import numpy as np
 import pandas as pd
+import pytest
 
 from fundamentals.kpis import TODOS_LOS_KPIS
 from ranking.fichas import descriptor, ficha_numerica
@@ -56,6 +59,8 @@ def test_el_multiplo_caro_sale_entre_los_flojos_no_entre_los_destacados():
 
 
 def test_destacados_y_flojos_no_se_solapan():
+    # Con los 17 KPIs medidos no hay solape que detectar: este test documenta
+    # la intención, y el que muerde de verdad es el de pocos KPIs.
     ficha = ficha_ejemplo()
     destacados = {item["kpi"] for item in ficha["destacados"]}
     flojos = {item["kpi"] for item in ficha["flojos"]}
@@ -96,12 +101,33 @@ def test_un_pilar_sin_medir_sale_como_nulo_no_como_cero():
     assert ficha["cobertura"]["pilares_con_dato"] == 3
 
 
-def test_la_ficha_es_serializable_a_json():
-    # fichas.json es el contrato con el sub-proyecto C: si algún valor sigue
-    # siendo un tipo de numpy, json.dumps revienta al escribirlo.
-    import json
+def test_la_ficha_es_serializable_a_json_estricto():
+    # fichas.json es el contrato con el sub-proyecto C. Dos cosas lo rompen: un
+    # tipo de numpy, que hace reventar a json.dumps, y un NaN, que json.dumps
+    # acepta por defecto y escribe como el literal `NaN` —que no es JSON válido
+    # y que un parser estricto rechaza. allow_nan=False es el contrato de verdad.
+    json.dumps(ficha_ejemplo(), allow_nan=False)
 
-    json.dumps(ficha_ejemplo())
+
+def test_una_ficha_con_pilares_sin_medir_sigue_siendo_json_estricto():
+    pilares = pd.Series(
+        {"calidad": 1.9, "crecimiento": float("nan"), "valoracion": -0.2, "solidez": 1.1}
+    )
+    conteo = pd.Series({"calidad": 7, "crecimiento": 0, "valoracion": 4, "solidez": 3})
+    z = serie({"roe": 1.0, "roic": 0.5})
+    valores = serie({"roe": 0.2, "roic": 0.1})
+    ficha = ficha_ejemplo(pilares=pilares, conteo=conteo, z=z, valores=valores)
+
+    json.dumps(ficha, allow_nan=False)
+
+
+def test_una_ficha_sin_compuesto_no_se_puede_serializar():
+    # Una empresa sin compuesto no debería haber sido seleccionada: la
+    # selección descarta los NaN. Que reviente al escribir el fichero es
+    # preferible a un `null` que disimula un estado imposible.
+    ficha = ficha_ejemplo(compuesto=float("nan"))
+    with pytest.raises(ValueError):
+        json.dumps(ficha, allow_nan=False)
 
 
 def test_el_descriptor_traduce_el_z_a_palabras_sin_digitos():
