@@ -3,7 +3,13 @@ import pandas as pd
 
 from fundamentals.kpis import TODOS_LOS_KPIS
 from ranking.criterio import PILARES
-from ranking.score import aplicar_guardas, media_ventana, puntuaciones_por_pilar
+from ranking.score import (
+    aplicar_guardas,
+    compuesto,
+    marcar_sin_pares,
+    media_ventana,
+    puntuaciones_por_pilar,
+)
 
 
 def panel_falso(
@@ -279,3 +285,68 @@ def test_una_empresa_ausente_del_historial_se_excluye():
     vacio = pd.DataFrame(columns=["trimestres", "ultimo_trimestre"])
     motivos = aplicar_guardas(pilares, conteo, vacio, "2025Q2")
     assert motivos["AAA"] == "historia_corta"
+
+
+def test_el_compuesto_se_reestandariza_dentro_del_sector():
+    # Tres empresas del mismo sector con compuestos brutos crecientes: tras
+    # re-estandarizar, la media del sector es 0 y la desviación 1.
+    medias = medias_falsas(
+        {
+            "AAA": {kpi: 1.0 for kpi in TODOS_LOS_KPIS},
+            "BBB": {kpi: 2.0 for kpi in TODOS_LOS_KPIS},
+            "CCC": {kpi: 3.0 for kpi in TODOS_LOS_KPIS},
+        }
+    )
+    pilares, _ = puntuaciones_por_pilar(medias)
+    motivos = pd.Series(pd.NA, index=pilares.index, dtype="object")
+    sectores = pd.Series("Tech", index=pilares.index)
+
+    puntos = compuesto(pilares, motivos, sectores)
+
+    assert abs(puntos.mean()) < 1e-12
+    assert abs(puntos.std(ddof=1) - 1.0) < 1e-12
+    assert puntos["CCC"] > puntos["BBB"] > puntos["AAA"]
+
+
+def test_una_empresa_excluida_no_puntua():
+    medias = medias_falsas({t: {kpi: 1.0 for kpi in TODOS_LOS_KPIS} for t in "ABC"})
+    pilares, _ = puntuaciones_por_pilar(medias)
+    motivos = pd.Series(pd.NA, index=pilares.index, dtype="object")
+    motivos["A"] = "historia_corta"
+    sectores = pd.Series("Tech", index=pilares.index)
+
+    puntos = compuesto(pilares, motivos, sectores)
+
+    assert pd.isna(puntos["A"])
+
+
+def test_un_pilar_en_nan_deja_el_compuesto_en_nan():
+    # Sin esto, una empresa con tres pilares medidos competiría contra otras
+    # con cuatro y el compuesto significaría cosas distintas en cada fila.
+    completa = {kpi: 1.0 for kpi in TODOS_LOS_KPIS}
+    sin_crecimiento = {
+        kpi: 1.0 for kpi in TODOS_LOS_KPIS if kpi not in PILARES_CRECIMIENTO
+    }
+    medias = medias_falsas({"AAA": completa, "BBB": completa, "CCC": sin_crecimiento})
+    pilares, _ = puntuaciones_por_pilar(medias)
+    motivos = pd.Series(pd.NA, index=pilares.index, dtype="object")
+    sectores = pd.Series("Tech", index=pilares.index)
+
+    puntos = compuesto(pilares, motivos, sectores)
+
+    assert pd.isna(puntos["CCC"])
+
+
+def test_un_sector_con_menos_de_tres_pares_se_nombra_como_exclusion():
+    # zscore_within_sector devuelve NaN con menos de 3 pares. Sin nombrarlo,
+    # esas empresas desaparecerían del ranking sin explicación.
+    medias = medias_falsas({t: {kpi: 1.0 for kpi in TODOS_LOS_KPIS} for t in "AB"})
+    pilares, _ = puntuaciones_por_pilar(medias)
+    motivos = pd.Series(pd.NA, index=pilares.index, dtype="object")
+    sectores = pd.Series("Utilities", index=pilares.index)
+
+    puntos = compuesto(pilares, motivos, sectores)
+    motivos = marcar_sin_pares(motivos, puntos)
+
+    assert motivos["A"] == "sector_sin_pares"
+    assert motivos["B"] == "sector_sin_pares"

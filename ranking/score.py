@@ -1,11 +1,13 @@
 import pandas as pd
 
 from fundamentals.kpis import TODOS_LOS_KPIS
+from fundamentals.sectors import zscore_within_sector
 from ranking.criterio import (
     MAX_ANTIGUEDAD_TRIMESTRES,
     MIN_KPIS_CON_DATO,
     MIN_PILARES_CON_DATO,
     MIN_TRIMESTRES_HISTORIA,
+    PESOS,
     PILARES,
     SIGNOS,
     TRIMESTRES_VENTANA,
@@ -102,7 +104,7 @@ def _rezago_trimestres(ultimos: pd.Series, trimestre_max: str) -> pd.Series:
     ranking is computed from, and a run made three months later must not start
     excluding companies that were current when the data was fetched.
     """
-    ordinales = pd.PeriodIndex(ultimos.astype(str), freq="Q").asi8
+    ordinales = pd.PeriodIndex(ultimos.astype(str), freq="Q").astype("int64")
     tope = pd.Period(trimestre_max, freq="Q").ordinal
     return pd.Series(tope - ordinales, index=ultimos.index)
 
@@ -146,4 +148,50 @@ def aplicar_guardas(
     pocos = conteo.sum(axis=1) < MIN_KPIS_CON_DATO
     motivos[pocos & motivos.isna()] = "cobertura_insuficiente"
 
+    return motivos
+
+
+def compuesto(
+    pilares: pd.DataFrame, motivos: pd.Series, sectores: pd.Series
+) -> pd.Series:
+    """Weighted composite, re-standardised within sector before the global sort.
+
+    A pillar averaged over two KPIs is more variable than one averaged over
+    seven, and the companies missing KPIs are concentrated in banks, insurers
+    and REITs. Without this step their composites would be systematically more
+    extreme and would crowd both ends of the global order — the ranking would be
+    measuring how many KPIs a company publishes, and would look entirely normal
+    while doing it.
+
+    Re-standardising within sector alone, with no time axis: after averaging the
+    window there is one row per company, and grouping by the company's own last
+    quarter would produce groups of one, where a z-score is 0 by construction.
+    See amendment 1 of the design document.
+    """
+    if pilares.empty:
+        return pd.Series(dtype="float64", index=pilares.index)
+
+    pesos = pd.Series(PESOS)
+    # min_count exige los cuatro pilares: una empresa con tres medidos no
+    # compite contra otras con cuatro.
+    bruto = (pilares[list(pesos.index)] * pesos).sum(axis=1, min_count=len(pesos))
+    bruto = bruto.mask(motivos.reindex(bruto.index).notna())
+
+    normalizado = zscore_within_sector(
+        bruto.to_frame("compuesto"), sectores.reindex(bruto.index)
+    )
+    return normalizado["compuesto"]
+
+
+def marcar_sin_pares(motivos: pd.Series, compuestos: pd.Series) -> pd.Series:
+    """Name the exclusion for companies the sector re-standardisation dropped.
+
+    zscore_within_sector returns NaN — never 0 — when a sector has fewer than
+    three peers or no dispersion. Those companies would otherwise fall out of
+    the ranking with no reason attached, which is the one thing the guards exist
+    to prevent.
+    """
+    motivos = motivos.copy()
+    huerfanas = compuestos.reindex(motivos.index).isna() & motivos.isna()
+    motivos[huerfanas] = "sector_sin_pares"
     return motivos
