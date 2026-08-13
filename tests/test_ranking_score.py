@@ -3,7 +3,7 @@ import pandas as pd
 
 from fundamentals.kpis import TODOS_LOS_KPIS
 from ranking.criterio import PILARES
-from ranking.score import media_ventana
+from ranking.score import media_ventana, puntuaciones_por_pilar
 
 
 def panel_falso(
@@ -120,9 +120,6 @@ def test_panel_vacio_no_revienta():
     assert z is not valores
 
 
-from ranking.score import puntuaciones_por_pilar
-
-
 def medias_falsas(por_ticker: dict[str, dict[str, float]]) -> pd.DataFrame:
     """Tabla con la forma que devuelve media_ventana(): ticker x 17 KPIs."""
     marco = pd.DataFrame(
@@ -176,3 +173,15 @@ def test_medias_vacias_no_revientan():
     # tiene que funcionar.
     assert pilares.index.name == "ticker"
     assert pilares is not conteo
+
+
+def test_cada_empresa_se_puntua_por_separado():
+    # Con un solo ticker, un cálculo por fila y un escalar repartido a todas
+    # las filas dan lo mismo. Hacen falta dos empresas con cobertura distinta
+    # para que un colapso de eje se note.
+    medias = medias_falsas({"AAA": {"roe": 2.0, "roic": 4.0}, "BBB": {"roe": 1.0}})
+    pilares, conteo = puntuaciones_por_pilar(medias)
+    assert conteo.loc["AAA", "calidad"] == 2
+    assert conteo.loc["BBB", "calidad"] == 1
+    assert pilares.loc["AAA", "calidad"] == 3.0
+    assert pilares.loc["BBB", "calidad"] == 1.0

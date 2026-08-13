@@ -74,11 +74,14 @@ def puntuaciones_por_pilar(medias: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataF
         return vacio, vacio.copy().astype("int64")
 
     con_signo = medias.mul(pd.Series(SIGNOS), axis=1)
+    bloques = {pilar: con_signo[list(kpis)] for pilar, kpis in PILARES.items()}
 
-    pilares = pd.DataFrame(index=medias.index, dtype="float64")
-    conteo = pd.DataFrame(index=medias.index, dtype="int64")
-    for pilar, kpis in PILARES.items():
-        bloque = con_signo[list(kpis)]
-        pilares[pilar] = bloque.mean(axis=1)
-        conteo[pilar] = bloque.notna().sum(axis=1)
+    pilares = pd.DataFrame(
+        {pilar: bloque.mean(axis=1) for pilar, bloque in bloques.items()},
+        index=medias.index,
+    )
+    conteo = pd.DataFrame(
+        {pilar: bloque.notna().sum(axis=1) for pilar, bloque in bloques.items()},
+        index=medias.index,
+    )
     return pilares, conteo
