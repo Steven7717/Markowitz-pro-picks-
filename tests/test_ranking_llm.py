@@ -7,7 +7,9 @@ from pydantic import ValidationError
 from ranking.llm import (
     MAX_CARACTERES_CITA,
     MAX_RIESGOS,
+    MAX_TOKENS,
     MIN_CARACTERES_CITA,
+    SISTEMA,
     Narrativa,
     Riesgo,
     redactar,
@@ -120,7 +122,11 @@ class ClienteFalso:
     def __init__(self, *respuestas):
         self.respuestas = list(respuestas)
         self.llamadas = []
-        self.messages = MagicMock()
+        # spec= en los dos MagicMock: un método o atributo que redactar no
+        # llama de verdad (un rename de parse->create, un narrativa.usage
+        # que nadie definió) tiene que fallar con AttributeError, no
+        # devolver un Mock silencioso que hace pasar el test por accidente.
+        self.messages = MagicMock(spec=["parse"])
         self.messages.parse = self._parse
 
     def _parse(self, **kwargs):
@@ -128,7 +134,7 @@ class ClienteFalso:
         siguiente = self.respuestas.pop(0)
         if isinstance(siguiente, Exception):
             raise siguiente
-        return MagicMock(parsed_output=siguiente)
+        return MagicMock(spec=["parsed_output"], parsed_output=siguiente)
 
 
 def narrativa(cita: str, tesis: str = "Negocio sólido y bien valorado") -> Narrativa:
@@ -267,3 +273,173 @@ def test_un_error_inesperado_no_se_traga():
     cliente = ClienteFalso(RuntimeError("fallo que no debería tragarse"))
     with pytest.raises(RuntimeError):
         redactar("contexto", FUENTE, cliente=cliente)
+
+
+def test_respuesta_sin_parsed_output_degrada_a_none():
+    # Alcanzable de verdad: una respuesta cuyo único bloque no sea de texto
+    # estructurado deja parsed_output en None. Sin este test la guarda era
+    # robustez sin cobertura.
+    cliente = ClienteFalso(None)
+    assert redactar("contexto", FUENTE, cliente=cliente) is None
+    assert len(cliente.llamadas) == 1
+
+
+def test_una_afirmacion_vacia_no_sobrevive_al_reintento():
+    # H1: una afirmación vacía (o de sólo espacios) con una cita real se
+    # aceptaba en la primera pasada, sellada "verificada: true" sobre nada
+    # —peor que la tesis vacía cerrada antes, porque a simple vista trae una
+    # cita de verdad del filing. Invalida sólo ese riesgo, no la narrativa
+    # entera: si sigue vacía tras el reintento, se descarta y se conserva
+    # el resto (aquí, nada más que quede).
+    vacio = Riesgo(
+        afirmacion="",
+        cita="We depend on a limited number of suppliers for key components",
+    )
+    solo_espacios = Riesgo(
+        afirmacion="   ",
+        cita="Our business is subject to intense competition",
+    )
+    primera = Narrativa(tesis="Negocio sólido", riesgos=[vacio, solo_espacios])
+    segunda = Narrativa(tesis="Negocio sólido", riesgos=[vacio, solo_espacios])
+    cliente = ClienteFalso(primera, segunda)
+    resultado = redactar("contexto", FUENTE, cliente=cliente)
+    assert resultado == {"tesis": "Negocio sólido", "riesgos": []}
+    assert len(cliente.llamadas) == 2
+
+
+def test_detecta_digitos_en_la_afirmacion_no_solo_en_la_tesis():
+    # El spec pedía cifras fuera de la tesis Y de cada afirmación; sólo la
+    # tesis tenía cobertura. Borrar el término de afirmacion en con_digitos
+    # dejaba esto en verde sin que nada lo notara.
+    riesgo_con_cifra = Riesgo(
+        afirmacion="Los márgenes caen 30 puntos básicos",
+        cita="depend on a limited number of suppliers",
+    )
+    con_cifra = Narrativa(tesis="Negocio sólido", riesgos=[riesgo_con_cifra])
+    cliente = ClienteFalso(con_cifra, con_cifra)
+    assert redactar("contexto", FUENTE, cliente=cliente) is None
+
+
+def test_el_reintento_explica_la_afirmacion_vacia():
+    vacio = Riesgo(afirmacion="", cita="depend on a limited number of suppliers")
+    primera = Narrativa(tesis="Negocio sólido", riesgos=[vacio])
+    segunda = Narrativa(tesis="Negocio sólido", riesgos=[vacio])
+    cliente = ClienteFalso(primera, segunda)
+    redactar("contexto", FUENTE, cliente=cliente)
+    segundo_envio = cliente.llamadas[1]["messages"][-1]["content"]
+    assert "afirmación" in segundo_envio
+
+
+def test_el_prompt_original_sobrevive_al_reintento():
+    # El bug posible: `[] + [...]` en vez de `mensajes + [...]` en el
+    # reintento manda al modelo a citar un texto que ya no ve.
+    cliente = ClienteFalso(
+        narrativa("cita inventada que no está"),
+        narrativa("limited number of suppliers"),
+    )
+    redactar("contexto", FUENTE, cliente=cliente)
+    primer_envio = cliente.llamadas[0]["messages"]
+    segundo_envio = cliente.llamadas[1]["messages"]
+    assert segundo_envio[0] == primer_envio[0]
+    assert segundo_envio[0]["role"] == "user"
+    assert "Empresa candidata" in segundo_envio[0]["content"]
+
+
+def test_el_reintento_es_exactamente_uno():
+    # El tope real no lo pone range(2) —intento == 1 decide, así que
+    # range(2) -> range(3) no cambiaría nada— sino el propio contrato: un
+    # cliente con tres respuestas en cola sólo debe recibir dos llamadas.
+    cliente = ClienteFalso(
+        narrativa("cita totalmente inventada y ausente, uno"),
+        narrativa("cita totalmente inventada y ausente, dos"),
+        narrativa("limited number of suppliers"),
+    )
+    resultado = redactar("contexto", FUENTE, cliente=cliente)
+    assert len(cliente.llamadas) == 2
+    assert resultado["riesgos"][0]["verificada"] is False
+
+
+def test_la_llamada_lleva_la_forma_esperada():
+    # Nada fijaba system=, thinking=, output_format=, max_tokens= ni que se
+    # respetara el parámetro modelo — todas esas mutaciones sobrevivían.
+    cliente = ClienteFalso(narrativa("limited number of suppliers"))
+    redactar("contexto", FUENTE, cliente=cliente, modelo="modelo-de-prueba")
+    envio = cliente.llamadas[0]
+    assert envio["model"] == "modelo-de-prueba"
+    assert envio["max_tokens"] == MAX_TOKENS
+    assert envio["system"] == SISTEMA
+    assert envio["output_format"] is Narrativa
+    assert envio["thinking"] == {"type": "disabled"}
+
+
+def test_el_sistema_comunica_el_minimo_de_la_cita():
+    # La enmienda 2 del diseño (mínimo de 25 caracteres) no se le había
+    # comunicado nunca al modelo; ningún test importaba SISTEMA para
+    # comprobarlo.
+    assert "veinticinco" in SISTEMA
+
+
+def test_tesis_de_solo_caracteres_invisibles_no_se_acepta():
+    # str.strip() no ve el espacio de ancho cero (U+200B): no es whitespace
+    # para Python aunque se lea vacío. "   ".strip() sí lo cazaba; esto no.
+    cliente = ClienteFalso(
+        Narrativa(tesis="\u200b", riesgos=[]),
+        Narrativa(tesis="\u200b", riesgos=[]),
+    )
+    assert redactar("contexto", FUENTE, cliente=cliente) is None
+
+
+def test_las_citas_se_verifican_contra_la_fuente_no_contra_el_prompt():
+    # Barato de romper: mutar el verificar_cita(riesgo.cita, fuente) de
+    # _a_dict —el que de verdad decide "verificada" en la salida— por algo
+    # que incluyera el prompt completo ampliaría la falsa aceptación: una
+    # cita tomada de la propia instrucción, no del filing, pasaría como
+    # verificada. No está en `fuente`, así que la primera pasada cuenta
+    # como fallo y hace falta una segunda respuesta para llegar al
+    # resultado final.
+    de_la_instruccion = narrativa("cada uno con su cita literal")
+    cliente = ClienteFalso(de_la_instruccion, de_la_instruccion)
+    resultado = redactar("contexto", FUENTE, cliente=cliente)
+    assert resultado["riesgos"][0]["verificada"] is False
+
+
+def test_el_sistema_avisa_que_las_cifras_de_empresa_candidata_no_se_copian():
+    assert "Empresa candidata" in SISTEMA
+
+
+def test_el_contexto_va_delimitado_igual_que_la_fuente():
+    # Sin delimitar, el bloque "Empresa candidata" —lleno de cifras del
+    # panel real en la Task 14— es indistinguible del resto del prompt y es
+    # lo más copiable a la tesis.
+    cliente = ClienteFalso(narrativa("limited number of suppliers"))
+    redactar("un contexto con AAPL", FUENTE, cliente=cliente)
+    prompt = cliente.llamadas[0]["messages"][0]["content"]
+    assert "<<<\nun contexto con AAPL\n>>>" in prompt
+
+
+def test_el_prompt_de_usuario_no_lleva_digitos():
+    # {MAX_RIESGOS} se interpolaba como dígito literal ("3") en el turno de
+    # usuario — el mismo riesgo de copiado que motivó escribir "doscientos"
+    # y "veinticinco" en SISTEMA en vez de las cifras, pero sin cerrar aquí.
+    cliente = ClienteFalso(narrativa("limited number of suppliers"))
+    redactar("un contexto sin cifras", FUENTE, cliente=cliente)
+    prompt = cliente.llamadas[0]["messages"][0]["content"]
+    assert sin_digitos(prompt)
+
+
+def test_el_eco_del_reintento_no_lleva_mas_de_max_riesgos():
+    # El eco llevaba los diez riesgos aunque el código sólo verificó tres:
+    # el modelo veía diez ecos y una queja sobre tres, sin señal de que el
+    # resto se descartó.
+    riesgos_de_sobra = [
+        Riesgo(
+            afirmacion=f"Riesgo marcado {letra}",
+            cita="cita inventada que no aparece nunca en el filing",
+        )
+        for letra in "abcdefghij"
+    ]
+    primera = Narrativa(tesis="Negocio sólido", riesgos=riesgos_de_sobra)
+    cliente = ClienteFalso(primera, narrativa("limited number of suppliers"))
+    redactar("contexto", FUENTE, cliente=cliente)
+    eco_assistant = cliente.llamadas[1]["messages"][1]["content"]
+    assert eco_assistant.count("Riesgo marcado") == MAX_RIESGOS
