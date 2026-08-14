@@ -1,18 +1,29 @@
+import json
+import subprocess
+import sys
+from pathlib import Path
 from unittest.mock import MagicMock
 
 import anthropic
 import pytest
 from pydantic import ValidationError
 
+import ranking.llm as llm
 from ranking.llm import (
     MAX_RIESGOS,
     MAX_TOKENS,
     SISTEMA,
+    VERSION_PROMPT,
     Narrativa,
     Riesgo,
+    clave_cache,
     redactar,
+    redactar_con_cache,
     sin_digitos,
 )
+from ranking.verificacion import MAX_CARACTERES_CITA, MIN_CARACTERES_CITA
+
+RAIZ_REPO = Path(__file__).resolve().parent.parent
 
 FUENTE = (
     "Our business is subject to  intense competition.\n"
@@ -347,3 +358,207 @@ def test_el_eco_del_reintento_no_lleva_mas_de_max_riesgos():
     redactar("contexto", FUENTE, cliente=cliente)
     eco_assistant = cliente.llamadas[1]["messages"][1]["content"]
     assert eco_assistant.count("Riesgo marcado") == MAX_RIESGOS
+
+
+# --- Task 12: caché de fichas por hash de contenido -----------------------
+
+
+def _ruta_cache(directorio: Path, contexto: str, fuente: str, modelo: str = None) -> Path:
+    modelo = modelo or llm.MODELO
+    return directorio / f"{clave_cache(contexto, fuente, modelo, VERSION_PROMPT)}.json"
+
+
+def test_la_clave_es_estable_entre_procesos():
+    # hashlib, no hash(): Python aleatoriza el hash de strings entre
+    # procesos. Llamar dos veces *en el mismo proceso* no prueba eso —
+    # hash() también es estable dentro de un mismo proceso, así que ese
+    # test pasaría igual con la implementación rota que dice descartar. Se
+    # lanza un subproceso real y se compara con el proceso actual, que es lo
+    # que el comentario original decía estar probando.
+    primera = clave_cache("ctx", "fuente", "modelo", "b1")
+    codigo = (
+        "from ranking.llm import clave_cache\n"
+        "print(clave_cache('ctx', 'fuente', 'modelo', 'b1'))"
+    )
+    proceso = subprocess.run(
+        [sys.executable, "-c", codigo],
+        cwd=RAIZ_REPO,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    segunda = proceso.stdout.strip()
+    assert primera == segunda
+    assert len(primera) == 64
+
+
+def test_la_clave_cambia_si_cambia_cualquier_pieza():
+    base = clave_cache("ctx", "fuente", "modelo", "b1")
+    assert clave_cache("otro", "fuente", "modelo", "b1") != base
+    assert clave_cache("ctx", "otra", "modelo", "b1") != base
+    assert clave_cache("ctx", "fuente", "otro", "b1") != base
+    assert clave_cache("ctx", "fuente", "modelo", "b2") != base
+
+
+def test_la_clave_incluye_el_sistema():
+    # La Task 11 cambió SISTEMA dos veces sin que nada obligara a subir
+    # VERSION_PROMPT a mano; si alguien lo cambia y se olvida, la caché
+    # tenía que servir narrativas generadas bajo reglas viejas sin avisar.
+    base = clave_cache("ctx", "fuente", "modelo", "b1", sistema="Reglas A")
+    assert clave_cache("ctx", "fuente", "modelo", "b1", sistema="Reglas B") != base
+
+
+def test_la_clave_por_defecto_usa_el_sistema_vigente_del_modulo():
+    # Sin pasar sistema=, clave_cache tiene que usar el SISTEMA vigente —el
+    # mismo que redactar() manda de verdad—, no un valor congelado aparte.
+    assert clave_cache("ctx", "fuente", "modelo", "b1") == clave_cache(
+        "ctx", "fuente", "modelo", "b1", sistema=SISTEMA
+    )
+
+
+def test_la_clave_incluye_el_minimo_de_caracteres_de_cita(monkeypatch):
+    # La enmienda 2 del diseño cambió MIN_CARACTERES_CITA a mitad de este
+    # sub-proyecto: una entrada de caché calculada bajo una cota vieja no es
+    # una respuesta válida bajo la cota nueva, porque "verificada" depende
+    # de esa cota y viaja horneada dentro del diccionario cacheado.
+    base = clave_cache("ctx", "fuente", "modelo", "b1")
+    monkeypatch.setattr(llm, "MIN_CARACTERES_CITA", MIN_CARACTERES_CITA + 1)
+    assert clave_cache("ctx", "fuente", "modelo", "b1") != base
+
+
+def test_la_clave_incluye_el_maximo_de_caracteres_de_cita(monkeypatch):
+    base = clave_cache("ctx", "fuente", "modelo", "b1")
+    monkeypatch.setattr(llm, "MAX_CARACTERES_CITA", MAX_CARACTERES_CITA + 1)
+    assert clave_cache("ctx", "fuente", "modelo", "b1") != base
+
+
+def test_la_segunda_corrida_no_vuelve_a_llamar(tmp_path: Path):
+    cliente = ClienteFalso(narrativa("limited number of suppliers"))
+    primera = redactar_con_cache("ctx", FUENTE, cache_dir=tmp_path, cliente=cliente)
+    segunda = redactar_con_cache("ctx", FUENTE, cache_dir=tmp_path, cliente=cliente)
+    assert primera == segunda
+    assert len(cliente.llamadas) == 1
+
+
+def test_no_cachea_los_fallos(tmp_path: Path):
+    # Cachear un None congelaría un fallo transitorio para siempre.
+    fallo = ClienteFalso(anthropic.APIConnectionError(request=MagicMock()))
+    assert redactar_con_cache("ctx", FUENTE, cache_dir=tmp_path, cliente=fallo) is None
+    # No basta con comprobar el resultado de la segunda llamada: _forma_valida
+    # rechazaría un `null` cacheado igual que rechaza cualquier forma que no
+    # sea la de una ficha, así que "escribir siempre, incluso en fallo" podría
+    # colarse sin que la aserción de abajo lo note. Lo que fija de verdad
+    # "no cachea los fallos" es que no se haya escrito nada en absoluto.
+    assert list(tmp_path.glob("*.json")) == []
+
+    bueno = ClienteFalso(narrativa("limited number of suppliers"))
+    assert redactar_con_cache("ctx", FUENTE, cache_dir=tmp_path, cliente=bueno) is not None
+
+
+def test_cache_corrupta_se_trata_como_fallo_y_se_regenera(tmp_path: Path):
+    # Mismo trato que ranking/filings.py:_leer_cache da a un JSON truncado
+    # por una corrida abortada a mitad de escritura: fallo de caché, no
+    # error fatal, y se regenera.
+    fichero = _ruta_cache(tmp_path, "ctx", FUENTE)
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    fichero.write_text("{esto no es json valido", encoding="utf-8")
+
+    cliente = ClienteFalso(narrativa("limited number of suppliers"))
+    resultado = redactar_con_cache("ctx", FUENTE, cache_dir=tmp_path, cliente=cliente)
+    assert resultado is not None
+    assert len(cliente.llamadas) == 1
+    assert json.loads(fichero.read_text(encoding="utf-8")) == resultado
+
+
+def test_cache_con_forma_inesperada_se_trata_como_fallo_y_se_regenera(tmp_path: Path):
+    # JSON válido pero con otra forma —p.ej. un esquema de una versión
+    # anterior de este módulo, o un riesgo sin "verificada"—: sin este
+    # saneado, esto pasaría _leer_cache y reventaría más abajo con
+    # KeyError en vez de tratarse como caché rota.
+    fichero = _ruta_cache(tmp_path, "ctx", FUENTE)
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    fichero.write_text(
+        json.dumps({"tesis": "de un esquema viejo sin riesgos"}), encoding="utf-8"
+    )
+
+    cliente = ClienteFalso(narrativa("limited number of suppliers"))
+    resultado = redactar_con_cache("ctx", FUENTE, cache_dir=tmp_path, cliente=cliente)
+    assert len(cliente.llamadas) == 1
+    assert resultado["riesgos"][0]["verificada"] is True
+    assert json.loads(fichero.read_text(encoding="utf-8")) == resultado
+
+
+def test_cache_con_riesgo_sin_verificada_se_trata_como_fallo(tmp_path: Path):
+    # Un riesgo con "afirmacion" y "cita" pero sin "verificada" es
+    # exactamente lo que _a_dict nunca produce por sí solo: una forma que
+    # sólo puede venir de un esquema distinto al actual.
+    fichero = _ruta_cache(tmp_path, "ctx", FUENTE)
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    fichero.write_text(
+        json.dumps(
+            {
+                "tesis": "Negocio sólido",
+                "riesgos": [{"afirmacion": "a", "cita": "b"}],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    cliente = ClienteFalso(narrativa("limited number of suppliers"))
+    resultado = redactar_con_cache("ctx", FUENTE, cache_dir=tmp_path, cliente=cliente)
+    assert len(cliente.llamadas) == 1
+    assert resultado["riesgos"][0]["verificada"] is True
+
+
+def test_cache_con_riesgos_que_no_es_una_lista_se_trata_como_fallo(tmp_path: Path):
+    fichero = _ruta_cache(tmp_path, "ctx", FUENTE)
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    fichero.write_text(
+        json.dumps({"tesis": "x", "riesgos": "no es una lista"}), encoding="utf-8"
+    )
+
+    cliente = ClienteFalso(narrativa("limited number of suppliers"))
+    resultado = redactar_con_cache("ctx", FUENTE, cache_dir=tmp_path, cliente=cliente)
+    assert len(cliente.llamadas) == 1
+    assert resultado is not None
+
+
+def test_una_ficha_con_riesgos_vacios_se_cachea_y_se_relee_igual(tmp_path: Path):
+    # Forma válida en el extremo: riesgos=[] no debe confundirse con "forma
+    # inesperada". Nace de test_una_afirmacion_vacia_no_sobrevive_al_reintento
+    # en redactar(), que sí produce esta forma en producción.
+    vacio = Riesgo(afirmacion="", cita="depend on a limited number of suppliers")
+    primera = Narrativa(tesis="Negocio sólido", riesgos=[vacio])
+    segunda = Narrativa(tesis="Negocio sólido", riesgos=[vacio])
+    cliente = ClienteFalso(primera, segunda)
+    resultado = redactar_con_cache("ctx", FUENTE, cache_dir=tmp_path, cliente=cliente)
+    assert resultado == {"tesis": "Negocio sólido", "riesgos": []}
+
+    releida = redactar_con_cache(
+        "ctx", FUENTE, cache_dir=tmp_path, cliente=ClienteFalso()
+    )
+    assert releida == resultado
+
+
+def test_cache_dir_que_no_se_puede_crear_falla_en_vez_de_devolver_algo_mal(
+    tmp_path: Path,
+):
+    # La pregunta en frío: ¿qué pasa si cache_dir apunta a un sitio que no
+    # se puede escribir? La respuesta no puede ser "una ficha equivocada
+    # servida en silencio". Igual que la Task 9 dejó anotado que enmascarar
+    # un fallo real de escritura acaba ocultando que la caché dejó de
+    # funcionar (ver memoria "ranking-tests-que-no-fallan"), aquí se prefiere
+    # reventar de forma ruidosa a degradar en silencio y pagar la llamada
+    # cada vez sin que nadie lo note.
+    bloqueado = tmp_path / "bloqueado"
+    bloqueado.write_text("soy un fichero, no un directorio", encoding="utf-8")
+    cliente = ClienteFalso(narrativa("limited number of suppliers"))
+    with pytest.raises(OSError):
+        redactar_con_cache("ctx", FUENTE, cache_dir=bloqueado, cliente=cliente)
+
+
+def test_la_escritura_no_deja_ficheros_tmp_sueltos(tmp_path: Path):
+    cliente = ClienteFalso(narrativa("limited number of suppliers"))
+    redactar_con_cache("ctx", FUENTE, cache_dir=tmp_path, cliente=cliente)
+    restos = list(tmp_path.glob("*.tmp"))
+    assert restos == []

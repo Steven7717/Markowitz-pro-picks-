@@ -1,14 +1,26 @@
+import hashlib
+import json
 import os
+from pathlib import Path
 
 from pydantic import BaseModel, ValidationError
 
-from ranking.verificacion import sin_digitos, verificar_cita
+from ranking.verificacion import (
+    MAX_CARACTERES_CITA,
+    MIN_CARACTERES_CITA,
+    sin_digitos,
+    verificar_cita,
+)
 
 MODELO = "claude-sonnet-5"
 MAX_TOKENS = 2000
-# Reserved for Task 12's cache key (fichas cached by hash of the prompt
-# content). Unused in this module on purpose — bump it whenever SISTEMA or
-# _prompt's shape changes in a way that should invalidate that cache.
+# Task 12's cache key (ranking/llm.py:clave_cache) folds in SISTEMA and the
+# two verificar_cita bounds automatically — a change to any of those
+# invalidates the cache on its own, no bump needed. This stays as the manual
+# escape hatch for what the hash cannot see by itself: a wording change in
+# _prompt(), MAX_RIESGOS, MAX_TOKENS, or any other change to how the request
+# is built. Bump it by hand whenever one of those changes in a way that
+# should invalidate the cache.
 VERSION_PROMPT = "b1"
 MAX_RIESGOS = 3
 
@@ -219,3 +231,168 @@ def redactar(
                 ),
             },
         ]
+
+
+CACHE_DIR = Path(__file__).parent / ".cache" / "fichas"
+
+_CAMPOS_ESPERADOS = {"tesis", "riesgos"}
+_CAMPOS_RIESGO_ESPERADOS = {"afirmacion", "cita", "verificada"}
+
+
+def clave_cache(
+    contexto: str, fuente: str, modelo: str, version: str, sistema: str = SISTEMA
+) -> str:
+    """Content hash of everything that could change the narrative.
+
+    hashlib rather than hash(): Python randomises string hashing between
+    processes, so hash() would produce a different key on every run and the
+    cache would never hit. That lesson cost a poisoned cache once already —
+    see fundamentals/fetch.py:_cache_path, which uses md5 for the same reason.
+
+    `sistema` defaults to the live SISTEMA prompt, so an ordinary call gets it
+    for free and it can never drift from what redactar() actually sends to
+    the model. That default is not decoration: Task 11 changed SISTEMA's text
+    twice, and before this, a `version` bump made by hand was the *only*
+    thing standing between that and a cache silently serving narratives
+    written under rules that no longer apply. `version` stays regardless — it
+    is the manual escape hatch for what the hash still cannot see on its own:
+    a wording change in _prompt(), MAX_RIESGOS, MAX_TOKENS, or any other
+    change to how the request is built.
+
+    MIN/MAX_CARACTERES_CITA are folded in for the same reason: they decide
+    each risk's `verificada`, which is baked into the dict this function's
+    key ends up naming (see redactar_con_cache) — a cache entry written under
+    one bound is not a valid answer under another, and unlike SISTEMA this
+    was never guarded by a version bump at all.
+    """
+    carga = json.dumps(
+        {
+            "contexto": contexto,
+            "fuente": fuente,
+            "modelo": modelo,
+            "version": version,
+            "sistema": sistema,
+            "min_caracteres_cita": MIN_CARACTERES_CITA,
+            "max_caracteres_cita": MAX_CARACTERES_CITA,
+        },
+        sort_keys=True,
+        ensure_ascii=False,
+        allow_nan=False,
+    )
+    return hashlib.sha256(carga.encode("utf-8")).hexdigest()
+
+
+def _forma_valida(crudo: object) -> bool:
+    """Shallow shape check, same rigor as ranking/filings.py's
+    _CAMPOS_ESPERADOS: field presence, not a full schema — checking each
+    value's type too would mean re-deriving Narrativa/Riesgo's validation
+    here, for a file this module itself wrote.
+
+    `riesgos` gets one extra level filings.py's flat cache never needed: it
+    is a list of sub-dicts here, so an entry that is not a list — or a list
+    item missing `afirmacion`, `cita`, or `verificada` — would otherwise pass
+    this check only to raise TypeError or KeyError later, once something
+    downstream iterates it expecting the real shape. That is the same "wedge
+    the pipeline permanently on a stale file" failure filings.py's own check
+    exists to avoid, one level deeper.
+    """
+    if not isinstance(crudo, dict) or not _CAMPOS_ESPERADOS.issubset(crudo):
+        return False
+    riesgos = crudo["riesgos"]
+    if not isinstance(riesgos, list):
+        return False
+    return all(
+        isinstance(riesgo, dict) and _CAMPOS_RIESGO_ESPERADOS.issubset(riesgo)
+        for riesgo in riesgos
+    )
+
+
+def _leer_cache(fichero: Path) -> dict | None:
+    """Return the cached ficha, treating a miss and a corrupt file alike.
+
+    Same failure mode ranking/filings.py:_leer_cache exists for, handled the
+    same way: a run killed mid-write leaves a truncated JSON file, and a file
+    that parses but has the wrong shape (an old schema, or a JSON value that
+    isn't even an object) gets the same treatment. Either is a cache miss,
+    not a crash — the caller re-generates the ficha instead of failing the
+    whole run over one stale or truncated file.
+
+    The catch stays narrow (I/O and decode failures only), like filings.py's:
+    the shape check below is what covers "parses but wrong shape", so
+    widening the catch on top of that would also swallow a real bug in this
+    function behind an innocent-looking cache miss.
+
+    The unlink is cleanup so a bad file left on disk is not parsed and
+    rejected again on every future call whose re-generation also happens to
+    fail.
+    """
+    if not fichero.exists():
+        return None
+    try:
+        crudo = json.loads(fichero.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, UnicodeDecodeError, OSError):
+        fichero.unlink(missing_ok=True)
+        return None
+    if not _forma_valida(crudo):
+        fichero.unlink(missing_ok=True)
+        return None
+    return crudo
+
+
+def _escribir_cache(fichero: Path, ficha: dict) -> None:
+    """Write atomically so a reader never observes a half-written file.
+
+    Same tmp-then-replace pattern as ranking/filings.py:_escribir_cache —
+    replace() is atomic on both POSIX and Windows, unlike writing fichero
+    directly.
+
+    One difference from that precedent, not copied blindly: filings.py names
+    its temp file by ticker alone ("{ticker}.tmp"), so two processes racing
+    on the *same* ticker collide on that same temp path — a real hazard,
+    flagged there for Task 14's parallel downloads, because "same ticker,
+    concurrent calls" is the ordinary case a retry or a re-run produces.
+    Here the temp file is named by the content hash (clave_cache), so it only
+    collides if two calls hash to the exact same key — either an actual
+    sha256 collision, astronomically unlikely, or two calls whose contexto,
+    fuente, modelo, sistema and verification bounds are all byte-identical,
+    in which case the two calls were always going to be interchangeable
+    anyway. Content-addressing narrows the hazard; it does not reproduce it.
+    """
+    fichero.parent.mkdir(parents=True, exist_ok=True)
+    tmp = fichero.with_suffix(".tmp")
+    tmp.write_text(
+        json.dumps(ficha, ensure_ascii=False, allow_nan=False), encoding="utf-8"
+    )
+    tmp.replace(fichero)
+
+
+def redactar_con_cache(
+    contexto: str,
+    fuente: str,
+    cache_dir: Path | None = None,
+    cliente=None,
+    modelo: str = MODELO,
+) -> dict | None:
+    """redactar(), memoised on content.
+
+    Sonnet 5 no longer accepts `temperature`, so two identical calls can
+    return different narratives. The cache is what makes a rerun
+    reproducible — and free: a second run over the same universe reads every
+    ficha back from disk instead of paying for it again.
+
+    Failures are never cached: a transient API error (rate limit, a dropped
+    connection) would otherwise freeze into a permanent template ficha for
+    that company, on every future run, for a problem that may not even
+    repeat on retry.
+    """
+    directorio = Path(cache_dir or CACHE_DIR)
+    fichero = directorio / f"{clave_cache(contexto, fuente, modelo, VERSION_PROMPT)}.json"
+
+    cacheada = _leer_cache(fichero)
+    if cacheada is not None:
+        return cacheada
+
+    resultado = redactar(contexto, fuente, cliente=cliente, modelo=modelo)
+    if resultado is not None:
+        _escribir_cache(fichero, resultado)
+    return resultado
