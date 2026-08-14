@@ -1,6 +1,16 @@
+from unittest.mock import MagicMock
+
+import anthropic
+import pytest
+from pydantic import ValidationError
+
 from ranking.llm import (
     MAX_CARACTERES_CITA,
+    MAX_RIESGOS,
     MIN_CARACTERES_CITA,
+    Narrativa,
+    Riesgo,
+    redactar,
     sin_digitos,
     verificar_cita,
 )
@@ -102,3 +112,158 @@ def test_detecta_fraccion_unicode_como_digito():
     # isdigit() no caza "½"; isnumeric() sí. El porqué está en el docstring
     # de sin_digitos.
     assert not sin_digitos("Los márgenes rondan ½ del sector")
+
+
+class ClienteFalso:
+    """Devuelve las narrativas que se le den, una por llamada."""
+
+    def __init__(self, *respuestas):
+        self.respuestas = list(respuestas)
+        self.llamadas = []
+        self.messages = MagicMock()
+        self.messages.parse = self._parse
+
+    def _parse(self, **kwargs):
+        self.llamadas.append(kwargs)
+        siguiente = self.respuestas.pop(0)
+        if isinstance(siguiente, Exception):
+            raise siguiente
+        return MagicMock(parsed_output=siguiente)
+
+
+def narrativa(cita: str, tesis: str = "Negocio sólido y bien valorado") -> Narrativa:
+    return Narrativa(
+        tesis=tesis,
+        riesgos=[Riesgo(afirmacion="Depende de pocos proveedores", cita=cita)],
+    )
+
+
+def test_devuelve_la_narrativa_con_la_cita_verificada():
+    cliente = ClienteFalso(narrativa("limited number of suppliers"))
+    resultado = redactar("contexto", FUENTE, cliente=cliente)
+    assert resultado["riesgos"][0]["verificada"] is True
+    assert len(cliente.llamadas) == 1
+
+
+def test_reintenta_una_vez_cuando_la_cita_no_aparece():
+    cliente = ClienteFalso(
+        narrativa("cita inventada que no está"),
+        narrativa("limited number of suppliers"),
+    )
+    resultado = redactar("contexto", FUENTE, cliente=cliente)
+    assert len(cliente.llamadas) == 2
+    assert resultado["riesgos"][0]["verificada"] is True
+
+
+def test_tras_el_reintento_entrega_el_riesgo_marcado_no_lo_descarta():
+    # Una afirmación sin respaldo que se ve es mejor que una que desaparece.
+    cliente = ClienteFalso(narrativa("inventada"), narrativa("tambien inventada"))
+    resultado = redactar("contexto", FUENTE, cliente=cliente)
+    assert resultado["riesgos"][0]["verificada"] is False
+    assert resultado["riesgos"][0]["afirmacion"] == "Depende de pocos proveedores"
+
+
+def test_una_narrativa_con_cifras_se_rechaza_entera():
+    # No podemos verificar un número; la regla era que los pone el código.
+    cliente = ClienteFalso(
+        narrativa("limited number of suppliers", tesis="Márgenes del 30%"),
+        narrativa("limited number of suppliers", tesis="Márgenes del 30%"),
+    )
+    assert redactar("contexto", FUENTE, cliente=cliente) is None
+    # El bug que había que arreglar: con las dos citas correctas, `fallidas`
+    # queda vacía y el reintento original hablaba sólo de citas, sin decir
+    # una palabra del problema real (el dígito). El segundo envío tiene que
+    # nombrar el fallo verdadero.
+    segundo_envio = cliente.llamadas[1]["messages"][-1]["content"]
+    assert "dígito" in segundo_envio
+    assert "no aparecen literalmente" not in segundo_envio
+
+
+def test_un_error_de_api_degrada_a_none():
+    cliente = ClienteFalso(anthropic.APIConnectionError(request=MagicMock()))
+    assert redactar("contexto", FUENTE, cliente=cliente) is None
+
+
+def test_sin_clave_no_intenta_llamar(monkeypatch):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    assert redactar("contexto", FUENTE) is None
+
+
+def test_no_manda_temperature_ni_prefill():
+    # Sonnet 5 rechaza temperature y el prefill de turno final. La propiedad
+    # que importa es la del reintento: ahí es donde un mensaje que terminara
+    # en turno "assistant" (el eco de la narrativa fallida) sería un prefill
+    # de verdad. Por eso se comprueban las dos llamadas, no sólo la primera
+    # —donde la aserción se cumple sola porque no hay nada más que un turno
+    # de usuario.
+    cliente = ClienteFalso(
+        narrativa("cita inventada que no está"),
+        narrativa("limited number of suppliers"),
+    )
+    redactar("contexto", FUENTE, cliente=cliente)
+    assert len(cliente.llamadas) == 2
+    for envio in cliente.llamadas:
+        assert "temperature" not in envio
+        assert envio["messages"][-1]["role"] == "user"
+
+
+def test_una_cita_con_cifras_que_verifica_se_acepta():
+    # sin_digitos se aplica a la tesis y a la afirmación, nunca a la cita: la
+    # cita es texto literal del filing y puede llevar cifras que son de la
+    # empresa, no inventadas por el modelo. Nada lo fijaba con un test, así
+    # que quedaba abierto a que alguien lo "arreglara" rompiendo el módulo.
+    fuente_con_cifras = FUENTE + "\nOur 2024 supplier count fell to three."
+    cliente = ClienteFalso(narrativa("Our 2024 supplier count fell to three"))
+    resultado = redactar("contexto", fuente_con_cifras, cliente=cliente)
+    assert resultado["riesgos"][0]["verificada"] is True
+
+
+def test_una_narrativa_vacia_no_se_acepta_como_valida():
+    # La pregunta en frío: ¿qué acepta redactar que no debería? Una
+    # Narrativa(tesis="", riesgos=[]) pasa las dos verificaciones tal como
+    # estaban escritas —ninguna cifra, y ninguna cita fallida porque no hay
+    # ninguna cita— y salía con aspecto de ficha válida sin llevar nada
+    # dentro. Se cierra tratando la tesis vacía igual que los dígitos: se
+    # reintenta una vez y, si sigue vacía, se degrada a None.
+    cliente = ClienteFalso(
+        Narrativa(tesis="", riesgos=[]),
+        Narrativa(tesis="   ", riesgos=[]),
+    )
+    assert redactar("contexto", FUENTE, cliente=cliente) is None
+    assert len(cliente.llamadas) == 2
+
+
+def test_max_riesgos_limita_los_riesgos_devueltos():
+    # El prompt pide "hasta tres", pero nada en el código lo hacía cumplir:
+    # si el modelo devolvía diez, salían los diez.
+    riesgos_de_sobra = [
+        Riesgo(afirmacion=f"Riesgo marcado {letra}", cita="limited number of suppliers")
+        for letra in "abcdefghij"
+    ]
+    cliente = ClienteFalso(Narrativa(tesis="Negocio sólido", riesgos=riesgos_de_sobra))
+    resultado = redactar("contexto", FUENTE, cliente=cliente)
+    assert len(resultado["riesgos"]) == MAX_RIESGOS
+    assert len(riesgos_de_sobra) > MAX_RIESGOS  # el test no es trivial
+
+
+def test_un_fallo_de_validacion_de_pydantic_degrada_a_none():
+    # messages.parse valida contra el esquema; una respuesta que no encaja no
+    # sube como anthropic.APIError, y sin cazarla aparte se escapaba y
+    # abortaba la corrida entera de la Task 14 por una sola empresa.
+    try:
+        Narrativa.model_validate({"tesis": "sin riesgos"})
+        raise AssertionError("se esperaba que faltara 'riesgos'")
+    except ValidationError as excepcion:
+        error_de_validacion = excepcion
+    cliente = ClienteFalso(error_de_validacion)
+    assert redactar("contexto", FUENTE, cliente=cliente) is None
+
+
+def test_un_error_inesperado_no_se_traga():
+    # Decisión: sólo anthropic.APIError y pydantic.ValidationError degradan
+    # en silencio, porque son los dos fallos que esta función sabe nombrar.
+    # Cualquier otra excepción —un bug real, un modo de fallo que nadie
+    # documentó— sube: reventar es mejor que degradar sin dejar rastro.
+    cliente = ClienteFalso(RuntimeError("fallo que no debería tragarse"))
+    with pytest.raises(RuntimeError):
+        redactar("contexto", FUENTE, cliente=cliente)
