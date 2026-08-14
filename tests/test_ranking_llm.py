@@ -400,6 +400,21 @@ def test_la_clave_cambia_si_cambia_cualquier_pieza():
     assert clave_cache("ctx", "fuente", "modelo", "b2") != base
 
 
+def test_la_clave_cambia_si_cambia_la_plantilla_de_prompt(monkeypatch):
+    # La pregunta en frío, cerrada: clave_cache hasheaba contexto y fuente
+    # por separado, así que una plantilla de _prompt() distinta —el mismo
+    # tipo de cambio que la Task 11 hizo dos veces (delimitar el contexto,
+    # deletrear MAX_RIESGOS)— no cambiaba la clave. Probado antes de este
+    # test: parcheando _prompt() a una plantilla distinta sin tocar
+    # VERSION_PROMPT, una ficha vieja se servía con cero llamadas al modelo,
+    # en silencio. Se cierra hasheando el turno de usuario ya renderizado.
+    base = clave_cache("ctx", "fuente", "modelo", "b1")
+    monkeypatch.setattr(
+        llm, "_prompt", lambda contexto, fuente: "plantilla completamente distinta"
+    )
+    assert clave_cache("ctx", "fuente", "modelo", "b1") != base
+
+
 def test_la_clave_incluye_el_sistema():
     # La Task 11 cambió SISTEMA dos veces sin que nada obligara a subir
     # VERSION_PROMPT a mano; si alguien lo cambia y se olvida, la caché

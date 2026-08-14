@@ -14,13 +14,16 @@ from ranking.verificacion import (
 
 MODELO = "claude-sonnet-5"
 MAX_TOKENS = 2000
-# Task 12's cache key (ranking/llm.py:clave_cache) folds in SISTEMA and the
-# two verificar_cita bounds automatically — a change to any of those
-# invalidates the cache on its own, no bump needed. This stays as the manual
-# escape hatch for what the hash cannot see by itself: a wording change in
-# _prompt(), MAX_RIESGOS, MAX_TOKENS, or any other change to how the request
-# is built. Bump it by hand whenever one of those changes in a way that
-# should invalidate the cache.
+# Task 12's cache key (ranking/llm.py:clave_cache) hashes exactly what gets
+# sent to the model — the rendered prompt, via _prompt(), and SISTEMA — plus
+# the bounds its answer will be judged by (MIN/MAX_CARACTERES_CITA). None of
+# those needs a bump by hand: a wording change anywhere in the request, or a
+# change to either bound, is already part of what changed. This stays as the
+# manual escape hatch for what the hash cannot see by construction: a change
+# to redactar()'s own logic — retry policy, what counts as an empty
+# afirmacion, the shape written to the cached dict — that touches neither the
+# rendered prompt nor these bounds. Bump it by hand whenever one of those
+# changes in a way that should invalidate the cache.
 VERSION_PROMPT = "b1"
 MAX_RIESGOS = 3
 
@@ -242,33 +245,46 @@ _CAMPOS_RIESGO_ESPERADOS = {"afirmacion", "cita", "verificada"}
 def clave_cache(
     contexto: str, fuente: str, modelo: str, version: str, sistema: str = SISTEMA
 ) -> str:
-    """Content hash of everything that could change the narrative.
+    """Content hash of everything the model is sent, plus the bounds its
+    answer will be judged by. No exceptions to that rule — anything that
+    changes what redactar() sends, or how its answer gets marked verified,
+    changes this key.
 
     hashlib rather than hash(): Python randomises string hashing between
     processes, so hash() would produce a different key on every run and the
     cache would never hit. That lesson cost a poisoned cache once already —
     see fundamentals/fetch.py:_cache_path, which uses md5 for the same reason.
 
+    Hashes the *rendered* user turn, `_prompt(contexto, fuente)`, rather than
+    contexto and fuente separately. contexto and fuente still each change the
+    key on their own — both are interpolated into that render — but so does
+    a wording change in _prompt() itself, with nothing to remember: the exact
+    kind of change Task 11 made (delimiting contexto, spelling MAX_RIESGOS
+    out in words) is automatically part of what changed. Hashing contexto and
+    fuente as two separate fields, as an earlier version of this function
+    did, left exactly that gap open — proven by patching _prompt() to a
+    different template and watching a stale cached ficha get served with
+    zero calls to the model, in silence.
+
     `sistema` defaults to the live SISTEMA prompt, so an ordinary call gets it
     for free and it can never drift from what redactar() actually sends to
-    the model. That default is not decoration: Task 11 changed SISTEMA's text
-    twice, and before this, a `version` bump made by hand was the *only*
-    thing standing between that and a cache silently serving narratives
-    written under rules that no longer apply. `version` stays regardless — it
-    is the manual escape hatch for what the hash still cannot see on its own:
-    a wording change in _prompt(), MAX_RIESGOS, MAX_TOKENS, or any other
-    change to how the request is built.
+    the model — the same guarantee _prompt() gets above, for the same reason
+    (Task 11 changed SISTEMA's text twice).
 
-    MIN/MAX_CARACTERES_CITA are folded in for the same reason: they decide
-    each risk's `verificada`, which is baked into the dict this function's
-    key ends up naming (see redactar_con_cache) — a cache entry written under
-    one bound is not a valid answer under another, and unlike SISTEMA this
-    was never guarded by a version bump at all.
+    MIN/MAX_CARACTERES_CITA are folded in too: they decide each risk's
+    `verificada`, which is baked into the dict this function's key ends up
+    naming (see redactar_con_cache) — a cache entry written under one bound
+    is not a valid answer under another.
+
+    `version` stays regardless — not as a catch-all for the pieces above,
+    which no longer need one, but as the one manual escape hatch left: for a
+    change to redactar()'s own logic (retry policy, what counts as an empty
+    afirmacion, the shape written to the cached dict) that touches neither
+    the rendered prompt nor these bounds.
     """
     carga = json.dumps(
         {
-            "contexto": contexto,
-            "fuente": fuente,
+            "prompt": _prompt(contexto, fuente),
             "modelo": modelo,
             "version": version,
             "sistema": sistema,
