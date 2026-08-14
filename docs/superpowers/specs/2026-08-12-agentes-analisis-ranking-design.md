@@ -377,3 +377,48 @@ A, así que el eje temporal ya estaba tratado aguas arriba.
 menos de 3 pares o dispersión nula. Un sector con menos de 3 empresas
 supervivientes deja a las suyas con compuesto NaN, y eso **se registra como
 motivo de exclusión explícito**, no como una caída silenciosa del ranking.
+
+---
+
+## Enmienda 2 — 2026-08-13: la cita verificada necesita una longitud mínima
+
+**Qué decía el diseño:** una cita cuenta como verificada si aparece literalmente
+en el texto que se le pasó al modelo, con un tope máximo para que "citar" no
+degenere en copiar la sección entera.
+
+**Qué faltaba:** el tope por abajo. Medido sobre la implementación de la tarea
+10, antes de esta enmienda:
+
+```
+verificar_cita("we", item1a)    -> True
+verificar_cita("risks", item1a) -> True
+```
+
+**Por qué importa:** el sello "verificada" es la promesa central del
+sub-proyecto. Un modelo que emita una cita de dos letras la obtiene, y la ficha
+resultante es indistinguible a ojo de una con una cita real. Era la mayor
+superficie de falsa aceptación que quedaba en pie — mayor que la que abría
+cualquiera de las decisiones de normalización que sí se discutieron.
+
+**Qué se añade:** `MIN_CARACTERES_CITA = 25`, aplicado al texto normalizado,
+simétrico con el máximo. Las tres citas de ejemplo del plan miden 39, 30 y 31
+caracteres normalizados, así que ninguna se ve afectada.
+
+**En qué dirección afecta:** endurece. Una cita real e inusualmente corta pasa a
+rechazarse, lo que degrada esa ficha a plantilla — el lado barato de la
+asimetría que gobierna todo este módulo: un falso rechazo cuesta una narrativa,
+una falsa aceptación cuesta la promesa.
+
+**Lo que esta enmienda NO consigue, y conviene no creer que sí:** una longitud
+mínima no hace que una cita sea **relevante**. Un fragmento de 25 caracteres
+verdadero y sin relación con lo que la ficha afirma sigue pasando la
+verificación. Lo que se cierra es que dos palabras se hagan pasar por cita. Que
+la cita sostenga la afirmación no es comprobable por código, y no hay en este
+diseño ningún mecanismo que lo compruebe.
+
+**El 25 es un juicio, no una medida.** Es aproximadamente una cláusula corta, por
+debajo de la cita más corta que el propio plan usa como ejemplo válido. Los tests
+fijan el mecanismo de frontera —comparación estricta contra el texto
+normalizado—, no el número: mover la constante no hace fallar la suite por sí
+solo. Es reversible si la corrida real de la tarea 15 muestra que el modelo cita
+más corto de lo esperado.

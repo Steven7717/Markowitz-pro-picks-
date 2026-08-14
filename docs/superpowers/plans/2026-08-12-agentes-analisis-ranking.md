@@ -2598,7 +2598,7 @@ Anota los números. **No ajustes ningún umbral** de `ranking/criterio.py` para 
 
 - [ ] **Step 4: Escribe la enmienda con lo medido**
 
-Añade al final de `docs/superpowers/specs/2026-08-12-agentes-analisis-ranking-design.md` una sección `## Enmienda 2 — <fecha>: cobertura real de las guardas` con: cuántas de las 502 sobreviven, el reparto por sector, y qué motivo de exclusión domina. Si un sector entero desaparece, dilo y explica en qué dirección afecta a la conclusión. Es un hallazgo, no un fallo que tapar.
+Añade al final de `docs/superpowers/specs/2026-08-12-agentes-analisis-ranking-design.md` una sección `## Enmienda 3 — <fecha>: cobertura real de las guardas` con: cuántas de las 502 sobreviven, el reparto por sector, y qué motivo de exclusión domina. Si un sector entero desaparece, dilo y explica en qué dirección afecta a la conclusión. Es un hallazgo, no un fallo que tapar.
 
 - [ ] **Step 5: Actualiza CONTEXTO.md**
 
@@ -2621,7 +2621,7 @@ git commit -m "docs: sub-proyecto B terminado, con la cobertura de las guardas m
 
 ## Estado de ejecución — actualizado 2026-08-13
 
-**Tareas 1 a 9 completas**, todas revisadas y en verde. Rama `feat/agentes-ranking`, HEAD `5fe9179`, **453 tests pasando** (`pytest tests/ -q -m "not red"`), árbol limpio.
+**Tareas 1 a 10 completas**, todas revisadas y en verde. Rama `feat/agentes-ranking`, HEAD `f23e2a0`, **467 tests pasando** (`pytest tests/ -q -m "not red"`), árbol limpio.
 
 | Task | Commits | Suite |
 |---|---|---:|
@@ -2634,12 +2634,14 @@ git commit -m "docs: sub-proyecto B terminado, con la cobertura de las guardas m
 | 7 · Selección | `8f18bdc` · `fa7f6c0` · `a2f27c4` | 434 |
 | 8 · Fichas numéricas | `b5b585d` · `2caf6bf` | 445 |
 | 9 · Item 1A con caché | `9e30f85` · `5fe9179` | 453 |
+| 10 · Verificadores | `01964c5` · `f23e2a0` | 467 |
 
-**Siguiente: Task 10** (verificadores de cita y de dígitos). Las tareas 10 a 15 siguen tal como están escritas arriba, con tres correcciones que la ejecución ya introdujo y que hay que respetar:
+**Siguiente: Task 11** (llamada a Sonnet 5, reintento y degradación). Las tareas 11 a 15 siguen tal como están escritas arriba, con cuatro correcciones que la ejecución ya introdujo y que hay que respetar:
 
 - `marcar_sin_pares` tiene la firma `(motivos, compuestos, sectores)` — sin `min_pares`. El código de la Task 14 en este plan la llama con dos argumentos; corregir al integrarla.
 - Las etiquetas de exclusión son seis, no cuatro: `historia_corta`, `datos_rancios`, `pilar_sin_datos`, `cobertura_insuficiente`, `sector_desconocido`, `sin_dispersion_sectorial`.
 - `ranking/filings.py` tiene ocho tests, no seis, y `cargar_riesgos` sanea la caché corrupta o con esquema viejo por su cuenta. La Task 14 no necesita envolverla en un `try`.
+- `verificar_cita` exige ahora **dos** cotas, no una: `MIN_CARACTERES_CITA = 25` además del máximo, ambas sobre el texto normalizado. Es la **enmienda 2** del diseño, así que la que escribe la Task 15 pasa a ser la **enmienda 3**. `_normalizar` unifica además comillas tipográficas y guiones largos con sus equivalentes ASCII, y `sin_digitos` usa `isnumeric()`, no `isdigit()`.
 
 **Aviso para la Task 14 — un hazard dormido.** `_escribir_cache` deriva el nombre del temporal sólo del ticker (`fichero.with_suffix(".tmp")`), así que dos procesos cargando el mismo ticker comparten un único `.tmp` y uno puede hacer `replace()` de un fichero que el otro aún escribe, anulando justo la atomicidad que el temporal existe para dar. En un programa de un solo hilo no puede pasar, y por eso se dejó como está. **Despierta en cuanto se paralelicen las 502 descargas** — que es lo natural de querer, siendo ésta la etapa limitada por red. El seguro es barato: `tempfile.mkstemp(dir=...)` o el pid en el nombre. `fundamentals/fetch.py:124` tiene la forma idéntica, así que arreglar uno solo sería peor que arreglar los dos o ninguno.
 
@@ -2669,6 +2671,17 @@ Casos concretos que se colaron y lo que los cazó:
 
 La lección que generaliza: **cuando un implementador añade robustez que no se le pidió, hay que revisar esa parte con más escrutinio que el resto, no con menos.** No hay test escrito de antemano que la cubra, y el propio mecanismo defensivo tiende a enmascarar el fallo que debería denunciar.
 
+**La Task 10 volvió a moverlo de sitio, y en la dirección que peor se ve.** Toda la discusión de la tarea giró alrededor de la normalización tipográfica: si unificar comillas curvas abría una vía de cita fabricada. Se le dedicó un despacho, una decisión razonada y un intento adversarial de romperla en la revisión — que no lo consiguió, así que la respuesta fue "no, no la abre". Mientras tanto, el agujero grande estaba en lo que nadie miraba:
+
+```
+verificar_cita("we", item1a)    -> True
+verificar_cita("risks", item1a) -> True
+```
+
+No había cota inferior. Una cita de dos letras se llevaba el sello de "verificada", que es la promesa central del sub-proyecto. Se cerró con `MIN_CARACTERES_CITA = 25` y quedó como **enmienda 2** del diseño.
+
+Lo que hay que llevarse: **el escrutinio se concentra donde hubo debate, y el debate lo elige quien escribe el despacho.** Los tres agujeros que se le señalaron al implementador estaban medidos y eran reales, y aun así fijar la agenda en ellos dejó fuera el que más importaba. Contra eso no sirve mutar tests —los tests no cubrían el caso porque a nadie se le había ocurrido—, sino preguntar aparte, y en frío: *¿cuál es la entrada más tonta que esta función acepta y no debería?*
+
 ### Desviaciones conscientes de la skill de ejecución
 
 - A partir de la Task 4 las dos revisiones (spec y calidad) van en **un solo subagente**, primero una y luego la otra, por presupuesto de sesión. Pierde el contexto fresco e independiente entre ambas.
@@ -2682,4 +2695,4 @@ La lección que generaliza: **cuando un implementador añade robustez que no se 
 - [ ] El control negativo de `tests/test_ranking_control.py` pasa **sin** haber tocado su tolerancia
 - [ ] `ranking/criterio.py` no se ha modificado desde su commit de la Task 1
 - [ ] `salidas/fichas.json` existe y valida contra la forma del diseño
-- [ ] La enmienda 2 recoge números medidos, no estimados
+- [ ] La enmienda 3 recoge números medidos, no estimados
