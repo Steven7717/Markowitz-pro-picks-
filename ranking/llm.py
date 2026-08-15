@@ -243,7 +243,11 @@ _CAMPOS_RIESGO_ESPERADOS = {"afirmacion", "cita", "verificada"}
 
 
 def clave_cache(
-    contexto: str, fuente: str, modelo: str, version: str, sistema: str = SISTEMA
+    contexto: str,
+    fuente: str,
+    modelo: str,
+    version: str,
+    sistema: str | None = None,
 ) -> str:
     """Content hash of everything the model is sent, plus the bounds its
     answer will be judged by. No exceptions to that rule — anything that
@@ -255,39 +259,31 @@ def clave_cache(
     cache would never hit. That lesson cost a poisoned cache once already —
     see fundamentals/fetch.py:_cache_path, which uses md5 for the same reason.
 
-    Hashes the *rendered* user turn, `_prompt(contexto, fuente)`, rather than
-    contexto and fuente separately. contexto and fuente still each change the
-    key on their own — both are interpolated into that render — but so does
-    a wording change in _prompt() itself, with nothing to remember: the exact
-    kind of change Task 11 made (delimiting contexto, spelling MAX_RIESGOS
-    out in words) is automatically part of what changed. Hashing contexto and
-    fuente as two separate fields, as an earlier version of this function
-    did, left exactly that gap open — proven by patching _prompt() to a
-    different template and watching a stale cached ficha get served with
-    zero calls to the model, in silence.
+    What gets hashed is the *rendered* user turn, `_prompt(contexto, fuente)`,
+    not contexto and fuente as separate fields: that way a change to the
+    template's own wording is part of the key too, with nothing to remember.
 
-    `sistema` defaults to the live SISTEMA prompt, so an ordinary call gets it
-    for free and it can never drift from what redactar() actually sends to
-    the model — the same guarantee _prompt() gets above, for the same reason
-    (Task 11 changed SISTEMA's text twice).
+    `sistema` resolves to the live SISTEMA inside the body rather than as a
+    default argument value. Defaults are evaluated once, when the function is
+    defined, so a default would freeze the prompt as it was at import time
+    while redactar() goes on reading the global at call time — the two would
+    silently disagree the moment anything rebinds it.
 
-    MIN/MAX_CARACTERES_CITA are folded in too: they decide each risk's
-    `verificada`, which is baked into the dict this function's key ends up
-    naming (see redactar_con_cache) — a cache entry written under one bound
-    is not a valid answer under another.
+    MIN/MAX_CARACTERES_CITA are folded in because they decide each risk's
+    `verificada`, which is baked into the cached dict: an entry written under
+    one bound is not a valid answer under another.
 
-    `version` stays regardless — not as a catch-all for the pieces above,
-    which no longer need one, but as the one manual escape hatch left: for a
-    change to redactar()'s own logic (retry policy, what counts as an empty
-    afirmacion, the shape written to the cached dict) that touches neither
-    the rendered prompt nor these bounds.
+    `version` stays as the one manual escape hatch left — for a change to
+    redactar()'s own logic (retry policy, what counts as an empty afirmacion,
+    the shape written to the cached dict) that touches neither the rendered
+    prompt nor these bounds.
     """
     carga = json.dumps(
         {
             "prompt": _prompt(contexto, fuente),
             "modelo": modelo,
             "version": version,
-            "sistema": sistema,
+            "sistema": SISTEMA if sistema is None else sistema,
             "min_caracteres_cita": MIN_CARACTERES_CITA,
             "max_caracteres_cita": MAX_CARACTERES_CITA,
         },
@@ -362,17 +358,10 @@ def _escribir_cache(fichero: Path, ficha: dict) -> None:
     replace() is atomic on both POSIX and Windows, unlike writing fichero
     directly.
 
-    One difference from that precedent, not copied blindly: filings.py names
-    its temp file by ticker alone ("{ticker}.tmp"), so two processes racing
-    on the *same* ticker collide on that same temp path — a real hazard,
-    flagged there for Task 14's parallel downloads, because "same ticker,
-    concurrent calls" is the ordinary case a retry or a re-run produces.
-    Here the temp file is named by the content hash (clave_cache), so it only
-    collides if two calls hash to the exact same key — either an actual
-    sha256 collision, astronomically unlikely, or two calls whose contexto,
-    fuente, modelo, sistema and verification bounds are all byte-identical,
-    in which case the two calls were always going to be interchangeable
-    anyway. Content-addressing narrows the hazard; it does not reproduce it.
+    The temp file is named by the content hash, not by ticker as filings.py
+    names its own, so it only collides when two calls hash to the same key —
+    and those two calls were always going to be interchangeable. The parallel
+    hazard flagged in filings.py for Task 14 does not carry over here.
     """
     fichero.parent.mkdir(parents=True, exist_ok=True)
     tmp = fichero.with_suffix(".tmp")

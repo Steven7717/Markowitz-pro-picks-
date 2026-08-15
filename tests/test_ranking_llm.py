@@ -423,12 +423,19 @@ def test_la_clave_incluye_el_sistema():
     assert clave_cache("ctx", "fuente", "modelo", "b1", sistema="Reglas B") != base
 
 
-def test_la_clave_por_defecto_usa_el_sistema_vigente_del_modulo():
-    # Sin pasar sistema=, clave_cache tiene que usar el SISTEMA vigente —el
-    # mismo que redactar() manda de verdad—, no un valor congelado aparte.
-    assert clave_cache("ctx", "fuente", "modelo", "b1") == clave_cache(
-        "ctx", "fuente", "modelo", "b1", sistema=SISTEMA
-    )
+def test_la_clave_por_defecto_sigue_al_sistema_vigente(monkeypatch):
+    # Sin pasar sistema=, clave_cache tiene que leer el SISTEMA vigente —el
+    # mismo que redactar() lee en cada llamada—, no un valor congelado.
+    #
+    # Comparar clave_cache(...) con clave_cache(..., sistema=SISTEMA) no
+    # prueba eso: con `sistema: str = SISTEMA` como argumento por defecto,
+    # los dos lados usan el mismo valor de import-time y la igualdad se
+    # cumple sola. Los defaults se evalúan una vez, al definir la función,
+    # así que reasignar la global es lo único que distingue las dos
+    # implementaciones. Medido con el default congelado: la clave no cambiaba.
+    base = clave_cache("ctx", "fuente", "modelo", "b1")
+    monkeypatch.setattr(llm, "SISTEMA", "un prompt de sistema completamente distinto")
+    assert clave_cache("ctx", "fuente", "modelo", "b1") != base
 
 
 def test_la_clave_incluye_el_minimo_de_caracteres_de_cita(monkeypatch):
