@@ -422,3 +422,126 @@ fijan el mecanismo de frontera —comparación estricta contra el texto
 normalizado—, no el número: mover la constante no hace fallar la suite por sí
 solo. Es reversible si la corrida real de la tarea 15 muestra que el modelo cita
 más corto de lo esperado.
+
+---
+
+## Enmienda 3 — 2026-08-15: cobertura real de las guardas, medida
+
+Primera corrida completa sobre el universo real, sin LLM
+(`construir_ranking(con_llm=False)`), con el panel cacheado del sub-proyecto A.
+**Todos los números de esta sección están medidos, ninguno estimado.** No se ha
+tocado ningún umbral de `ranking/criterio.py` para mejorarlos.
+
+### La cadena de mermas, entera
+
+| Etapa | Empresas |
+|---|---:|
+| Universo pedido (`sp500_members_2026-08-05.csv`) | 503 |
+| Con hechos descargados de la SEC | 503 |
+| **Con fila en el panel** | **502** |
+| Sobreviven a las guardas | 425 |
+| Entran en el top tras el tope sectorial | 15 |
+
+`FDXF` se pide y no llega al panel: se cae aguas arriba, en el sub-proyecto A,
+que lo reporta por su propia vía (`historia corta: 2`, `sin precio: 2`). El
+invariante que sí se cumple es **425 + 77 = 502**, contra el panel, no contra el
+universo pedido. Conviene saberlo antes de restar 503 y encontrarse una empresa
+de menos.
+
+### Qué guarda excluye, y a quién
+
+| Motivo | Empresas |
+|---|---:|
+| `pilar_sin_datos` | 72 |
+| `datos_rancios` | 2 |
+| `cobertura_insuficiente` | 2 |
+| `historia_corta` | 1 |
+| `sector_desconocido` | 0 |
+| `sin_dispersion_sectorial` | 0 |
+
+**Una sola guarda hace el 94% del trabajo**, y no excluye al azar:
+
+| Sector | Total | Excluidas | % |
+|---|---:|---:|---:|
+| Financials | 76 | 50 | **65,8%** |
+| Real Estate | 31 | 13 | **41,9%** |
+| Consumer Discretionary | 47 | 4 | 8,5% |
+| Consumer Staples | 34 | 2 | 5,9% |
+| Industrials | 82 | 4 | 4,9% |
+| Energy | 21 | 1 | 4,8% |
+| Utilities | 31 | 1 | 3,2% |
+| Health Care | 59 | 1 | 1,7% |
+| Information Technology | 73 | 1 | 1,4% |
+| Communication Services | 23 | 0 | 0% |
+| Materials | 25 | 0 | 0% |
+
+**La causa es estructural, no un fallo de datos.** De las 72 exclusiones por
+`pilar_sin_datos`, **65 son el pilar `solidez` vacío**, y 46 de las 48 de
+Financials. Sus tres KPIs son `deuda_neta_ebitda`, `cobertura_intereses` y
+`razon_corriente`, y los tres están **indefinidos para un banco por
+construcción**: no publica EBITDA, su "gasto por intereses" es materia prima y no
+carga financiera, y su balance no se clasifica en corriente y no corriente.
+Cobertura media del pilar: **0,74 KPIs en Financials frente a 2,01 en
+tecnología**.
+
+El diseño anticipó que la exclusión no sería uniforme. Lo que no anticipó es su
+tamaño: **dos de cada tres bancos y aseguradoras no pueden ser evaluados por este
+criterio**, y no por ser peores, sino por reportar distinto. El único financiero
+del top 15 es CBOE —un operador de mercados, no un banco— con 17 de 17 KPIs.
+
+**En qué dirección afecta:** el sesgo no está en el orden de los supervivientes,
+sino en quién llega a ser comparable. La lista corta infrarrepresenta a Financials
+y Real Estate frente a su peso en el índice, y **eso se hereda al sub-proyecto C**:
+una cartera optimizada sobre esta lista corta llevará un ladeo sectorial que no
+decidió el optimizador. Debe saberlo antes de interpretar sus pesos.
+
+### El hallazgo que no se buscaba: los z-scores no están acotados
+
+Se descubrió leyendo la salida real, no con un test.
+
+El número 1 de la corrida es **CPRT, con un compuesto de +5,70** frente al +4,18
+del segundo. Su pilar `solidez` vale **+6,37**, exactamente el z de
+`razon_corriente` — es decir, ese pilar tiene **un solo KPI de tres con dato**, y
+ese KPI es un valor extremo. Como los cuatro pilares pesan igual, **una cuarta
+parte del compuesto del primer clasificado sale de un único indicador sin
+acotar**.
+
+No es un caso aislado. En el panel **no hay winsorización en ninguna parte**: el
+|z| máximo llega a 8,62, y **201 celdas de 69.048 superan |z| > 6**.
+
+Es una consecuencia no examinada del diseño, no un defecto del código: se eligió
+promediar z-scores sectoriales y nunca se dijo qué hacer con las colas. El
+control negativo del estándar #2 no lo detecta porque mide sesgo por cobertura,
+no dominancia de un valor extremo.
+
+**No se corrige aquí**, porque `ranking/criterio.py` es un artefacto de
+pre-registro congelado y cambiarlo después de ver el resultado es exactamente lo
+que el pre-registro existe para impedir. Queda anotado como el primer candidato a
+revisar cuando el criterio se reabra, junto con la validación empírica de los
+pesos: recortar los z a ±3, o exigir un mínimo de KPIs por pilar y no sólo por
+ficha, son las dos palancas obvias.
+
+### El tope del Item 1A muerde más de lo previsto
+
+Medido sobre los quince filings del top, descargados de EDGAR:
+
+- **Los 15 tienen Item 1A extraíble.** Ningún `None`.
+- **9 de 15 (60%) se recortan** en el tope de 80.000 caracteres.
+- Mediana **101.344** caracteres; mínimo 7.494 (INCY), máximo **298.634** (PLTR).
+- **El 31% del texto total nunca llega al modelo** (481.058 de 1.564.181).
+
+El diseño estimó el tope a partir del Item 1A de Apple (68.163 caracteres), que
+resulta estar en el extremo bajo. La consecuencia práctica: para nueve de quince
+empresas, un riesgo tratado sólo en el último tramo del documento **no se puede
+citar**, y `verificar_cita` lo rechazaría con razón por comparar contra lo que se
+envió. La narrativa se construye sobre el primer tercio largo del documento, y
+eso no se ve en la ficha.
+
+No se sube el tope: duplicarlo duplicaría el coste por ficha y sigue sin cubrir a
+PLTR. La salida honesta es que la ficha declare `recortado`, que ya lo hace.
+
+### Salidas de esta corrida
+
+`salidas/ranking.csv` (502 filas con pilares, compuesto y motivo), 
+`salidas/fichas.json` (las 15, sin narrativa) y `salidas/informe.md`. Son una
+instantánea de esta corrida fechada, no un artefacto vivo.
