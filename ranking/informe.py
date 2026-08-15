@@ -85,7 +85,13 @@ def render(fichas: list[dict], exclusiones: dict[str, int]) -> str:
         lineas += [
             f"## {ficha['puesto']}. {ficha['ticker']} — {ficha['sector_gics']}",
             "",
-            f"Compuesto {ficha['compuesto']:+.2f} · {_pilares(ficha)}",
+            # El compuesto y los pilares NO están en la misma escala, y puestos
+            # uno al lado del otro sin decirlo invitan a leer el primero como el
+            # promedio de los segundos. No lo es: es ese promedio ponderado
+            # re-estandarizado dentro del sector (enmienda 1 del diseño), así que
+            # un compuesto de +1,5 puede convivir con pilares de +0,1.
+            f"Compuesto (z dentro del sector) {ficha['compuesto']:+.2f}",
+            f"Pilares (z frente a todo el universo): {_pilares(ficha)}",
             "",
             f"- Fuerte en: {_kpis(ficha['destacados'])}",
             f"- Flojo en: {_kpis(ficha['flojos'])}",

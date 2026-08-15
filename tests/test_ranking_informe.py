@@ -86,6 +86,17 @@ def test_una_ficha_de_plantilla_no_revienta_el_render():
     assert "plantilla" in texto
 
 
+def test_distingue_la_escala_del_compuesto_de_la_de_los_pilares():
+    # El compuesto es la media ponderada de los pilares re-estandarizada
+    # DENTRO del sector (enmienda 1), así que no está en la misma escala que
+    # ellos: en una corrida real se ve un compuesto de +1,53 junto a pilares
+    # que promedian +0,12. Juntos en una línea y sin etiqueta, el lector
+    # concluye que uno es el promedio del otro y que las cuentas no cuadran.
+    texto = render([FICHA], EXCLUSIONES)
+    assert "Compuesto (z dentro del sector) +1.42" in texto
+    assert "Pilares (z frente a todo el universo)" in texto
+
+
 def test_dice_que_el_score_no_esta_validado():
     # La frase que impide leer este informe como una previsión de rentabilidad.
     # Es la afirmación con más consecuencias del documento y la más fácil de
