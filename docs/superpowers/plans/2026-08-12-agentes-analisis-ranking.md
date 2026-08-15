@@ -2621,7 +2621,7 @@ git commit -m "docs: sub-proyecto B terminado, con la cobertura de las guardas m
 
 ## Estado de ejecución — actualizado 2026-08-13
 
-**Tareas 1 a 12 completas**, todas revisadas y en verde. Rama `feat/agentes-ranking`, HEAD `98b7b00`, **509 tests pasando** (`pytest tests/ -q -m "not red"`), árbol limpio.
+**Tareas 1 a 13 completas**, todas revisadas y en verde. Rama `feat/agentes-ranking`, HEAD `b63c17d`, **521 tests pasando** (`pytest tests/ -q -m "not red"`), árbol limpio.
 
 | Task | Commits | Suite |
 |---|---|---:|
@@ -2637,8 +2637,9 @@ git commit -m "docs: sub-proyecto B terminado, con la cobertura de las guardas m
 | 10 · Verificadores | `01964c5` · `f23e2a0` | 467 |
 | 11 · Llamada a Sonnet 5 | `4a8853f` · `301b0cc` · `7665f1f` | 493 |
 | 12 · Caché de fichas | `5e5a429` · `7383ece` · `98b7b00` | 509 |
+| 13 · Informe legible | `b63c17d` | 521 |
 
-**Siguiente: Task 13** (el informe legible). Las tareas 13 a 15 siguen tal como están escritas arriba, con seis correcciones que la ejecución ya introdujo y que hay que respetar:
+**Siguiente: Task 14** (orquestación y salidas). Las tareas 14 y 15 siguen tal como están escritas arriba, con siete correcciones que la ejecución ya introdujo y que hay que respetar:
 
 - `marcar_sin_pares` tiene la firma `(motivos, compuestos, sectores)` — sin `min_pares`. El código de la Task 14 en este plan la llama con dos argumentos; corregir al integrarla.
 - Las etiquetas de exclusión son seis, no cuatro: `historia_corta`, `datos_rancios`, `pilar_sin_datos`, `cobertura_insuficiente`, `sector_desconocido`, `sin_dispersion_sectorial`.
@@ -2647,6 +2648,10 @@ git commit -m "docs: sub-proyecto B terminado, con la cobertura de las guardas m
 - **Los verificadores ya no viven en `llm.py`**: están en `ranking/verificacion.py`, con sus constantes y sus tests en `tests/test_ranking_verificacion.py`. Se movieron antes de la Task 12 porque era el último momento en que el movimiento era mecánico: la caché mete I/O de disco en `llm.py`.
 - **`redactar` hace más de lo que dice el plan.** Además de citas y cifras rechaza la tesis vacía (incluidos caracteres invisibles como U+200B, que `str.strip()` no ve), descarta el riesgo cuya `afirmacion` viene vacía —lleva cita real y sello de verificada sobre nada— y trunca a `MAX_RIESGOS` **antes** de verificar. El mensaje de reintento nombra el fallo que ocurrió de verdad; el del plan hablaba siempre de citas, aunque el fallo fueran cifras.
 - **La clave de caché hashea el turno de usuario ya renderizado**, no `contexto` y `fuente` por separado, más `SISTEMA` y las dos cotas de verificación. La regla es "todo lo que se le manda al modelo, más las cotas con las que se juzgará su respuesta". `VERSION_PROMPT` deja de ser la única defensa y queda como escape manual para cambios en la lógica de `redactar` que el hash no ve.
+
+- **`render` acepta una narrativa sin `fuente`** y lo dice en el cuerpo del informe en vez de reventar. Colapsa además los espacios de la cita, porque el texto crudo del Item 1A trae saltos de línea y sin eso la cita se sale de su bloque. La cobertura se imprime con `len(TODOS_LOS_KPIS)`, no con un 17 a mano.
+
+**Aviso para la Task 14 — `redactar()` no produce la procedencia, y el informe la necesita.** Devuelve `{tesis, riesgos}` y nada más; `narrativa["fuente"]` —formulario, fecha, accession, sección, si se recortó— la tiene que inyectar la orquestación desde el `Riesgos` que devuelve `cargar_riesgos`. Sin eso, cada cita del informe queda sin forma de localizarse en el filing original, que es la promesa entera del sub-proyecto. El informe ya no aborta la corrida si falta, pero imprime "procedencia no disponible" en el cuerpo: **si eso aparece en la salida real, es un fallo de la Task 14, no del informe.**
 
 **Aviso para la Task 14 — la clave de caché depende de que `contexto` sea único por empresa.** Si dos empresas produjeran `(contexto, fuente)` idénticos compartirían ficha. Hoy lo garantiza que `ficha_numerica` pone el `ticker` como primer campo, pero **eso hay que confirmarlo al escribir la Task 14, no asumirlo**: depende de cómo se construya `contexto`. `fuente` es una segunda línea incidental —el Item 1A es casi siempre único— que se cae para una empresa sin filing, donde `cargar_riesgos` devuelve `None`.
 
