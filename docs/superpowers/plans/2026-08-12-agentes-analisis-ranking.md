@@ -2621,7 +2621,7 @@ git commit -m "docs: sub-proyecto B terminado, con la cobertura de las guardas m
 
 ## Estado de ejecución — actualizado 2026-08-13
 
-**Tareas 1 a 10 completas**, todas revisadas y en verde. Rama `feat/agentes-ranking`, HEAD `f23e2a0`, **467 tests pasando** (`pytest tests/ -q -m "not red"`), árbol limpio.
+**Tareas 1 a 12 completas**, todas revisadas y en verde. Rama `feat/agentes-ranking`, HEAD `98b7b00`, **509 tests pasando** (`pytest tests/ -q -m "not red"`), árbol limpio.
 
 | Task | Commits | Suite |
 |---|---|---:|
@@ -2635,13 +2635,20 @@ git commit -m "docs: sub-proyecto B terminado, con la cobertura de las guardas m
 | 8 · Fichas numéricas | `b5b585d` · `2caf6bf` | 445 |
 | 9 · Item 1A con caché | `9e30f85` · `5fe9179` | 453 |
 | 10 · Verificadores | `01964c5` · `f23e2a0` | 467 |
+| 11 · Llamada a Sonnet 5 | `4a8853f` · `301b0cc` · `7665f1f` | 493 |
+| 12 · Caché de fichas | `5e5a429` · `7383ece` · `98b7b00` | 509 |
 
-**Siguiente: Task 11** (llamada a Sonnet 5, reintento y degradación). Las tareas 11 a 15 siguen tal como están escritas arriba, con cuatro correcciones que la ejecución ya introdujo y que hay que respetar:
+**Siguiente: Task 13** (el informe legible). Las tareas 13 a 15 siguen tal como están escritas arriba, con seis correcciones que la ejecución ya introdujo y que hay que respetar:
 
 - `marcar_sin_pares` tiene la firma `(motivos, compuestos, sectores)` — sin `min_pares`. El código de la Task 14 en este plan la llama con dos argumentos; corregir al integrarla.
 - Las etiquetas de exclusión son seis, no cuatro: `historia_corta`, `datos_rancios`, `pilar_sin_datos`, `cobertura_insuficiente`, `sector_desconocido`, `sin_dispersion_sectorial`.
 - `ranking/filings.py` tiene ocho tests, no seis, y `cargar_riesgos` sanea la caché corrupta o con esquema viejo por su cuenta. La Task 14 no necesita envolverla en un `try`.
 - `verificar_cita` exige ahora **dos** cotas, no una: `MIN_CARACTERES_CITA = 25` además del máximo, ambas sobre el texto normalizado. Es la **enmienda 2** del diseño, así que la que escribe la Task 15 pasa a ser la **enmienda 3**. `_normalizar` unifica además comillas tipográficas y guiones largos con sus equivalentes ASCII, y `sin_digitos` usa `isnumeric()`, no `isdigit()`.
+- **Los verificadores ya no viven en `llm.py`**: están en `ranking/verificacion.py`, con sus constantes y sus tests en `tests/test_ranking_verificacion.py`. Se movieron antes de la Task 12 porque era el último momento en que el movimiento era mecánico: la caché mete I/O de disco en `llm.py`.
+- **`redactar` hace más de lo que dice el plan.** Además de citas y cifras rechaza la tesis vacía (incluidos caracteres invisibles como U+200B, que `str.strip()` no ve), descarta el riesgo cuya `afirmacion` viene vacía —lleva cita real y sello de verificada sobre nada— y trunca a `MAX_RIESGOS` **antes** de verificar. El mensaje de reintento nombra el fallo que ocurrió de verdad; el del plan hablaba siempre de citas, aunque el fallo fueran cifras.
+- **La clave de caché hashea el turno de usuario ya renderizado**, no `contexto` y `fuente` por separado, más `SISTEMA` y las dos cotas de verificación. La regla es "todo lo que se le manda al modelo, más las cotas con las que se juzgará su respuesta". `VERSION_PROMPT` deja de ser la única defensa y queda como escape manual para cambios en la lógica de `redactar` que el hash no ve.
+
+**Aviso para la Task 14 — la clave de caché depende de que `contexto` sea único por empresa.** Si dos empresas produjeran `(contexto, fuente)` idénticos compartirían ficha. Hoy lo garantiza que `ficha_numerica` pone el `ticker` como primer campo, pero **eso hay que confirmarlo al escribir la Task 14, no asumirlo**: depende de cómo se construya `contexto`. `fuente` es una segunda línea incidental —el Item 1A es casi siempre único— que se cae para una empresa sin filing, donde `cargar_riesgos` devuelve `None`.
 
 **Aviso para la Task 14 — un hazard dormido.** `_escribir_cache` deriva el nombre del temporal sólo del ticker (`fichero.with_suffix(".tmp")`), así que dos procesos cargando el mismo ticker comparten un único `.tmp` y uno puede hacer `replace()` de un fichero que el otro aún escribe, anulando justo la atomicidad que el temporal existe para dar. En un programa de un solo hilo no puede pasar, y por eso se dejó como está. **Despierta en cuanto se paralelicen las 502 descargas** — que es lo natural de querer, siendo ésta la etapa limitada por red. El seguro es barato: `tempfile.mkstemp(dir=...)` o el pid en el nombre. `fundamentals/fetch.py:124` tiene la forma idéntica, así que arreglar uno solo sería peor que arreglar los dos o ninguno.
 
@@ -2682,10 +2689,15 @@ No había cota inferior. Una cita de dos letras se llevaba el sello de "verifica
 
 Lo que hay que llevarse: **el escrutinio se concentra donde hubo debate, y el debate lo elige quien escribe el despacho.** Los tres agujeros que se le señalaron al implementador estaban medidos y eran reales, y aun así fijar la agenda en ellos dejó fuera el que más importaba. Contra eso no sirve mutar tests —los tests no cubrían el caso porque a nadie se le había ocurrido—, sino preguntar aparte, y en frío: *¿cuál es la entrada más tonta que esta función acepta y no debería?*
 
+**Las tareas 11 y 12 volvieron a confirmarlo, con la misma forma.** En la 11 el implementador cerró la tesis vacía —el caso que se le señaló— y dejó abierto el campo de al lado: una `afirmacion` vacía con cita válida salía con `verificada: true`, el sello puesto sobre nada. Y borrar el chequeo de cifras en `afirmacion` dejaba los 26 tests en verde, siendo que el spec lo nombraba explícitamente. En la 12, el test que protegía la lección más cara del proyecto —`hashlib` y no `hash()`, que ya envenenó una caché— llamaba a la función dos veces **en el mismo proceso**, donde `hash()` también es estable: no podía fallar.
+
+Y una tercera variante que conviene reconocer, porque no la caza mutar tests: **un docstring que promete una garantía que el código no da.** `clave_cache` afirmaba que su parámetro `sistema` no podía desincronizarse de lo que manda `redactar`. Los argumentos por defecto en Python se evalúan una sola vez, al definirse la función, así que reasignar la global desincronizaba las dos cosas en silencio — exactamente lo que el parámetro existía para impedir. El test que decía cubrirlo comparaba dos llamadas que usaban el mismo valor congelado. **Cuando un comentario afirme que algo es imposible, ejecútalo antes de creerlo.**
+
 ### Desviaciones conscientes de la skill de ejecución
 
 - A partir de la Task 4 las dos revisiones (spec y calidad) van en **un solo subagente**, primero una y luego la otra, por presupuesto de sesión. Pierde el contexto fresco e independiente entre ambas.
 - La Task 7 se aceptó sin tercera ronda de revisión: las cinco correcciones eran aplicación mecánica de código especificado literalmente, con bite-check verbatim.
+- **La Task 12 se cerró sin subagente revisor.** Se agotó el límite de sesión y el subagente murió a mitad del último arreglo. La verificación la hizo el controlador: lectura del módulo entero, el hallazgo del default congelado (encontrado comprobando por ejecución una afirmación del docstring), y el bite-check de esa corrección con la salida literal. **Es la desviación más grande de todas las anotadas aquí**: la revisión independiente ha encontrado un defecto real en diez de las once tareas en que se hizo, así que su ausencia aquí no es prueba de que no haya nada. Si alguien retoma con presupuesto, revisar `redactar_con_cache`, `_forma_valida` y `_leer_cache` con ojos frescos es la deuda pendiente.
 
 ---
 
