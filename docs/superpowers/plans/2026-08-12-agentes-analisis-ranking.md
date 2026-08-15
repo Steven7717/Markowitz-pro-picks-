@@ -2621,7 +2621,7 @@ git commit -m "docs: sub-proyecto B terminado, con la cobertura de las guardas m
 
 ## Estado de ejecución — actualizado 2026-08-13
 
-**Tareas 1 a 13 completas**, todas revisadas y en verde. Rama `feat/agentes-ranking`, HEAD `b63c17d`, **521 tests pasando** (`pytest tests/ -q -m "not red"`), árbol limpio.
+**Tareas 1 a 14 completas**, todas revisadas y en verde. Rama `feat/agentes-ranking`, HEAD `2e2cfce`, **537 tests pasando** (`pytest tests/ -q -m "not red"`), árbol limpio. **Sólo queda la Task 15**, que es la que sale a la red.
 
 | Task | Commits | Suite |
 |---|---|---:|
@@ -2638,8 +2638,9 @@ git commit -m "docs: sub-proyecto B terminado, con la cobertura de las guardas m
 | 11 · Llamada a Sonnet 5 | `4a8853f` · `301b0cc` · `7665f1f` | 493 |
 | 12 · Caché de fichas | `5e5a429` · `7383ece` · `98b7b00` | 509 |
 | 13 · Informe legible | `b63c17d` | 521 |
+| 14 · Orquestación | `d326b8a` · `2e2cfce` | 537 |
 
-**Siguiente: Task 14** (orquestación y salidas). Las tareas 14 y 15 siguen tal como están escritas arriba, con siete correcciones que la ejecución ya introdujo y que hay que respetar:
+**Siguiente: Task 15** (test de red, medición real y documentación). Sigue tal como está escrita arriba, con estas correcciones que la ejecución ya introdujo y que hay que respetar:
 
 - `marcar_sin_pares` tiene la firma `(motivos, compuestos, sectores)` — sin `min_pares`. El código de la Task 14 en este plan la llama con dos argumentos; corregir al integrarla.
 - Las etiquetas de exclusión son seis, no cuatro: `historia_corta`, `datos_rancios`, `pilar_sin_datos`, `cobertura_insuficiente`, `sector_desconocido`, `sin_dispersion_sectorial`.
@@ -2651,9 +2652,12 @@ git commit -m "docs: sub-proyecto B terminado, con la cobertura de las guardas m
 
 - **`render` acepta una narrativa sin `fuente`** y lo dice en el cuerpo del informe en vez de reventar. Colapsa además los espacios de la cita, porque el texto crudo del Item 1A trae saltos de línea y sin eso la cita se sale de su bloque. La cobertura se imprime con `len(TODOS_LOS_KPIS)`, no con un 17 a mano.
 
-**Aviso para la Task 14 — `redactar()` no produce la procedencia, y el informe la necesita.** Devuelve `{tesis, riesgos}` y nada más; `narrativa["fuente"]` —formulario, fecha, accession, sección, si se recortó— la tiene que inyectar la orquestación desde el `Riesgos` que devuelve `cargar_riesgos`. Sin eso, cada cita del informe queda sin forma de localizarse en el filing original, que es la promesa entera del sub-proyecto. El informe ya no aborta la corrida si falta, pero imprime "procedencia no disponible" en el cuerpo: **si eso aparece en la salida real, es un fallo de la Task 14, no del informe.**
+- **La Task 14 ya está integrada y las dos correcciones anteriores aplicadas**: `marcar_sin_pares` con tres argumentos, y `guardar` escribiendo `fichas.json` con `allow_nan=False`. `construir_ranking(con_llm=False)` corre entero sin red.
+- **El informe distingue la escala del compuesto de la de los pilares.** El compuesto es la media ponderada de los pilares **re-estandarizada dentro del sector** (enmienda 1), así que no está en su misma escala: en una corrida real conviven un compuesto de +1,53 y unos pilares que promedian +0,12. Se descubrió leyendo la salida de verdad, no con un test.
 
-**Aviso para la Task 14 — la clave de caché depende de que `contexto` sea único por empresa.** Si dos empresas produjeran `(contexto, fuente)` idénticos compartirían ficha. Hoy lo garantiza que `ficha_numerica` pone el `ticker` como primer campo, pero **eso hay que confirmarlo al escribir la Task 14, no asumirlo**: depende de cómo se construya `contexto`. `fuente` es una segunda línea incidental —el Item 1A es casi siempre único— que se cae para una empresa sin filing, donde `cargar_riesgos` devuelve `None`.
+**Ya resuelto — `redactar()` no produce la procedencia, y el informe la necesita.** La Task 14 la inyecta en `_con_narrativa` desde el `Riesgos` de `filings.py`, y hay test que lo fija. Se deja anotado porque la dependencia sigue siendo invisible al leer `redactar` por su cuenta: Devuelve `{tesis, riesgos}` y nada más; `narrativa["fuente"]` —formulario, fecha, accession, sección, si se recortó— la tiene que inyectar la orquestación desde el `Riesgos` que devuelve `cargar_riesgos`. Sin eso, cada cita del informe queda sin forma de localizarse en el filing original, que es la promesa entera del sub-proyecto. El informe ya no aborta la corrida si falta, pero imprime "procedencia no disponible" en el cuerpo: **si eso aparece en la salida real, es un fallo de la Task 14, no del informe.**
+
+**Resuelto — la clave de caché depende de que `contexto` sea único por empresa.** `_contexto` en `run.py` empieza por `f"Empresa: {ficha['ticker']}, sector ..."`, así que dos empresas no pueden compartir ficha por colisión de clave. Queda por escrito porque es una invariante que un refactor de `_contexto` podría romper sin que ningún test de `llm.py` se entere.
 
 **Aviso para la Task 14 — un hazard dormido.** `_escribir_cache` deriva el nombre del temporal sólo del ticker (`fichero.with_suffix(".tmp")`), así que dos procesos cargando el mismo ticker comparten un único `.tmp` y uno puede hacer `replace()` de un fichero que el otro aún escribe, anulando justo la atomicidad que el temporal existe para dar. En un programa de un solo hilo no puede pasar, y por eso se dejó como está. **Despierta en cuanto se paralelicen las 502 descargas** — que es lo natural de querer, siendo ésta la etapa limitada por red. El seguro es barato: `tempfile.mkstemp(dir=...)` o el pid en el nombre. `fundamentals/fetch.py:124` tiene la forma idéntica, así que arreglar uno solo sería peor que arreglar los dos o ninguno.
 
@@ -2695,6 +2699,10 @@ No había cota inferior. Una cita de dos letras se llevaba el sello de "verifica
 Lo que hay que llevarse: **el escrutinio se concentra donde hubo debate, y el debate lo elige quien escribe el despacho.** Los tres agujeros que se le señalaron al implementador estaban medidos y eran reales, y aun así fijar la agenda en ellos dejó fuera el que más importaba. Contra eso no sirve mutar tests —los tests no cubrían el caso porque a nadie se le había ocurrido—, sino preguntar aparte, y en frío: *¿cuál es la entrada más tonta que esta función acepta y no debería?*
 
 **Las tareas 11 y 12 volvieron a confirmarlo, con la misma forma.** En la 11 el implementador cerró la tesis vacía —el caso que se le señaló— y dejó abierto el campo de al lado: una `afirmacion` vacía con cita válida salía con `verificada: true`, el sello puesto sobre nada. Y borrar el chequeo de cifras en `afirmacion` dejaba los 26 tests en verde, siendo que el spec lo nombraba explícitamente. En la 12, el test que protegía la lección más cara del proyecto —`hashlib` y no `hash()`, que ya envenenó una caché— llamaba a la función dos veces **en el mismo proceso**, donde `hash()` también es estable: no podía fallar.
+
+**La Task 14 aportó la variante más difícil de todas**, encontrada por el implementador al hacerse la pregunta en frío: forzó `if True:` en lugar de `if con_llm:`, de modo que `con_llm=False` **sí llamaba al modelo** — y `test_sin_llm_todas_las_fichas_son_de_plantilla` **siguió en verde**. El motivo es que en un entorno sin `ANTHROPIC_API_KEY`, `redactar_con_cache` degrada a `None` igualmente, así que el resultado observable del código roto y del correcto es idéntico. **El test no medía la bandera: medía la ausencia de credenciales.** Se cerró inyectando un cliente falso y comprobando que no recibe ninguna llamada.
+
+Es un caso que generaliza mal y conviene tener presente: **un test puede pasar por una razón que no tiene nada que ver con lo que dice comprobar, y el entorno de pruebas es una de esas razones.** Cuando el sistema degrada con elegancia ante una dependencia ausente, todo test que sólo mire la salida final es sospechoso.
 
 Y una tercera variante que conviene reconocer, porque no la caza mutar tests: **un docstring que promete una garantía que el código no da.** `clave_cache` afirmaba que su parámetro `sistema` no podía desincronizarse de lo que manda `redactar`. Los argumentos por defecto en Python se evalúan una sola vez, al definirse la función, así que reasignar la global desincronizaba las dos cosas en silencio — exactamente lo que el parámetro existía para impedir. El test que decía cubrirlo comparaba dos llamadas que usaban el mismo valor congelado. **Cuando un comentario afirme que algo es imposible, ejecútalo antes de creerlo.**
 
