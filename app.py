@@ -76,12 +76,16 @@ muestra, la optimización no está aportando información.
     )
 
 # ── Configuration panel ───────────────────────────────────────────────────────
+TICKERS_POR_DEFECTO = "AAPL, MSFT, GOOGL, AMZN, NVDA"
+
 with st.container():
     col1, col2, col3 = st.columns([3, 1, 1])
     with col1:
         raw_tickers = st.text_input(
             "Tickers (separados por coma o espacio)",
-            value="AAPL, MSFT, GOOGL, AMZN, NVDA",
+            value=", ".join(
+                st.session_state.get("tickers_aprobados", [])
+            ) or TICKERS_POR_DEFECTO,
         )
     with col2:
         horizon = st.selectbox(
