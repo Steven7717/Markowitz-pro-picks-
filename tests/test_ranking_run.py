@@ -134,6 +134,42 @@ def test_guardar_escribe_las_tres_salidas(sin_red, tmp_path: Path):
     assert f"## 1. {resultado.fichas[0]['ticker']}" in texto_informe
 
 
+# --- Los metadatos de la corrida: el contrato con el sub-proyecto C -------
+
+
+def test_el_resultado_lleva_los_metadatos_de_la_corrida(sin_red):
+    resultado = construir_ranking(con_llm=False, n=5, tope=3)
+    corrida = resultado.corrida
+    assert corrida["universo"] == "sp500"
+    assert corrida["tamano_top"] == 5
+    assert corrida["tope_por_sector"] == 3
+    assert corrida["con_llm"] is False
+    assert corrida["n_supervivientes"] == len(resultado.tabla)
+    assert corrida["n_panel"] == corrida["n_supervivientes"] + sum(
+        resultado.exclusiones.values()
+    )
+    assert corrida["exclusiones"] == resultado.exclusiones
+
+
+def test_guardar_escribe_corrida_json(sin_red, tmp_path: Path):
+    resultado = construir_ranking(con_llm=False, n=5)
+    guardar(resultado, tmp_path)
+
+    corrida = json.loads((tmp_path / "corrida.json").read_text(encoding="utf-8"))
+    assert corrida["n_supervivientes"] == len(resultado.tabla)
+    assert corrida["tamano_top"] == 5
+
+
+def test_corrida_json_es_json_estricto(sin_red, tmp_path: Path):
+    # Mismo contrato que fichas.json: un NaN se escribiria como el literal
+    # `NaN`, que ningun parser estricto acepta. n_panel viene de una suma de
+    # enteros de pandas, que es justo donde se cuela un float.
+    resultado = construir_ranking(con_llm=False, n=5)
+    resultado.corrida["n_panel"] = float("nan")
+    with pytest.raises(ValueError):
+        guardar(resultado, tmp_path)
+
+
 # --- El contrato de fichas.json: JSON estricto, sin NaN -------------------
 
 
@@ -159,7 +195,11 @@ def test_guardar_revienta_si_una_ficha_trae_nan_en_vez_de_escribir_json_invalido
         "narrativa": None,
     }
     resultado = Resultado(
-        tabla=pd.DataFrame(), fichas=[ficha_con_nan], exclusiones={}, cobertura_panel=None
+        tabla=pd.DataFrame(),
+        fichas=[ficha_con_nan],
+        exclusiones={},
+        cobertura_panel=None,
+        corrida={},
     )
     with pytest.raises(ValueError):
         guardar(resultado, tmp_path)

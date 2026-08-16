@@ -1,5 +1,6 @@
 import json
 from dataclasses import dataclass
+from datetime import date
 from pathlib import Path
 
 import pandas as pd
@@ -28,6 +29,7 @@ class Resultado:
     fichas: list[dict]
     exclusiones: dict[str, int]
     cobertura_panel: object
+    corrida: dict
 
 
 def _contexto(ficha: dict) -> str:
@@ -115,16 +117,32 @@ def construir_ranking(
     tabla["sector_gics"] = sectores.reindex(tabla.index)
     tabla["kpis_con_dato"] = conteo.sum(axis=1)
 
+    supervivientes = tabla.loc[motivos.isna()]
+    exclusiones = motivos.dropna().value_counts().to_dict()
+
     return Resultado(
-        tabla=tabla.loc[motivos.isna()],
+        tabla=supervivientes,
         fichas=fichas,
-        exclusiones=motivos.dropna().value_counts().to_dict(),
+        exclusiones=exclusiones,
         cobertura_panel=cobertura,
+        # Los metadatos se construyen aqui y no en guardar() porque aqui estan
+        # en alcance los parametros de la corrida. guardar() se queda tonto: no
+        # calcula nada, solo escribe lo que ya se decidio.
+        corrida={
+            "fecha": date.today().isoformat(),
+            "universo": source if isinstance(source, str) else f"{len(source)} tickers",
+            "n_panel": int(len(supervivientes) + sum(exclusiones.values())),
+            "n_supervivientes": int(len(supervivientes)),
+            "exclusiones": {motivo: int(n) for motivo, n in exclusiones.items()},
+            "tope_por_sector": int(tope),
+            "tamano_top": int(n),
+            "con_llm": bool(con_llm),
+        },
     )
 
 
 def guardar(resultado: Resultado, destino: Path) -> None:
-    """Write the three outputs. fichas.json is the contract with sub-project C.
+    """Write the four outputs. fichas.json is the contract with sub-project C.
 
     allow_nan=False on the json.dumps call is that contract, fixed in Task 8
     (see tests/test_ranking_fichas.py:test_la_ficha_es_serializable_a_json_estricto):
@@ -143,4 +161,8 @@ def guardar(resultado: Resultado, destino: Path) -> None:
     )
     (destino / "informe.md").write_text(
         render(resultado.fichas, resultado.exclusiones), encoding="utf-8"
+    )
+    (destino / "corrida.json").write_text(
+        json.dumps(resultado.corrida, ensure_ascii=False, indent=2, allow_nan=False),
+        encoding="utf-8",
     )
