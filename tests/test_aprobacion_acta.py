@@ -1,3 +1,7 @@
+import json
+from datetime import datetime
+from pathlib import Path
+
 import pytest
 
 from aprobacion.acta import (
@@ -7,6 +11,8 @@ from aprobacion.acta import (
     TickerDuplicado,
     TickerInvalido,
     construir_acta,
+    guardar_acta,
+    tickers_aprobados,
 )
 from aprobacion.carga import Candidatos
 from tests.test_aprobacion_carga import CORRIDA, FICHA
@@ -113,8 +119,60 @@ def test_el_acta_copia_la_corrida_entera():
 
 
 def test_el_acta_lleva_fecha_en_iso():
-    from datetime import datetime
-
     acta = construir_acta(candidatos("AAA"), aprobados={"AAA"},
                           ahora=datetime(2026, 8, 15, 18, 42))
     assert acta["fecha"] == "2026-08-15T18:42:00"
+
+
+def test_el_acta_se_escribe_con_su_fecha_en_el_nombre(tmp_path: Path):
+    acta = construir_acta(candidatos("AAA"), aprobados={"AAA"},
+                          ahora=datetime(2026, 8, 15, 18, 42))
+    destino = guardar_acta(acta, tmp_path)
+    assert destino.name == "2026-08-15-1842.json"
+    assert json.loads(destino.read_text(encoding="utf-8"))["fecha"] == acta["fecha"]
+
+
+def test_el_acta_sobrevive_a_que_B_se_vuelva_a_correr(tmp_path: Path):
+    # La promesa entera del artefacto. Si esto no muerde, el resto es decorado.
+    acta = construir_acta(candidatos("AAA"), aprobados={"AAA"})
+    destino = guardar_acta(acta, tmp_path)
+
+    # B se corre otra vez y deja unas fichas completamente distintas.
+    fichas_nuevas = [{**FICHA, "ticker": "ZZZ", "compuesto": -9.9}]
+    (tmp_path / "fichas.json").write_text(
+        json.dumps(fichas_nuevas), encoding="utf-8"
+    )
+
+    guardada = json.loads(destino.read_text(encoding="utf-8"))
+    assert guardada["aprobados"][0]["ticker"] == "AAA"
+    assert guardada["aprobados"][0]["ficha"]["compuesto"] == 1.42
+
+
+def test_el_acta_es_json_estricto(tmp_path: Path):
+    acta = construir_acta(candidatos("AAA"), aprobados={"AAA"})
+    acta["aprobados"][0]["ficha"]["compuesto"] = float("nan")
+    with pytest.raises(ValueError):
+        guardar_acta(acta, tmp_path)
+
+
+def test_no_deja_temporales_a_medias(tmp_path: Path):
+    acta = construir_acta(candidatos("AAA"), aprobados={"AAA"})
+    guardar_acta(acta, tmp_path)
+    assert [p.suffix for p in tmp_path.iterdir()] == [".json"]
+
+
+def test_dos_actas_seguidas_no_se_pisan(tmp_path: Path):
+    primera = guardar_acta(
+        construir_acta(candidatos("AAA"), aprobados={"AAA"},
+                       ahora=datetime(2026, 8, 15, 18, 42)), tmp_path)
+    segunda = guardar_acta(
+        construir_acta(candidatos("AAA"), aprobados={"AAA"},
+                       ahora=datetime(2026, 8, 15, 19, 10)), tmp_path)
+    assert primera != segunda
+    assert len(list(tmp_path.glob("*.json"))) == 2
+
+
+def test_los_tickers_aprobados_incluyen_los_anadidos_a_mano():
+    acta = construir_acta(candidatos("AAA"), aprobados={"AAA"},
+                          anadidos=[Anadido(ticker="JPM", motivo="x")])
+    assert tickers_aprobados(acta) == ["AAA", "JPM"]
