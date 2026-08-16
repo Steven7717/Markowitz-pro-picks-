@@ -1,7 +1,7 @@
 # Contexto del proyecto — para retomar en una sesión nueva
 
 **Última actualización:** 2026-08-15
-**Rama:** `feat/agentes-ranking` · **Tests:** 537 pasando (`pytest tests/ -q -m "not red"`)
+**Rama:** `master` · **Tests:** 537 pasando (`pytest tests/ -q -m "not red"`), más 6 marcados `red`
 
 ---
 
