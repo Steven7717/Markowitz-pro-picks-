@@ -149,15 +149,37 @@ def guardar_acta(acta: dict, directorio: Path | None = None) -> Path:
     same reason fundamentals caches one file per ticker — a run killed
     mid-write cannot corrupt the whole history.
 
+    Named to the second, and suffixed with -2, -3, ... on a same-second
+    collision: an act only ever grows, so overwriting one silently is never
+    correct, and failing outright would make the reviewer redo their whole
+    review over a name clash that is not their fault. The suffix loop is a
+    TOCTOU race under real concurrency (two processes could both observe the
+    name free and both write it) — acceptable here because approvals go
+    through one reviewer at a time, not a documented guarantee under
+    concurrent writers.
+
     allow_nan=False for the same reason fichas.json uses it: json.dumps writes
     a NaN as the bare literal `NaN`, which no strict parser accepts. An act
     that cannot be read back is not a record.
+
+    If the write fails partway (disk full, process killed), the ``.tmp`` file
+    is left behind as debris but ``fichero`` itself — and whatever act was
+    already saved under that name — is untouched, because it is only ever
+    reached through the atomic ``replace()``. Same trade-off as
+    ranking/filings.py:_escribir_cache, and left unswept for the same
+    reason: cleaning it up here only would make the two modules inconsistent
+    with each other for no real gain, since a stray .tmp file is harmless
+    clutter, not a correctness problem.
     """
     directorio = Path(directorio or ACTAS)
     directorio.mkdir(parents=True, exist_ok=True)
 
-    momento = datetime.fromisoformat(acta["fecha"]).strftime("%Y-%m-%d-%H%M")
+    momento = datetime.fromisoformat(acta["fecha"]).strftime("%Y-%m-%d-%H%M%S")
     fichero = directorio / f"{momento}.json"
+    copia = 2
+    while fichero.exists():
+        fichero = directorio / f"{momento}-{copia}.json"
+        copia += 1
 
     texto = json.dumps(acta, ensure_ascii=False, indent=2, allow_nan=False)
     tmp = fichero.with_suffix(".tmp")

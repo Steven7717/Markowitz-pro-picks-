@@ -128,8 +128,27 @@ def test_el_acta_se_escribe_con_su_fecha_en_el_nombre(tmp_path: Path):
     acta = construir_acta(candidatos("AAA"), aprobados={"AAA"},
                           ahora=datetime(2026, 8, 15, 18, 42))
     destino = guardar_acta(acta, tmp_path)
-    assert destino.name == "2026-08-15-1842.json"
+    assert destino.name == "2026-08-15-184200.json"
     assert json.loads(destino.read_text(encoding="utf-8"))["fecha"] == acta["fecha"]
+
+
+def test_dos_actas_en_el_mismo_segundo_no_se_pisan(tmp_path: Path):
+    # El nombre resuelve hasta el segundo: dos aprobaciones muy seguidas
+    # todavia pueden coincidir. La segunda debe llevarse un sufijo, no pisar
+    # a la primera -- esa es la garantia que le importa al acta como registro.
+    misma_marca = datetime(2026, 8, 15, 18, 42, 0)
+    primera = guardar_acta(
+        construir_acta(candidatos("AAA"), aprobados={"AAA"}, ahora=misma_marca),
+        tmp_path)
+    segunda = guardar_acta(
+        construir_acta(candidatos("BBB"), aprobados={"BBB"}, ahora=misma_marca),
+        tmp_path)
+
+    assert primera != segunda
+    # La asercion que importa: el contenido de la primera acta sigue intacto,
+    # no solo su nombre de fichero.
+    assert json.loads(primera.read_text(encoding="utf-8"))["aprobados"][0]["ticker"] == "AAA"
+    assert json.loads(segunda.read_text(encoding="utf-8"))["aprobados"][0]["ticker"] == "BBB"
 
 
 def test_el_acta_sobrevive_a_que_B_se_vuelva_a_correr(tmp_path: Path):
@@ -159,6 +178,45 @@ def test_no_deja_temporales_a_medias(tmp_path: Path):
     acta = construir_acta(candidatos("AAA"), aprobados={"AAA"})
     guardar_acta(acta, tmp_path)
     assert [p.suffix for p in tmp_path.iterdir()] == [".json"]
+
+
+def test_una_escritura_que_truena_a_medias_no_toca_el_acta_ya_guardada(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    # Lo unico que compra el patron tmp-then-replace: si la reescritura de un
+    # nombre ya usado truena a mitad, el .json que ya estaba en disco no se
+    # ve afectado, porque solo se llega a el via el replace() atomico.
+    #
+    # El bucle anti-colision de guardar_acta hace que, por la API publica, un
+    # segundo guardado JAMAS apunte a un nombre que ya existe -- siempre
+    # encuentra un "-2" libre. Para poner a prueba la garantia real hay que
+    # forzar la misma carrera TOCTOU que reconoce el docstring de
+    # guardar_acta: dos escrituras que ven el nombre libre a la vez porque
+    # fichero.exists() miente. Sin este parche, esta prueba no distingue la
+    # version correcta de la mutacion que quita el temporal (ver el reporte).
+    misma_marca = datetime(2026, 8, 15, 18, 42, 0)
+    buena = guardar_acta(
+        construir_acta(candidatos("AAA"), aprobados={"AAA"}, ahora=misma_marca),
+        tmp_path,
+    )
+
+    monkeypatch.setattr(Path, "exists", lambda self: False)
+
+    escritura_original = Path.write_text
+
+    def disco_lleno(self: Path, *args, **kwargs):
+        escritura_original(self, "a medias", encoding="utf-8")
+        raise OSError("disco lleno (simulado)")
+
+    monkeypatch.setattr(Path, "write_text", disco_lleno)
+
+    with pytest.raises(OSError):
+        guardar_acta(
+            construir_acta(candidatos("BBB"), aprobados={"BBB"}, ahora=misma_marca),
+            tmp_path,
+        )
+
+    assert json.loads(buena.read_text(encoding="utf-8"))["aprobados"][0]["ticker"] == "AAA"
 
 
 def test_dos_actas_seguidas_no_se_pisan(tmp_path: Path):
