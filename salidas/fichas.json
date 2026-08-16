@@ -1,0 +1,803 @@
+[
+  {
+    "ticker": "CPRT",
+    "sector_gics": "Industrials",
+    "puesto": 1,
+    "compuesto": 5.696009627371783,
+    "pilares": {
+      "calidad": 1.3905032740687138,
+      "crecimiento": -0.23863907502955542,
+      "valoracion": 0.06990884269296681,
+      "solidez": 6.366803148093703
+    },
+    "destacados": [
+      {
+        "kpi": "razon_corriente",
+        "valor": 8.508760216117366,
+        "z": 6.366803148093703
+      },
+      {
+        "kpi": "margen_neto",
+        "valor": 0.334945991705289,
+        "z": 2.364906939557683
+      },
+      {
+        "kpi": "margen_operativo",
+        "valor": 0.36536375654607267,
+        "z": 1.8285905429797498
+      }
+    ],
+    "flojos": [
+      {
+        "kpi": "crecimiento_ingresos",
+        "valor": 0.01118823699300434,
+        "z": -0.6197393798923079
+      },
+      {
+        "kpi": "precio_fcf",
+        "valor": 179.91658589093927,
+        "z": 0.10418764916486292
+      },
+      {
+        "kpi": "crecimiento_bpa",
+        "valor": 0.06858546858546881,
+        "z": -0.05114340679146795
+      }
+    ],
+    "cobertura": {
+      "kpis_con_dato": 10,
+      "pilares_con_dato": 4
+    },
+    "desplazo_a": [],
+    "generada_por": "plantilla",
+    "narrativa": null
+  },
+  {
+    "ticker": "PLTR",
+    "sector_gics": "Information Technology",
+    "puesto": 2,
+    "compuesto": 4.18380059094718,
+    "pilares": {
+      "calidad": 0.9209225530893114,
+      "crecimiento": 1.499869048847709,
+      "valoracion": -0.4401113694856605,
+      "solidez": 4.102408596222126
+    },
+    "destacados": [
+      {
+        "kpi": "razon_corriente",
+        "valor": 6.917888133355989,
+        "z": 4.102408596222126
+      },
+      {
+        "kpi": "crecimiento_bpa",
+        "valor": 3.517628205128205,
+        "z": 2.201032063783365
+      },
+      {
+        "kpi": "crecimiento_ingresos",
+        "valor": 0.775852212869617,
+        "z": 2.118187068904853
+      }
+    ],
+    "flojos": [
+      {
+        "kpi": "per",
+        "valor": 589.6920125484583,
+        "z": 0.7987993802424848
+      },
+      {
+        "kpi": "precio_valor_libro",
+        "valor": 38.66751484437745,
+        "z": 0.41936306293615666
+      },
+      {
+        "kpi": "fcf_sobre_beneficio",
+        "valor": 1.1160838955797512,
+        "z": -0.13480348392273933
+      }
+    ],
+    "cobertura": {
+      "kpis_con_dato": 13,
+      "pilares_con_dato": 4
+    },
+    "desplazo_a": [],
+    "generada_por": "plantilla",
+    "narrativa": null
+  },
+  {
+    "ticker": "MNST",
+    "sector_gics": "Consumer Staples",
+    "puesto": 3,
+    "compuesto": 4.058751076941055,
+    "pilares": {
+      "calidad": 0.6308060270959399,
+      "crecimiento": 0.4664493781161655,
+      "valoracion": 0.40431972065773125,
+      "solidez": 3.451935401389671
+    },
+    "destacados": [
+      {
+        "kpi": "razon_corriente",
+        "valor": 3.4686783164282122,
+        "z": 3.451935401389671
+      },
+      {
+        "kpi": "margen_neto",
+        "valor": 0.2304600905463375,
+        "z": 1.054534388351779
+      },
+      {
+        "kpi": "crecimiento_ingresos",
+        "valor": 0.20368676159385937,
+        "z": 0.9377932291907916
+      }
+    ],
+    "flojos": [
+      {
+        "kpi": "fcf_sobre_beneficio",
+        "valor": 0.9834954919593493,
+        "z": -0.007906408862104766
+      },
+      {
+        "kpi": "crecimiento_fcf",
+        "valor": 0.11431860404661703,
+        "z": -0.0048944729584605925
+      },
+      {
+        "kpi": "roe",
+        "valor": 0.062453133576227914,
+        "z": 0.1104789284502754
+      }
+    ],
+    "cobertura": {
+      "kpis_con_dato": 11,
+      "pilares_con_dato": 4
+    },
+    "desplazo_a": [],
+    "generada_por": "plantilla",
+    "narrativa": null
+  },
+  {
+    "ticker": "MU",
+    "sector_gics": "Information Technology",
+    "puesto": 4,
+    "compuesto": 3.5494183776844386,
+    "pilares": {
+      "calidad": 0.5805478134523602,
+      "crecimiento": 3.364255456565367,
+      "valoracion": 0.49246643615752106,
+      "solidez": 0.7316283507177417
+    },
+    "destacados": [
+      {
+        "kpi": "crecimiento_fcf",
+        "valor": 29.096273898390503,
+        "z": 4.290503211324949
+      },
+      {
+        "kpi": "crecimiento_ingresos",
+        "valor": 1.6116416212284408,
+        "z": 3.8023044777066923
+      },
+      {
+        "kpi": "crecimiento_bpa",
+        "valor": 6.387324628857787,
+        "z": 1.9999586806644591
+      }
+    ],
+    "flojos": [
+      {
+        "kpi": "fcf_sobre_beneficio",
+        "valor": 0.40529335224900664,
+        "z": -0.410753232688223
+      },
+      {
+        "kpi": "margen_fcf",
+        "valor": 0.22067013390942444,
+        "z": -0.07258298687279621
+      },
+      {
+        "kpi": "roe",
+        "valor": 0.15471229489725458,
+        "z": 0.031309553191030196
+      }
+    ],
+    "cobertura": {
+      "kpis_con_dato": 16,
+      "pilares_con_dato": 4
+    },
+    "desplazo_a": [],
+    "generada_por": "plantilla",
+    "narrativa": null
+  },
+  {
+    "ticker": "VEEV",
+    "sector_gics": "Health Care",
+    "puesto": 5,
+    "compuesto": 3.3181063284565178,
+    "pilares": {
+      "calidad": 0.4678422812957669,
+      "crecimiento": 0.3636776166743005,
+      "valoracion": -0.014490481980439415,
+      "solidez": 3.461617779900366
+    },
+    "destacados": [
+      {
+        "kpi": "razon_corriente",
+        "valor": 5.680854902795038,
+        "z": 3.461617779900366
+      },
+      {
+        "kpi": "margen_neto",
+        "valor": 0.283167669544279,
+        "z": 0.6448454128209619
+      },
+      {
+        "kpi": "margen_bruto",
+        "valor": 0.7502741346041719,
+        "z": 0.610010513727703
+      }
+    ],
+    "flojos": [
+      {
+        "kpi": "precio_valor_libro",
+        "valor": 5.296357525728986,
+        "z": 0.015730429511227956
+      },
+      {
+        "kpi": "per",
+        "valor": 154.31871956784974,
+        "z": 0.013250534449650873
+      },
+      {
+        "kpi": "roe",
+        "valor": 0.03332335878936242,
+        "z": 0.08464767522827496
+      }
+    ],
+    "cobertura": {
+      "kpis_con_dato": 9,
+      "pilares_con_dato": 4
+    },
+    "desplazo_a": [
+      "ISRG"
+    ],
+    "generada_por": "plantilla",
+    "narrativa": null
+  },
+  {
+    "ticker": "CVNA",
+    "sector_gics": "Consumer Discretionary",
+    "puesto": 6,
+    "compuesto": 3.2771375531634925,
+    "pilares": {
+      "calidad": -0.33932835592285343,
+      "crecimiento": 2.491525776148182,
+      "valoracion": -0.9832710786724188,
+      "solidez": 3.4727426733907563
+    },
+    "destacados": [
+      {
+        "kpi": "crecimiento_ingresos",
+        "valor": 0.5421168308972358,
+        "z": 4.246865914720486
+      },
+      {
+        "kpi": "razon_corriente",
+        "valor": 4.09296591859429,
+        "z": 3.4727426733907563
+      },
+      {
+        "kpi": "crecimiento_fcf",
+        "valor": 2.8724792903957415,
+        "z": 0.7361856375758785
+      }
+    ],
+    "flojos": [
+      {
+        "kpi": "precio_fcf",
+        "valor": 283.79642835974056,
+        "z": 1.6906958135426526
+      },
+      {
+        "kpi": "margen_bruto",
+        "valor": 0.1940282909275822,
+        "z": -1.3356779190076418
+      },
+      {
+        "kpi": "margen_operativo",
+        "valor": 0.08898631395203618,
+        "z": -0.7145283851550597
+      }
+    ],
+    "cobertura": {
+      "kpis_con_dato": 12,
+      "pilares_con_dato": 4
+    },
+    "desplazo_a": [],
+    "generada_por": "plantilla",
+    "narrativa": null
+  },
+  {
+    "ticker": "CEG",
+    "sector_gics": "Utilities",
+    "puesto": 7,
+    "compuesto": 3.1998792412814683,
+    "pilares": {
+      "calidad": 0.34567239072209804,
+      "crecimiento": 0.5128742228290837,
+      "valoracion": 0.01710657328408142,
+      "solidez": 2.6293409258769653
+    },
+    "destacados": [
+      {
+        "kpi": "deuda_neta_ebitda",
+        "valor": 3.0,
+        "z": -2.938418340653823
+      },
+      {
+        "kpi": "razon_corriente",
+        "valor": 1.4765407188755153,
+        "z": 2.3202635111001078
+      },
+      {
+        "kpi": "roic",
+        "valor": 0.023633677991137372,
+        "z": 2.0415040491758245
+      }
+    ],
+    "flojos": [
+      {
+        "kpi": "margen_operativo",
+        "valor": 0.13767896341251043,
+        "z": -1.0036600607897976
+      },
+      {
+        "kpi": "precio_valor_libro",
+        "valor": 4.438302804238549,
+        "z": 0.6019018667514741
+      },
+      {
+        "kpi": "margen_neto",
+        "valor": 0.1059996921826999,
+        "z": -0.5750823151116331
+      }
+    ],
+    "cobertura": {
+      "kpis_con_dato": 14,
+      "pilares_con_dato": 4
+    },
+    "desplazo_a": [],
+    "generada_por": "plantilla",
+    "narrativa": null
+  },
+  {
+    "ticker": "GRMN",
+    "sector_gics": "Consumer Discretionary",
+    "puesto": 8,
+    "compuesto": 2.855755484323919,
+    "pilares": {
+      "calidad": 0.6241659266810341,
+      "crecimiento": 0.39178342050364606,
+      "valoracion": 0.34197839210188535,
+      "solidez": 2.7056842033943225
+    },
+    "destacados": [
+      {
+        "kpi": "razon_corriente",
+        "valor": 3.5803883545943087,
+        "z": 2.7056842033943225
+      },
+      {
+        "kpi": "margen_neto",
+        "valor": 0.23187155361844192,
+        "z": 1.412044611856424
+      },
+      {
+        "kpi": "margen_operativo",
+        "valor": 0.2633560798123485,
+        "z": 0.9390637301895679
+      }
+    ],
+    "flojos": [
+      {
+        "kpi": "fcf_sobre_beneficio",
+        "valor": 0.8369597570043177,
+        "z": 0.014408229358406275
+      },
+      {
+        "kpi": "roe",
+        "valor": 0.04982905291790022,
+        "z": 0.13118460617183025
+      },
+      {
+        "kpi": "crecimiento_bpa",
+        "valor": 0.1902889970382386,
+        "z": 0.16615342864172716
+      }
+    ],
+    "cobertura": {
+      "kpis_con_dato": 13,
+      "pilares_con_dato": 4
+    },
+    "desplazo_a": [],
+    "generada_por": "plantilla",
+    "narrativa": null
+  },
+  {
+    "ticker": "CBOE",
+    "sector_gics": "Financials",
+    "puesto": 9,
+    "compuesto": 2.5619071778241382,
+    "pilares": {
+      "calidad": 0.21107496483753613,
+      "crecimiento": 0.16872311989572877,
+      "valoracion": -0.1255593326056554,
+      "solidez": 1.1007267024225809
+    },
+    "destacados": [
+      {
+        "kpi": "cobertura_intereses",
+        "valor": 33.06966279334701,
+        "z": 1.6563890044582041
+      },
+      {
+        "kpi": "razon_corriente",
+        "valor": 1.634884174647377,
+        "z": 1.0076186825618785
+      },
+      {
+        "kpi": "deuda_neta_ebitda",
+        "valor": -1.2139832808953415,
+        "z": -0.63817242024766
+      }
+    ],
+    "flojos": [
+      {
+        "kpi": "per",
+        "valor": 91.41065886317327,
+        "z": 0.3516829867530856
+      },
+      {
+        "kpi": "precio_fcf",
+        "valor": 107.61526760543816,
+        "z": 0.20978864891303928
+      },
+      {
+        "kpi": "precio_valor_libro",
+        "valor": 5.9540356690055845,
+        "z": 0.1968642784586995
+      }
+    ],
+    "cobertura": {
+      "kpis_con_dato": 17,
+      "pilares_con_dato": 4
+    },
+    "desplazo_a": [],
+    "generada_por": "plantilla",
+    "narrativa": null
+  },
+  {
+    "ticker": "GEV",
+    "sector_gics": "Industrials",
+    "puesto": 10,
+    "compuesto": 2.386873685704204,
+    "pilares": {
+      "calidad": 1.2187486072583955,
+      "crecimiento": 2.412841180660265,
+      "valoracion": -1.1236712264279165,
+      "solidez": 0.7066886763087162
+    },
+    "destacados": [
+      {
+        "kpi": "roic",
+        "valor": 0.8484250749607164,
+        "z": 6.673173622834181
+      },
+      {
+        "kpi": "crecimiento_bpa",
+        "valor": 8.389697577372386,
+        "z": 4.98505970992847
+      },
+      {
+        "kpi": "deuda_neta_ebitda",
+        "valor": -11.369390738526656,
+        "z": -1.97160773211054
+      }
+    ],
+    "flojos": [
+      {
+        "kpi": "ev_ebitda",
+        "valor": 389.2359338607365,
+        "z": 2.3932767696307566
+      },
+      {
+        "kpi": "precio_valor_libro",
+        "valor": 20.555882116085595,
+        "z": 1.4524394451331906
+      },
+      {
+        "kpi": "margen_bruto",
+        "valor": 0.20139263486325631,
+        "z": -1.3018810916693035
+      }
+    ],
+    "cobertura": {
+      "kpis_con_dato": 16,
+      "pilares_con_dato": 4
+    },
+    "desplazo_a": [],
+    "generada_por": "plantilla",
+    "narrativa": null
+  },
+  {
+    "ticker": "INCY",
+    "sector_gics": "Health Care",
+    "puesto": 11,
+    "compuesto": 2.3191514244259324,
+    "pilares": {
+      "calidad": 0.6833487839442998,
+      "crecimiento": 0.7638221044057678,
+      "valoracion": 0.3442774094580232,
+      "solidez": 1.2441638960271533
+    },
+    "destacados": [
+      {
+        "kpi": "margen_bruto",
+        "valor": 0.9250446588809833,
+        "z": 1.2753981173006386
+      },
+      {
+        "kpi": "razon_corriente",
+        "valor": 3.2606287376658734,
+        "z": 1.2441638960271533
+      },
+      {
+        "kpi": "crecimiento_ingresos",
+        "valor": 0.21304107141120893,
+        "z": 0.9606093996763171
+      }
+    ],
+    "flojos": [
+      {
+        "kpi": "roe",
+        "valor": 0.07503965326274854,
+        "z": 0.2746038052244864
+      },
+      {
+        "kpi": "precio_valor_libro",
+        "valor": 3.0367894550636567,
+        "z": -0.30635273705170946
+      },
+      {
+        "kpi": "per",
+        "valor": 56.41969838495599,
+        "z": -0.382202081864337
+      }
+    ],
+    "cobertura": {
+      "kpis_con_dato": 9,
+      "pilares_con_dato": 4
+    },
+    "desplazo_a": [
+      "ISRG"
+    ],
+    "generada_por": "plantilla",
+    "narrativa": null
+  },
+  {
+    "ticker": "VRTX",
+    "sector_gics": "Health Care",
+    "puesto": 12,
+    "compuesto": 2.2936448774972233,
+    "pilares": {
+      "calidad": 0.585181777752872,
+      "crecimiento": 0.02373308530906006,
+      "valoracion": 0.02046055445187276,
+      "solidez": 2.3744980757194285
+    },
+    "destacados": [
+      {
+        "kpi": "cobertura_intereses",
+        "valor": 362.43939393939394,
+        "z": 3.810241269851038
+      },
+      {
+        "kpi": "margen_bruto",
+        "valor": 0.8602107338868912,
+        "z": 1.0287771811513404
+      },
+      {
+        "kpi": "margen_neto",
+        "valor": 0.35014492108051404,
+        "z": 0.9476638866442891
+      }
+    ],
+    "flojos": [
+      {
+        "kpi": "crecimiento_fcf",
+        "valor": 0.08499150610558837,
+        "z": -0.31024318182945704
+      },
+      {
+        "kpi": "fcf_sobre_beneficio",
+        "valor": 0.8803931340991096,
+        "z": -0.026335677632113932
+      },
+      {
+        "kpi": "precio_valor_libro",
+        "valor": 6.320606103186646,
+        "z": -0.012157393036448269
+      }
+    ],
+    "cobertura": {
+      "kpis_con_dato": 14,
+      "pilares_con_dato": 4
+    },
+    "desplazo_a": [
+      "ISRG"
+    ],
+    "generada_por": "plantilla",
+    "narrativa": null
+  },
+  {
+    "ticker": "CF",
+    "sector_gics": "Materials",
+    "puesto": 13,
+    "compuesto": 2.237513008779598,
+    "pilares": {
+      "calidad": 1.2513949471376196,
+      "crecimiento": 0.3562466546303477,
+      "valoracion": 0.6988475128751367,
+      "solidez": 0.9857624021500765
+    },
+    "destacados": [
+      {
+        "kpi": "roic",
+        "valor": 0.09904020450224038,
+        "z": 2.1376385002183564
+      },
+      {
+        "kpi": "razon_corriente",
+        "valor": 3.5095820631034838,
+        "z": 1.9605377207437518
+      },
+      {
+        "kpi": "margen_operativo",
+        "valor": 0.40456111434908004,
+        "z": 1.5953494883518236
+      }
+    ],
+    "flojos": [
+      {
+        "kpi": "crecimiento_fcf",
+        "valor": 0.20475427289971082,
+        "z": -0.18467058974969122
+      },
+      {
+        "kpi": "fcf_sobre_beneficio",
+        "valor": 0.8233422664903127,
+        "z": 0.10764501176700099
+      },
+      {
+        "kpi": "precio_valor_libro",
+        "valor": 3.1920950781965076,
+        "z": -0.18175281262062357
+      }
+    ],
+    "cobertura": {
+      "kpis_con_dato": 17,
+      "pilares_con_dato": 4
+    },
+    "desplazo_a": [],
+    "generada_por": "plantilla",
+    "narrativa": null
+  },
+  {
+    "ticker": "APP",
+    "sector_gics": "Communication Services",
+    "puesto": 14,
+    "compuesto": 2.1440106636946665,
+    "pilares": {
+      "calidad": 1.895903473243744,
+      "crecimiento": 2.027454488076258,
+      "valoracion": -1.6899947387036611,
+      "solidez": 0.8042693768256712
+    },
+    "destacados": [
+      {
+        "kpi": "roic",
+        "valor": 0.3487531647852502,
+        "z": 3.276709928955836
+      },
+      {
+        "kpi": "crecimiento_ingresos",
+        "valor": 0.6147698037471598,
+        "z": 2.9162037726961234
+      },
+      {
+        "kpi": "margen_operativo",
+        "valor": 0.7738583376238881,
+        "z": 2.2601329118622666
+      }
+    ],
+    "flojos": [
+      {
+        "kpi": "precio_valor_libro",
+        "valor": 78.26116063777597,
+        "z": 2.7464863301422984
+      },
+      {
+        "kpi": "per",
+        "valor": 143.41926274543462,
+        "z": 0.6335031472650239
+      },
+      {
+        "kpi": "cobertura_intereses",
+        "valor": 26.112315793615192,
+        "z": -0.12268073074377113
+      }
+    ],
+    "cobertura": {
+      "kpis_con_dato": 12,
+      "pilares_con_dato": 4
+    },
+    "desplazo_a": [],
+    "generada_por": "plantilla",
+    "narrativa": null
+  },
+  {
+    "ticker": "EXE",
+    "sector_gics": "Energy",
+    "puesto": 15,
+    "compuesto": 2.065415975071068,
+    "pilares": {
+      "calidad": 0.21480949562774213,
+      "crecimiento": 2.3368889896387643,
+      "valoracion": 0.7093729081954453,
+      "solidez": 0.2255567692823963
+    },
+    "destacados": [
+      {
+        "kpi": "crecimiento_ingresos",
+        "valor": 2.8803876156807586,
+        "z": 3.473952182989698
+      },
+      {
+        "kpi": "crecimiento_fcf",
+        "valor": 2.3077982206621073,
+        "z": 1.1998257962878307
+      },
+      {
+        "kpi": "ev_ebitda",
+        "valor": 15.594701857985894,
+        "z": -1.030674725985474
+      }
+    ],
+    "flojos": [
+      {
+        "kpi": "fcf_sobre_beneficio",
+        "valor": 0.8292582402514489,
+        "z": -0.3228732794886483
+      },
+      {
+        "kpi": "razon_corriente",
+        "valor": 0.9257541384582051,
+        "z": -0.28879364721727924
+      },
+      {
+        "kpi": "roe",
+        "valor": 0.04329170303464402,
+        "z": -0.0909401340967657
+      }
+    ],
+    "cobertura": {
+      "kpis_con_dato": 14,
+      "pilares_con_dato": 4
+    },
+    "desplazo_a": [],
+    "generada_por": "plantilla",
+    "narrativa": null
+  }
+]

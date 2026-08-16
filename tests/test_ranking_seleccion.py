@@ -1,0 +1,121 @@
+import pandas as pd
+
+from ranking.seleccion import desplazamientos_por_ticker, seleccionar
+
+
+def entradas(pares: list[tuple[str, float, str]]):
+    tickers = [t for t, _, _ in pares]
+    compuestos = pd.Series(
+        [c for _, c, _ in pares], index=pd.Index(tickers, name="ticker"), dtype="float64"
+    )
+    sectores = pd.Series([s for _, _, s in pares], index=compuestos.index)
+    return compuestos, sectores
+
+
+def test_ordena_de_mayor_a_menor():
+    compuestos, sectores = entradas(
+        [("AAA", 1.0, "Tech"), ("BBB", 3.0, "Health"), ("CCC", 2.0, "Energy")]
+    )
+    elegidas, _ = seleccionar(compuestos, sectores, tope=3, n=3)
+    assert list(elegidas["ticker"]) == ["BBB", "CCC", "AAA"]
+    assert list(elegidas["puesto"]) == [1, 2, 3]
+
+
+def test_el_tope_sectorial_deja_fuera_a_la_cuarta_del_sector():
+    compuestos, sectores = entradas(
+        [
+            ("T1", 5.0, "Tech"),
+            ("T2", 4.0, "Tech"),
+            ("T3", 3.0, "Tech"),
+            ("T4", 2.5, "Tech"),
+            ("H1", 1.0, "Health"),
+        ]
+    )
+    elegidas, desplazadas = seleccionar(compuestos, sectores, tope=3, n=5)
+    assert list(elegidas["ticker"]) == ["T1", "T2", "T3", "H1"]
+    assert list(elegidas["puesto"]) == [1, 2, 3, 4]
+    assert list(elegidas["puesto_global"]) == [1, 2, 3, 5], "H1 es la 5ª global"
+    assert list(desplazadas["ticker"]) == ["T4"]
+    assert desplazadas.loc[0, "puesto_global"] == 4
+    assert desplazadas.loc[0, "bloqueada_por"] == ("T1", "T2", "T3")
+
+
+def test_los_empates_se_rompen_por_ticker():
+    # Sin desempate determinista, dos corridas sobre el mismo panel pueden
+    # devolver listas distintas y el sistema deja de ser auditable.
+    compuestos, sectores = entradas(
+        [("ZZZ", 1.0, "Tech"), ("AAA", 1.0, "Health"), ("MMM", 1.0, "Energy")]
+    )
+    elegidas, _ = seleccionar(compuestos, sectores, tope=3, n=3)
+    assert list(elegidas["ticker"]) == ["AAA", "MMM", "ZZZ"]
+
+
+def test_las_empresas_sin_compuesto_no_entran():
+    compuestos, sectores = entradas(
+        [("AAA", float("nan"), "Tech"), ("BBB", 1.0, "Tech")]
+    )
+    elegidas, _ = seleccionar(compuestos, sectores, tope=3, n=5)
+    assert list(elegidas["ticker"]) == ["BBB"]
+
+
+def test_menos_candidatos_que_el_top_devuelve_los_que_haya():
+    compuestos, sectores = entradas([("AAA", 1.0, "Tech")])
+    elegidas, _ = seleccionar(compuestos, sectores, tope=3, n=15)
+    assert len(elegidas) == 1
+
+
+def test_el_top_se_corta_en_n():
+    # Seis empresas, cada una en su sector, así que el tope nunca dispara y lo
+    # único que puede recortar la lista es n. Ningún otro test tiene más
+    # candidatos admisibles que n.
+    compuestos, sectores = entradas(
+        [
+            (f"{letra}1", valor, letra)
+            for letra, valor in zip("ABCDEF", [6.0, 5.0, 4.0, 3.0, 2.0, 1.0])
+        ]
+    )
+    elegidas, _ = seleccionar(compuestos, sectores, tope=3, n=4)
+    assert list(elegidas["ticker"]) == ["A1", "B1", "C1", "D1"]
+
+
+def test_el_mapa_de_desplazamientos_atribuye_a_las_bloqueadoras():
+    compuestos, sectores = entradas(
+        [
+            ("T1", 5.0, "Tech"),
+            ("T2", 4.0, "Tech"),
+            ("T3", 3.0, "Tech"),
+            ("T4", 2.5, "Tech"),
+        ]
+    )
+    _, desplazadas = seleccionar(compuestos, sectores, tope=3, n=4)
+    mapa = desplazamientos_por_ticker(desplazadas)
+    assert mapa == {"T1": ["T4"], "T2": ["T4"], "T3": ["T4"]}
+
+
+def test_solo_se_registran_las_que_perdieron_un_puesto_del_top():
+    # Un sector copado y muchos candidatos. Sin acotar, "desplazadas" recogería
+    # a todos los que el tope bloqueó alguna vez, incluidos los que nunca
+    # habrían entrado en el top: ruido, no información.
+    pares = [(f"T{i:02d}", 10.0 - i, "Tech") for i in range(10)]
+    compuestos, sectores = entradas(pares)
+    elegidas, desplazadas = seleccionar(compuestos, sectores, tope=3, n=5)
+    assert list(elegidas["ticker"]) == ["T00", "T01", "T02"]
+    assert list(desplazadas["ticker"]) == ["T03", "T04"]
+
+
+def test_sin_candidatos_no_revienta():
+    compuestos, sectores = entradas([])
+    elegidas, desplazadas = seleccionar(compuestos, sectores)
+    assert elegidas.empty and desplazadas.empty
+    assert list(elegidas.columns) == [
+        "ticker", "sector", "compuesto", "puesto_global", "puesto"
+    ]
+    assert list(desplazadas.columns) == [
+        "ticker", "sector", "puesto_global", "bloqueada_por"
+    ]
+    # Vacío o no, los tipos deben coincidir: un concat posterior con un marco
+    # poblado no debe degradar las columnas numéricas a object.
+    assert elegidas["compuesto"].dtype == "float64"
+    assert elegidas["puesto_global"].dtype == "int64"
+    assert desplazadas["puesto_global"].dtype == "int64"
+    assert desplazamientos_por_ticker(desplazadas) == {}

@@ -1,7 +1,7 @@
 # Contexto del proyecto — para retomar en una sesión nueva
 
-**Última actualización:** 2026-08-11
-**Rama:** `feat/motor-fundamentales` · **Tests:** 391 pasando (`pytest tests/ -q -m "not red"`)
+**Última actualización:** 2026-08-15
+**Rama:** `feat/agentes-ranking` · **Tests:** 537 pasando (`pytest tests/ -q -m "not red"`)
 
 ---
 
@@ -16,7 +16,7 @@ El objetivo mayor es construir, **aguas arriba de esa app**, un sistema donde un
 | # | Sub-proyecto | Entrega | Estado |
 |---|---|---|---|
 | A | Universo + motor de fundamentales | Ingesta determinista de KPIs trimestrales | ✅ **terminado** |
-| B | Agente(s) de análisis y ranking | Top 10–15 con razones trazables | pendiente |
+| B | Agente(s) de análisis y ranking | Top 10–15 con razones trazables | ✅ **terminado** (falta el test de red del LLM) |
 | C | Handoff + gate de aprobación | UI de revisión → tickers al optimizador | pendiente |
 | D | ¿El análisis técnico aporta ventaja? | Veredicto reproducible | ✅ **terminado** |
 | E | Módulo de timing de entrada | — | ❌ **descartado por D** |
@@ -169,11 +169,37 @@ Los cuatro por debajo del 50% lo están por **carencia real, no por cadena incom
 
 ---
 
-## Lo siguiente: sub-proyecto B
+## Resultado del sub-proyecto B
 
-**Agente(s) de análisis y ranking.** El motor de A ya entrega el panel; B tiene que convertirlo en un top 10–15 razonado y trazable.
+Paquete `ranking/`: criterio pre-registrado y congelado, score por cuatro pilares sobre z-scores sectoriales, guardas de cobertura, tope de 3 por sector, ficha determinista, narrativa opcional de Sonnet 5 con **cada cita verificada por código**, y tres salidas (`ranking.csv`, `fichas.json`, `informe.md`).
 
-Restricción heredada, ya decidida: **B no admite backtest honesto**, porque los LLM conocen lo que pasó con estas acciones. Hay que diseñarlo sabiéndolo.
+Primera corrida real, sin LLM, sobre el universo del 2026-08-05:
+
+| Etapa | Empresas |
+|---|---:|
+| Pedidas | 503 |
+| Con fila en el panel | 502 |
+| Sobreviven a las guardas | 425 |
+| Top final tras el tope sectorial | 15 |
+
+**Las guardas no excluyen de forma uniforme, y hay que saberlo antes de usar la lista:** Financials pierde el **65,8%** de sus empresas y Real Estate el **41,9%**, frente a menos del 9% en todos los demás sectores. La causa es estructural — el pilar `solidez` (`deuda_neta_ebitda`, `cobertura_intereses`, `razon_corriente`) está indefinido para un banco por construcción — así que **dos de cada tres bancos no son evaluables por este criterio, y no por ser peores**. El único financiero del top es CBOE, un operador de mercados.
+
+**Eso se hereda al sub-proyecto C:** una cartera optimizada sobre esta lista corta llevará un ladeo sectorial que no decidió el optimizador.
+
+Dos hallazgos más, medidos y sin corregir a propósito, en la enmienda 3 de `docs/superpowers/specs/2026-08-12-agentes-analisis-ranking-design.md`:
+
+- **Los z-scores no están acotados en ninguna parte.** El |z| máximo del panel es 8,62 y 201 celdas pasan de 6. El primer clasificado lo es en buena parte por un único KPI a +6,37. No se toca porque el criterio está congelado: es el primer candidato a revisar cuando se reabra.
+- **El tope de 80.000 caracteres del Item 1A recorta a 9 de los 15**, y el 31% del texto nunca llega al modelo. La mediana real son 101k caracteres, no los 68k de Apple que sirvieron de referencia.
+
+**Sigue pendiente:** el test marcado `red` que contrasta la llamada a Sonnet 5 contra la API real. Necesita `ANTHROPIC_API_KEY` (~5 céntimos de dólar). Sin clave el ranking sale igual, con fichas de plantilla.
+
+---
+
+## Lo siguiente: sub-proyecto C
+
+**Handoff + gate de aprobación.** La UI de revisión que lee `fichas.json` y manda los tickers aprobados al optimizador.
+
+Lo que C tiene que respetar: `fichas.json` es JSON estricto (`allow_nan=False`), cada riesgo lleva `verificada: true|false` y **una cita sin verificar tiene que verse**, no esconderse en una nota al pie.
 
 Sigue sin responder: **¿cuántas acciones debería tener el portafolio final?** Interactúa con que Markowitz concentra pesos, así que 15 candidatos no son 15 posiciones.
 
@@ -182,11 +208,12 @@ Sigue sin responder: **¿cuántas acciones debería tener el portafolio final?**
 ## Comandos
 
 ```bash
-pytest tests/ -q -m "not red"       # 391 tests, sin red
+pytest tests/ -q -m "not red"       # 537 tests, sin red
 python -m research.run              # correr el estudio (~5 min, luego caché)
 streamlit run app.py                # la app
 python scripts/bootstrap_universe.py   # regenerar el snapshot del universo
 python scripts/bootstrap_sectors.py    # regenerar la tabla de sectores GICS
+python -c "from ranking.run import construir_ranking, guardar; guardar(construir_ranking(con_llm=False), 'salidas')"   # ranking sin LLM (~2 min)
 ```
 
 Los tests marcados `red` contrastan los KPIs nativos contra yfinance y necesitan conexión y `EDGAR_IDENTITY`:
