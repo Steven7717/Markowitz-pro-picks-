@@ -125,6 +125,19 @@ def test_una_corrida_con_mas_supervivientes_que_panel_no_se_acepta(tmp_path: Pat
     assert "n_panel" in str(error.value)
 
 
+def test_un_ticker_vacio_no_se_acepta(tmp_path: Path):
+    # ticker es un campo de identidad, igual que puesto: una ficha sin
+    # ticker se pintaria sin nombre y el acta guardaria una entrada sin
+    # identificador, silenciosamente. No se valida la forma del ticker (eso
+    # es cosa de la tarea que agrega empresas a mano) -- solo que no este
+    # vacio, que es lo que este fichero, escrito por B, nunca produciria.
+    sin_ticker = {**FICHA, "ticker": ""}
+    directorio = escribir(tmp_path, fichas=[sin_ticker], corrida=CORRIDA)
+    with pytest.raises(ContratoRoto) as error:
+        cargar_candidatos(directorio)
+    assert "ticker" in str(error.value)
+
+
 def test_el_resumen_nombra_las_exclusiones_y_su_peso():
     texto = resumen_corrida(CORRIDA)
     assert "502" in texto
@@ -145,3 +158,13 @@ def test_el_resumen_calcula_bien_cuantas_quedaron_excluidas():
 def test_el_resumen_sin_corrida_lo_dice_en_vez_de_callarlo():
     texto = resumen_corrida(None)
     assert "sin contexto" in texto.lower()
+
+
+def test_el_resumen_con_cero_exclusiones_no_deja_la_frase_coja():
+    # Ver ranking/informe.py:render, misma logica alli para la seccion de
+    # exclusiones del informe: una frase vacia detras de "excluidas 0:" se
+    # leeria como que algo se rompio, que es lo contrario de lo que paso.
+    sin_exclusiones = {**CORRIDA, "n_panel": 18, "n_supervivientes": 18, "exclusiones": {}}
+    texto = resumen_corrida(sin_exclusiones)
+    assert "excluidas 0: ." not in texto
+    assert "ninguna" in texto.lower()

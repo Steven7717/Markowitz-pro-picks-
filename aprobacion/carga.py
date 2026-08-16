@@ -71,20 +71,25 @@ def _leer_json(fichero: Path) -> object:
 
 
 def _validar_fichas(crudo: object) -> list[dict]:
-    """Check presence of every field, plus the two invariants presence alone
-    can't catch: `puesto` typed as an int (it drives display order and the
-    "#1" label; ranking/fichas.py:ficha_numerica always writes int(puesto),
-    so anything else can only mean a hand-edited or corrupted file) and no
-    repeated `ticker` (the identifier the rest of the chain, incluida la
-    futura acta, usara para identificar cada candidata; dos fichas con el
-    mismo ticker no es un estado que una corrida real de B pueda producir).
+    """Check presence of every field, plus the identity invariants presence
+    alone can't catch: `ticker` as a non-empty string and no repeated
+    `ticker` (it is the identifier the rest of the chain, incluida la futura
+    acta, usara para identificar cada candidata — vacio o duplicado, la ficha
+    se pinta sin nombre o se confunde con otra, en silencio), and `puesto`
+    typed as an int (it drives display order and the "#1" label;
+    ranking/fichas.py:ficha_numerica always writes int(puesto), so anything
+    else can only mean a hand-edited or corrupted file).
 
     Deliberately NOT type-checked beyond that: a wrong-typed `compuesto` or
     `pilares` renders as visibly wrong text on the page (a reviewer sees
-    "compuesto: muy alto" and notices), while a bad `puesto` or a duplicate
-    ticker can corrupt the *set of candidates itself* without looking wrong
-    at a glance. Extra, unexpected fields are accepted on purpose: it is what
+    "compuesto: muy alto" and notices), while a bad identity field can
+    corrupt the *set of candidates itself* without looking wrong at a
+    glance. Extra, unexpected fields are accepted on purpose: it is what
     lets B add a field later without forcing a simultaneous change here.
+    `ticker` is checked only for non-emptiness, not shape — matching it
+    against the pattern of a real ticker is the next task's job, once it
+    also has to validate tickers a human typed by hand; here the value comes
+    from B, code this package already trusts.
     """
     if not isinstance(crudo, list):
         raise ContratoRoto("fichas.json no contiene una lista")
@@ -98,15 +103,20 @@ def _validar_fichas(crudo: object) -> list[dict]:
                 f"a la ficha en la posicion {posicion} le faltan campos: "
                 f"{', '.join(sorted(faltan))}"
             )
+        ticker = ficha["ticker"]
+        if not isinstance(ticker, str) or not ticker:
+            raise ContratoRoto(
+                f"la ficha en la posicion {posicion} tiene un ticker invalido: "
+                f"{ticker!r}"
+            )
         puesto = ficha["puesto"]
         # bool es subclase de int en Python (isinstance(True, int) es True);
         # True/False no son puestos validos aunque pasen ese isinstance.
         if isinstance(puesto, bool) or not isinstance(puesto, int):
             raise ContratoRoto(
-                f"la ficha de {ficha['ticker']!r} en la posicion {posicion} "
+                f"la ficha de {ticker!r} en la posicion {posicion} "
                 f"tiene un puesto invalido: {puesto!r}"
             )
-        ticker = ficha["ticker"]
         if ticker in tickers_vistos:
             raise ContratoRoto(
                 f"el ticker {ticker!r} aparece mas de una vez en fichas.json"
@@ -178,12 +188,19 @@ def resumen_corrida(corrida: dict | None) -> str:
         )
 
     excluidas = corrida["n_panel"] - corrida["n_supervivientes"]
-    por_motivo = ", ".join(
-        f"{motivo} ({cuantas})"
-        for motivo, cuantas in sorted(
-            corrida["exclusiones"].items(), key=lambda par: -par[1]
+    if corrida["exclusiones"]:
+        por_motivo = ", ".join(
+            f"{motivo} ({cuantas})"
+            for motivo, cuantas in sorted(
+                corrida["exclusiones"].items(), key=lambda par: -par[1]
+            )
         )
-    )
+    else:
+        # Mismo caso que ranking/informe.py:render con su seccion de
+        # exclusiones vacia: nunca ha pasado y probablemente no pase, pero
+        # una frase que termina en "excluidas 0: ." se leeria como que algo
+        # se rompio, justo lo contrario de lo que ocurrio.
+        por_motivo = "ninguna, todas las empresas del universo pasaron las guardas"
     return (
         f"Estos candidatos salen de {corrida['n_panel']} empresas con datos, de "
         f"las que sobrevivieron {corrida['n_supervivientes']} a las guardas. "
