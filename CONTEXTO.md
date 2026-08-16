@@ -1,7 +1,7 @@
 # Contexto del proyecto — para retomar en una sesión nueva
 
-**Última actualización:** 2026-08-15
-**Rama:** `master` · **Tests:** 537 pasando (`pytest tests/ -q -m "not red"`), más 6 marcados `red`
+**Última actualización:** 2026-08-16
+**Rama:** `master` · **Tests:** 576 pasando (`pytest tests/ -q -m "not red"`), más 6 marcados `red`
 
 ---
 
@@ -17,7 +17,7 @@ El objetivo mayor es construir, **aguas arriba de esa app**, un sistema donde un
 |---|---|---|---|
 | A | Universo + motor de fundamentales | Ingesta determinista de KPIs trimestrales | ✅ **terminado** |
 | B | Agente(s) de análisis y ranking | Top 10–15 con razones trazables | ✅ **terminado** |
-| C | Handoff + gate de aprobación | UI de revisión → tickers al optimizador | pendiente |
+| C | Handoff + gate de aprobación | UI de revisión → tickers al optimizador | ✅ **terminado** |
 | D | ¿El análisis técnico aporta ventaja? | Veredicto reproducible | ✅ **terminado** |
 | E | Módulo de timing de entrada | — | ❌ **descartado por D** |
 
@@ -199,11 +199,37 @@ EDGAR_IDENTITY="tu@correo.com" ANTHROPIC_API_KEY=... pytest tests/ -q -m red
 
 ---
 
-## Lo siguiente: sub-proyecto C
+## Resultado del sub-proyecto C
 
-**Handoff + gate de aprobación.** La UI de revisión que lee `fichas.json` y manda los tickers aprobados al optimizador.
+Paquete `aprobacion/` (lógica, sin Streamlit, 34 tests) y `pages/1_Revisar_candidatos.py` (widgets, sin lógica). `app.py` cambió una constante y una línea: su campo de tickers lee de `st.session_state`.
 
-Lo que C tiene que respetar: `fichas.json` es JSON estricto (`allow_nan=False`), cada riesgo lleva `verificada: true|false` y **una cita sin verificar tiene que verse**, no esconderse en una nota al pie.
+El flujo: la página lee `salidas/`, muestra los 15 candidatos con **las casillas desmarcadas** —si llegaran marcadas, aprobar los quince sería un clic y el gate sería decorado—, y al aprobar escribe un acta fechada en `actas/` y deja los tickers en la sesión.
+
+**El acta es el artefacto con valor a largo plazo del proyecto.** Guarda las fichas **copiadas dentro**, no referenciadas, porque `salidas/fichas.json` se sobrescribe en cada corrida de B: una referencia se pudriría. Guarda también los **no aprobados** con su ficha, porque "por qué no tengo X" es tan buena pregunta como la contraria, y porque descartar sistemáticamente lo que el score pone arriba dice algo del criterio.
+
+Detalles que no son obvios y conviene no deshacer:
+
+- **`no_aprobados`, no `rechazados`.** Con las casillas desmarcadas por defecto, no marcar una puede significar que se miró y se descartó, o que no se llegó a mirar. El `motivo` escrito es lo único que las separa; llamarlas rechazadas afirmaría un juicio que quizá nunca ocurrió.
+- **El motivo es obligatorio al añadir a mano.** Un ticker que entra sin ranking no tiene respaldo cuantitativo: la razón humana es la única justificación que existirá.
+- **Un añadido que ya está en el ranking se rechaza, no se deduplica**, porque deduplicar en silencio borraría el motivo escrito.
+- **El acta se escribe antes del traspaso.** Lo peor sería aprobar, perder el registro y seguir creyendo que quedó constancia.
+- **El traspaso va por `st.session_state`**, así que hay que pasar al optimizador **por el enlace de la barra lateral**: recargar abre una sesión nueva de Streamlit y pierde la selección.
+
+`actas/` vive en la raíz y no en `salidas/` a propósito: salidas se regenera, un acta no se regenera nunca.
+
+---
+
+## Lo siguiente
+
+El sistema está completo de punta a punta: A ingiere, B ordena y razona, C decide, y el optimizador reparte pesos.
+
+**Lo único sin ejecutar** son los dos tests `red` que llaman a Sonnet 5 (~5 céntimos), que saltan sin `ANTHROPIC_API_KEY`. Sin clave el ranking sale igual, con fichas de plantilla.
+
+Trabajo posterior anotado, por orden de valor:
+
+1. **Los z-scores no están acotados.** El |z| máximo del panel es 8,62 y el primer clasificado lo es en buena parte por un único KPI a +6,37. Es el primer candidato a revisar cuando se reabra el criterio de B — que hoy está congelado por pre-registro.
+2. **Validar los pesos empíricamente.** Requiere ampliar el panel a ~40 trimestres con universo point-in-time.
+3. **¿Cuántas acciones debería tener el portafolio final?** Sigue sin responder, e interactúa con que Markowitz concentra pesos: 15 candidatos no son 15 posiciones.
 
 Sigue sin responder: **¿cuántas acciones debería tener el portafolio final?** Interactúa con que Markowitz concentra pesos, así que 15 candidatos no son 15 posiciones.
 
@@ -212,9 +238,9 @@ Sigue sin responder: **¿cuántas acciones debería tener el portafolio final?**
 ## Comandos
 
 ```bash
-pytest tests/ -q -m "not red"       # 537 tests, sin red
+pytest tests/ -q -m "not red"       # 576 tests, sin red
 python -m research.run              # correr el estudio (~5 min, luego caché)
-streamlit run app.py                # la app
+streamlit run app.py                # la app: optimizador + pagina de revision
 python scripts/bootstrap_universe.py   # regenerar el snapshot del universo
 python scripts/bootstrap_sectors.py    # regenerar la tabla de sectores GICS
 python -c "from ranking.run import construir_ranking, guardar; guardar(construir_ranking(con_llm=False), 'salidas')"   # ranking sin LLM (~2 min)
