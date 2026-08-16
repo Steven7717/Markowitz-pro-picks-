@@ -123,8 +123,18 @@ if columna_boton.button("Anadir", disabled=not (nuevo_ticker and nuevo_motivo.st
     st.rerun()
 
 if st.session_state.anadidos:
-    for anadido in st.session_state.anadidos:
-        st.markdown(f"- **{anadido.ticker.strip().upper()}** — {anadido.motivo}")
+    for indice, anadido in enumerate(st.session_state.anadidos):
+        columna_texto, columna_quitar = st.columns([11, 1])
+        with columna_texto:
+            st.markdown(f"- **{anadido.ticker.strip().upper()}** — {anadido.motivo}")
+        with columna_quitar:
+            # El indice como key es seguro aqui porque cada clic reconstruye la
+            # lista entera antes del siguiente rerun: no queda un hueco a medio
+            # borrar con el que las keys de los botones restantes puedan
+            # desalinearse.
+            if st.button("Quitar", key=f"quitar_anadido_{indice}"):
+                st.session_state.anadidos.pop(indice)
+                st.rerun()
     # No se comprueba aqui si el ticker existe o tiene precio: llamar a yfinance
     # desde el gate lo ataria a la red y a un servicio externo, y es justo lo
     # que permite probar todo este paquete sin nada montado. El optimizador ya
@@ -155,7 +165,16 @@ if st.button(f"Aprobar {total} empresas y pasar al optimizador", disabled=total 
         st.error(f"No se pudo escribir el acta, no se aprueba nada: {error}")
     else:
         st.session_state.tickers_aprobados = tickers_aprobados(acta)
+        # Se vacia solo lo anadido a mano: si el revisor vuelve a pulsar
+        # "Aprobar" sin haber cambiado nada, esos tickers no vuelven a
+        # mandarse y a duplicarse en una segunda acta. Las casillas se dejan
+        # como estan a proposito -- el revisor puede querer seguir viendo que
+        # aprobo -- aunque eso significa que un segundo clic con casillas
+        # marcadas si vuelve a escribir esos tickers en una acta nueva.
+        st.session_state.anadidos = []
         st.success(
-            f"Acta escrita en {destino}. Ya puedes pasar a la pagina del "
-            "optimizador: los tickers estan puestos."
+            f"Acta escrita en {destino}. Para pasar al optimizador usa el "
+            "enlace **Markowitz Pro Picks** de la barra lateral: recargar "
+            "esta pagina abre una sesion nueva de Streamlit y pierde la "
+            "seleccion aprobada."
         )
