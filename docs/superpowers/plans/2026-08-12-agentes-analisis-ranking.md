@@ -2621,7 +2621,9 @@ git commit -m "docs: sub-proyecto B terminado, con la cobertura de las guardas m
 
 ## Estado de ejecución — actualizado 2026-08-13
 
-**Tareas 1 a 14 completas**, todas revisadas y en verde. Rama `feat/agentes-ranking`, HEAD `2e2cfce`, **537 tests pasando** (`pytest tests/ -q -m "not red"`), árbol limpio. **Sólo queda la Task 15**, que es la que sale a la red.
+**Las quince tareas completas.** Fusionado en `master` (`79c052f`), **537 tests pasando** más 6 marcados `red`. La medición real de las guardas está en la **enmienda 3** del diseño.
+
+De los tres tests `red`, el de EDGAR pasa; los dos que llaman al modelo saltan sin `ANTHROPIC_API_KEY`. El plan importaba `verificar_cita` de `ranking.llm`, que dejó de ser su sitio cuando la Task 11 separó los verificadores a `ranking/verificacion.py`.
 
 | Task | Commits | Suite |
 |---|---|---:|

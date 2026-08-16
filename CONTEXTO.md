@@ -1,7 +1,7 @@
 # Contexto del proyecto — para retomar en una sesión nueva
 
 **Última actualización:** 2026-08-15
-**Rama:** `feat/agentes-ranking` · **Tests:** 537 pasando (`pytest tests/ -q -m "not red"`)
+**Rama:** `master` · **Tests:** 537 pasando (`pytest tests/ -q -m "not red"`), más 6 marcados `red`
 
 ---
 
@@ -16,7 +16,7 @@ El objetivo mayor es construir, **aguas arriba de esa app**, un sistema donde un
 | # | Sub-proyecto | Entrega | Estado |
 |---|---|---|---|
 | A | Universo + motor de fundamentales | Ingesta determinista de KPIs trimestrales | ✅ **terminado** |
-| B | Agente(s) de análisis y ranking | Top 10–15 con razones trazables | ✅ **terminado** (falta el test de red del LLM) |
+| B | Agente(s) de análisis y ranking | Top 10–15 con razones trazables | ✅ **terminado** |
 | C | Handoff + gate de aprobación | UI de revisión → tickers al optimizador | pendiente |
 | D | ¿El análisis técnico aporta ventaja? | Veredicto reproducible | ✅ **terminado** |
 | E | Módulo de timing de entrada | — | ❌ **descartado por D** |
@@ -191,7 +191,11 @@ Dos hallazgos más, medidos y sin corregir a propósito, en la enmienda 3 de `do
 - **Los z-scores no están acotados en ninguna parte.** El |z| máximo del panel es 8,62 y 201 celdas pasan de 6. El primer clasificado lo es en buena parte por un único KPI a +6,37. No se toca porque el criterio está congelado: es el primer candidato a revisar cuando se reabra.
 - **El tope de 80.000 caracteres del Item 1A recorta a 9 de los 15**, y el 31% del texto nunca llega al modelo. La mediana real son 101k caracteres, no los 68k de Apple que sirvieron de referencia.
 
-**Sigue pendiente:** el test marcado `red` que contrasta la llamada a Sonnet 5 contra la API real. Necesita `ANTHROPIC_API_KEY` (~5 céntimos de dólar). Sin clave el ranking sale igual, con fichas de plantilla.
+**Lo único sin ejecutar:** de los tres tests de `tests/test_ranking_contraste.py`, el de EDGAR pasa; los dos que llaman a Sonnet 5 **saltan sin `ANTHROPIC_API_KEY`** y cuestan unos cinco céntimos de dólar cuando se corran. Son lo único que comprueba que el esquema, el id del modelo y los parámetros existen de verdad tal como el código los usa. Sin clave el ranking sale igual, con fichas de plantilla.
+
+```bash
+EDGAR_IDENTITY="tu@correo.com" ANTHROPIC_API_KEY=... pytest tests/ -q -m red
+```
 
 ---
 
