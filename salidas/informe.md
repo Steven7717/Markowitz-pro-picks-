@@ -1,6 +1,6 @@
 # Candidatos del sub-proyecto B
 
-**Fecha:** 2026-08-15 · **Candidatos:** 15
+**Fecha:** 2026-08-16 · **Candidatos:** 15
 
 > El orden lo decide un score determinista sobre z-scores sectoriales.
 > El score **no está validado empíricamente**: es un criterio de

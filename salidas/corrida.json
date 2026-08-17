@@ -1,0 +1,15 @@
+{
+  "fecha": "2026-08-16",
+  "universo": "sp500",
+  "n_panel": 502,
+  "n_supervivientes": 425,
+  "exclusiones": {
+    "pilar_sin_datos": 72,
+    "datos_rancios": 2,
+    "cobertura_insuficiente": 2,
+    "historia_corta": 1
+  },
+  "tope_por_sector": 3,
+  "tamano_top": 15,
+  "con_llm": false
+}
