@@ -11,10 +11,82 @@ from aprobacion.acta import (
     tickers_aprobados,
 )
 from aprobacion.carga import ContratoRoto, FaltanFichas, cargar_candidatos, resumen_corrida
+from aprobacion.generacion import (
+    COSTE_APROXIMADO_USD,
+    disponibilidad,
+    hay_revision_en_curso,
+)
 from fundamentals.kpis import TODOS_LOS_KPIS
 
 st.set_page_config(page_title="Revisar candidatos", page_icon="✅", layout="wide")
 st.title("✅ Revisar candidatos")
+
+if "anadidos" not in st.session_state:
+    st.session_state.anadidos = []
+
+
+def _generar(con_ia: bool) -> None:
+    """Run sub-project B and overwrite salidas/, then reload the page."""
+    from ranking.run import construir_ranking, guardar
+
+    with st.spinner(
+        "Generando candidatos"
+        + (" y redactando fichas con IA" if con_ia else " sin IA")
+        + "… puede tardar unos minutos. No cierres ni recargues."
+    ):
+        guardar(construir_ranking(con_llm=con_ia), "salidas")
+    # Lo marcado antes se refiere a una lista que acaba de dejar de existir.
+    for clave in [c for c in st.session_state if c.startswith("ok_")]:
+        del st.session_state[clave]
+    st.session_state.anadidos = []
+    st.rerun()
+
+
+# A la vista y no dentro de un desplegable: el caso de uso que lo motivó es
+# "una evaluación rápida sin IA", y esconder tras un clic extra algo que se
+# quiere usar de pasada lo convierte en algo que no se usa.
+puede = disponibilidad()
+
+opciones = ["Sin IA — sólo números, gratis"]
+if puede.puede_usar_ia:
+    opciones.append(
+        f"Con IA — narrativa y citas verificadas (~{COSTE_APROXIMADO_USD:.2f} $)"
+    )
+
+columna_modo, columna_boton = st.columns([4, 1])
+eleccion = columna_modo.radio(
+    "Generar candidatos", opciones, horizontal=True, key="modo_generacion"
+)
+con_ia = eleccion.startswith("Con IA")
+pulsado = columna_boton.button("Generar", key="generar", use_container_width=True)
+
+if not puede.puede_usar_ia:
+    st.caption(puede.motivo)
+
+st.caption(
+    "Regenerar **sobrescribe** los candidatos de abajo. El ranking es "
+    "determinista: con los mismos datos sale el mismo orden, así que sin IA "
+    "sólo cambia si el panel trae un trimestre nuevo."
+)
+
+if hay_revision_en_curso(
+    {
+        c.removeprefix("ok_")
+        for c in st.session_state
+        if c.startswith("ok_") and st.session_state[c]
+    },
+    st.session_state.anadidos,
+):
+    st.warning(
+        "Tienes una revisión empezada. Regenerar la descarta: las casillas "
+        "marcadas y los añadidos a mano se pierden, porque apuntan a una lista "
+        "que dejará de existir."
+    )
+
+if pulsado:
+    _generar(con_ia)
+
+st.divider()
 
 try:
     candidatos = cargar_candidatos()
@@ -31,9 +103,6 @@ st.caption(
     "empiricamente**: es un criterio de seleccion transparente, no una "
     "prevision de rentabilidad."
 )
-
-if "anadidos" not in st.session_state:
-    st.session_state.anadidos = []
 
 aprobados: set[str] = set()
 motivos: dict[str, str] = {}
