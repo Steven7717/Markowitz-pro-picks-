@@ -545,3 +545,42 @@ PLTR. La salida honesta es que la ficha declare `recortado`, que ya lo hace.
 `salidas/ranking.csv` (502 filas con pilares, compuesto y motivo), 
 `salidas/fichas.json` (las 15, sin narrativa) y `salidas/informe.md`. Son una
 instantánea de esta corrida fechada, no un artefacto vivo.
+
+---
+
+## Enmienda 4 — 2026-08-16: el presupuesto de tokens, medido
+
+La primera corrida de los tests marcados `red` con crédito en la cuenta permitió
+medir con `count_tokens` lo que hasta ahora era una regla de tres.
+
+**Qué decía el diseño:** el tope de 80.000 caracteres equivale a "~20k tokens
+estimados a 4 caracteres por token".
+
+**Qué se midió:**
+
+| Empresa | Caracteres enviados | Tokens | Caracteres por token |
+|---|---:|---:|---:|
+| JPM (recortado en el tope) | 80.000 | **24.231** | 3,30 |
+| AAPL (entero) | 68.163 | 19.232 | 3,54 |
+| INCY (entero, el más corto) | 7.494 | 2.482 | 3,02 |
+
+**La regla de tres se quedaba corta en un 21%.** El texto legal denso de un 10-K
+tokeniza peor que el promedio de prosa en inglés: abundan las cifras, las
+referencias cruzadas y los términos compuestos.
+
+**En qué dirección afecta:**
+
+- **El margen del test es del 3%, no del 20%.** El test `red` afirma `< 25.000`
+  tokens y el peor caso medido da 24.231. Un filing más denso podría pasarse con
+  este mismo tope de caracteres. Si ese test falla algún día no será un defecto
+  del código: será la cota avisando de que hay que bajar `MAX_CARACTERES`.
+- **El coste por corrida sube un 20% sobre lo estimado.** Con 24k tokens de
+  entrada por ficha en el peor caso, 15 fichas son ~363k tokens de entrada más
+  la salida: **0,82 $ con la tarifa promocional y 1,23 $ con la estándar**, en
+  vez de los 0,72–1,08 $ que decía la sección de coste. Sigue siendo menos de un
+  dólar y medio, y cero en las corridas siguientes mientras la caché valga.
+
+**No se baja el tope.** El margen es estrecho pero real, el fallo sería ruidoso y
+accionable, y bajarlo recortaría más texto del que ya se pierde — que la enmienda
+3 midió en un 31%. Queda anotado como lo primero que hay que ajustar si el test
+empieza a fallar.
