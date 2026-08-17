@@ -36,10 +36,50 @@ def identidad():
     set_sec_identity()
 
 
+def _es_falta_de_saldo(error: Exception) -> bool:
+    """Whether a 400 is about the account's balance rather than the request.
+
+    Matched on the message because the SDK has no distinct exception class for
+    it: an exhausted balance and a malformed request both arrive as
+    BadRequestError. Getting that distinction right is the whole point — a
+    schema or parameter error is also a 400, and it is exactly what these two
+    tests exist to catch. Skipping on every BadRequestError would turn them
+    into decoration.
+    """
+    return "credit balance" in str(error).lower()
+
+
 @pytest.fixture
 def con_clave():
+    """Skip unless there is a key AND balance to spend with it.
+
+    The probe is a count_tokens call on three words. Counting tokens bills
+    nothing, but it is gated by the same balance check as a real completion,
+    so it tells us what we need for free — measured against the live API on
+    2026-08-16, where an account with a valid key and no credit answered it
+    with the same "credit balance is too low" 400 as a completion would.
+
+    It is a fixture rather than a try/except inside each test because
+    redactar() swallows APIError by design and returns None: from inside the
+    test there is no way to tell an empty balance apart from a broken schema,
+    which are the two things that must never be confused here.
+    """
+    import anthropic
+
     if not os.environ.get("ANTHROPIC_API_KEY"):
         pytest.skip("ANTHROPIC_API_KEY no está en el entorno")
+
+    try:
+        anthropic.Anthropic().messages.count_tokens(
+            model=MODELO, messages=[{"role": "user", "content": "hola que tal"}]
+        )
+    except anthropic.BadRequestError as error:
+        if _es_falta_de_saldo(error):
+            pytest.skip(
+                "la clave es válida pero la cuenta no tiene saldo: compra "
+                "crédito en console.anthropic.com → Plans & Billing"
+            )
+        raise
 
 
 def test_edgar_entrega_el_item_1a_con_su_procedencia():
