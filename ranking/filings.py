@@ -4,9 +4,18 @@ from pathlib import Path
 
 CACHE_DIR = Path(__file__).parent / ".cache" / "riesgos"
 
-# ~20k tokens estimados a 4 caracteres por token. El presupuesto real se
-# comprueba con client.messages.count_tokens en el test marcado `red`: contar
-# tokens de Claude con una regla de tres es una aproximación, no una medida.
+# Medido con count_tokens contra la API real el 2026-08-16, no estimado: este
+# tope da **24.231 tokens** en el peor caso probado (el Item 1A de JPM, que
+# llega recortado justo aquí). La proporción real es de 3,30 caracteres por
+# token en texto legal denso —3,54 en Apple, 3,02 en el filing corto de
+# Incyte—, no los 4,0 que asumió el diseño: la regla de tres se quedaba corta
+# en un 21%.
+#
+# Importa porque el test `red` que lo comprueba afirma < 25.000 tokens, así que
+# el margen real es del 3%. Un filing más denso en cifras y tablas podría
+# pasarse con este mismo tope de caracteres. Si ese test falla algún día no
+# será un fallo del código: será esta cota diciendo que hay que bajar
+# MAX_CARACTERES.
 MAX_CARACTERES = 80_000
 
 SECCION = "Item 1A"
