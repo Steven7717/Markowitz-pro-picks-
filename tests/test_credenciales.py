@@ -14,6 +14,7 @@ from credenciales import (
     cargar,
     enmascarar,
     guardar,
+    manda_el_entorno,
     reemplazar,
 )
 
@@ -237,6 +238,26 @@ def test_reemplazar_no_pisa_una_variable_del_shell():
     entorno = {"ANTHROPIC_API_KEY": "la-del-shell"}
     reemplazar(viejas, Credenciales(api_key="la-nueva-del-fichero"), entorno)
     assert entorno["ANTHROPIC_API_KEY"] == "la-del-shell"
+
+
+def test_manda_el_entorno_nombra_lo_que_el_shell_pisa():
+    # Es lo que la pagina necesita para no mentir: si el shell trae una clave
+    # distinta a la guardada, lo que el usuario guarde no entra en vigor.
+    guardadas = Credenciales(api_key="sk-ant-del-fichero")
+    entorno = {"ANTHROPIC_API_KEY": "sk-ant-del-shell"}
+    assert manda_el_entorno(guardadas, entorno) == ["ANTHROPIC_API_KEY"]
+
+
+def test_manda_el_entorno_no_nombra_lo_que_coincide():
+    guardadas = Credenciales(api_key="sk-ant-igual")
+    entorno = {"ANTHROPIC_API_KEY": "sk-ant-igual"}
+    assert manda_el_entorno(guardadas, entorno) == []
+
+
+def test_manda_el_entorno_no_nombra_lo_que_solo_esta_en_el_fichero():
+    guardadas = Credenciales(api_key="sk-ant-solo-fichero")
+    entorno = {}
+    assert manda_el_entorno(guardadas, entorno) == []
 
 
 def test_guardar_sin_nada_relleno_no_escribe_un_fichero_de_nulls(tmp_path):

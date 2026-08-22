@@ -233,6 +233,28 @@ def borrar(ruta: Path | None = None, entorno: dict[str, str] | None = None) -> N
             del entorno[nombre]
 
 
+def manda_el_entorno(
+    guardadas: Credenciales, entorno: dict[str, str] | None = None
+) -> list[str]:
+    """Qué variables vienen del shell y no del fichero.
+
+    La página lo necesita para no mentir: si el shell trae una clave distinta,
+    lo que el usuario guarde no entra en vigor y hay que decírselo. Vive aquí
+    y no en la página porque es la regla de precedencia de `aplicar`, y las
+    reglas se prueban sin arrancar Streamlit.
+    """
+    entorno = os.environ if entorno is None else entorno
+    guardadas = guardadas.limpia()
+    return [
+        nombre
+        for nombre, guardado in (
+            ("ANTHROPIC_API_KEY", guardadas.api_key),
+            ("EDGAR_IDENTITY", guardadas.edgar_identity),
+        )
+        if entorno.get(nombre) and entorno[nombre] != guardado
+    ]
+
+
 def enmascarar(clave: str | None) -> str:
     """Lo que se puede enseñar de una clave guardada.
 
