@@ -20,6 +20,14 @@ RUTA = Path.home() / ".markowitz-pro-picks" / "credenciales.json"
 _CORREO = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 _PREFIJO_HABITUAL = "sk-ant-"
 
+# La correspondencia entre variable de entorno y campo. En un solo sitio
+# porque cuatro funciones la recorren: repetida, añadir una tercera credencial
+# significaría acordarse de tocar los cuatro.
+_VARIABLES = (
+    ("ANTHROPIC_API_KEY", "api_key"),
+    ("EDGAR_IDENTITY", "edgar_identity"),
+)
+
 
 class ConfigIlegible(ValueError):
     """Hay un fichero de credenciales, pero no se puede leer."""
@@ -161,6 +169,21 @@ def guardar(credenciales: Credenciales, ruta: Path | None = None) -> Path:
     return ruta
 
 
+def _retirar_del_entorno(credenciales: Credenciales, entorno: dict[str, str]) -> None:
+    """Quitar del entorno lo que estas credenciales habían puesto ahí.
+
+    Sólo se retira lo que coincide: una variable que el usuario puso en su
+    shell no la puso desde la app y no espera que la app se la quite. La
+    comparación es la misma que usa `variables_del_shell`, y eso es lo que
+    hace que la página nunca avise de algo que luego se pisa.
+    """
+    credenciales = credenciales.limpia()
+    for nombre, campo in _VARIABLES:
+        valor = getattr(credenciales, campo)
+        if valor and entorno.get(nombre) == valor:
+            del entorno[nombre]
+
+
 def aplicar(
     credenciales: Credenciales, entorno: dict[str, str] | None = None
 ) -> None:
@@ -170,13 +193,14 @@ def aplicar(
     `fundamentals/fetch.py:set_sec_identity()` en el camino de producción
     --sólo los tests-- porque edgartools lee `EDGAR_IDENTITY` del entorno por
     su cuenta, igual que el cliente de Anthropic lee `ANTHROPIC_API_KEY`.
+
+    Para *cambiar* una credencial ya aplicada no sirve: no pisa lo que ya hay.
+    Eso es `reemplazar`.
     """
     entorno = os.environ if entorno is None else entorno
     credenciales = credenciales.limpia()
-    for nombre, valor in (
-        ("ANTHROPIC_API_KEY", credenciales.api_key),
-        ("EDGAR_IDENTITY", credenciales.edgar_identity),
-    ):
+    for nombre, campo in _VARIABLES:
+        valor = getattr(credenciales, campo)
         if valor and not entorno.get(nombre):
             entorno[nombre] = valor
 
@@ -199,13 +223,7 @@ def reemplazar(
     aquí y sigue mandando.
     """
     entorno = os.environ if entorno is None else entorno
-    anteriores = anteriores.limpia()
-    for nombre, valor in (
-        ("ANTHROPIC_API_KEY", anteriores.api_key),
-        ("EDGAR_IDENTITY", anteriores.edgar_identity),
-    ):
-        if valor and entorno.get(nombre) == valor:
-            del entorno[nombre]
+    _retirar_del_entorno(anteriores, entorno)
     aplicar(nuevas, entorno)
 
 
@@ -228,15 +246,10 @@ def borrar(ruta: Path | None = None, entorno: dict[str, str] | None = None) -> N
 
     ruta.unlink(missing_ok=True)
 
-    for nombre, valor in (
-        ("ANTHROPIC_API_KEY", guardadas.api_key),
-        ("EDGAR_IDENTITY", guardadas.edgar_identity),
-    ):
-        if valor and entorno.get(nombre) == valor:
-            del entorno[nombre]
+    _retirar_del_entorno(guardadas, entorno)
 
 
-def manda_el_entorno(
+def variables_del_shell(
     guardadas: Credenciales, entorno: dict[str, str] | None = None
 ) -> list[str]:
     """Qué variables vienen del shell y no del fichero.
@@ -250,11 +263,8 @@ def manda_el_entorno(
     guardadas = guardadas.limpia()
     return [
         nombre
-        for nombre, guardado in (
-            ("ANTHROPIC_API_KEY", guardadas.api_key),
-            ("EDGAR_IDENTITY", guardadas.edgar_identity),
-        )
-        if entorno.get(nombre) and entorno[nombre] != guardado
+        for nombre, campo in _VARIABLES
+        if entorno.get(nombre) and entorno[nombre] != getattr(guardadas, campo)
     ]
 
 
