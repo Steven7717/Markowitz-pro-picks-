@@ -151,3 +151,30 @@ def aplicar(
     ):
         if valor and not entorno.get(nombre):
             entorno[nombre] = valor
+
+
+def borrar(ruta: Path | None = None, entorno: dict[str, str] | None = None) -> None:
+    """Quitar el fichero y retirar del entorno lo que ese fichero había puesto.
+
+    Sólo se retira lo que coincide con lo guardado: una variable que el
+    usuario tenía en su shell no se toca, porque él no la puso desde aquí y
+    no espera que la app se la borre.
+
+    Un fichero corrupto se borra igual. Es justo el caso en que más falta le
+    hace al usuario poder deshacerse de él.
+    """
+    ruta = Path(ruta or RUTA)
+    entorno = os.environ if entorno is None else entorno
+    try:
+        guardadas = cargar(ruta)
+    except ConfigIlegible:
+        guardadas = Credenciales()
+
+    ruta.unlink(missing_ok=True)
+
+    for nombre, valor in (
+        ("ANTHROPIC_API_KEY", guardadas.api_key),
+        ("EDGAR_IDENTITY", guardadas.edgar_identity),
+    ):
+        if valor and entorno.get(nombre) == valor:
+            del entorno[nombre]

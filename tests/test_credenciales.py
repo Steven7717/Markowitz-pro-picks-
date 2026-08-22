@@ -8,6 +8,7 @@ from credenciales import (
     CredencialInvalida,
     aplicar,
     avisos,
+    borrar,
     cargar,
     guardar,
 )
@@ -105,3 +106,35 @@ def test_una_credencial_ausente_no_escribe_nada_en_el_entorno():
     entorno = {}
     aplicar(Credenciales(edgar_identity="yo@x.com"), entorno)
     assert "ANTHROPIC_API_KEY" not in entorno
+
+
+def test_borrar_quita_el_fichero(tmp_path):
+    ruta = guardar(Credenciales(api_key="sk-ant-x"), tmp_path / "c.json")
+    borrar(ruta, {})
+    assert not ruta.exists()
+
+
+def test_borrar_retira_del_entorno_lo_que_el_fichero_habia_puesto(tmp_path):
+    # Sin esto, "Borrar" no hace nada visible hasta reiniciar: la clave sigue
+    # en os.environ y la página sigue ofreciendo la IA como si nada.
+    ruta = guardar(Credenciales(api_key="sk-ant-x"), tmp_path / "c.json")
+    entorno = {}
+    aplicar(cargar(ruta), entorno)
+    borrar(ruta, entorno)
+    assert "ANTHROPIC_API_KEY" not in entorno
+
+
+def test_borrar_no_toca_una_variable_que_venia_del_shell(tmp_path):
+    # El usuario borra lo que guardó en la app, no lo que puso en su shell.
+    ruta = guardar(Credenciales(api_key="la-del-fichero"), tmp_path / "c.json")
+    entorno = {"ANTHROPIC_API_KEY": "la-del-shell"}
+    borrar(ruta, entorno)
+    assert entorno["ANTHROPIC_API_KEY"] == "la-del-shell"
+
+
+def test_borrar_un_fichero_corrupto_igualmente_lo_quita(tmp_path):
+    # Es justo el caso en que el usuario más necesita poder borrar.
+    ruta = tmp_path / "c.json"
+    ruta.write_text("{roto", encoding="utf-8")
+    borrar(ruta, {})
+    assert not ruta.exists()
