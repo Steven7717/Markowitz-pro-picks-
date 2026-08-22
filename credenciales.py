@@ -133,25 +133,23 @@ def guardar(credenciales: Credenciales, ruta: Path | None = None) -> Path:
         allow_nan=False,
     )
     tmp = ruta.with_suffix(".tmp")
-    # Se crea ya protegido en vez de escribirlo y arreglarlo después: con
-    # write_text el fichero nace con los permisos por defecto (0o644 en la
-    # mayoría de sistemas) y la clave queda legible por cualquiera durante
-    # toda la escritura. El chmod posterior cierra la puerta principal y deja
-    # abierta la de servicio.
-    #
     # O_TRUNC y no O_EXCL: un guardado que falló antes puede haber dejado un
     # .tmp suelto, y O_EXCL haría que el siguiente intento fallara para
     # siempre. En Windows el modo se ignora salvo el bit de sólo lectura --
     # allí la protección son los permisos de la carpeta de usuario.
     descriptor = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    # El modo de os.open sólo se aplica al CREAR el fichero: un .tmp que dejó
+    # un guardado reventado conserva los suyos, y el secreto caería dentro con
+    # los permisos viejos. fchmod actúa sobre el descriptor y no sobre la ruta,
+    # así que no hay ventana entre comprobar y cambiar, y cubre los dos casos.
+    # En Windows os.fchmod no existe; allí la protección son los permisos de la
+    # carpeta de usuario.
+    try:
+        os.fchmod(descriptor, 0o600)
+    except (AttributeError, OSError):
+        pass
     with os.fdopen(descriptor, "w", encoding="utf-8") as fichero:
         fichero.write(texto)
-    # Un .tmp que ya existía conserva sus permisos anteriores: os.open sólo
-    # aplica el modo al crearlo.
-    try:
-        os.chmod(tmp, 0o600)
-    except OSError:
-        pass
     tmp.replace(ruta)
     return ruta
 

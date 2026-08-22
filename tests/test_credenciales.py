@@ -1,7 +1,6 @@
 import json
 import os
 import stat
-from pathlib import Path
 
 import pytest
 
@@ -183,20 +182,31 @@ def test_el_fichero_no_lo_puede_leer_nadie_mas(tmp_path):
 
 
 @pytest.mark.skipif(os.name == "nt", reason="Windows no usa permisos POSIX")
-def test_el_temporal_ya_esta_protegido_antes_del_replace(tmp_path, monkeypatch):
-    # El test de permisos del fichero final no distingue un chmod puesto antes
-    # del replace de uno puesto después: los dos acaban en 0o600. Lo que hay
-    # que comprobar es la ventana, no el resultado, así que se mira el modo
-    # justo en el instante del replace.
+def test_la_clave_nunca_llega_al_disco_con_permisos_abiertos(tmp_path, monkeypatch):
+    # Mirar el modo del fichero final, o el del temporal al hacer replace, no
+    # distingue un guardado seguro de uno que expuso la clave y la tapó
+    # después: los dos acaban en 0o600. Lo que hay que comprobar es el modo
+    # ANTES de que se escriba un solo byte del secreto.
+    #
+    # Se monta ademas el caso peor: un .tmp que dejo un guardado reventado. El
+    # modo de os.open solo se aplica al crear, asi que ese fichero conserva sus
+    # permisos viejos y es el camino por el que la clave se escapaba.
     modos = []
-    replace_original = Path.replace
+    fdopen_original = os.fdopen
 
-    def replace_espia(self, destino):
-        modos.append(stat.S_IMODE(self.stat().st_mode))
-        return replace_original(self, destino)
+    def fdopen_espia(descriptor, *args, **kwargs):
+        modos.append(stat.S_IMODE(os.fstat(descriptor).st_mode))
+        return fdopen_original(descriptor, *args, **kwargs)
 
-    monkeypatch.setattr("pathlib.Path.replace", replace_espia)
-    guardar(Credenciales(api_key="sk-ant-abc123456789"), tmp_path / "c.json")
+    monkeypatch.setattr(os, "fdopen", fdopen_espia)
+
+    destino = tmp_path / "c.json"
+    rancio = destino.with_suffix(".tmp")
+    rancio.write_text("lo que dejó un guardado que reventó", encoding="utf-8")
+    os.chmod(rancio, 0o644)
+
+    guardar(Credenciales(api_key="sk-ant-abc123456789"), destino)
+
     assert modos == [0o600]
 
 
