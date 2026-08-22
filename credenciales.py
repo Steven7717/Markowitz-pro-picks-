@@ -11,14 +11,22 @@ dentro, porque nunca estuvo ahí. `.gitignore` protege de git, no de un ZIP.
 
 import json
 import os
+import re
 from dataclasses import dataclass, replace
 from pathlib import Path
 
 RUTA = Path.home() / ".markowitz-pro-picks" / "credenciales.json"
 
+_CORREO = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+_PREFIJO_HABITUAL = "sk-ant-"
+
 
 class ConfigIlegible(ValueError):
     """Hay un fichero de credenciales, pero no se puede leer."""
+
+
+class CredencialInvalida(ValueError):
+    """Lo que se intenta guardar no tiene forma de credencial."""
 
 
 @dataclass(frozen=True)
@@ -65,8 +73,47 @@ def cargar(ruta: Path | None = None) -> Credenciales:
     ).limpia()
 
 
+def validar(credenciales: Credenciales) -> None:
+    """Comprobar la forma. Nunca la validez.
+
+    Verificar la clave contra la API costaría dinero y una espera en cada
+    guardado, y la app ya falla de forma visible si la clave es mala. Lo que
+    sí se puede detectar aquí es un pegado roto o un correo que no lo es.
+    """
+    credenciales = credenciales.limpia()
+
+    if credenciales.api_key and any(c.isspace() for c in credenciales.api_key):
+        raise CredencialInvalida(
+            "La clave tiene espacios o saltos de línea dentro. Suele pasar al "
+            "copiarla desde un correo: pégala en una sola línea."
+        )
+
+    correo = credenciales.edgar_identity
+    if correo and not _CORREO.match(correo):
+        raise CredencialInvalida(
+            f"'{correo}' no tiene forma de correo. La SEC exige un contacto "
+            "real en la cabecera de cada petición."
+        )
+
+
+def avisos(credenciales: Credenciales) -> list[str]:
+    """Lo que merece decirse pero no impedir el guardado."""
+    credenciales = credenciales.limpia()
+    fuera = []
+    if credenciales.api_key and not credenciales.api_key.startswith(
+        _PREFIJO_HABITUAL
+    ):
+        fuera.append(
+            f"La clave no empieza por '{_PREFIJO_HABITUAL}', que es lo habitual. "
+            "Se guarda igual: si Anthropic cambiara el formato, bloquearla aquí "
+            "rechazaría claves buenas."
+        )
+    return fuera
+
+
 def guardar(credenciales: Credenciales, ruta: Path | None = None) -> Path:
     """Escribir el fichero de forma atómica y devolver dónde quedó."""
+    validar(credenciales)
     credenciales = credenciales.limpia()
     ruta = Path(ruta or RUTA)
     ruta.parent.mkdir(parents=True, exist_ok=True)

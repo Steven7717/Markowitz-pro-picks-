@@ -2,7 +2,14 @@ import json
 
 import pytest
 
-from credenciales import ConfigIlegible, Credenciales, cargar, guardar
+from credenciales import (
+    ConfigIlegible,
+    Credenciales,
+    CredencialInvalida,
+    avisos,
+    cargar,
+    guardar,
+)
 
 
 def test_lo_guardado_se_lee_igual(tmp_path):
@@ -45,3 +52,33 @@ def test_un_json_que_no_es_un_objeto_tambien_es_ilegible(tmp_path):
     ruta.write_text(json.dumps(["una", "lista"]), encoding="utf-8")
     with pytest.raises(ConfigIlegible):
         cargar(ruta)
+
+
+def test_un_correo_sin_forma_de_correo_se_rechaza(tmp_path):
+    # La SEC exige un contacto real en el User-Agent; si aceptamos "asdf" la
+    # descarga falla mucho más tarde y con un error que no señala aquí.
+    with pytest.raises(CredencialInvalida):
+        guardar(Credenciales(edgar_identity="asdf"), tmp_path / "c.json")
+
+
+def test_una_clave_con_espacios_dentro_se_rechaza(tmp_path):
+    # Es lo que pasa al pegar desde un correo que partió la línea. Guardarla
+    # daría un 401 desde la API, sin pista de que el problema fue el pegado.
+    with pytest.raises(CredencialInvalida):
+        guardar(Credenciales(api_key="sk-ant-abc 123"), tmp_path / "c.json")
+
+
+def test_solo_el_correo_es_una_credencial_valida(tmp_path):
+    # Guardar solo una de las dos es legítimo: se rellenan en dos momentos.
+    ruta = guardar(Credenciales(edgar_identity="yo@x.com"), tmp_path / "c.json")
+    assert cargar(ruta).api_key is None
+
+
+def test_una_clave_con_prefijo_raro_se_guarda_pero_avisa(tmp_path):
+    credenciales = Credenciales(api_key="clave-de-otro-formato")
+    guardar(credenciales, tmp_path / "c.json")
+    assert avisos(credenciales)
+
+
+def test_una_clave_normal_no_genera_avisos():
+    assert avisos(Credenciales(api_key="sk-ant-abc123456789")) == []
