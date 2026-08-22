@@ -17,6 +17,10 @@ from pathlib import Path
 RUTA = Path.home() / ".markowitz-pro-picks" / "credenciales.json"
 
 
+class ConfigIlegible(ValueError):
+    """Hay un fichero de credenciales, pero no se puede leer."""
+
+
 @dataclass(frozen=True)
 class Credenciales:
     """Los dos datos que necesita la mitad con IA."""
@@ -49,7 +53,12 @@ def cargar(ruta: Path | None = None) -> Credenciales:
     ruta = Path(ruta or RUTA)
     if not ruta.exists():
         return Credenciales()
-    datos = json.loads(ruta.read_text(encoding="utf-8"))
+    try:
+        datos = json.loads(ruta.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise ConfigIlegible(f"No se pudo leer {ruta}: {error}") from error
+    if not isinstance(datos, dict):
+        raise ConfigIlegible(f"{ruta} no contiene un objeto JSON.")
     return Credenciales(
         api_key=datos.get("api_key") or None,
         edgar_identity=datos.get("edgar_identity") or None,
