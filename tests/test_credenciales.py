@@ -1,4 +1,6 @@
 import json
+import os
+import stat
 
 import pytest
 
@@ -156,3 +158,24 @@ def test_una_clave_corta_no_ensena_nada():
 
 def test_sin_clave_la_mascara_esta_vacia():
     assert enmascarar(None) == ""
+
+
+def test_un_guardado_que_falla_a_medias_deja_intacto_lo_anterior(tmp_path,
+                                                                 monkeypatch):
+    ruta = guardar(Credenciales(api_key="sk-ant-la-buena-de-antes"),
+                   tmp_path / "c.json")
+
+    def replace_que_falla(self, destino):
+        raise OSError("disco lleno")
+
+    monkeypatch.setattr("pathlib.Path.replace", replace_que_falla)
+    with pytest.raises(OSError):
+        guardar(Credenciales(api_key="sk-ant-la-nueva-que-no-cuaja"), ruta)
+
+    assert cargar(ruta).api_key == "sk-ant-la-buena-de-antes"
+
+
+@pytest.mark.skipif(os.name == "nt", reason="Windows no usa permisos POSIX")
+def test_el_fichero_no_lo_puede_leer_nadie_mas(tmp_path):
+    ruta = guardar(Credenciales(api_key="sk-ant-x"), tmp_path / "c.json")
+    assert stat.S_IMODE(ruta.stat().st_mode) == 0o600

@@ -129,6 +129,14 @@ def guardar(credenciales: Credenciales, ruta: Path | None = None) -> Path:
     )
     tmp = ruta.with_suffix(".tmp")
     tmp.write_text(texto, encoding="utf-8")
+    # Antes del replace, no después: así el fichero nunca existe en su nombre
+    # definitivo con permisos abiertos, ni un instante. En Windows chmod sólo
+    # cambia el bit de sólo lectura y esto no hace nada -- ahí la protección
+    # son los permisos de la carpeta de usuario.
+    try:
+        os.chmod(tmp, 0o600)
+    except OSError:
+        pass
     tmp.replace(ruta)
     return ruta
 
