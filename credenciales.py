@@ -40,8 +40,9 @@ class Credenciales:
         """Copia sin espacios sobrantes, con lo vacío convertido en ausente.
 
         Un campo en blanco significa "no lo tengo", no "lo tengo y es la
-        cadena vacía": son estados distintos y `disponibilidad()` ya trata el
-        segundo como ausente.
+        cadena vacía": son estados distintos y
+        `aprobacion/generacion.py:disponibilidad()` ya trata el segundo como
+        ausente.
         """
         return replace(
             self,
@@ -108,16 +109,16 @@ def validar(credenciales: Credenciales) -> None:
 def avisos(credenciales: Credenciales) -> list[str]:
     """Lo que merece decirse pero no impedir el guardado."""
     credenciales = credenciales.limpia()
-    fuera = []
+    mensajes = []
     if credenciales.api_key and not credenciales.api_key.startswith(
         _PREFIJO_HABITUAL
     ):
-        fuera.append(
+        mensajes.append(
             f"La clave no empieza por '{_PREFIJO_HABITUAL}', que es lo habitual. "
             "Se guarda igual: si Anthropic cambiara el formato, bloquearla aquí "
             "rechazaría claves buenas."
         )
-    return fuera
+    return mensajes
 
 
 def guardar(credenciales: Credenciales, ruta: Path | None = None) -> Path:
@@ -139,15 +140,17 @@ def guardar(credenciales: Credenciales, ruta: Path | None = None) -> Path:
     tmp = ruta.with_suffix(".tmp")
     # O_TRUNC y no O_EXCL: un guardado que falló antes puede haber dejado un
     # .tmp suelto, y O_EXCL haría que el siguiente intento fallara para
-    # siempre. En Windows el modo se ignora salvo el bit de sólo lectura --
-    # allí la protección son los permisos de la carpeta de usuario.
+    # siempre. En Windows el modo se ignora salvo el bit de sólo lectura.
     descriptor = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     # El modo de os.open sólo se aplica al CREAR el fichero: un .tmp que dejó
     # un guardado reventado conserva los suyos, y el secreto caería dentro con
     # los permisos viejos. fchmod actúa sobre el descriptor y no sobre la ruta,
     # así que no hay ventana entre comprobar y cambiar, y cubre los dos casos.
     # En Windows os.fchmod no existe; allí la protección son los permisos de la
-    # carpeta de usuario.
+    # carpeta de usuario. Un OSError puede venir de un sistema de ficheros que
+    # no admite chmod -- un pendrive exFAT, un montaje CIFS --; ahí tampoco se
+    # podría proteger el fichero de ninguna otra forma, y negarse a guardar
+    # sería peor que guardar sin esa protección.
     try:
         os.fchmod(descriptor, 0o600)
     except (AttributeError, OSError):
@@ -260,10 +263,14 @@ def enmascarar(clave: str | None) -> str:
 
     Sirve para que el usuario reconozca cuál tiene puesta, no para leerla. Con
     una clave corta no se enseña nada: mostrar principio y final de algo de
-    pocos caracteres es mostrarlo entero.
+    pocos caracteres es mostrarlo entero. El umbral de 20 deja al menos un
+    tramo real oculto entre el prefijo y los últimos 4 caracteres; por debajo
+    de eso, enseñar los dos extremos ya es enseñarla casi entera.
     """
     if not clave:
         return ""
     if len(clave) < 20:
         return "•" * 8
-    return f"{clave[:7]}…{clave[-4:]}"
+    # Se enseña justo el prefijo, no un número de caracteres cualquiera: es lo
+    # que hace la máscara reconocible sin enseñar nada del secreto en sí.
+    return f"{clave[:len(_PREFIJO_HABITUAL)]}…{clave[-4:]}"

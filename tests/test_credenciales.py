@@ -38,6 +38,19 @@ def test_guardar_crea_la_carpeta_si_no_existe(tmp_path):
     assert ruta.exists()
 
 
+def test_los_espacios_alrededor_de_la_clave_se_quitan(tmp_path):
+    # Pegar desde el navegador arrastra espacios. Es el caso mas comun de todos.
+    ruta = guardar(Credenciales(api_key="  sk-ant-abc123456789  "), tmp_path / "c.json")
+    assert cargar(ruta).api_key == "sk-ant-abc123456789"
+
+
+def test_guardar_dos_veces_deja_el_valor_nuevo(tmp_path):
+    ruta = tmp_path / "c.json"
+    guardar(Credenciales(api_key="sk-ant-primera"), ruta)
+    guardar(Credenciales(api_key="sk-ant-segunda"), ruta)
+    assert cargar(ruta).api_key == "sk-ant-segunda"
+
+
 def test_sin_fichero_las_credenciales_salen_vacias(tmp_path):
     leidas = cargar(tmp_path / "no-existe.json")
     assert leidas.api_key is None
@@ -121,6 +134,15 @@ def test_una_credencial_ausente_no_escribe_nada_en_el_entorno():
     entorno = {}
     aplicar(Credenciales(edgar_identity="yo@x.com"), entorno)
     assert "ANTHROPIC_API_KEY" not in entorno
+
+
+def test_una_variable_de_entorno_vacia_no_gana_al_fichero():
+    # setx con una cadena vacia deja la variable definida y sin valor; el
+    # fichero debe ganarle. Es la misma regla que ya prueba
+    # tests/test_aprobacion_generacion.py para disponibilidad().
+    entorno = {"ANTHROPIC_API_KEY": ""}
+    aplicar(Credenciales(api_key="sk-ant-x"), entorno)
+    assert entorno["ANTHROPIC_API_KEY"] == "sk-ant-x"
 
 
 def test_borrar_quita_el_fichero(tmp_path):
