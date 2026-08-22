@@ -128,11 +128,21 @@ def guardar(credenciales: Credenciales, ruta: Path | None = None) -> Path:
         allow_nan=False,
     )
     tmp = ruta.with_suffix(".tmp")
-    tmp.write_text(texto, encoding="utf-8")
-    # Antes del replace, no después: así el fichero nunca existe en su nombre
-    # definitivo con permisos abiertos, ni un instante. En Windows chmod sólo
-    # cambia el bit de sólo lectura y esto no hace nada -- ahí la protección
-    # son los permisos de la carpeta de usuario.
+    # Se crea ya protegido en vez de escribirlo y arreglarlo después: con
+    # write_text el fichero nace con los permisos por defecto (0o644 en la
+    # mayoría de sistemas) y la clave queda legible por cualquiera durante
+    # toda la escritura. El chmod posterior cierra la puerta principal y deja
+    # abierta la de servicio.
+    #
+    # O_TRUNC y no O_EXCL: un guardado que falló antes puede haber dejado un
+    # .tmp suelto, y O_EXCL haría que el siguiente intento fallara para
+    # siempre. En Windows el modo se ignora salvo el bit de sólo lectura --
+    # allí la protección son los permisos de la carpeta de usuario.
+    descriptor = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(descriptor, "w", encoding="utf-8") as fichero:
+        fichero.write(texto)
+    # Un .tmp que ya existía conserva sus permisos anteriores: os.open sólo
+    # aplica el modo al crearlo.
     try:
         os.chmod(tmp, 0o600)
     except OSError:

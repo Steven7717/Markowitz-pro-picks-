@@ -1,6 +1,7 @@
 import json
 import os
 import stat
+from pathlib import Path
 
 import pytest
 
@@ -179,3 +180,21 @@ def test_un_guardado_que_falla_a_medias_deja_intacto_lo_anterior(tmp_path,
 def test_el_fichero_no_lo_puede_leer_nadie_mas(tmp_path):
     ruta = guardar(Credenciales(api_key="sk-ant-x"), tmp_path / "c.json")
     assert stat.S_IMODE(ruta.stat().st_mode) == 0o600
+
+
+@pytest.mark.skipif(os.name == "nt", reason="Windows no usa permisos POSIX")
+def test_el_temporal_ya_esta_protegido_antes_del_replace(tmp_path, monkeypatch):
+    # El test de permisos del fichero final no distingue un chmod puesto antes
+    # del replace de uno puesto después: los dos acaban en 0o600. Lo que hay
+    # que comprobar es la ventana, no el resultado, así que se mira el modo
+    # justo en el instante del replace.
+    modos = []
+    replace_original = Path.replace
+
+    def replace_espia(self, destino):
+        modos.append(stat.S_IMODE(self.stat().st_mode))
+        return replace_original(self, destino)
+
+    monkeypatch.setattr("pathlib.Path.replace", replace_espia)
+    guardar(Credenciales(api_key="sk-ant-abc123456789"), tmp_path / "c.json")
+    assert modos == [0o600]
