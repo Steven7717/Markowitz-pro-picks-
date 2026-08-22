@@ -178,6 +178,34 @@ def aplicar(
             entorno[nombre] = valor
 
 
+def reemplazar(
+    anteriores: Credenciales,
+    nuevas: Credenciales,
+    entorno: dict[str, str] | None = None,
+) -> None:
+    """Poner en vigor unas credenciales que sustituyen a otras ya aplicadas.
+
+    `aplicar` no pisa lo que ya hay, y después de arrancar siempre hay algo:
+    lo puso el propio `aplicar`. Sin esto, cambiar una clave revocada la
+    escribiría en disco mientras el proceso sigue usando la vieja toda la
+    sesión, con la página mostrando la nueva enmascarada -- el usuario no
+    tendría forma de enterarse.
+
+    Sólo se retira lo que coincide con las anteriores, por la misma razón que
+    en `borrar`: una variable puesta en el shell no la puso el usuario desde
+    aquí y sigue mandando.
+    """
+    entorno = os.environ if entorno is None else entorno
+    anteriores = anteriores.limpia()
+    for nombre, valor in (
+        ("ANTHROPIC_API_KEY", anteriores.api_key),
+        ("EDGAR_IDENTITY", anteriores.edgar_identity),
+    ):
+        if valor and entorno.get(nombre) == valor:
+            del entorno[nombre]
+    aplicar(nuevas, entorno)
+
+
 def borrar(ruta: Path | None = None, entorno: dict[str, str] | None = None) -> None:
     """Quitar el fichero y retirar del entorno lo que ese fichero había puesto.
 

@@ -14,6 +14,7 @@ from credenciales import (
     cargar,
     enmascarar,
     guardar,
+    reemplazar,
 )
 
 
@@ -218,6 +219,24 @@ def test_la_clave_nunca_llega_al_disco_con_permisos_abiertos(tmp_path, monkeypat
     guardar(Credenciales(api_key="sk-ant-abc123456789"), destino)
 
     assert modos == [0o600]
+
+
+def test_reemplazar_pone_en_vigor_la_credencial_nueva():
+    # Es el boton "Cambiar": te revocan la clave y pegas otra. Si el entorno
+    # se queda con la vieja, la pagina ensena la nueva y la API recibe la
+    # vieja, que es la peor combinacion posible.
+    viejas = Credenciales(api_key="sk-ant-vieja")
+    entorno = {}
+    aplicar(viejas, entorno)
+    reemplazar(viejas, Credenciales(api_key="sk-ant-nueva"), entorno)
+    assert entorno["ANTHROPIC_API_KEY"] == "sk-ant-nueva"
+
+
+def test_reemplazar_no_pisa_una_variable_del_shell():
+    viejas = Credenciales(api_key="la-del-fichero")
+    entorno = {"ANTHROPIC_API_KEY": "la-del-shell"}
+    reemplazar(viejas, Credenciales(api_key="la-nueva-del-fichero"), entorno)
+    assert entorno["ANTHROPIC_API_KEY"] == "la-del-shell"
 
 
 def test_guardar_sin_nada_relleno_no_escribe_un_fichero_de_nulls(tmp_path):
