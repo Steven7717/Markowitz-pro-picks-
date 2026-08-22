@@ -59,6 +59,16 @@ def test_un_json_que_no_es_un_objeto_tambien_es_ilegible(tmp_path):
         cargar(ruta)
 
 
+def test_un_campo_que_no_es_texto_es_ilegible(tmp_path):
+    # Un fichero editado a mano puede traer un número donde va una cadena.
+    # Sin esto sale un AttributeError, que la página no espera y no atrapa:
+    # un fichero de configuración mal escrito tumbaría el optimizador entero.
+    ruta = tmp_path / "c.json"
+    ruta.write_text(json.dumps({"api_key": 12345}), encoding="utf-8")
+    with pytest.raises(ConfigIlegible):
+        cargar(ruta)
+
+
 def test_un_correo_sin_forma_de_correo_se_rechaza(tmp_path):
     # La SEC exige un contacto real en el User-Agent; si aceptamos "asdf" la
     # descarga falla mucho más tarde y con un error que no señala aquí.

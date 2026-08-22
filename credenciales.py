@@ -67,9 +67,13 @@ def cargar(ruta: Path | None = None) -> Credenciales:
         raise ConfigIlegible(f"No se pudo leer {ruta}: {error}") from error
     if not isinstance(datos, dict):
         raise ConfigIlegible(f"{ruta} no contiene un objeto JSON.")
+    for campo in ("api_key", "edgar_identity"):
+        valor = datos.get(campo)
+        if valor is not None and not isinstance(valor, str):
+            raise ConfigIlegible(f"{ruta}: '{campo}' no es texto.")
     return Credenciales(
-        api_key=datos.get("api_key") or None,
-        edgar_identity=datos.get("edgar_identity") or None,
+        api_key=datos.get("api_key"),
+        edgar_identity=datos.get("edgar_identity"),
     ).limpia()
 
 
