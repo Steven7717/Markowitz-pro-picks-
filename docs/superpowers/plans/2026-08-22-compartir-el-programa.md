@@ -788,8 +788,6 @@ Los pasos se anclan al **contenido**, no a números de línea: cada paso desplaz
 Después de la línea `from fundamentals.kpis import TODOS_LOS_KPIS`, añadir:
 
 ```python
-import os
-
 from credenciales import (
     RUTA as RUTA_CREDENCIALES,
     ConfigIlegible,
@@ -800,6 +798,8 @@ from credenciales import (
     borrar,
     cargar,
     enmascarar,
+    manda_el_entorno,
+    reemplazar,
 )
 from credenciales import guardar as guardar_credenciales
 ```
@@ -822,14 +822,9 @@ def _apartado_credenciales(guardadas: Credenciales) -> None:
         "clave no viaja dentro."
     )
 
-    desde_entorno = [
-        nombre
-        for nombre, guardado in (
-            ("ANTHROPIC_API_KEY", guardadas.api_key),
-            ("EDGAR_IDENTITY", guardadas.edgar_identity),
-        )
-        if os.environ.get(nombre) and os.environ[nombre] != guardado
-    ]
+    # La regla de precedencia vive en credenciales.py, no aqui: es la misma
+    # que aplica aplicar(), y una pagina de Streamlit no se puede probar.
+    desde_entorno = manda_el_entorno(guardadas)
     if desde_entorno:
         st.info(
             "Ahora mismo manda el entorno para "
@@ -884,7 +879,12 @@ def _apartado_credenciales(guardadas: Credenciales) -> None:
         except OSError as error:
             st.error(f"No se pudieron guardar: {error}")
         else:
-            aplicar(nuevas)
+            # reemplazar y no aplicar: aplicar() no pisa lo que ya hay en el
+            # entorno, y despues de arrancar siempre hay algo -- lo puso el
+            # propio aplicar(). Con aplicar() aqui, cambiar una clave revocada
+            # la guardaria en disco y el proceso seguiria usando la vieja toda
+            # la sesion, con esta pagina mostrando la nueva enmascarada.
+            reemplazar(guardadas, nuevas)
             # Los avisos se guardan en sesion en vez de pintarse aqui: el
             # rerun de la linea siguiente borraria la pantalla antes de que
             # nadie los leyera.
