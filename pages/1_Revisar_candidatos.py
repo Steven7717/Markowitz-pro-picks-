@@ -16,6 +16,20 @@ from aprobacion.generacion import (
     disponibilidad,
     hay_revision_en_curso,
 )
+from credenciales import (
+    RUTA as RUTA_CREDENCIALES,
+    ConfigIlegible,
+    CredencialInvalida,
+    Credenciales,
+    aplicar,
+    avisos,
+    borrar,
+    cargar,
+    enmascarar,
+    variables_del_shell,
+    reemplazar,
+)
+from credenciales import guardar as guardar_credenciales
 from fundamentals.kpis import TODOS_LOS_KPIS
 
 st.set_page_config(page_title="Revisar candidatos", page_icon="✅", layout="wide")
@@ -42,9 +56,103 @@ def _generar(con_ia: bool) -> None:
     st.rerun()
 
 
+def _apartado_credenciales(guardadas: Credenciales) -> None:
+    """Los dos datos que necesita la mitad con IA, y de dónde sale cada uno."""
+    for texto in st.session_state.pop("avisos_credenciales", []):
+        st.warning(texto)
+
+    st.markdown(
+        f"Se guardan en tu carpeta personal (`{RUTA_CREDENCIALES}`), **fuera de "
+        "este proyecto**: si comprimes la carpeta y se la pasas a alguien, tu "
+        "clave no viaja dentro."
+    )
+
+    # La regla de precedencia vive en credenciales.py, no aqui: es la misma
+    # que aplica aplicar(), y una pagina de Streamlit no se puede probar.
+    desde_entorno = variables_del_shell(guardadas)
+    if desde_entorno:
+        st.info(
+            "Ahora mismo manda el entorno para "
+            + " y ".join(f"`{nombre}`" for nombre in desde_entorno)
+            + ". Lo que guardes aqui no lo pisa."
+        )
+
+    if guardadas.api_key and not st.session_state.get("editando_credenciales"):
+        columna_clave, columna_cambiar, columna_borrar = st.columns([4, 1, 1])
+        columna_clave.text_input(
+            "Clave de Anthropic",
+            value=enmascarar(guardadas.api_key),
+            disabled=True,
+        )
+        if columna_cambiar.button("Cambiar", use_container_width=True):
+            st.session_state.editando_credenciales = True
+            st.rerun()
+        if columna_borrar.button("Borrar", use_container_width=True):
+            borrar()
+            st.rerun()
+        st.text_input(
+            "Correo para EDGAR",
+            value=guardadas.edgar_identity or "",
+            disabled=True,
+        )
+        return
+
+    nueva_clave = st.text_input(
+        "Clave de Anthropic",
+        type="password",
+        key="entrada_clave",
+        help="Se saca de console.anthropic.com. Empieza por sk-ant-.",
+    )
+    nuevo_correo = st.text_input(
+        "Correo para EDGAR",
+        value=guardadas.edgar_identity or "",
+        key="entrada_correo",
+        help=(
+            "No es un registro: la SEC exige un contacto en la cabecera de "
+            "cada peticion y solo se envia ahi."
+        ),
+    )
+    if st.button("Guardar credenciales", type="primary"):
+        nuevas = Credenciales(
+            api_key=nueva_clave or guardadas.api_key,
+            edgar_identity=nuevo_correo,
+        )
+        try:
+            guardar_credenciales(nuevas)
+        except CredencialInvalida as error:
+            st.error(str(error))
+        except OSError as error:
+            st.error(f"No se pudieron guardar: {error}")
+        else:
+            # reemplazar y no aplicar: aplicar() no pisa lo que ya hay en el
+            # entorno, y despues de arrancar siempre hay algo -- lo puso el
+            # propio aplicar(). Con aplicar() aqui, cambiar una clave revocada
+            # la guardaria en disco y el proceso seguiria usando la vieja toda
+            # la sesion, con esta pagina mostrando la nueva enmascarada.
+            reemplazar(guardadas, nuevas)
+            # Los avisos se guardan en sesion en vez de pintarse aqui: el
+            # rerun de la linea siguiente borraria la pantalla antes de que
+            # nadie los leyera.
+            st.session_state.avisos_credenciales = avisos(nuevas)
+            st.session_state.editando_credenciales = False
+            st.rerun()
+
+
 # A la vista y no dentro de un desplegable: el caso de uso que lo motivó es
 # "una evaluación rápida sin IA", y esconder tras un clic extra algo que se
 # quiere usar de pasada lo convierte en algo que no se usa.
+# Lo guardado ayer no sirve de nada si nadie lo carga hoy: guardar es lo que
+# escribe, arrancar es lo que aplica, y hacen falta los dos.
+credenciales_rotas = None
+try:
+    credenciales_guardadas = cargar()
+    aplicar(credenciales_guardadas)
+except ConfigIlegible as error:
+    # Un fichero de configuracion corrupto no deja a nadie sin optimizador:
+    # se avisa y se sigue con la mitad gratis.
+    credenciales_guardadas = Credenciales()
+    credenciales_rotas = str(error)
+
 puede = disponibilidad()
 
 opciones = ["Sin IA — sólo números, gratis"]
@@ -62,6 +170,14 @@ pulsado = columna_boton.button("Generar", key="generar", use_container_width=Tru
 
 if not puede.puede_usar_ia:
     st.caption(puede.motivo)
+
+with st.expander("🔑 Mis credenciales", expanded=not puede.puede_usar_ia):
+    if credenciales_rotas:
+        st.warning(
+            f"{credenciales_rotas}\n\nGuarda las credenciales otra vez para "
+            "reemplazarlo, o borra el fichero a mano."
+        )
+    _apartado_credenciales(credenciales_guardadas)
 
 st.caption(
     "Regenerar **sobrescribe** los candidatos de abajo. El ranking es "
