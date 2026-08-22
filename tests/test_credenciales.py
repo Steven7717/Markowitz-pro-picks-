@@ -10,6 +10,7 @@ from credenciales import (
     avisos,
     borrar,
     cargar,
+    enmascarar,
     guardar,
 )
 
@@ -138,3 +139,20 @@ def test_borrar_un_fichero_corrupto_igualmente_lo_quita(tmp_path):
     ruta.write_text("{roto", encoding="utf-8")
     borrar(ruta, {})
     assert not ruta.exists()
+
+
+def test_la_clave_enmascarada_no_contiene_la_clave():
+    clave = "sk-ant-api03-secretosecretosecreto1234"
+    mascara = enmascarar(clave)
+    assert clave not in mascara
+    assert "secretosecreto" not in mascara
+    assert mascara.endswith("1234")
+
+
+def test_una_clave_corta_no_ensena_nada():
+    # Con pocos caracteres, mostrar principio y final es mostrarla entera.
+    assert "abc" not in enmascarar("sk-abc")
+
+
+def test_sin_clave_la_mascara_esta_vacia():
+    assert enmascarar(None) == ""

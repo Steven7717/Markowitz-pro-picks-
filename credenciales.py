@@ -178,3 +178,17 @@ def borrar(ruta: Path | None = None, entorno: dict[str, str] | None = None) -> N
     ):
         if valor and entorno.get(nombre) == valor:
             del entorno[nombre]
+
+
+def enmascarar(clave: str | None) -> str:
+    """Lo que se puede enseñar de una clave guardada.
+
+    Sirve para que el usuario reconozca cuál tiene puesta, no para leerla. Con
+    una clave corta no se enseña nada: mostrar principio y final de algo de
+    pocos caracteres es mostrarlo entero.
+    """
+    if not clave:
+        return ""
+    if len(clave) < 20:
+        return "•" * 8
+    return f"{clave[:7]}…{clave[-4:]}"
