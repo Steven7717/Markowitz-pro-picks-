@@ -798,7 +798,7 @@ from credenciales import (
     borrar,
     cargar,
     enmascarar,
-    manda_el_entorno,
+    variables_del_shell,
     reemplazar,
 )
 from credenciales import guardar as guardar_credenciales
@@ -824,7 +824,7 @@ def _apartado_credenciales(guardadas: Credenciales) -> None:
 
     # La regla de precedencia vive en credenciales.py, no aqui: es la misma
     # que aplica aplicar(), y una pagina de Streamlit no se puede probar.
-    desde_entorno = manda_el_entorno(guardadas)
+    desde_entorno = variables_del_shell(guardadas)
     if desde_entorno:
         st.info(
             "Ahora mismo manda el entorno para "
