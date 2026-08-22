@@ -198,3 +198,13 @@ def test_el_temporal_ya_esta_protegido_antes_del_replace(tmp_path, monkeypatch):
     monkeypatch.setattr("pathlib.Path.replace", replace_espia)
     guardar(Credenciales(api_key="sk-ant-abc123456789"), tmp_path / "c.json")
     assert modos == [0o600]
+
+
+def test_guardar_sin_nada_relleno_no_escribe_un_fichero_de_nulls(tmp_path):
+    # Pulsar "Guardar" con los dos campos en blanco es un despiste, no una
+    # instrucción: escribir {"api_key": null, "edgar_identity": null} y
+    # devolver la ruta tan contentos le diría al usuario que guardó algo.
+    ruta = tmp_path / "c.json"
+    with pytest.raises(CredencialInvalida):
+        guardar(Credenciales(), ruta)
+    assert not ruta.exists()

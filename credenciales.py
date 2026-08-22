@@ -95,6 +95,11 @@ def validar(credenciales: Credenciales) -> None:
             "real en la cabecera de cada petición."
         )
 
+    if not credenciales.api_key and not credenciales.edgar_identity:
+        raise CredencialInvalida(
+            "No hay nada que guardar: rellena al menos uno de los dos campos."
+        )
+
 
 def avisos(credenciales: Credenciales) -> list[str]:
     """Lo que merece decirse pero no impedir el guardado."""
