@@ -6,6 +6,7 @@ from credenciales import (
     ConfigIlegible,
     Credenciales,
     CredencialInvalida,
+    aplicar,
     avisos,
     cargar,
     guardar,
@@ -82,3 +83,25 @@ def test_una_clave_con_prefijo_raro_se_guarda_pero_avisa(tmp_path):
 
 def test_una_clave_normal_no_genera_avisos():
     assert avisos(Credenciales(api_key="sk-ant-abc123456789")) == []
+
+
+def test_aplicar_pone_las_credenciales_en_el_entorno():
+    entorno = {}
+    aplicar(Credenciales(api_key="sk-ant-x", edgar_identity="yo@x.com"), entorno)
+    assert entorno["ANTHROPIC_API_KEY"] == "sk-ant-x"
+    assert entorno["EDGAR_IDENTITY"] == "yo@x.com"
+
+
+def test_el_entorno_gana_sobre_el_fichero():
+    # Quien tiene la variable puesta en su shell manda: si el fichero la
+    # pisara, el entorno de desarrollo y los tests dejarían de ser los que
+    # gobiernan, y sería la convención al revés de como está en todas partes.
+    entorno = {"ANTHROPIC_API_KEY": "la-del-shell"}
+    aplicar(Credenciales(api_key="la-del-fichero"), entorno)
+    assert entorno["ANTHROPIC_API_KEY"] == "la-del-shell"
+
+
+def test_una_credencial_ausente_no_escribe_nada_en_el_entorno():
+    entorno = {}
+    aplicar(Credenciales(edgar_identity="yo@x.com"), entorno)
+    assert "ANTHROPIC_API_KEY" not in entorno

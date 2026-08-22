@@ -131,3 +131,23 @@ def guardar(credenciales: Credenciales, ruta: Path | None = None) -> Path:
     tmp.write_text(texto, encoding="utf-8")
     tmp.replace(ruta)
     return ruta
+
+
+def aplicar(
+    credenciales: Credenciales, entorno: dict[str, str] | None = None
+) -> None:
+    """Volcar en el entorno lo que no venga ya puesto.
+
+    Es todo el cableado que hace falta: nadie llama a
+    `fundamentals/fetch.py:set_sec_identity()` en el camino de producción
+    --sólo los tests-- porque edgartools lee `EDGAR_IDENTITY` del entorno por
+    su cuenta, igual que el cliente de Anthropic lee `ANTHROPIC_API_KEY`.
+    """
+    entorno = os.environ if entorno is None else entorno
+    credenciales = credenciales.limpia()
+    for nombre, valor in (
+        ("ANTHROPIC_API_KEY", credenciales.api_key),
+        ("EDGAR_IDENTITY", credenciales.edgar_identity),
+    ):
+        if valor and not entorno.get(nombre):
+            entorno[nombre] = valor
