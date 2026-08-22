@@ -262,6 +262,28 @@ def test_reemplazar_no_pisa_una_variable_del_shell():
     assert entorno["ANTHROPIC_API_KEY"] == "la-del-shell"
 
 
+def test_reemplazar_cambia_una_variable_que_el_shell_traia_igual():
+    # Caso raro y deliberado: el shell trae el mismo valor que habia guardado.
+    # La pagina no avisa de esa variable --variables_del_shell tampoco la
+    # nombra, porque coinciden-- asi que el cambio tiene que surtir efecto.
+    # Al reiniciar volvera a mandar el shell, y entonces la pagina SI lo dira.
+    viejas = Credenciales(api_key="sk-ant-la-misma")
+    entorno = {"ANTHROPIC_API_KEY": "sk-ant-la-misma"}
+    reemplazar(viejas, Credenciales(api_key="sk-ant-la-nueva"), entorno)
+    assert entorno["ANTHROPIC_API_KEY"] == "sk-ant-la-nueva"
+
+
+def test_reemplazar_retira_una_credencial_que_ya_no_esta():
+    # Vaciar el campo del correo y guardar tiene que quitarlo tambien del
+    # entorno, no solo del fichero: si no, edgartools seguiria usando el viejo.
+    viejas = Credenciales(api_key="sk-ant-k", edgar_identity="yo@x.com")
+    entorno = {}
+    aplicar(viejas, entorno)
+    reemplazar(viejas, Credenciales(api_key="sk-ant-k"), entorno)
+    assert "EDGAR_IDENTITY" not in entorno
+    assert entorno["ANTHROPIC_API_KEY"] == "sk-ant-k"
+
+
 def test_variables_del_shell_nombra_lo_que_el_shell_pisa():
     # Es lo que la pagina necesita para no mentir: si el shell trae una clave
     # distinta a la guardada, lo que el usuario guarde no entra en vigor.
@@ -280,6 +302,21 @@ def test_variables_del_shell_no_nombra_lo_que_solo_esta_en_el_fichero():
     guardadas = Credenciales(api_key="sk-ant-solo-fichero")
     entorno = {}
     assert variables_del_shell(guardadas, entorno) == []
+
+
+def test_un_temporal_rancio_y_largo_no_deja_cola_de_basura(tmp_path):
+    # O_TRUNC y no O_EXCL deja escribir dentro de un .tmp que dejo un guardado
+    # reventado. Si ademas no truncara, un guardado mas corto que el anterior
+    # dejaria una cola del contenido viejo y el JSON resultante no se podria
+    # leer: el usuario perderia las credenciales por un fallo anterior que ya
+    # habia sobrevivido.
+    destino = tmp_path / "c.json"
+    rancio = destino.with_suffix(".tmp")
+    rancio.write_text("x" * 5000, encoding="utf-8")
+
+    guardar(Credenciales(api_key="sk-ant-corta"), destino)
+
+    assert cargar(destino).api_key == "sk-ant-corta"
 
 
 def test_guardar_sin_nada_relleno_no_escribe_un_fichero_de_nulls(tmp_path):

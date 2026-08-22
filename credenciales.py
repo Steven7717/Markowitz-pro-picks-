@@ -221,6 +221,10 @@ def reemplazar(
     Sólo se retira lo que coincide con las anteriores, por la misma razón que
     en `borrar`: una variable puesta en el shell no la puso el usuario desde
     aquí y sigue mandando.
+
+    `variables_del_shell` usa la misma comparación que esta función, así que
+    la página nunca avisa de una variable que esto vaya a pisar: cuando dice
+    que manda el entorno, esto lo respeta; cuando calla, esto actúa.
     """
     entorno = os.environ if entorno is None else entorno
     _retirar_del_entorno(anteriores, entorno)
