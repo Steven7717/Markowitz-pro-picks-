@@ -990,7 +990,13 @@ dependencies = [
     "yfinance>=0.2.40",
     "numpy>=1.26.0",
     "scipy>=1.12.0",
-    "pandas>=2.2.0",
+    # Tope en la 3 a proposito. Sin el, uv resuelve la 3.0.5, donde .stack()
+    # ya no descarta los NaN, y eso rompe test_research_signals.py. Este codigo
+    # calcula los KPIs, Ledoit-Wolf y la validacion walk-forward contra el
+    # comportamiento de pandas 2.x: lo que se vio romper fue un test, pero lo
+    # que preocupa son los cambios que ningun test capture. Migrar a pandas 3
+    # es un trabajo aparte, no un efecto secundario de empaquetar.
+    "pandas>=2.2.0,<3",
     "plotly>=5.20.0",
     "fpdf2>=2.7.9",
     "openpyxl>=3.1.2",
