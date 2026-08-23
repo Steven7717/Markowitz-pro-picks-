@@ -56,6 +56,20 @@ def _generar(con_ia: bool) -> None:
     st.rerun()
 
 
+def _recargar_si_toca() -> None:
+    """Rerun only once every widget on the page has been instantiated.
+
+    Un `st.rerun()` lanzado desde el desplegable de credenciales se dispara
+    antes de que se dibujen las casillas y los motivos: Streamlit descarta el
+    estado de los widgets que no llegó a ver en esa pasada, y la revisión en
+    curso desaparece sin decir nada. Es justo lo que `hay_revision_en_curso`
+    existe para evitar, y encima la deja muda, porque para cuando pregunta ya
+    no queda nada marcado.
+    """
+    if st.session_state.pop("recargar_credenciales", False):
+        st.rerun()
+
+
 def _apartado_credenciales(guardadas: Credenciales) -> None:
     """Los dos datos que necesita la mitad con IA, y de dónde sale cada uno."""
     for texto in st.session_state.pop("avisos_credenciales", []):
@@ -86,10 +100,14 @@ def _apartado_credenciales(guardadas: Credenciales) -> None:
         )
         if columna_cambiar.button("Cambiar", use_container_width=True):
             st.session_state.editando_credenciales = True
-            st.rerun()
+            st.session_state.recargar_credenciales = True
         if columna_borrar.button("Borrar", use_container_width=True):
-            borrar()
-            st.rerun()
+            try:
+                borrar()
+            except OSError as error:
+                st.error(f"No se pudo borrar: {error}")
+            else:
+                st.session_state.recargar_credenciales = True
         st.text_input(
             "Correo para EDGAR",
             value=guardadas.edgar_identity or "",
@@ -112,7 +130,8 @@ def _apartado_credenciales(guardadas: Credenciales) -> None:
             "cada peticion y solo se envia ahi."
         ),
     )
-    if st.button("Guardar credenciales", type="primary"):
+    columna_guardar, columna_cancelar = st.columns([1, 1])
+    if columna_guardar.button("Guardar credenciales", type="primary"):
         nuevas = Credenciales(
             api_key=nueva_clave or guardadas.api_key,
             edgar_identity=nuevo_correo,
@@ -130,17 +149,21 @@ def _apartado_credenciales(guardadas: Credenciales) -> None:
             # la guardaria en disco y el proceso seguiria usando la vieja toda
             # la sesion, con esta pagina mostrando la nueva enmascarada.
             reemplazar(guardadas, nuevas)
-            # Los avisos se guardan en sesion en vez de pintarse aqui: el
-            # rerun de la linea siguiente borraria la pantalla antes de que
-            # nadie los leyera.
+            # Los avisos se guardan en sesion en vez de pintarse aqui: para
+            # cuando se pintan el guion ya se reinicio (via
+            # _recargar_si_toca) y esta pasada nunca vuelve a pasar por aqui.
             st.session_state.avisos_credenciales = avisos(nuevas)
             st.session_state.editando_credenciales = False
-            st.rerun()
+            st.session_state.recargar_credenciales = True
+
+    # Sólo si hay algo guardado a lo que volver: sin esto, quien pulsa
+    # "Cambiar" y se arrepiente se queda ante un campo vacío donde estaba su
+    # clave, sin Borrar y sin vuelta atrás que no sea reiniciar.
+    if guardadas.api_key and columna_cancelar.button("Cancelar"):
+        st.session_state.editando_credenciales = False
+        st.session_state.recargar_credenciales = True
 
 
-# A la vista y no dentro de un desplegable: el caso de uso que lo motivó es
-# "una evaluación rápida sin IA", y esconder tras un clic extra algo que se
-# quiere usar de pasada lo convierte en algo que no se usa.
 # Lo guardado ayer no sirve de nada si nadie lo carga hoy: guardar es lo que
 # escribe, arrancar es lo que aplica, y hacen falta los dos.
 credenciales_rotas = None
@@ -153,6 +176,9 @@ except ConfigIlegible as error:
     credenciales_guardadas = Credenciales()
     credenciales_rotas = str(error)
 
+# A la vista y no dentro de un desplegable: el caso de uso que lo motivó es
+# "una evaluación rápida sin IA", y esconder tras un clic extra algo que se
+# quiere usar de pasada lo convierte en algo que no se usa.
 puede = disponibilidad()
 
 opciones = ["Sin IA — sólo números, gratis"]
@@ -171,7 +197,17 @@ pulsado = columna_boton.button("Generar", key="generar", use_container_width=Tru
 if not puede.puede_usar_ia:
     st.caption(puede.motivo)
 
-with st.expander("🔑 Mis credenciales", expanded=not puede.puede_usar_ia):
+with st.expander(
+    "🔑 Mis credenciales",
+    # También abierto cuando hay algo que decir: el aviso de la clave y el del
+    # fichero corrupto se pintan aquí dentro, y si nace plegado justo en la
+    # pasada que los genera, nadie los lee nunca -- se consumen igual.
+    expanded=(
+        not puede.puede_usar_ia
+        or bool(credenciales_rotas)
+        or bool(st.session_state.get("avisos_credenciales"))
+    ),
+):
     if credenciales_rotas:
         st.warning(
             f"{credenciales_rotas}\n\nGuarda las credenciales otra vez para "
@@ -208,9 +244,14 @@ try:
     candidatos = cargar_candidatos()
 except FaltanFichas as error:
     st.warning(str(error))
+    # No hay casillas ni motivos todavia en este camino -- es justo el que
+    # recorre quien acaba de recibir el programa y esta metiendo sus
+    # credenciales por primera vez -- asi que recargar aqui es seguro.
+    _recargar_si_toca()
     st.stop()
 except ContratoRoto as error:
     st.error(f"Las salidas de B no tienen la forma esperada: {error}")
+    _recargar_si_toca()
     st.stop()
 
 st.info(resumen_corrida(candidatos.corrida))
@@ -363,3 +404,8 @@ if st.button(f"Aprobar {total} empresas y pasar al optimizador", disabled=total 
             "esta pagina abre una sesion nueva de Streamlit y pierde la "
             "seleccion aprobada."
         )
+
+# Al final del todo y no dentro del desplegable: para cuando se llega aqui ya
+# se dibujaron las casillas, los motivos y lo anadido a mano, asi que un
+# rerun pedido desde las credenciales no le borra el trabajo a nadie.
+_recargar_si_toca()
