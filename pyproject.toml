@@ -1,0 +1,58 @@
+[project]
+name = "markowitz-pro-picks"
+version = "0.1.0"
+description = "Optimizacion de portafolio con analisis fundamental y gate de aprobacion humana"
+requires-python = ">=3.12"
+
+dependencies = [
+    "streamlit>=1.32.0",
+    "yfinance>=0.2.40",
+    "numpy>=1.26.0",
+    "scipy>=1.12.0",
+    # Tope en la 3 a proposito. Este codigo calcula los 17 KPIs, el estimador
+    # de Ledoit-Wolf y la validacion walk-forward contra el comportamiento de
+    # pandas 2.x, y la 3.0 cambia cosas como que .stack() ya no descarta los
+    # NaN. Lo que se ha visto romper es un test; lo que preocupa son los
+    # cambios que ningun test capture. Subir a pandas 3 es un trabajo aparte,
+    # con su propia verificacion, no un efecto secundario de empaquetar.
+    "pandas>=2.2.0,<3",
+    "plotly>=5.20.0",
+    "fpdf2>=2.7.9",
+    "openpyxl>=3.1.2",
+    # exporter.py:109 mete las graficas en el PDF con fig.write_image, que
+    # necesita kaleido.
+    "kaleido>=0.2.1",
+    # fundamentals/fetch.py:130 cachea el panel de la SEC en parquet, y eso
+    # esta en el camino vivo de generar candidatos: es runtime, no solo del
+    # estudio.
+    "pyarrow>=15.0.0",
+    # Motor de fundamentales: XBRL de 10-Q/10-K desde SEC, gratis y sin API
+    # key. Necesita EDGAR_IDENTITY, que la app pide por pantalla.
+    "edgartools>=5.0",
+    # Fichas del sub-proyecto B. Sin ANTHROPIC_API_KEY el ranking sale igual,
+    # con fichas de plantilla.
+    "anthropic>=0.100",
+    "pydantic>=2.0",
+]
+
+[dependency-groups]
+# Nada de esto hace falta para abrir la app. Quien reciba el proyecto solo
+# para usarlo no lo descarga.
+dev = [
+    "pytest>=8.0.0",
+    # Solo tests: valida nuestra implementacion nativa de Ledoit-Wolf contra
+    # la de referencia (tests/test_estimators.py:84). El test se omite solo si
+    # no esta instalado.
+    "scikit-learn>=1.4.0",
+    # Solo tests: contrasta nuestros indicadores nativos contra una
+    # implementacion de referencia (tests/test_research_indicators.py:146).
+    "pandas-ta-classic>=0.4.0",
+    # Solo para regenerar el snapshot del universo y la tabla de sectores
+    # (scripts/bootstrap_*.py, que usan pandas.read_html).
+    "lxml>=5.0",
+]
+
+[tool.uv]
+# Esto es una aplicacion, no una libreria: no hay paquete que construir ni
+# instalar, solo un entorno con dependencias.
+package = false
