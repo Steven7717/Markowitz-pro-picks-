@@ -1,7 +1,7 @@
 # Contexto del proyecto — para retomar en una sesión nueva
 
-**Última actualización:** 2026-08-16
-**Rama:** `master` · **Tests:** 576 pasando (`pytest tests/ -q -m "not red"`), más 6 marcados `red`
+**Última actualización:** 2026-08-22
+**Rama:** `master` · **Tests:** 618 pasando (`uv run pytest tests/ -q -m "not red"`), 2 omitidos en Windows (permisos POSIX), más 6 marcados `red`
 
 ---
 
@@ -35,6 +35,27 @@ Hallazgo clave del diagnóstico: la Puerta B tiene un sesgo positivo de ~0.04 de
 **No hace falta la fase 2** (universo point-in-time). Sólo era necesaria si algo salía positivo: el sesgo de supervivencia infla los resultados, así que un veredicto negativo con el sesgo a favor es más firme, no menos.
 
 ---
+
+## Cómo se distribuye
+
+El programa se reparte como **repo descargable**, no como URL pública. Cada
+usuario corre su copia en su disco con `uv`, que se encarga de Python y las
+dependencias: `Iniciar App.bat` en Windows, `Iniciar App.command` en Mac.
+
+Las credenciales (`ANTHROPIC_API_KEY` y `EDGAR_IDENTITY`) se meten desde la
+página de candidatos y se guardan en `~/.markowitz-pro-picks/credenciales.json`,
+fuera del proyecto — ver `credenciales.py`. El entorno gana sobre el fichero,
+así que un shell con las variables puestas sigue mandando.
+
+**No hay URL pública a propósito:** `salidas/` y `actas/` son rutas fijas y
+globales del proceso, así que dos visitantes simultáneos se pisarían los datos.
+Publicarlo exigiría aislarlas por sesión, que es un trabajo aparte.
+
+**El `.command` de Mac sigue sin ejecutarse en un Mac real** — nadie en el
+equipo tiene uno. Sintaxis revisada, comportamiento sin comprobar; el README
+ya avisa de esto y da la línea `chmod +x` de rescate.
+
+Diseño: `docs/superpowers/specs/2026-08-22-compartir-el-programa-design.md`.
 
 ## Qué hay en el repo
 
