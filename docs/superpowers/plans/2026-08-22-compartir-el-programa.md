@@ -781,6 +781,15 @@ No lleva test automático: es Streamlit. Se verifica arrancando la app, y el pas
 **Files:**
 - Modify: `pages/1_Revisar_candidatos.py`
 
+> **Corregido tras la revisión (commit `2aaff34` y siguientes).** La primera
+> versión de esta tarea llamaba a `st.rerun()` dentro del desplegable de
+> credenciales, que está **encima** de las casillas de aprobación. Streamlit
+> descarta el estado de los widgets que no llegó a dibujar en esa pasada, así
+> que guardar credenciales borraba en silencio las casillas marcadas y los
+> motivos escritos — y dejaba muda a `hay_revision_en_curso`, que existe justo
+> para proteger ese trabajo. Los pasos de abajo ya llevan el rerun aplazado al
+> final de la página. No los "simplifiques" volviendo al `st.rerun()` en sitio.
+
 Los pasos se anclan al **contenido**, no a números de línea: cada paso desplaza las líneas del siguiente, así que un número escrito aquí sería falso en cuanto empezaras.
 
 - [ ] **Step 1: Añadir los imports**
