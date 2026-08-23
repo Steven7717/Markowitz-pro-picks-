@@ -1114,7 +1114,14 @@ Insertar al principio del fichero:
 head -20 requirements.txt
 ```
 
-Esperado: la cabecera, y después las dependencias de runtime con versiones exactas. **No** debe aparecer pytest, scikit-learn, pandas-ta-classic ni lxml.
+Esperado: la cabecera, y después las dependencias de runtime con versiones
+exactas. **No** debe aparecer pytest, scikit-learn ni pandas-ta-classic.
+
+`lxml` **sí** aparece, y es correcto: aunque se declare en el grupo `dev`
+porque es ahí donde lo usamos directamente (`scripts/bootstrap_*.py`),
+`edgartools` y `yfinance` lo arrastran como dependencia transitiva de
+runtime. `uv export --no-dev` exporta el cierre transitivo completo, así
+que quitarlo dejaría un fichero que no instala la app.
 
 - [ ] **Step 4: Commit**
 
