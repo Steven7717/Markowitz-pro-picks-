@@ -192,9 +192,18 @@ eleccion = columna_modo.radio(
     "Generar candidatos", opciones, horizontal=True, key="modo_generacion"
 )
 con_ia = eleccion.startswith("Con IA")
-pulsado = columna_boton.button("Generar", key="generar", use_container_width=True)
+pulsado = columna_boton.button(
+    "Generar",
+    key="generar",
+    use_container_width=True,
+    disabled=not puede.puede_generar,
+)
 
-if not puede.puede_usar_ia:
+if not puede.puede_generar:
+    # warning y no caption: sin EDGAR_IDENTITY no hay generación posible, ni
+    # siquiera la mitad gratis, y eso no es una nota al pie.
+    st.warning(puede.motivo_generacion)
+elif not puede.puede_usar_ia:
     st.caption(puede.motivo)
 
 with st.expander(
@@ -202,8 +211,12 @@ with st.expander(
     # También abierto cuando hay algo que decir: el aviso de la clave y el del
     # fichero corrupto se pintan aquí dentro, y si nace plegado justo en la
     # pasada que los genera, nadie los lee nunca -- se consumen igual.
+    # Las dos razones se nombran por separado -- no generar y no poder usar
+    # IA -- en vez de dejar que la segunda cubra a la primera por coincidencia
+    # (sin identidad tampoco hay IA, pero eso no es por lo que se abre aquí).
     expanded=(
-        not puede.puede_usar_ia
+        not puede.puede_generar
+        or not puede.puede_usar_ia
         or bool(credenciales_rotas)
         or bool(st.session_state.get("avisos_credenciales"))
     ),

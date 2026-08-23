@@ -35,21 +35,25 @@ varios cientos de MB. Las siguientes, arranca en segundos.
 
 El programa funciona en dos mitades:
 
-- **Sin IA — gratis, y no necesita nada.** Descarga los datos de la SEC,
-  calcula los indicadores y ordena las empresas.
+- **Sin IA — gratis.** Descarga los datos de la SEC, calcula los indicadores
+  y ordena las empresas.
 - **Con IA — cuesta alrededor de 1,25 $ por corrida** (estimado al alza a
   propósito: mejor que te sobre a que te falte). Además redacta una ficha
   por empresa, con una tesis y hasta tres riesgos, cada uno citando
   textualmente el informe original. Cada cita se comprueba contra el
   documento: si no aparece, la ficha lo dice.
 
-Para la segunda mitad hacen falta dos cosas, y se meten desde la propia app,
-en **Revisar candidatos → 🔑 Mis credenciales**:
+Las dos mitades necesitan un correo electrónico: la SEC exige un contacto
+identificándote en la cabecera de **cada** petición que le hagas, así que
+hace falta también para la mitad gratis — sin él no se descarga nada y no
+hay nada que ordenar. Lo único que separa a las dos mitades es la clave de
+Anthropic, y es lo único que cuesta dinero. Los dos datos se meten desde la
+propia app, en **Revisar candidatos → 🔑 Mis credenciales**:
 
-| Qué | De dónde sale |
-|---|---|
-| Clave de Anthropic | [console.anthropic.com](https://console.anthropic.com) — es tuya y tú pagas su uso |
-| Un correo electrónico | El tuyo. La SEC exige un contacto en cada petición; no es un registro y no se envía a nadie más |
+| Qué | De dónde sale | Hace falta para |
+|---|---|---|
+| Un correo electrónico | El tuyo. No es un registro y no se envía a nadie más | Las dos mitades — sin él no se genera nada |
+| Clave de Anthropic | [console.anthropic.com](https://console.anthropic.com) — es tuya y tú pagas su uso | Sólo la mitad con IA |
 
 Se guardan en tu carpeta personal (`~/.markowitz-pro-picks/credenciales.json`),
 **no dentro de esta carpeta**. Si comprimes el programa y se lo pasas a otra

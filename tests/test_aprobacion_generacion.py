@@ -8,6 +8,31 @@ def test_con_las_dos_credenciales_se_puede_usar_ia():
     d = disponibilidad({"ANTHROPIC_API_KEY": "sk-ant-x", "EDGAR_IDENTITY": "yo@x.com"})
     assert d.puede_usar_ia
     assert d.motivo is None
+    assert d.puede_generar
+    assert d.motivo_generacion is None
+
+
+def test_sin_identidad_no_se_puede_generar_ni_siquiera_sin_ia():
+    # El defecto que motiva este cambio: EDGAR_IDENTITY va en el User-Agent de
+    # toda peticion a la SEC, no solo en la mitad con IA. Sin ella no hay nada
+    # que descargar, con o sin IA.
+    d = disponibilidad({"ANTHROPIC_API_KEY": "sk-ant-x"})
+    assert not d.puede_generar
+    assert "EDGAR_IDENTITY" in d.motivo_generacion
+
+
+def test_con_solo_identidad_si_se_puede_generar_sin_ia():
+    d = disponibilidad({"EDGAR_IDENTITY": "yo@x.com"})
+    assert d.puede_generar
+    assert d.motivo_generacion is None
+    # La IA sigue sin estar disponible: falta la clave.
+    assert not d.puede_usar_ia
+
+
+def test_sin_nada_tampoco_se_puede_generar():
+    d = disponibilidad({})
+    assert not d.puede_generar
+    assert "EDGAR_IDENTITY" in d.motivo_generacion
 
 
 def test_sin_clave_de_api_no_se_puede_y_lo_dice():
