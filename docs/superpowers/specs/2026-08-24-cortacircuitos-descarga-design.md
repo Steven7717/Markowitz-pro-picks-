@@ -33,7 +33,11 @@ de yfinance: otro módulo, otra fuente, otro problema.
 
 ## De dónde salen los 25 minutos
 
-Medido leyendo el camino real en edgartools 5.47.0, no estimado.
+Medido leyendo el camino real en **edgartools 5.52.0**, que es la versión que
+fija `uv.lock` y la que corre en el venv. (Una primera lectura se hizo contra la
+5.47.0 que hay instalada en el sistema; las constantes de reintento y la
+estructura son idénticas en las dos, así que esta medición vale para ambas. La
+taxonomía de excepciones **no**: ver la sección siguiente.)
 
 `download_file` **no** está decorada con `@retry`, e `inspect_response` —la que
 levanta `HTTPStatusError` para cualquier respuesta que no sea 200 o 304— corre
@@ -64,19 +68,64 @@ pidiendo **lo alarga**. Nuestro bucle lo reintenta 3× por ticker × 503 tickers
 Hoy, ante un 429, la app prolonga el bloqueo que causó el fallo.
 
 **Un 404 legítimo llega disfrazado de caída de red.** edgartools distingue la
-empresa que no tiene *company facts* (`NoCompanyFactsFound`, y `get_facts()`
-devuelve `None`), pero `_fetch_facts` hace `company.get_facts().to_dataframe()`
-sin mirar. Con `None` eso es un `AttributeError`, que cae en el `except
-Exception` genérico, **se reintenta tres veces con esperas** y acaba archivado
-como `failed_download`. Una condición permanente, por-ticker y perfectamente
-diagnosticada río abajo llega a `CoverageReport` contada como fallo de descarga.
+empresa que no tiene *company facts* (`CompanyFactsNotFoundError`), pero
+`Entity.get_facts()` la atrapa y devuelve `None`, y `_fetch_facts` hace
+`company.get_facts().to_dataframe()` sin mirar. Con `None` eso es un
+`AttributeError`, que cae en el `except Exception` genérico, **se reintenta tres
+veces con esperas** y acaba archivado como `failed_download`. Una condición
+permanente, por-ticker y perfectamente diagnosticada río abajo llega a
+`CoverageReport` contada como fallo de descarga.
+
+## La taxonomía la pone edgartools, no nosotros
+
+La 5.52.0 trae `edgar.exceptions`, un módulo que no existía en la 5.47.0 y que
+resuelve casi todo lo que este diseño iba a construir a mano:
+
+```
+EdgarError
+├── TransportError
+│   ├── TooManyRequestsError      429: bloqueo de IP
+│   ├── SSLVerificationError      certificado (vive en edgar.httprequests)
+│   └── IdentityError
+│       ├── IdentityNotSetError   no hay identidad configurada (lo vemos nosotros)
+│       └── SECIdentityError      la SEC rechazó la identidad (nos lo dice ella)
+├── NotFoundError  (LookupError)
+│   ├── CompanyNotFoundError          sin CIK
+│   └── CompanyFactsNotFoundError     la CIK existe y no tiene facts
+├── ParsingError
+└── ValidationError
+```
+
+Tres consecuencias sobre lo que se pensaba hacer:
+
+- **No hace falta inventar una excepción `SinHechos`.** `CompanyFactsNotFoundError`
+  ya existe; `_fetch_facts` sólo tiene que volver a levantarla cuando
+  `get_facts()` devuelva `None`.
+- **No hace falta olfatear el código 403** para detectar la identidad rechazada.
+  `SECIdentityError` tiene nombre propio, y su docstring dice que comparte padre
+  con `IdentityNotSetError` justamente para que un solo `except IdentityError`
+  atrape las dos: misma causa raíz, mismo arreglo.
+- **`http_status(exc)` da el código HTTP o `None`**, y su docstring llama a ese
+  `None` «el discriminador entre *la SEC dijo que no* y *no pudimos preguntar*».
+  Es literalmente la distinción sobre la que gira el cortacircuitos.
+
+**No se activa `EDGARTOOLS_STRICT_ERRORS`.** Existe y adelanta el comportamiento
+de la 6.0, pero cambiaría también los `None` de `ranking/filings.py:_descargar`,
+que hoy son parte de su contrato deliberado. Y no hace falta: `TRANSPORT_ERRORS`
+en la 5.52.0 es `(HTTPError, TransportError)`, así que atrapar esa tupla cubre
+las dos eras sin tocar ningún interruptor global.
+
+Nota de nombres: `IdentityNotSetException` (el nombre viejo, en
+`edgar.httprequests`) está deprecado y desaparece en la 6.0. Se usa
+`IdentityNotSetError` de `edgar.exceptions`.
 
 ## Decisiones tomadas
 
 | Decisión | Elección | Por qué |
 |---|---|---|
 | Cómo sale la decisión de abortar | Excepción dedicada, `CorridaAbortada` | Un campo en `CoverageReport` obliga a cada consumidor a acordarse de mirarlo, y olvidarlo produce el resultado a medias silencioso que este proyecto rechaza |
-| Eje de clasificación | `edgar.httprequests.TRANSPORT_ERRORS` | Es API pública exportada en `__all__`, no interna, y su propio comentario razona igual que `CoverageReport`: reportar un fallo de transporte como «no encontrado» es la misma mentira con otro disfraz |
+| Eje de clasificación | La jerarquía de `edgar.exceptions` (5.52.0) | Ya distingue exactamente lo que hace falta distinguir, con nombres propios: `SECIdentityError`, `CompanyFactsNotFoundError`, `IdentityError`. Clasificar por tipo en vez de por código HTTP evita olfatear respuestas |
+| `EDGARTOOLS_STRICT_ERRORS` | No se activa | Cambiaría también los `None` de `ranking/filings.py:_descargar`, que son contrato deliberado. Y no hace falta: `TRANSPORT_ERRORS` es `(HTTPError, TransportError)` y cubre las dos eras |
 | Dónde vive la taxonomía | Módulo nuevo `fundamentals/fallos.py` | Es una tabla de decisiones sin red ni pandas, se prueba renglón por renglón; `fetch.py` ya carga con identidad, descarga, caché y cobertura |
 | Nuestro `max_retries` | Se quita | Dos capas de reintento con políticas distintas es lo que causó esto, y la de abajo está mejor informada: sabe qué NO reintentar |
 | Disparador del cortacircuitos | Racha de N seguidos, en cualquier punto de la corrida | Que la SEC se caiga en el ticker 300 produce el mismo resultado inútil que caerse en el primero; «los N primeros» no lo ve |
@@ -114,49 +163,46 @@ class Fallo:
 `explicacion` es cadena vacía y no `None` para las no sistémicas: es el texto que
 acaba en `st.error`, y sólo se pide cuando ya se decidió abortar.
 
-`clasificar(exc)` decide en este orden:
+`clasificar(exc)` decide **en este orden**, que no es opcional: las tres primeras
+sistémicas son `TransportError` con `http_status()` a `None`, así que puestas
+después del renglón genérico de transporte se clasificarían como transitorias.
 
 | Excepción | causa | Por qué |
 |---|---|---|
-| `LookupError` (nuestra) | `unresolved_cik` | Sin red de por medio: sale del parquet empaquetado con edgartools |
-| `SinHechos` (nuestra) | `no_facts` | 404 real: la SEC contestó y no tiene facts de esa empresa |
+| `CompanyFactsNotFoundError` | `no_facts` | La SEC contestó: esa CIK no tiene facts. Va antes que `NotFoundError` porque hereda de él |
+| `NotFoundError` (incl. `CompanyNotFoundError`) | `unresolved_cik` | Sin CIK. Sale del parquet empaquetado, sin red de por medio |
+| `IdentityError` | `systemic` | Cubre `IdentityNotSetError` y `SECIdentityError` de una vez: misma causa raíz, mismo arreglo |
 | `TooManyRequestsError` | `systemic` | El bloqueo es de IP, no de ticker |
-| `IdentityNotSetException` | `systemic` | No hay petición posible |
 | `SSLVerificationError` | `systemic` | Es la red del usuario y es determinista |
-| `HTTPStatusError` 4xx | `systemic` | Lo que está mal es la petición, y no cambia por ticker |
-| `HTTPStatusError` 5xx | `transient` | La SEC puede estar mala o puede ser un tropiezo |
-| Resto de `TRANSPORT_ERRORS` | `transient` | Timeouts, connect errors |
+| Transporte con `http_status()` 4xx | `systemic` | Lo que está mal es la petición, y no cambia por ticker |
+| Resto de `(HTTPError, TransportError)` | `transient` | 5xx, timeouts, connect errors |
 | Cualquier otra cosa | `unknown` | No sabemos; la repetición será la única evidencia |
 
-El renglón «`HTTPStatusError` 4xx» no incluye el 404 en la práctica: edgartools
-lo intercepta antes en `download_company_facts_from_sec` y lo convierte en
-`NoCompanyFactsFound`, que llega aquí como `SinHechos`. El renglón está por si
-un 404 se escapa por otro camino, y entonces `systemic` es la lectura correcta:
-un 404 que no sea el de company facts habla de la URL, no del ticker.
-
-Nota de nombres, para quien busque en la documentación: la excepción se llama
-`IdentityNotSetException`, no `...Error`, y vive en `edgar.httprequests`, no en
-el namespace `edgar`.
+El 404 de company facts no llega al renglón «4xx»: edgartools lo convierte en
+`CompanyFactsNotFoundError` mucho antes. Un 404 que llegue por otro camino habla
+de la URL, no del ticker, y `systemic` es la lectura correcta.
 
 ### `fetch.py::_fetch_facts`
 
-Dos cambios, ambos para que la clasificación tenga qué clasificar:
+Con la jerarquía de la 5.52.0, la función se queda más corta de lo que estaba:
 
 ```python
-try:
-    company = Company(ticker)
-except CompanyNotFoundError as exc:          # antes: except Exception
-    raise LookupError(f"sin CIK para {ticker}") from exc
-...
+company = Company(ticker)      # levanta CompanyNotFoundError si no hay CIK
 facts = company.get_facts()
-if facts is None:                            # antes: .to_dataframe() sobre None
-    raise SinHechos(f"{ticker} no tiene company facts en EDGAR")
+if facts is None:              # antes: .to_dataframe() sobre None
+    raise CompanyFactsNotFoundError(cik=company.cik)
 return facts.to_dataframe()
 ```
 
-El `except Exception` de arriba etiquetaba como «sin CIK» cualquier cosa que se
-rompiera ahí dentro. El `None` de abajo es el `AttributeError` de la sección
-anterior.
+Desaparece el `try/except Exception` que convertía cualquier cosa rota en «sin
+CIK»: `CompanyNotFoundError` ya es la excepción correcta y `clasificar` la sabe
+leer, así que envolverla sólo perdía información. Desaparece también el guardia
+`if company is None`, que era código muerto — `Entity.__init__` levanta, nunca
+devuelve `None`.
+
+Y el `None` de `get_facts()` se vuelve a convertir en la excepción **de la propia
+librería** en vez de en una nuestra: es la que `clasificar` ya distingue, y no
+añade un tipo más al vocabulario del proyecto.
 
 ### `fetch.py::CoverageReport`
 
@@ -228,8 +274,13 @@ El invariante pasa a ser:
 
 `tests/test_fundamentals_fallos.py`, nuevo: un test por renglón de la tabla de
 clasificación, construyendo excepciones reales (`TooManyRequestsError("url")`,
-`HTTPStatusError` con respuesta 403 y con 503, `ConnectTimeout`,
-`SSLVerificationError`, `IdentityNotSetException`).
+`SECIdentityError`, `IdentityNotSetError`, `CompanyNotFoundError`,
+`CompanyFactsNotFoundError`, `SSLVerificationError`, `httpx.HTTPStatusError` con
+respuesta 403 y con 503, `httpx.ConnectTimeout`).
+
+Uno de esos tests es específicamente sobre el **orden**: un `SECIdentityError`
+tiene que salir `systemic` y no `transient`, que es lo que saldría si el renglón
+genérico de transporte se evaluara antes.
 
 En `tests/test_fundamentals_fetch.py`:
 
