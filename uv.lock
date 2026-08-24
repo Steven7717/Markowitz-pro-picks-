@@ -981,7 +981,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "anthropic", specifier = ">=0.100" },
-    { name = "edgartools", specifier = ">=5.0" },
+    { name = "edgartools", specifier = ">=5.52" },
     { name = "fpdf2", specifier = ">=2.7.9" },
     { name = "kaleido", specifier = ">=0.2.1" },
     { name = "numpy", specifier = ">=1.26.0" },

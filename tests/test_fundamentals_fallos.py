@@ -11,6 +11,7 @@ from edgar.exceptions import (
 from edgar.httprequests import SSLVerificationError
 
 from fundamentals.fallos import (
+    CAUSAS,
     NO_FACTS,
     SYSTEMIC,
     TRANSIENT,
@@ -48,8 +49,9 @@ def test_un_ticker_sin_cik_va_a_su_propia_casilla():
 
 
 def test_sin_facts_se_comprueba_antes_que_sin_cik():
-    """Las dos heredan de NotFoundError; si se invierte el orden, la primera
-    se clasifica como la segunda y el informe cuenta mal."""
+    """CompanyFactsNotFoundError hereda de NotFoundError, igual que
+    CompanyNotFoundError; si se invierte el orden, la primera se clasifica
+    como la segunda y el informe cuenta mal."""
     assert isinstance(CompanyFactsNotFoundError(cik=1), NotFoundError)
     assert isinstance(CompanyNotFoundError("AAA"), NotFoundError)
     assert clasificar(CompanyFactsNotFoundError(cik=1)).causa == NO_FACTS
@@ -74,11 +76,17 @@ def test_una_identidad_rechazada_no_es_un_fallo_transitorio():
 
 
 def test_el_429_aborta_en_vez_de_reintentarse():
-    """Reintentarlo alarga el bloqueo de IP que causo el fallo."""
+    """No es una guarda de orden: TooManyRequestsError lleva status_code=429,
+    asi que el renglon generico de 4xx ya lo clasificaria sistemico aunque esta
+    fila no existiera. Esta fila esta por el mensaje que trae, no por la
+    clasificacion; la guarda real es el test de la explicacion del 429."""
     assert clasificar(TooManyRequestsError("https://data.sec.gov/x")).causa == SYSTEMIC
 
 
 def test_un_fallo_de_certificado_aborta():
+    """Guarda de orden: SSLVerificationError es un TransportError sin codigo
+    HTTP. Quita este renglon y cae al generico de transporte, que la
+    clasificaria transitoria."""
     assert clasificar(_ssl()).causa == SYSTEMIC
 
 
@@ -86,8 +94,18 @@ def test_un_4xx_aborta_porque_no_cambia_por_ticker():
     assert clasificar(_status(403)).causa == SYSTEMIC
 
 
+def test_el_400_aborta_por_el_renglon_generico_de_4xx():
+    assert clasificar(_status(400)).causa == SYSTEMIC
+
+
 def test_un_5xx_es_ambiguo_y_espera_a_repetirse():
     assert clasificar(_status(503)).causa == TRANSIENT
+
+
+def test_el_500_es_ambiguo_y_espera_a_repetirse():
+    """Frontera baja de la rama 5xx: un off-by-one a `400 <= codigo <= 500`
+    haria que todo 500 abortara en el primer ticker, y nada lo detectaria."""
+    assert clasificar(_status(500)).causa == TRANSIENT
 
 
 def test_un_timeout_es_ambiguo_y_espera_a_repetirse():
@@ -98,10 +116,54 @@ def test_lo_que_no_reconocemos_no_se_da_por_transitorio():
     assert clasificar(ValueError("algo raro")).causa == UNKNOWN
 
 
-def test_solo_las_sistemicas_traen_explicacion():
-    """Es el texto que acaba en pantalla; pedirlo cuando no se aborta no significa nada."""
-    assert clasificar(TooManyRequestsError("u")).explicacion
-    assert not clasificar(httpx.ConnectTimeout("x")).explicacion
+def test_una_identidad_rechazada_llega_como_403_pelado():
+    """SECIdentityError solo la levanta el parser SGML (camino de los
+    filings); la API de facts no pasa por ahi. Convierte el 404 en
+    CompanyFactsNotFoundError y deja pasar todo lo demas como httpx crudo, asi
+    que una identidad que EDGAR rechaza aterriza aqui como un 403 pelado, no
+    como SECIdentityError."""
+    assert "correo de EDGAR" in clasificar(_status(403)).explicacion
+
+
+@pytest.mark.parametrize(
+    "excepcion",
+    [
+        CompanyFactsNotFoundError(cik=1),
+        CompanyNotFoundError("AAA"),
+        IdentityNotSetError(),
+        SECIdentityError("rechazada"),
+        TooManyRequestsError("u"),
+        _ssl(),
+        _status(403),
+        _status(400),
+        _status(503),
+        httpx.ConnectTimeout("x"),
+        ValueError("raro"),
+    ],
+)
+def test_solo_las_sistemicas_traen_explicacion(excepcion):
+    """Cubre cada renglon de clasificar, no solo dos casos sueltos: una causa
+    que aborta con explicacion vacia renderizaria un mensaje sin razon, que es
+    el resultado a medias y silencioso que este proyecto rechaza."""
+    fallo = clasificar(excepcion)
+    assert bool(fallo.explicacion) is fallo.aborta
+
+
+def test_las_causas_cubiertas_por_la_explicacion_son_todas():
+    """Cinturon y tirantes sobre el test anterior: si se agrega una causa
+    nueva y se olvida un caso en esa parametrizacion, este test lo nota."""
+    excepciones = [
+        CompanyFactsNotFoundError(cik=1),
+        CompanyNotFoundError("AAA"),
+        IdentityNotSetError(),
+        TooManyRequestsError("u"),
+        _ssl(),
+        _status(400),
+        _status(503),
+        ValueError("raro"),
+    ]
+    causas = {clasificar(exc).causa for exc in excepciones}
+    assert causas == set(CAUSAS)
 
 
 def test_la_explicacion_del_429_dice_que_esperar_y_no_reintentar():
@@ -116,7 +178,7 @@ def test_el_detalle_nombra_el_tipo_para_poder_citarlo():
 
 
 @pytest.mark.parametrize(
-    "excepcion, aborta, hubo_respuesta, cuenta_racha",
+    "excepcion, aborta, fuente_viva, cuenta_racha",
     [
         (TooManyRequestsError("u"), True, False, False),
         (CompanyFactsNotFoundError(cik=1), False, True, False),
@@ -126,11 +188,11 @@ def test_el_detalle_nombra_el_tipo_para_poder_citarlo():
     ],
 )
 def test_las_tres_preguntas_que_gobiernan_el_cortacircuitos(
-    excepcion, aborta, hubo_respuesta, cuenta_racha
+    excepcion, aborta, fuente_viva, cuenta_racha
 ):
     """unresolved_cik es el caso sutil: no toca la red (sale del parquet
     empaquetado), asi que ni reinicia la racha ni la hace avanzar."""
     fallo = clasificar(excepcion)
     assert fallo.aborta is aborta
-    assert fallo.hubo_respuesta is hubo_respuesta
+    assert fallo.fuente_viva is fuente_viva
     assert fallo.cuenta_racha is cuenta_racha

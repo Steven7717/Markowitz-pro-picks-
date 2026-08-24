@@ -15,17 +15,23 @@ no está.
 from dataclasses import dataclass
 
 # Las dos primeras conservan el nombre de la casilla que ya existía en
-# CoverageReport, para que el informe no cambie de vocabulario a mitad.
+# CoverageReport, para que el informe no cambie de vocabulario a mitad. Las
+# otras tres — transient, systemic, unknown — no tienen casilla propia ahí:
+# las tres colapsan en failed_download.
 UNRESOLVED_CIK = "unresolved_cik"
 NO_FACTS = "no_facts"
 TRANSIENT = "transient"
 SYSTEMIC = "systemic"
 UNKNOWN = "unknown"
 
+CAUSAS = (UNRESOLVED_CIK, NO_FACTS, TRANSIENT, SYSTEMIC, UNKNOWN)
+
 _IDENTIDAD = (
-    "La SEC no aceptó la identidad con la que se piden los datos. Exige un "
-    "contacto real en la cabecera de cada petición: revisa el correo de EDGAR "
-    "en el apartado de credenciales y vuelve a intentarlo."
+    "La SEC ha rechazado la identidad con la que se piden los datos. Exige un "
+    "contacto real en la cabecera de cada petición: revisa que el correo de "
+    "EDGAR en el apartado de credenciales sea una dirección completa y válida. "
+    "Si el correo es correcto, la otra causa habitual de un rechazo así es "
+    "haber pedido demasiado seguido; espera unos minutos y reinténtalo."
 )
 _RATE_LIMIT = (
     "La SEC ha bloqueado tu IP por exceder su límite de peticiones. El bloqueo "
@@ -62,11 +68,17 @@ class Fallo:
         return self.causa == SYSTEMIC
 
     @property
-    def hubo_respuesta(self) -> bool:
-        """Si la SEC llegó a contestar, aunque fuera para decir que no hay datos.
+    def fuente_viva(self) -> bool:
+        """Si este fallo prueba que data.sec.gov está sirviendo datos.
 
-        Un `no_facts` exigió una respuesta de data.sec.gov, así que es prueba de
-        que la fuente está viva: reinicia la racha igual que un acierto.
+        Sólo un `no_facts` lo prueba: para saber que una CIK no tiene hechos hubo
+        que preguntarlo y recibir un 404. Reinicia la racha igual que un acierto.
+
+        Un 5xx no cuenta, aunque técnicamente sea una respuesta: la SEC diciendo
+        «estoy rota» diez veces seguidas es exactamente el caso para el que
+        existe el cortacircuitos. Por eso la propiedad se llama así y no
+        `hubo_respuesta` — con ese nombre, un 503 devolvería False y el nombre
+        estaría mintiendo.
         """
         return self.causa == NO_FACTS
 
@@ -86,12 +98,15 @@ def clasificar(exc: BaseException) -> Fallo:
 
     El orden de las comprobaciones no es opcional, y hay dos razones distintas:
 
-    - `CompanyFactsNotFoundError` hereda de `CompanyNotFoundError`, así que
-      puesta después se clasificaría como «sin CIK».
-    - `IdentityError`, `TooManyRequestsError` y `SSLVerificationError` son todas
-      `TransportError`, así que puestas después del renglón genérico de
-      transporte se clasificarían como transitorias — y se reintentarían las
-      tres cosas que no mejoran reintentando.
+    - `CompanyFactsNotFoundError` hereda de `NotFoundError`, así que puesta
+      después se clasificaría como «sin CIK» y el informe contaría mal.
+    - `IdentityError` y `SSLVerificationError` son `TransportError` sin código
+      HTTP, así que puestas después del renglón genérico de transporte saldrían
+      transitorias — y se reintentarían dos cosas que no mejoran reintentando.
+
+    `TooManyRequestsError` no necesita ese argumento: lleva `status_code=429`, así
+    que el renglón de 4xx ya lo declararía sistémico. Su fila está por el mensaje
+    que lleva, no por la clasificación.
 
     Se importa dentro de la función, como hace `fetch.py` con `Company`: mantiene
     el coste de importar edgartools fuera del arranque de la app.
@@ -125,6 +140,13 @@ def clasificar(exc: BaseException) -> Fallo:
         codigo = http_status(exc)
         if codigo is None:
             return Fallo(TRANSIENT, detalle)
+        if codigo in (401, 403):
+            # El caso que motivó todo esto llega por aquí, no por SECIdentityError:
+            # esa sólo la levanta el parser de SGML (edgar/sgml/sgml_parser.py:195),
+            # que es el camino de los filings. La API de facts convierte el 404 en
+            # CompanyFactsNotFoundError y deja pasar lo demás como httpx crudo, así
+            # que una identidad que EDGAR rechaza aterriza aquí como un 403 pelado.
+            return Fallo(SYSTEMIC, f"HTTP {codigo}", _IDENTIDAD)
         if 400 <= codigo < 500:
             return Fallo(SYSTEMIC, f"HTTP {codigo}", _rechazo(codigo))
         return Fallo(TRANSIENT, f"HTTP {codigo}")

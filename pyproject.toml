@@ -28,7 +28,9 @@ dependencies = [
     "pyarrow>=15.0.0",
     # Motor de fundamentales: XBRL de 10-Q/10-K desde SEC, gratis y sin API
     # key. Necesita EDGAR_IDENTITY, que la app pide por pantalla.
-    "edgartools>=5.0",
+    # Piso en 5.52 a proposito: fundamentals/fallos.py importa edgar.exceptions,
+    # que no existe antes de esa version (ImportError contra 5.47).
+    "edgartools>=5.52",
     # Fichas del sub-proyecto B. Sin ANTHROPIC_API_KEY el ranking sale igual,
     # con fichas de plantilla.
     "anthropic>=0.100",
