@@ -154,3 +154,9 @@ def test_coverage_summary_names_every_category(cache_dir):
     resumen = cobertura.summary()
     for etiqueta in ("solicitados", "incluidos", "sin CIK", "sin sector", "sin precio"):
         assert etiqueta in resumen
+
+
+def test_el_resumen_cuenta_las_empresas_sin_hechos_aparte(cache_dir):
+    """Una empresa que existe y no tiene facts no es una caida de red."""
+    cobertura = CoverageReport(requested=["AAA"], no_facts=["AAA"])
+    assert "sin hechos: 1" in cobertura.summary()

@@ -18,11 +18,18 @@ class CoverageReport:
 
     Silently dropping tickers is how an engine ends up describing a universe
     nobody chose. Every exclusion is counted and attributed to a cause.
+
+    `unresolved_cik`, `no_facts` y `failed_download` son tres cosas distintas a
+    propósito: el ticker que no existe, la empresa que existe y no publica
+    facts, y la petición que no llegó a completarse. Meterlas en la misma
+    casilla haría que una caída de la SEC se leyera como un universo lleno de
+    empresas raras.
     """
 
     requested: list[str] = field(default_factory=list)
     included: list[str] = field(default_factory=list)
     unresolved_cik: list[str] = field(default_factory=list)
+    no_facts: list[str] = field(default_factory=list)
     failed_download: list[str] = field(default_factory=list)
     short_history: dict[str, int] = field(default_factory=dict)
     missing_concepts: dict[str, list[str]] = field(default_factory=dict)
@@ -34,6 +41,7 @@ class CoverageReport:
             f"Tickers solicitados: {len(self.requested)} | "
             f"incluidos: {len(self.included)} | "
             f"sin CIK: {len(self.unresolved_cik)} | "
+            f"sin hechos: {len(self.no_facts)} | "
             f"fallos de descarga: {len(self.failed_download)} | "
             f"historia corta: {len(self.short_history)} | "
             f"sin sector: {len(self.missing_sector)} | "
