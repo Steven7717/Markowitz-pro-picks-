@@ -186,7 +186,7 @@ def test_el_detalle_nombra_el_tipo_para_poder_citarlo():
 
 
 @pytest.mark.parametrize(
-    "excepcion, aborta, hubo_respuesta, cuenta_racha",
+    "excepcion, aborta, fuente_viva, cuenta_racha",
     [
         (TooManyRequestsError("u"), True, False, False),
         (CompanyFactsNotFoundError(cik=1), False, True, False),
@@ -196,13 +196,13 @@ def test_el_detalle_nombra_el_tipo_para_poder_citarlo():
     ],
 )
 def test_las_tres_preguntas_que_gobiernan_el_cortacircuitos(
-    excepcion, aborta, hubo_respuesta, cuenta_racha
+    excepcion, aborta, fuente_viva, cuenta_racha
 ):
     """unresolved_cik es el caso sutil: no toca la red (sale del parquet
     empaquetado), asi que ni reinicia la racha ni la hace avanzar."""
     fallo = clasificar(excepcion)
     assert fallo.aborta is aborta
-    assert fallo.hubo_respuesta is hubo_respuesta
+    assert fallo.fuente_viva is fuente_viva
     assert fallo.cuenta_racha is cuenta_racha
 ```
 
@@ -283,7 +283,7 @@ class Fallo:
         return self.causa == SYSTEMIC
 
     @property
-    def hubo_respuesta(self) -> bool:
+    def fuente_viva(self) -> bool:
         """Si la SEC llegó a contestar, aunque fuera para decir que no hay datos.
 
         Un `no_facts` exigió una respuesta de data.sec.gov, así que es prueba de
@@ -505,23 +505,49 @@ def test_una_caida_de_red_al_resolver_el_cik_no_se_disfraza_de_sin_cik():
             _fetch_facts("AAA")
 
 
-def test_una_empresa_sin_facts_levanta_en_vez_de_reventar_con_attributeerror():
-    """get_facts() devuelve None; .to_dataframe() sobre None era un
-    AttributeError que se reintentaba tres veces antes de darse por vencido."""
-    empresa = Mock()
-    empresa.cik = 320193
-    empresa.get_facts.return_value = None
-    with patch("edgar.Company", return_value=empresa):
+def test_una_empresa_sin_facts_deja_pasar_el_404_de_la_libreria():
+    """get_company_facts la levanta sola; no hay que sintetizarla."""
+    with patch("edgar.Company", return_value=Mock(cik=320193)), patch(
+        "edgar.get_company_facts", side_effect=CompanyFactsNotFoundError(cik=320193)
+    ):
         with pytest.raises(CompanyFactsNotFoundError):
             _fetch_facts("AAA")
+
+
+def test_un_cuerpo_vacio_no_se_confunde_con_una_empresa_sin_hechos():
+    """El defecto que habria desarmado el cortacircuitos entero.
+
+    ESTE TEST SOSTIENE LA CORRECCION DE fallos.fuente_viva, no es incidental.
+    Esa propiedad solo es cierta porque _fetch_facts pasa por
+    get_company_facts; ningun test de test_fundamentals_fallos.py puede
+    protegerlo, porque el acoplamiento cruza el borde entre los dos modulos.
+    Si alguien devuelve _fetch_facts a Entity.get_facts(), este es el unico
+    sitio donde salta.
+
+    get_company_facts devuelve None por dos motivos que no son un 404: una
+    descarga que falla en blando y un parseo que no cuaja. Contar eso como
+    no_facts pondria fuente_viva a True y reiniciaria la racha en cada ticker,
+    asi que con la SEC sirviendo cuerpos vacios la corrida no abortaria nunca.
+    """
+    from edgar.exceptions import TransportError
+
+    from fundamentals.fallos import clasificar
+
+    with patch("edgar.Company", return_value=Mock(cik=320193)), patch(
+        "edgar.get_company_facts", return_value=None
+    ):
+        with pytest.raises(TransportError) as levantada:
+            _fetch_facts("AAA")
+    assert clasificar(levantada.value).cuenta_racha is True
+    assert clasificar(levantada.value).fuente_viva is False
 
 
 def test_el_camino_feliz_devuelve_la_tabla_larga():
     hechos = Mock()
     hechos.to_dataframe.return_value = _facts("AAA")
-    empresa = Mock()
-    empresa.get_facts.return_value = hechos
-    with patch("edgar.Company", return_value=empresa):
+    with patch("edgar.Company", return_value=Mock(cik=320193)), patch(
+        "edgar.get_company_facts", return_value=hechos
+    ):
         assert len(_fetch_facts("AAA")) == 12
 ```
 
@@ -553,23 +579,31 @@ def _fetch_facts(ticker: str) -> pd.DataFrame:
     distinguir y `fallos.clasificar` las sabe leer. Aquí hubo un
     `except Exception` que las convertía todas en «sin CIK», con lo que un corte
     de red acababa contado como un universo de tickers inexistentes.
+
+    Va por `get_company_facts` y no por `Entity.get_facts()` a propósito. El
+    método atrapa `CompanyFactsNotFoundError` y devuelve `None`, que queda
+    indistinguible del `None` que la función devuelve por una descarga fallida
+    en blando o por un parseo que no cuaja. Confundirlos mandaría un fallo de
+    red a la casilla `no_facts`, cuya `fuente_viva` reinicia la racha: con la
+    SEC sirviendo cuerpos vacíos, el cortacircuitos no saltaría jamás.
     """
-    from edgar import Company
-    from edgar.exceptions import CompanyFactsNotFoundError
+    from edgar import Company, get_company_facts
+    from edgar.exceptions import TransportError
 
     company = Company(ticker)  # levanta CompanyNotFoundError si no hay CIK
-    facts = company.get_facts()
+    facts = get_company_facts(company.cik)  # levanta CompanyFactsNotFoundError si es un 404
     if facts is None:
-        # get_facts() atrapa CompanyFactsNotFoundError y devuelve None
-        # (edgar/entity/core.py). Se vuelve a levantar la excepción de la propia
-        # librería en vez de inventar una nuestra: es la que clasificar()
-        # distingue, y no añade un tipo más al vocabulario del proyecto.
-        raise CompanyFactsNotFoundError(cik=company.cik)
+        # Aquí sólo se llega por fallo de descarga o de parseo, nunca por un 404.
+        # TransportError es de la propia librería y clasificar() ya la lee como
+        # transitoria, que es lo que hace avanzar la racha.
+        raise TransportError(f"la SEC no devolvió hechos usables para {ticker}")
     return facts.to_dataframe()
 ```
 
-Nota: desaparece el guardia `if company is None`. Era código muerto —
-`Entity.__init__` levanta `CompanyNotFoundError`, nunca devuelve `None`.
+Dos cosas desaparecen. El guardia `if company is None` era código muerto:
+`Entity.__init__` levanta `CompanyNotFoundError`, nunca devuelve `None`. Y ya no
+se sintetiza `CompanyFactsNotFoundError`: la levanta la librería, que es quien
+sabe si hubo un 404 de verdad.
 
 - [ ] **Step 4: Correr los tests para verificar que pasan**
 
@@ -834,7 +868,6 @@ import pytest
 from edgar.exceptions import (
     CompanyFactsNotFoundError,
     CompanyNotFoundError,
-    SECIdentityError,
     TooManyRequestsError,
 )
 
@@ -853,15 +886,25 @@ from fundamentals.fetch import (
 déjalo fuera del import y añádelo allí. Ahora los tests, al final del fichero:
 
 ```python
+def _status(codigo: int) -> httpx.HTTPStatusError:
+    """Un HTTPStatusError igual al que levanta edgartools al mirar la respuesta."""
+    peticion = httpx.Request("GET", "https://data.sec.gov/x")
+    with pytest.raises(httpx.HTTPStatusError) as capturada:
+        httpx.Response(codigo, request=peticion).raise_for_status()
+    return capturada.value
+
+
 def test_una_identidad_rechazada_aborta_en_el_primer_ticker(cache_dir):
-    """Es global por definicion: no hace falta esperar a que se repita 503 veces."""
-    with patch(
-        "fundamentals.fetch._fetch_facts", side_effect=SECIdentityError("rechazada")
-    ) as pedido:
+    """Es global por definicion: no hace falta esperar a que se repita 503 veces.
+
+    Llega como un 403 pelado y no como SECIdentityError: esa solo la levanta el
+    parser de SGML, que es el camino de los filings, no el de los facts.
+    """
+    with patch("fundamentals.fetch._fetch_facts", side_effect=_status(403)) as pedido:
         with pytest.raises(CorridaAbortada) as abortada:
             load_facts([f"T{i:03d}" for i in range(503)], cache_dir=cache_dir)
     assert pedido.call_count == 1
-    assert "identidad" in str(abortada.value).lower()
+    assert "correo de EDGAR" in str(abortada.value)
 
 
 def test_el_429_no_se_reintenta_porque_reintentarlo_alarga_el_bloqueo(cache_dir):
@@ -1005,8 +1048,11 @@ class CorridaAbortada(RuntimeError):
 
 
 def _sin_fuente(racha: int, fallo: Fallo) -> str:
+    # «sin entregar datos» y no «sin contestar»: la racha también avanza con un
+    # 5xx, que técnicamente es una respuesta. Decir «no contestó» delante de un
+    # «(HTTP 503)» sería contradecirse en la misma frase.
     return (
-        f"{racha} empresas seguidas fallaron sin que la SEC llegara a contestar "
+        f"{racha} empresas seguidas fallaron sin que la SEC entregara datos "
         f"({fallo.detalle}). No es que fallen esas empresas: es que no hay "
         "fuente. Comprueba tu conexión y si data.sec.gov responde."
     )
@@ -1036,7 +1082,7 @@ Sustituye el bucle de `load_facts` por:
 
         if fallo.aborta:
             raise CorridaAbortada(fallo.causa, fallo.explicacion, cobertura)
-        if fallo.hubo_respuesta:
+        if fallo.fuente_viva:
             racha = 0
             continue
         if not fallo.cuenta_racha:
@@ -1060,9 +1106,10 @@ Y amplía el docstring de `load_facts` con el invariante nuevo:
     Un ticker que falla se registra y se salta. Que fallen todos por la misma
     causa no es un ticker que falla: es que no hay fuente, y entonces levanta
     `CorridaAbortada` en vez de recorrer el universo entero para no devolver
-    nada. La racha se reinicia cuando la SEC contesta —un acierto de red o un
-    404—, avanza cuando preguntamos y no hubo respuesta, y no se toca cuando no
-    llegamos a preguntar: un acierto de caché o un CIK que no resuelve en local.
+    nada. La racha se reinicia cuando la SEC entrega datos —un acierto de red o
+    un 404, que también exigió preguntar—, avanza cuando preguntamos y no los
+    entregó, y no se toca cuando no llegamos a preguntar: un acierto de caché o
+    un CIK que resuelve contra el parquet local.
     """
 ```
 
@@ -1163,10 +1210,11 @@ Y el mensaje, junto a `_sin_fuente`:
 
 ```python
 def _sin_respuesta(fallo: Fallo) -> str:
+    # Mismo cuidado que en _sin_fuente: el reloj también corre con 5xx.
     return (
-        f"Pasaron {SIN_RESPUESTA_MAXIMO:.0f} segundos sin que la SEC contestara "
-        f"a una sola petición ({fallo.detalle}). Comprueba tu conexión y si "
-        "data.sec.gov responde."
+        f"Pasaron {SIN_RESPUESTA_MAXIMO:.0f} segundos sin que la SEC entregara "
+        f"datos en una sola petición ({fallo.detalle}). Comprueba tu conexión y "
+        "si data.sec.gov responde."
     )
 ```
 
@@ -1187,7 +1235,7 @@ Reinícialo en los dos sitios donde ya se reinicia la racha:
 ```
 
 ```python
-        if fallo.hubo_respuesta:
+        if fallo.fuente_viva:
             racha, sin_respuesta_desde = 0, None
             continue
 ```

@@ -172,9 +172,10 @@ después del renglón genérico de transporte se clasificarían como transitoria
 | `CompanyFactsNotFoundError` | `no_facts` | La SEC contestó: esa CIK no tiene facts. Va antes que `NotFoundError` porque hereda de él |
 | `NotFoundError` (incl. `CompanyNotFoundError`) | `unresolved_cik` | Sin CIK. Sale del parquet empaquetado, sin red de por medio |
 | `IdentityError` | `systemic` | Cubre `IdentityNotSetError` y `SECIdentityError` de una vez: misma causa raíz, mismo arreglo |
-| `TooManyRequestsError` | `systemic` | El bloqueo es de IP, no de ticker |
+| `TooManyRequestsError` | `systemic` | El bloqueo es de IP, no de ticker. Lleva `status_code=429`, así que la fila de 4xx ya lo declararía sistémico: esta fila está por el mensaje, no por la clasificación |
 | `SSLVerificationError` | `systemic` | Es la red del usuario y es determinista |
-| Transporte con `http_status()` 4xx | `systemic` | Lo que está mal es la petición, y no cambia por ticker |
+| Transporte con 401 o 403 | `systemic` | **Por aquí llega el caso estrella**: ver la nota de abajo |
+| Transporte con el resto de 4xx | `systemic` | Lo que está mal es la petición, y no cambia por ticker |
 | Resto de `(HTTPError, TransportError)` | `transient` | 5xx, timeouts, connect errors |
 | Cualquier otra cosa | `unknown` | No sabemos; la repetición será la única evidencia |
 
@@ -182,15 +183,34 @@ El 404 de company facts no llega al renglón «4xx»: edgartools lo convierte en
 `CompanyFactsNotFoundError` mucho antes. Un 404 que llegue por otro camino habla
 de la URL, no del ticker, y `systemic` es la lectura correcta.
 
+### La identidad rechazada no llega como `SECIdentityError`
+
+Esto se descubrió en la revisión de código de la Task 1 y corrige lo que decía
+la primera versión de este documento. `SECIdentityError` se levanta en un solo
+sitio de edgartools —`edgar/sgml/sgml_parser.py:195`, el camino de los
+*filings*— y **nunca en la API de facts**. `download_company_facts_from_sec`
+convierte el 404 en `CompanyFactsNotFoundError` y deja pasar todo lo demás como
+`httpx.HTTPStatusError` crudo.
+
+Así que la identidad presente que EDGAR rechaza —el caso de 25 minutos que
+motivó todo esto— aterriza como **un 403 pelado**. Sin tratarlo aparte, la
+corrida sí abortaría rápido, que es casi toda la victoria, pero el usuario
+leería «la SEC ha rechazado la petición (HTTP 403)»: cierto e inútil. El texto
+que nombra el arreglo real —revisar el correo de EDGAR— quedaba inalcanzable.
+
+Por eso 401 y 403 tienen su propia fila y llevan el mensaje de identidad. La
+fila de `IdentityError` se queda igualmente: cubre el camino de los filings, que
+`ranking/filings.py` sí recorre, y la era 6.0 de edgartools.
+
 ### `fetch.py::_fetch_facts`
 
 Con la jerarquía de la 5.52.0, la función se queda más corta de lo que estaba:
 
 ```python
-company = Company(ticker)      # levanta CompanyNotFoundError si no hay CIK
-facts = company.get_facts()
-if facts is None:              # antes: .to_dataframe() sobre None
-    raise CompanyFactsNotFoundError(cik=company.cik)
+company = Company(ticker)               # levanta CompanyNotFoundError si no hay CIK
+facts = get_company_facts(company.cik)  # levanta CompanyFactsNotFoundError si es un 404
+if facts is None:                       # antes: .to_dataframe() sobre None
+    raise TransportError(f"la SEC no devolvió hechos usables para {ticker}")
 return facts.to_dataframe()
 ```
 
@@ -200,9 +220,26 @@ leer, así que envolverla sólo perdía información. Desaparece también el gua
 `if company is None`, que era código muerto — `Entity.__init__` levanta, nunca
 devuelve `None`.
 
-Y el `None` de `get_facts()` se vuelve a convertir en la excepción **de la propia
-librería** en vez de en una nuestra: es la que `clasificar` ya distingue, y no
-añade un tipo más al vocabulario del proyecto.
+### Por qué `get_company_facts` y no `Entity.get_facts()`
+
+Esto también salió de la revisión de la Task 1, y la primera versión de este
+documento se equivocaba. `Entity.get_facts()` **atrapa**
+`CompanyFactsNotFoundError` y devuelve `None`. Pero `get_company_facts` devuelve
+`None` por otros dos motivos que no son un 404: una descarga que falla en blando
+—la propia librería avisa «This is likely a network issue»— y un parseo que no
+cuaja. Vistos desde `get_facts()`, los tres son el mismo `None`.
+
+Sintetizar `CompanyFactsNotFoundError` a partir de ese `None`, que es lo que
+decía la versión anterior, mandaría **un fallo de red a la casilla `no_facts`**.
+Y `no_facts` tiene `fuente_viva` a `True`, o sea que reinicia la racha. Con la
+SEC sirviendo cuerpos vacíos, cada ticker reiniciaría el cortacircuitos y la
+corrida no abortaría nunca: exactamente la derrota que este diseño existe para
+evitar, introducida por el propio diseño.
+
+Llamando a `get_company_facts` directamente, el 404 llega como la excepción que
+la librería levanta —no una que nos inventamos— y el `None` que queda sólo puede
+ser un fallo de descarga o de parseo, que se señala con `TransportError` y
+avanza la racha como debe.
 
 ### `fetch.py::CoverageReport`
 
@@ -231,10 +268,17 @@ SIN_RESPUESTA_MAXIMO = 180.0  # segundos
 
 Un solo invariante gobierna las dos guardas:
 
-> **La racha y el reloj se reinician cuando la SEC contesta** — un `facts` bueno
-> o un 404. **Avanzan cuando preguntamos y no hubo respuesta** (`transient`,
-> `unknown`). **No se tocan cuando no preguntamos** (acierto de caché, o CIK que
-> no resuelve en local).
+> **La racha y el reloj se reinician cuando la SEC entrega datos** — un `facts`
+> bueno o un 404, que también exigió preguntar. **Avanzan cuando preguntamos y no
+> los entregó** (`transient`, `unknown`). **No se tocan cuando no preguntamos**
+> (acierto de caché, o CIK que resuelve contra el parquet local).
+
+«Entrega datos» y no «contesta»: un 5xx es técnicamente una respuesta y aun así
+tiene que avanzar la racha —la SEC diciendo «estoy rota» diez veces seguidas es
+justo el caso para el que existe el cortacircuitos—, así que la propiedad se
+llama `fuente_viva` y no `hubo_respuesta`. Con ese otro nombre, un 503 la haría
+devolver `False` y los mensajes al usuario dirían «la SEC no contestó (HTTP
+503)», contradiciéndose en la misma frase.
 
 Un `systemic` no cuenta racha: aborta en el ticker en que aparece. El reloj
 arranca en el primer intento de red, así que un universo entero en caché nunca lo
