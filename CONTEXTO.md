@@ -1,7 +1,7 @@
 # Contexto del proyecto — para retomar en una sesión nueva
 
 **Última actualización:** 2026-08-22
-**Rama:** `master` · **Tests:** 618 pasando (`uv run pytest tests/ -q -m "not red"`), 2 omitidos en Windows (permisos POSIX), más 6 marcados `red`
+**Rama:** `master` · **Tests:** 685 pasando (`uv run pytest tests/ -q -m "not red"`), 2 omitidos en Windows (permisos POSIX), más 6 marcados `red`
 
 ---
 
@@ -93,12 +93,29 @@ fundamentals/
 ├── universe.py     S&P 500 congelado o lista arbitraria de tickers
 ├── panel.py        tabla larga de SEC → panel trimestral
 ├── concepts.py     cadenas de conceptos XBRL, medidas sobre 20 emisores
-├── fetch.py        descarga, caché por ticker, reporte de cobertura
+├── fallos.py       de qué clase es un fallo de descarga, y si hay que abortar
+├── fetch.py        descarga, caché por ticker, reporte de cobertura, cortacircuitos
 ├── kpis.py         los 17 KPIs, con guardas de división verificadas
 ├── sectors.py      GICS y z-score sectorial
 └── run.py          orquestación
 scripts/bootstrap_sectors.py    regenera la tabla de sectores
 ```
+
+**Una corrida condenada se rinde en segundos, no en 25 minutos.** Antes, si la
+causa era sistémica —la SEC caída, sin red, o una identidad que EDGAR rechaza—
+`_load_one` reintentaba tres veces por ticker con `time.sleep` entre intentos, y
+sobre 503 tickers eso eran 1509 peticiones y 1509 segundos de espera para acabar
+sin nada y sin explicar por qué. Medido, no estimado.
+
+Ahora `fallos.clasificar` lee la excepción de edgartools y `load_facts` decide:
+una causa sistémica (429, identidad rechazada, SSL) aborta en el primer ticker;
+diez fallos seguidos sin que la SEC entregue datos, o 180 s sin entregarlos con
+al menos tres fallos de por medio, abortan también. En los tres casos levanta
+`CorridaAbortada`, que sube sin que nadie la atrape hasta la página y dice la
+causa y qué hacer. Un ticker que falla solo se sigue registrando y saltando: eso
+no cambió.
+
+Diseño: [`docs/superpowers/specs/2026-08-24-cortacircuitos-descarga-design.md`](docs/superpowers/specs/2026-08-24-cortacircuitos-descarga-design.md).
 
 Necesita `EDGAR_IDENTITY` en el entorno: la SEC exige un contacto en el User-Agent.
 

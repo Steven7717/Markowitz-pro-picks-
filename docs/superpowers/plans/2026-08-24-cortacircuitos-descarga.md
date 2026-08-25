@@ -1620,7 +1620,8 @@ nombre.
 grep -c "max_retries" research/loader.py
 ```
 
-Esperado: `4`.
+Esperado: `5` (líneas 60, 71, 75, 94 y 108). Medido, no contado a ojo — la
+primera versión de este plan decía 4.
 
 - [ ] **Actualizar `CONTEXTO.md`** con el número de tests nuevo y una línea sobre
   el cortacircuitos, en la sección que corresponda.
