@@ -12,6 +12,7 @@ from edgar.exceptions import (
 
 from fundamentals.fetch import (
     RACHA_MAXIMA,
+    SIN_RESPUESTA_MAXIMO,
     CorridaAbortada,
     CoverageReport,
     _cache_path,
@@ -523,3 +524,46 @@ def test_un_exito_de_red_en_medio_reinicia_tambien_el_contador_de_desconocidos(
     mensaje = str(abortada.value)
     assert "no hay fuente" in mensaje
     assert "mezcladas" not in mensaje
+
+
+def test_el_tope_de_tiempo_aborta_aunque_no_se_llegue_a_la_racha(cache_dir):
+    """La SEC colgada: pocos tickers, mucho tiempo. La racha sola no lo acota."""
+    with patch(
+        "fundamentals.fetch._fetch_facts", side_effect=httpx.ReadTimeout("colgada")
+    ) as pedido, patch(
+        "fundamentals.fetch.time.monotonic",
+        side_effect=[0.0, SIN_RESPUESTA_MAXIMO + 1.0],
+    ):
+        with pytest.raises(CorridaAbortada) as abortada:
+            load_facts([f"T{i:03d}" for i in range(20)], cache_dir=cache_dir)
+    assert pedido.call_count == 2
+    assert "180" in str(abortada.value)
+
+
+def test_una_corrida_entera_desde_cache_no_aborta_por_tiempo(cache_dir):
+    """El reloj arranca en el primer fallo de red; sin red no hay reloj."""
+    with patch("fundamentals.fetch._fetch_facts", side_effect=_facts):
+        load_facts(["AAA", "BBB"], cache_dir=cache_dir)
+
+    with patch("fundamentals.fetch._fetch_facts") as ninguna, patch(
+        "fundamentals.fetch.time.monotonic", return_value=99_999.0
+    ):
+        _, cobertura = load_facts(["AAA", "BBB"], cache_dir=cache_dir)
+    assert ninguna.call_count == 0
+    assert cobertura.included == ["AAA", "BBB"]
+
+
+def test_un_exito_de_red_reinicia_el_reloj(cache_dir):
+    """Si la SEC vuelve, el tiempo que estuvo caida no cuenta contra la corrida."""
+    def falla_salvo_el_segundo(ticker):
+        if ticker == "T001":
+            return _facts(ticker)
+        raise httpx.ReadTimeout("colgada")
+
+    # T000 falla (reloj a 0), T001 acierta (reloj a None), T002 falla (reloj a 0
+    # otra vez pese al salto), T003 falla ya pasado el tope.
+    reloj = [0.0, 500.0, 500.0 + SIN_RESPUESTA_MAXIMO + 1.0]
+    with patch("fundamentals.fetch._fetch_facts", side_effect=falla_salvo_el_segundo), \
+         patch("fundamentals.fetch.time.monotonic", side_effect=reloj):
+        with pytest.raises(CorridaAbortada):
+            load_facts([f"T{i:03d}" for i in range(20)], cache_dir=cache_dir)

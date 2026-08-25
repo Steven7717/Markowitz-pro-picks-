@@ -23,6 +23,11 @@ MIN_TRIMESTRES = 5
 # mientras la SEC va bien, que no es un escenario real.
 RACHA_MAXIMA = 10
 
+# Un conteo solo no acota el caso «SEC colgada»: con un read timeout de 30 s y
+# los 5 intentos de stamina, cada ticker cuesta ~2,7 min, y RACHA_MAXIMA de esos
+# son 27 minutos — que es el problema que este módulo existe para no tener.
+SIN_RESPUESTA_MAXIMO = 180.0
+
 
 @dataclass
 class CoverageReport:
@@ -140,6 +145,22 @@ def _sin_fuente(racha: int, desconocidos: int, fallo: Fallo) -> str:
         f"{desconocidos} con {sin_interpretar} y {racha - desconocidos} de la "
         f"SEC o de la red ({ultimo}). Comprueba primero tu conexión y si "
         "data.sec.gov responde; si van bien, es un fallo del propio programa."
+    )
+
+
+def _sin_respuesta(fallo: Fallo) -> str:
+    # Mismo cuidado que en _sin_fuente: el reloj también corre con 5xx, así que
+    # «no entregó datos» y no «no contestó».
+    #
+    # Y no dice «en una sola petición», que sería falso por construcción: el
+    # reloj arranca en el primer fallo contado con delta 0, así que el tope no
+    # puede saltar antes del segundo. El tramo cubre siempre dos peticiones o
+    # más, y puede cubrir cientos de lecturas de caché entre medias, porque los
+    # aciertos de caché no tocan el reloj.
+    return (
+        f"Pasaron {SIN_RESPUESTA_MAXIMO:.0f} segundos sin que la SEC entregara "
+        f"datos (el último fallo, {fallo.detalle}). Comprueba tu conexión y si "
+        "data.sec.gov responde."
     )
 
 
@@ -314,6 +335,7 @@ def load_facts(
     cobertura = CoverageReport(requested=list(tickers))
     hechos: dict[str, pd.DataFrame] = {}
     racha = desconocidos = 0
+    sin_respuesta_desde: float | None = None
 
     for ticker in tickers:
         intento = _load_one(ticker, cache_dir, refresh)
@@ -325,6 +347,7 @@ def load_facts(
             cobertura.included.append(ticker)
             if not intento.desde_cache:
                 racha = desconocidos = 0
+                sin_respuesta_desde = None
             continue
 
         fallo = intento.fallo
@@ -334,6 +357,7 @@ def load_facts(
             raise CorridaAbortada(fallo.causa, fallo.explicacion, cobertura)
         if fallo.fuente_viva:
             racha = desconocidos = 0
+            sin_respuesta_desde = None
             continue
         if not fallo.cuenta_racha:
             continue
@@ -341,9 +365,14 @@ def load_facts(
         racha += 1
         if fallo.causa == UNKNOWN:
             desconocidos += 1
+        ahora = time.monotonic()
+        if sin_respuesta_desde is None:
+            sin_respuesta_desde = ahora
         if racha >= RACHA_MAXIMA:
             raise CorridaAbortada(
                 fallo.causa, _sin_fuente(racha, desconocidos, fallo), cobertura
             )
+        if ahora - sin_respuesta_desde >= SIN_RESPUESTA_MAXIMO:
+            raise CorridaAbortada(fallo.causa, _sin_respuesta(fallo), cobertura)
 
     return hechos, cobertura
