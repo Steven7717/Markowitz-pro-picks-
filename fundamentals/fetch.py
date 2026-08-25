@@ -76,30 +76,56 @@ class CorridaAbortada(RuntimeError):
         self.causa = causa
         self.explicacion = explicacion
         self.cobertura = cobertura
+        # «reunir» y no «descargar»: con media caché poblada, la mayoría de esas
+        # empresas salieron de disco sin una sola petición. Este módulo se apoya
+        # en que un acierto de caché no prueba que la SEC responda; llamarlos
+        # descargas en el mensaje de aborto lo contradiría.
         super().__init__(
-            f"{explicacion} Se abortó tras descargar "
+            f"{explicacion} Se abortó tras reunir "
             f"{len(cobertura.included)} de {len(cobertura.requested)} empresas."
         )
 
 
-def _sin_fuente(racha: int, fallo: Fallo) -> str:
-    # Dos textos porque hay dos diagnósticos distintos, y dar el de la SEC
-    # cuando el fallo es nuestro es peor que no dar ninguno: manda al usuario a
-    # revisar una conexión que funciona.
-    if fallo.causa == UNKNOWN:
+def _sin_fuente(racha: int, desconocidos: int, fallo: Fallo) -> str:
+    """Por qué se abortó, diagnosticando sobre la racha entera y no sobre su
+    último fallo.
+
+    Decidir por el último manda al usuario al sitio equivocado en cuanto la
+    racha mezcla causas, y mezclarlas es fácil: `unknown` sale por empresa de un
+    `to_dataframe()` sobre un payload malformado, así que unos pocos tickers
+    malos repartidos por el universo se entrelazan con los timeouts de una
+    caída. Medido sobre la implementación anterior: nueve errores nuestros y un
+    timeout final le decían al usuario que revisara una conexión que funciona, y
+    nueve timeouts con un error nuestro al final le decían que el programa
+    estaba roto en mitad de una caída de la SEC.
+
+    Con tres textos, el mensaje no afirma más de lo que la evidencia sostiene.
+    """
+    # «el último» y no el detalle a secas: un «(ConnectTimeout)» pelado se lee
+    # como si caracterizara los diez fallos, y sólo caracteriza uno.
+    ultimo = f"el último, {fallo.detalle}"
+    if desconocidos == racha:
         return (
-            f"{racha} empresas seguidas fallaron con un error que este programa "
-            f"no sabe interpretar ({fallo.detalle}). No apunta a la SEC ni a tu "
+            f"{racha} empresas seguidas fallaron con errores que este programa "
+            f"no sabe interpretar ({ultimo}). No apunta a la SEC ni a tu "
             "conexión: lo más probable es que sea un fallo del propio programa. "
             "La corrida se para aquí en vez de repetirlo 503 veces."
         )
-    # «sin entregar datos» y no «sin contestar»: la racha también avanza con un
-    # 5xx, que técnicamente es una respuesta. Decir «no contestó» delante de un
-    # «(HTTP 503)» sería contradecirse en la misma frase.
+    if desconocidos == 0:
+        # «sin entregar datos» y no «sin contestar»: la racha también avanza con
+        # un 5xx, que técnicamente es una respuesta. Decir «no contestó» delante
+        # de un «(HTTP 503)» sería contradecirse en la misma frase.
+        return (
+            f"{racha} empresas seguidas fallaron sin que la SEC entregara datos "
+            f"({ultimo}). No es que fallen esas empresas: es que no hay fuente. "
+            "Comprueba tu conexión y si data.sec.gov responde."
+        )
     return (
-        f"{racha} empresas seguidas fallaron sin que la SEC entregara datos "
-        f"({fallo.detalle}). No es que fallen esas empresas: es que no hay "
-        "fuente. Comprueba tu conexión y si data.sec.gov responde."
+        f"{racha} empresas seguidas fallaron sin entregar datos, por causas "
+        f"mezcladas: {desconocidos} con errores que este programa no sabe "
+        f"interpretar y {racha - desconocidos} de la SEC o de la red ({ultimo}). "
+        "Puede ser la fuente o puede ser el programa, así que la corrida se para "
+        "aquí en vez de repetirlo 503 veces."
     )
 
 
@@ -273,7 +299,7 @@ def load_facts(
     cache_dir = cache_dir or _DEFAULT_CACHE
     cobertura = CoverageReport(requested=list(tickers))
     hechos: dict[str, pd.DataFrame] = {}
-    racha = 0
+    racha = desconocidos = 0
 
     for ticker in tickers:
         intento = _load_one(ticker, cache_dir, refresh)
@@ -284,7 +310,7 @@ def load_facts(
             )
             cobertura.included.append(ticker)
             if not intento.desde_cache:
-                racha = 0
+                racha = desconocidos = 0
             continue
 
         fallo = intento.fallo
@@ -293,13 +319,17 @@ def load_facts(
         if fallo.aborta:
             raise CorridaAbortada(fallo.causa, fallo.explicacion, cobertura)
         if fallo.fuente_viva:
-            racha = 0
+            racha = desconocidos = 0
             continue
         if not fallo.cuenta_racha:
             continue
 
         racha += 1
+        if fallo.causa == UNKNOWN:
+            desconocidos += 1
         if racha >= RACHA_MAXIMA:
-            raise CorridaAbortada(fallo.causa, _sin_fuente(racha, fallo), cobertura)
+            raise CorridaAbortada(
+                fallo.causa, _sin_fuente(racha, desconocidos, fallo), cobertura
+            )
 
     return hechos, cobertura

@@ -367,6 +367,44 @@ def test_un_ticker_sin_cik_ni_avanza_ni_reinicia_la_racha(cache_dir):
     assert len(cobertura.unresolved_cik) == 30
 
 
+def test_un_sin_cik_en_medio_no_reinicia_la_racha(cache_dir):
+    """La mitad sutil del invariante: no tocar la racha no es reiniciarla.
+
+    Un ticker sin CIK se resuelve contra el parquet empaquetado, sin pedirle
+    nada a la SEC, asi que no es evidencia ni a favor ni en contra. El test
+    anterior prueba que no la avanza; este prueba que tampoco la reinicia --
+    si lo hiciera, harian falta diez fallos MAS despues del hueco, no cinco,
+    para abortar.
+    """
+    def sin_cik_en_medio(ticker):
+        if ticker == "SINCIK":
+            raise CompanyNotFoundError(ticker)
+        raise httpx.ConnectTimeout("sin red")
+
+    tickers = (
+        [f"T{i:03d}" for i in range(5)]
+        + ["SINCIK"]
+        + [f"T{i:03d}" for i in range(5, 20)]
+    )
+    with patch(
+        "fundamentals.fetch._fetch_facts", side_effect=sin_cik_en_medio
+    ) as pedido:
+        with pytest.raises(CorridaAbortada):
+            load_facts(tickers, cache_dir=cache_dir)
+    # 5 fallos antes del hueco + el propio SINCIK + 5 fallos mas para llegar a
+    # RACHA_MAXIMA. Si el hueco reiniciara la racha serian 5 + 1 + 10 = 16.
+    assert pedido.call_count == RACHA_MAXIMA + 1
+
+
+def test_el_ticker_que_dispara_el_aborto_queda_contado(cache_dir):
+    """Suprimir el ticker que dispara el aborto reportaria un fallo sistemico
+    junto a una cobertura vacia, como si nada se hubiera intentado siquiera."""
+    with patch("fundamentals.fetch._fetch_facts", side_effect=_status(403)):
+        with pytest.raises(CorridaAbortada) as abortada:
+            load_facts(["AAA", "BBB"], cache_dir=cache_dir)
+    assert abortada.value.cobertura.failed_download == ["AAA"]
+
+
 def test_la_excepcion_dice_la_causa_y_cuanto_se_llego_a_bajar(cache_dir):
     def falla_tras_dos(ticker):
         if ticker in ("T000", "T001"):
