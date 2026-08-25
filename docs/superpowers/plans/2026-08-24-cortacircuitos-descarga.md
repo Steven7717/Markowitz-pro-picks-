@@ -1128,9 +1128,13 @@ def _sin_fuente(racha: int, desconocidos: int, fallo: Fallo) -> str:
 
     Con tres textos, el mensaje no afirma más de lo que la evidencia sostiene.
     """
-    # «el último» y no el detalle a secas: un «(ConnectTimeout)» pelado se lee
-    # como si caracterizara los diez fallos, y sólo caracteriza uno.
-    ultimo = f"el último, {fallo.detalle}"
+    # «el último fallo» y no el detalle a secas: un «(ConnectTimeout)» pelado se
+    # lee como si caracterizara los diez fallos, y sólo caracteriza uno. Lleva
+    # «fallo» explícito porque sin él el texto sólo funciona en la rama
+    # all-unknown («errores... el último») -- en la pura SEC el sustantivo más
+    # cercano es «datos» (leería «el último dato») y en la mixta es «la red»
+    # (leería «el último de la red» en vez de el último de los diez).
+    ultimo = f"el último fallo, {fallo.detalle}"
     if desconocidos == racha:
         return (
             f"{racha} empresas seguidas fallaron con errores que este programa "
@@ -1147,12 +1151,22 @@ def _sin_fuente(racha: int, desconocidos: int, fallo: Fallo) -> str:
             f"({ultimo}). No es que fallen esas empresas: es que no hay fuente. "
             "Comprueba tu conexión y si data.sec.gov responde."
         )
+    # La rama mixta no puede decir «sin entregar datos» de las dos partes: la
+    # mitad `unknown` es justo lo contrario, un to_dataframe() que falló sobre
+    # un cuerpo que la SEC sí entregó. Y termina diciendo qué hacer, no que el
+    # programa no puede decidir: comprobar la conexión es gratis e instantáneo,
+    # así que va primero; culpar al programa sólo se justifica una vez que esa
+    # comprobación sale limpia.
+    sin_interpretar = (
+        "un error que este programa no sabe interpretar"
+        if desconocidos == 1
+        else "errores que este programa no sabe interpretar"
+    )
     return (
-        f"{racha} empresas seguidas fallaron sin entregar datos, por causas "
-        f"mezcladas: {desconocidos} con errores que este programa no sabe "
-        f"interpretar y {racha - desconocidos} de la SEC o de la red ({ultimo}). "
-        "Puede ser la fuente o puede ser el programa, así que la corrida se para "
-        "aquí en vez de repetirlo 503 veces."
+        f"{racha} empresas seguidas fallaron por causas mezcladas: "
+        f"{desconocidos} con {sin_interpretar} y {racha - desconocidos} de la "
+        f"SEC o de la red ({ultimo}). Comprueba primero tu conexión y si "
+        "data.sec.gov responde; si van bien, es un fallo del propio programa."
     )
 ```
 
@@ -1333,23 +1347,31 @@ def _sin_respuesta(fallo: Fallo) -> str:
 
 - [ ] **Step 4: Añadir el reloj a `load_facts`**
 
-Declara el reloj junto a `racha`:
+**Cuidado con esto:** el bucle ya lleva un contador `desconocidos` en paralelo a
+`racha`, que se declara y se reinicia con ella en los mismos tres sitios. Los
+bloques de abajo lo conservan. Borrarlo deshace el diagnóstico por racha entera
+y cuatro tests se ponen en rojo; si eso pasa, es señal de haber pegado una
+versión vieja, no de que los tests estén mal.
+
+Declara el reloj junto a los dos contadores:
 
 ```python
-    racha = 0
+    racha = desconocidos = 0
     sin_respuesta_desde: float | None = None
 ```
 
-Reinícialo en los dos sitios donde ya se reinicia la racha:
+Reinícialo en los dos sitios donde ya se reinician los contadores:
 
 ```python
             if not intento.desde_cache:
-                racha, sin_respuesta_desde = 0, None
+                racha = desconocidos = 0
+                sin_respuesta_desde = None
 ```
 
 ```python
         if fallo.fuente_viva:
-            racha, sin_respuesta_desde = 0, None
+            racha = desconocidos = 0
+            sin_respuesta_desde = None
             continue
 ```
 
@@ -1357,14 +1379,24 @@ Y sustituye el bloque final del bucle:
 
 ```python
         racha += 1
+        if fallo.causa == UNKNOWN:
+            desconocidos += 1
         ahora = time.monotonic()
         if sin_respuesta_desde is None:
             sin_respuesta_desde = ahora
         if racha >= RACHA_MAXIMA:
-            raise CorridaAbortada(fallo.causa, _sin_fuente(racha, fallo), cobertura)
+            raise CorridaAbortada(
+                fallo.causa, _sin_fuente(racha, desconocidos, fallo), cobertura
+            )
         if ahora - sin_respuesta_desde >= SIN_RESPUESTA_MAXIMO:
             raise CorridaAbortada(fallo.causa, _sin_respuesta(fallo), cobertura)
 ```
+
+El orden importa: `time.monotonic()` se llama **una vez por fallo contado**, y
+los tests del tope de tiempo parchean esa llamada con una lista de valores. Si
+se llama dos veces, o si se llama también en las ramas que no cuentan racha, la
+lista se agota y el test revienta con `StopIteration` en vez de con lo que
+mide.
 
 `time` ya está importado en el fichero; ahora se usa para `monotonic` en vez de
 para `sleep`. Comprueba que no queda ningún `time.sleep` en `fetch.py`:
