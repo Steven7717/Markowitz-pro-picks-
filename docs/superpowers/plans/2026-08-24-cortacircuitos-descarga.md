@@ -1054,7 +1054,13 @@ def test_la_excepcion_dice_la_causa_y_cuanto_se_llego_a_bajar(cache_dir):
 uv run pytest tests/test_fundamentals_fetch.py -q -k "aborta or racha or 429 or excepcion_dice"
 ```
 
-Esperado: FAIL con `NameError: name 'CorridaAbortada' is not defined` al importar.
+Esperado: error de recolección con
+`ImportError: cannot import name 'RACHA_MAXIMA' from 'fundamentals.fetch'`.
+
+Es `RACHA_MAXIMA` y no `CorridaAbortada` porque `IMPORT_FROM` falla en el primer
+nombre que no existe siguiendo el orden de la tupla, y ahí `RACHA_MAXIMA` va
+antes. Y es `ImportError`, no `NameError`: el fallo ocurre al importar, no al
+usar. Medido.
 
 - [ ] **Step 3: Añadir `CorridaAbortada` y las constantes**
 
@@ -1097,30 +1103,56 @@ class CorridaAbortada(RuntimeError):
         self.causa = causa
         self.explicacion = explicacion
         self.cobertura = cobertura
+        # «reunir» y no «descargar»: con media caché poblada, la mayoría de esas
+        # empresas salieron de disco sin una sola petición. Este módulo se apoya
+        # en que un acierto de caché no prueba que la SEC responda; llamarlos
+        # descargas en el mensaje de aborto lo contradiría.
         super().__init__(
-            f"{explicacion} Se abortó tras descargar "
+            f"{explicacion} Se abortó tras reunir "
             f"{len(cobertura.included)} de {len(cobertura.requested)} empresas."
         )
 
 
-def _sin_fuente(racha: int, fallo: Fallo) -> str:
-    # Dos textos porque hay dos diagnósticos distintos, y dar el de la SEC
-    # cuando el fallo es nuestro es peor que no dar ninguno: manda al usuario a
-    # revisar una conexión que funciona.
-    if fallo.causa == UNKNOWN:
+def _sin_fuente(racha: int, desconocidos: int, fallo: Fallo) -> str:
+    """Por qué se abortó, diagnosticando sobre la racha entera y no sobre su
+    último fallo.
+
+    Decidir por el último manda al usuario al sitio equivocado en cuanto la
+    racha mezcla causas, y mezclarlas es fácil: `unknown` sale por empresa de un
+    `to_dataframe()` sobre un payload malformado, así que unos pocos tickers
+    malos repartidos por el universo se entrelazan con los timeouts de una
+    caída. Medido sobre la implementación anterior: nueve errores nuestros y un
+    timeout final le decían al usuario que revisara una conexión que funciona, y
+    nueve timeouts con un error nuestro al final le decían que el programa
+    estaba roto en mitad de una caída de la SEC.
+
+    Con tres textos, el mensaje no afirma más de lo que la evidencia sostiene.
+    """
+    # «el último» y no el detalle a secas: un «(ConnectTimeout)» pelado se lee
+    # como si caracterizara los diez fallos, y sólo caracteriza uno.
+    ultimo = f"el último, {fallo.detalle}"
+    if desconocidos == racha:
         return (
-            f"{racha} empresas seguidas fallaron con un error que este programa "
-            f"no sabe interpretar ({fallo.detalle}). No apunta a la SEC ni a tu "
+            f"{racha} empresas seguidas fallaron con errores que este programa "
+            f"no sabe interpretar ({ultimo}). No apunta a la SEC ni a tu "
             "conexión: lo más probable es que sea un fallo del propio programa. "
             "La corrida se para aquí en vez de repetirlo 503 veces."
         )
-    # «sin entregar datos» y no «sin contestar»: la racha también avanza con un
-    # 5xx, que técnicamente es una respuesta. Decir «no contestó» delante de un
-    # «(HTTP 503)» sería contradecirse en la misma frase.
+    if desconocidos == 0:
+        # «sin entregar datos» y no «sin contestar»: la racha también avanza con
+        # un 5xx, que técnicamente es una respuesta. Decir «no contestó» delante
+        # de un «(HTTP 503)» sería contradecirse en la misma frase.
+        return (
+            f"{racha} empresas seguidas fallaron sin que la SEC entregara datos "
+            f"({ultimo}). No es que fallen esas empresas: es que no hay fuente. "
+            "Comprueba tu conexión y si data.sec.gov responde."
+        )
     return (
-        f"{racha} empresas seguidas fallaron sin que la SEC entregara datos "
-        f"({fallo.detalle}). No es que fallen esas empresas: es que no hay "
-        "fuente. Comprueba tu conexión y si data.sec.gov responde."
+        f"{racha} empresas seguidas fallaron sin entregar datos, por causas "
+        f"mezcladas: {desconocidos} con errores que este programa no sabe "
+        f"interpretar y {racha - desconocidos} de la SEC o de la red ({ultimo}). "
+        "Puede ser la fuente o puede ser el programa, así que la corrida se para "
+        "aquí en vez de repetirlo 503 veces."
     )
 ```
 
@@ -1155,9 +1187,17 @@ Sustituye el bucle de `load_facts` por:
             continue
 
         racha += 1
+        if fallo.causa == UNKNOWN:
+            desconocidos += 1
         if racha >= RACHA_MAXIMA:
-            raise CorridaAbortada(fallo.causa, _sin_fuente(racha, fallo), cobertura)
+            raise CorridaAbortada(
+                fallo.causa, _sin_fuente(racha, desconocidos, fallo), cobertura
+            )
 ```
+
+`desconocidos` se declara junto a `racha` (`racha = desconocidos = 0`) y se
+reinicia con ella en los dos mismos sitios. Va aparte y no dentro de `Fallo`
+porque es una propiedad de la racha, no del fallo suelto.
 
 Y amplía el docstring de `load_facts` con el invariante nuevo:
 
@@ -1276,11 +1316,18 @@ Y el mensaje, junto a `_sin_fuente`:
 
 ```python
 def _sin_respuesta(fallo: Fallo) -> str:
-    # Mismo cuidado que en _sin_fuente: el reloj también corre con 5xx.
+    # Mismo cuidado que en _sin_fuente: el reloj también corre con 5xx, así que
+    # «no entregó datos» y no «no contestó».
+    #
+    # Y no dice «en una sola petición», que sería falso por construcción: el
+    # reloj arranca en el primer fallo contado con delta 0, así que el tope no
+    # puede saltar antes del segundo. El tramo cubre siempre dos peticiones o
+    # más, y puede cubrir cientos de lecturas de caché entre medias, porque los
+    # aciertos de caché no tocan el reloj.
     return (
         f"Pasaron {SIN_RESPUESTA_MAXIMO:.0f} segundos sin que la SEC entregara "
-        f"datos en una sola petición ({fallo.detalle}). Comprueba tu conexión y "
-        "si data.sec.gov responde."
+        f"datos (el último fallo, {fallo.detalle}). Comprueba tu conexión y si "
+        "data.sec.gov responde."
     )
 ```
 
