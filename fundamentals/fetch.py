@@ -96,6 +96,15 @@ def _fetch_facts(ticker: str) -> pd.DataFrame:
         # Aquí sólo se llega por fallo de descarga o de parseo, nunca por un 404.
         # TransportError es de la propia librería y clasificar() ya la lee como
         # transitoria, que es lo que hace avanzar la racha.
+        #
+        # Los dos casos no son iguales y se tratan igual a sabiendas: si falló la
+        # descarga, la fuente está muerta y avanzar la racha es correcto; si falló
+        # el parseo, la SEC contestó 200 con un cuerpo que no cuajó, o sea que la
+        # fuente está viva y la racha avanza igualmente. Se acepta porque no se
+        # pueden distinguir desde fuera y porque el error cae del lado seguro:
+        # abortar de más, nunca seguir con datos malos. Diez tickers seguidos así
+        # abortarían una corrida sana, que es improbable en un universo de 503 y
+        # visible cuando pase.
         raise TransportError(f"la SEC no devolvió hechos usables para {ticker}")
     return facts.to_dataframe()
 

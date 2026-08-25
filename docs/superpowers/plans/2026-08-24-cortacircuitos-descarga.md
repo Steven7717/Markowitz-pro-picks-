@@ -741,10 +741,23 @@ def test_una_empresa_sin_facts_va_a_su_casilla_y_no_a_la_de_descarga(cache_dir):
 uv run pytest tests/test_fundamentals_fetch.py -q -k "no_se_duerme or sin_facts_va_a_su_casilla"
 ```
 
-Esperado: FAIL. `test_no_se_duerme_entre_tickers` falla con
-`assert 2 == 0` (hay dos sleeps por ticker fallido), y
-`test_una_empresa_sin_facts_va_a_su_casilla...` falla porque
-`CompanyFactsNotFoundError` es un `LookupError` y cae en la casilla `unresolved_cik`.
+Esperado: FAIL. Medido, no razonado:
+
+- `test_no_se_duerme_entre_tickers` → `assert 4 == 0`. Son **cuatro**, no dos:
+  `max_retries=3` deja dos esperas por ticker fallido, y el test usa dos tickers.
+- `test_una_empresa_sin_facts_va_a_su_casilla...` → falla porque
+  `CompanyFactsNotFoundError` hereda de `LookupError` y el `except LookupError`
+  de `_load_one` se la traga, mandándola a `unresolved_cik`.
+
+Ese segundo punto describe un defecto **que ya existe en la rama** desde el Task
+3, y que este Task es el que lo cierra: desde que `_fetch_facts` levanta
+`CompanyFactsNotFoundError` de verdad, una empresa que existe y no publica
+hechos se le reporta al usuario como «sin CIK», o sea como un ticker que no
+existe. Es exactamente la trampa contra la que avisa el docstring de
+`fallos.clasificar` —`CompanyFactsNotFoundError` hereda de `NotFoundError`, así
+que comprobada después se clasifica como «sin CIK»— y `_load_one` es el «después».
+Ningún test lo cubre entre el Task 3 y el Task 4, y la suite está verde en ese
+hueco.
 
 - [ ] **Step 3: Añadir `Intento` y reescribir `_load_one`**
 

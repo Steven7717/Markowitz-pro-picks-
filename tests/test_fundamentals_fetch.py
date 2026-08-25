@@ -216,10 +216,18 @@ def test_un_cuerpo_vacio_no_se_confunde_con_una_empresa_sin_hechos():
     assert clasificar(levantada.value).fuente_viva is False
 
 
-def test_el_camino_feliz_devuelve_la_tabla_larga():
+def test_el_camino_feliz_pide_los_hechos_por_el_cik_que_resolvio():
+    """Resolver el ticker y pedir los hechos POR ESE CIK es el eje del diseno.
+
+    Sin el assert_called_once_with, esto lo pasaban por igual tres versiones
+    rotas de _fetch_facts -- get_company_facts(ticker), (company) y (0) --
+    porque patch(return_value=...) acepta cualquier argumento y el Mock(cik=)
+    era pura decoracion. Medido con mutantes, no supuesto.
+    """
     hechos = Mock()
     hechos.to_dataframe.return_value = _facts("AAA")
     with patch("edgar.Company", return_value=Mock(cik=320193)), patch(
         "edgar.get_company_facts", return_value=hechos
-    ):
+    ) as pedido:
         assert len(_fetch_facts("AAA")) == 12
+    pedido.assert_called_once_with(320193)
