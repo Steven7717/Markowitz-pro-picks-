@@ -8,6 +8,7 @@ import pandas as pd
 
 from fundamentals.fallos import (
     NO_FACTS,
+    UNKNOWN,
     UNRESOLVED_CIK,
     Fallo,
     clasificar,
@@ -17,6 +18,10 @@ _DEFAULT_CACHE = Path(__file__).parent / ".cache"
 
 PERIODOS = 12
 MIN_TRIMESTRES = 5
+
+# 2 % del universo. Un falso positivo exigiría diez empresas seguidas rotas
+# mientras la SEC va bien, que no es un escenario real.
+RACHA_MAXIMA = 10
 
 
 @dataclass
@@ -54,6 +59,48 @@ class CoverageReport:
             f"sin sector: {len(self.missing_sector)} | "
             f"sin precio: {len(self.missing_price)}"
         )
+
+
+class CorridaAbortada(RuntimeError):
+    """La corrida entera está condenada; seguir sólo gasta tiempo.
+
+    Vive aquí y no en `fallos.py` porque lleva dentro la `CoverageReport`, que
+    también vive aquí: al revés sería un import circular.
+
+    Llevar la cobertura dentro es lo que permite decir cuánto se llegó a bajar
+    antes de rendirse. Sin ese número, «falló» y «falló habiendo bajado 480 de
+    503» se leen igual, y no son lo mismo en absoluto.
+    """
+
+    def __init__(self, causa: str, explicacion: str, cobertura: CoverageReport):
+        self.causa = causa
+        self.explicacion = explicacion
+        self.cobertura = cobertura
+        super().__init__(
+            f"{explicacion} Se abortó tras descargar "
+            f"{len(cobertura.included)} de {len(cobertura.requested)} empresas."
+        )
+
+
+def _sin_fuente(racha: int, fallo: Fallo) -> str:
+    # Dos textos porque hay dos diagnósticos distintos, y dar el de la SEC
+    # cuando el fallo es nuestro es peor que no dar ninguno: manda al usuario a
+    # revisar una conexión que funciona.
+    if fallo.causa == UNKNOWN:
+        return (
+            f"{racha} empresas seguidas fallaron con un error que este programa "
+            f"no sabe interpretar ({fallo.detalle}). No apunta a la SEC ni a tu "
+            "conexión: lo más probable es que sea un fallo del propio programa. "
+            "La corrida se para aquí en vez de repetirlo 503 veces."
+        )
+    # «sin entregar datos» y no «sin contestar»: la racha también avanza con un
+    # 5xx, que técnicamente es una respuesta. Decir «no contestó» delante de un
+    # «(HTTP 503)» sería contradecirse en la misma frase.
+    return (
+        f"{racha} empresas seguidas fallaron sin que la SEC entregara datos "
+        f"({fallo.detalle}). No es que fallen esas empresas: es que no hay "
+        "fuente. Comprueba tu conexión y si data.sec.gov responde."
+    )
 
 
 def set_sec_identity() -> None:
@@ -214,20 +261,45 @@ def load_facts(
     on purpose: quarterly reports arrive staggered, and a cache that refreshed
     itself would change the numbers between two runs without anyone asking. Like
     the universe snapshot, refreshing is a deliberate act.
+
+    Un ticker que falla se registra y se salta. Que fallen todos por la misma
+    causa no es un ticker que falla: es que no hay fuente, y entonces levanta
+    `CorridaAbortada` en vez de recorrer el universo entero para no devolver
+    nada. La racha se reinicia cuando la SEC entrega datos —un acierto de red o
+    un 404, que también exigió preguntar—, avanza cuando preguntamos y no los
+    entregó, y no se toca cuando no llegamos a preguntar: un acierto de caché o
+    un CIK que resuelve contra el parquet local.
     """
     cache_dir = cache_dir or _DEFAULT_CACHE
     cobertura = CoverageReport(requested=list(tickers))
     hechos: dict[str, pd.DataFrame] = {}
+    racha = 0
 
     for ticker in tickers:
         intento = _load_one(ticker, cache_dir, refresh)
-        if intento.fallo is not None:
-            _anotar(cobertura, ticker, intento.fallo)
+
+        if intento.fallo is None:
+            hechos[ticker] = (
+                intento.facts if intento.facts is not None else pd.DataFrame()
+            )
+            cobertura.included.append(ticker)
+            if not intento.desde_cache:
+                racha = 0
             continue
 
-        hechos[ticker] = (
-            intento.facts if intento.facts is not None else pd.DataFrame()
-        )
-        cobertura.included.append(ticker)
+        fallo = intento.fallo
+        _anotar(cobertura, ticker, fallo)
+
+        if fallo.aborta:
+            raise CorridaAbortada(fallo.causa, fallo.explicacion, cobertura)
+        if fallo.fuente_viva:
+            racha = 0
+            continue
+        if not fallo.cuenta_racha:
+            continue
+
+        racha += 1
+        if racha >= RACHA_MAXIMA:
+            raise CorridaAbortada(fallo.causa, _sin_fuente(racha, fallo), cobertura)
 
     return hechos, cobertura

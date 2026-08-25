@@ -4,9 +4,20 @@ from unittest.mock import Mock, patch
 import httpx
 import pandas as pd
 import pytest
-from edgar.exceptions import CompanyFactsNotFoundError, CompanyNotFoundError
+from edgar.exceptions import (
+    CompanyFactsNotFoundError,
+    CompanyNotFoundError,
+    TooManyRequestsError,
+)
 
-from fundamentals.fetch import CoverageReport, _cache_path, _fetch_facts, load_facts
+from fundamentals.fetch import (
+    RACHA_MAXIMA,
+    CorridaAbortada,
+    CoverageReport,
+    _cache_path,
+    _fetch_facts,
+    load_facts,
+)
 
 
 def _facts(ticker: str, n: int = 12) -> pd.DataFrame:
@@ -250,3 +261,122 @@ def test_el_camino_feliz_pide_los_hechos_por_el_cik_que_resolvio():
     ) as pedido:
         assert len(_fetch_facts("AAA")) == 12
     pedido.assert_called_once_with(320193)
+
+
+def _status(codigo: int) -> httpx.HTTPStatusError:
+    """Un HTTPStatusError igual al que levanta edgartools al mirar la respuesta."""
+    peticion = httpx.Request("GET", "https://data.sec.gov/x")
+    with pytest.raises(httpx.HTTPStatusError) as capturada:
+        httpx.Response(codigo, request=peticion).raise_for_status()
+    return capturada.value
+
+
+def test_una_identidad_rechazada_aborta_en_el_primer_ticker(cache_dir):
+    """Es global por definicion: no hace falta esperar a que se repita 503 veces.
+
+    Llega como un 403 pelado y no como SECIdentityError: esa solo la levanta el
+    parser de SGML, que es el camino de los filings, no el de los facts.
+    """
+    with patch("fundamentals.fetch._fetch_facts", side_effect=_status(403)) as pedido:
+        with pytest.raises(CorridaAbortada) as abortada:
+            load_facts([f"T{i:03d}" for i in range(503)], cache_dir=cache_dir)
+    assert pedido.call_count == 1
+    assert "correo de EDGAR" in str(abortada.value)
+
+
+def test_el_429_no_se_reintenta_porque_reintentarlo_alarga_el_bloqueo(cache_dir):
+    with patch(
+        "fundamentals.fetch._fetch_facts",
+        side_effect=TooManyRequestsError("https://data.sec.gov/x"),
+    ) as pedido:
+        with pytest.raises(CorridaAbortada):
+            load_facts(["AAA", "BBB"], cache_dir=cache_dir)
+    assert pedido.call_count == 1
+
+
+def test_diez_fallos_seguidos_sin_respuesta_abortan_la_corrida(cache_dir):
+    with patch(
+        "fundamentals.fetch._fetch_facts", side_effect=httpx.ConnectTimeout("sin red")
+    ) as pedido:
+        with pytest.raises(CorridaAbortada):
+            load_facts([f"T{i:03d}" for i in range(50)], cache_dir=cache_dir)
+    assert pedido.call_count == RACHA_MAXIMA
+
+
+def test_nueve_fallos_y_un_acierto_no_abortan(cache_dir):
+    """Un solo exito rompe la racha: un fallo aislado nunca dispara nada."""
+    def falla_salvo_el_decimo(ticker):
+        if ticker == "T009":
+            return _facts(ticker)
+        raise httpx.ConnectTimeout("sin red")
+
+    with patch("fundamentals.fetch._fetch_facts", side_effect=falla_salvo_el_decimo):
+        _, cobertura = load_facts(
+            [f"T{i:03d}" for i in range(19)], cache_dir=cache_dir
+        )
+    assert cobertura.included == ["T009"]
+    assert len(cobertura.failed_download) == 18
+
+
+def test_un_404_en_medio_reinicia_la_racha(cache_dir):
+    """La SEC contesto: la fuente esta viva aunque esa empresa no tenga datos."""
+    def sin_facts_en_medio(ticker):
+        if ticker == "T005":
+            raise CompanyFactsNotFoundError(cik=1)
+        raise httpx.ConnectTimeout("sin red")
+
+    with patch("fundamentals.fetch._fetch_facts", side_effect=sin_facts_en_medio):
+        _, cobertura = load_facts(
+            [f"T{i:03d}" for i in range(15)], cache_dir=cache_dir
+        )
+    assert cobertura.no_facts == ["T005"]
+    assert len(cobertura.failed_download) == 14
+
+
+def test_un_acierto_de_cache_no_reinicia_la_racha(cache_dir):
+    """Un fichero leido de disco no dice nada sobre si la SEC responde.
+
+    Si contara como exito, una cache a medio poblar apagaria el cortacircuitos:
+    con 200 de 503 en disco, la racha no llegaria nunca a diez.
+    """
+    with patch("fundamentals.fetch._fetch_facts", side_effect=_facts):
+        load_facts(["CACHEADO"], cache_dir=cache_dir)
+
+    tickers = (
+        [f"T{i:03d}" for i in range(5)]
+        + ["CACHEADO"]
+        + [f"T{i:03d}" for i in range(5, 20)]
+    )
+    with patch(
+        "fundamentals.fetch._fetch_facts", side_effect=httpx.ConnectTimeout("sin red")
+    ) as pedido:
+        with pytest.raises(CorridaAbortada):
+            load_facts(tickers, cache_dir=cache_dir)
+    assert pedido.call_count == RACHA_MAXIMA
+
+
+def test_un_ticker_sin_cik_ni_avanza_ni_reinicia_la_racha(cache_dir):
+    """Se resuelve contra el parquet empaquetado, sin pedirle nada a la SEC."""
+    def sin_cik(ticker):
+        raise CompanyNotFoundError(ticker)
+
+    with patch("fundamentals.fetch._fetch_facts", side_effect=sin_cik):
+        _, cobertura = load_facts(
+            [f"T{i:03d}" for i in range(30)], cache_dir=cache_dir
+        )
+    assert len(cobertura.unresolved_cik) == 30
+
+
+def test_la_excepcion_dice_la_causa_y_cuanto_se_llego_a_bajar(cache_dir):
+    def falla_tras_dos(ticker):
+        if ticker in ("T000", "T001"):
+            return _facts(ticker)
+        raise httpx.ConnectTimeout("sin red")
+
+    with patch("fundamentals.fetch._fetch_facts", side_effect=falla_tras_dos):
+        with pytest.raises(CorridaAbortada) as abortada:
+            load_facts([f"T{i:03d}" for i in range(50)], cache_dir=cache_dir)
+    mensaje = str(abortada.value)
+    assert "2 de 50" in mensaje
+    assert "ConnectTimeout" in mensaje
+    assert abortada.value.cobertura.included == ["T000", "T001"]
