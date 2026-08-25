@@ -1058,7 +1058,20 @@ Esperado: FAIL con `NameError: name 'CorridaAbortada' is not defined` al importa
 
 - [ ] **Step 3: Añadir `CorridaAbortada` y las constantes**
 
-En `fundamentals/fetch.py`, junto a `PERIODOS` y `MIN_TRIMESTRES`:
+Primero, amplía el import de `fundamentals.fallos` que dejó el Task 4 para que
+incluya `UNKNOWN`, que necesita `_sin_fuente`:
+
+```python
+from fundamentals.fallos import (
+    NO_FACTS,
+    UNKNOWN,
+    UNRESOLVED_CIK,
+    Fallo,
+    clasificar,
+)
+```
+
+Y en `fundamentals/fetch.py`, junto a `PERIODOS` y `MIN_TRIMESTRES`:
 
 ```python
 # 2 % del universo. Un falso positivo exigiría diez empresas seguidas rotas
@@ -1091,6 +1104,16 @@ class CorridaAbortada(RuntimeError):
 
 
 def _sin_fuente(racha: int, fallo: Fallo) -> str:
+    # Dos textos porque hay dos diagnósticos distintos, y dar el de la SEC
+    # cuando el fallo es nuestro es peor que no dar ninguno: manda al usuario a
+    # revisar una conexión que funciona.
+    if fallo.causa == UNKNOWN:
+        return (
+            f"{racha} empresas seguidas fallaron con un error que este programa "
+            f"no sabe interpretar ({fallo.detalle}). No apunta a la SEC ni a tu "
+            "conexión: lo más probable es que sea un fallo del propio programa. "
+            "La corrida se para aquí en vez de repetirlo 503 veces."
+        )
     # «sin entregar datos» y no «sin contestar»: la racha también avanza con un
     # 5xx, que técnicamente es una respuesta. Decir «no contestó» delante de un
     # «(HTTP 503)» sería contradecirse en la misma frase.
@@ -1328,6 +1351,12 @@ git add fundamentals/fetch.py tests/test_fundamentals_fetch.py && git commit -m 
 - Modify: `fundamentals/run.py` (docstring de `build_panel`)
 - Modify: `ranking/run.py:77-81` (docstring de `construir_ranking`)
 - Modify: `ranking/filings.py:115-123` (docstring de `cargar_riesgos`)
+- Modify: `aprobacion/generacion.py:36-37` — dice que la mitad «Sin IA» «spends
+  ~25 minutes retrying 503 tickers before failing outright». El Task 4 lo hizo
+  falso: ya no hay reintentos ni esperas. Reescribir para que describa lo que
+  pasa ahora, que es abortar con la causa.
+- Modify: `tests/test_ranking_filings.py:82-83` — repite la enumeración de dos
+  casillas («unresolved_cik y failed_download») que ahora son tres.
 
 Ningún test cubre esta tarea: la página es Streamlit y no se prueba, y los otros
 tres cambios son docstrings. Es la razón por la que va al final y sola.

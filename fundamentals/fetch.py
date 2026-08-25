@@ -134,6 +134,10 @@ def _cache_path(cache_dir: Path, ticker: str) -> Path:
 class Intento:
     """Qué salió de pedir un ticker, y de dónde salió.
 
+    `facts` y `fallo` son exactamente uno de los dos: si hay hechos no hay
+    fallo, y al revés. Es lo que hace inalcanzable el `pd.DataFrame()` de
+    respaldo en `load_facts`, que sólo existe para satisfacer la anotación.
+
     `desde_cache` no es instrumentación: es lo que impide que un fichero leído
     de disco cuente como prueba de que la SEC responde. Sin ese dato, una caché
     a medio poblar apagaría el cortacircuitos de `load_facts`.
@@ -183,7 +187,14 @@ def _load_one(ticker: str, cache_dir: Path, refresh: bool) -> Intento:
 
 
 def _anotar(cobertura: CoverageReport, ticker: str, fallo: Fallo) -> None:
-    """Cada exclusión, en la casilla que le toca."""
+    """Cada exclusión, en la casilla que le toca.
+
+    Las tres causas restantes —`transient`, `systemic` y `unknown`— caen a
+    propósito en la misma casilla, no por descuido: desde el punto de vista de
+    quien lee el informe, las tres son «esta empresa no se pudo descargar». La
+    diferencia entre ellas gobierna si la corrida sigue o se para, que es cosa
+    de `load_facts`, no del recuento.
+    """
     if fallo.causa == UNRESOLVED_CIK:
         cobertura.unresolved_cik.append(ticker)
     elif fallo.causa == NO_FACTS:

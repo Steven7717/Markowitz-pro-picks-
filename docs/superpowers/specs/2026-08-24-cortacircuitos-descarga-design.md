@@ -256,7 +256,7 @@ tupla, porque ahora hay un tercer dato que no se puede perder:
 class Intento:
     facts: pd.DataFrame | None
     fallo: Fallo | None
-    uso_la_red: bool      # un acierto de caché no dice nada sobre si la SEC responde
+    desde_cache: bool     # un acierto de caché no dice nada sobre si la SEC responde
 ```
 
 ### `fetch.py::load_facts`
