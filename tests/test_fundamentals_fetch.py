@@ -13,6 +13,7 @@ from edgar.exceptions import (
 from fundamentals.fetch import (
     RACHA_MAXIMA,
     SIN_RESPUESTA_MAXIMO,
+    SIN_RESPUESTA_RACHA_MINIMA,
     CorridaAbortada,
     CoverageReport,
     _cache_path,
@@ -527,16 +528,26 @@ def test_un_exito_de_red_en_medio_reinicia_tambien_el_contador_de_desconocidos(
 
 
 def test_el_tope_de_tiempo_aborta_aunque_no_se_llegue_a_la_racha(cache_dir):
-    """La SEC colgada: pocos tickers, mucho tiempo. La racha sola no lo acota."""
+    """La SEC colgada: pocos tickers, mucho tiempo. La racha sola no lo acota.
+
+    Hacen falta SIN_RESPUESTA_RACHA_MINIMA fallos antes de que el tope de
+    tiempo llegue a mirar el reloj (ver SIN_RESPUESTA_RACHA_MINIMA en
+    fetch.py): con menos, dos muestras sueltas separadas por horas de
+    aciertos de cache abortarian una corrida sana.
+
+    El reloj (0.0, 200.0, 250.0) no es arbitrario: en el segundo fallo el
+    delta ya es 200.0 - 0.0 = 200.0, por encima de SIN_RESPUESTA_MAXIMO. Sin
+    el minimo de racha, esto abortaria en el segundo fallo (call_count == 2);
+    con el, no se mira hasta el tercero.
+    """
     with patch(
         "fundamentals.fetch._fetch_facts", side_effect=httpx.ReadTimeout("colgada")
     ) as pedido, patch(
-        "fundamentals.fetch.time.monotonic",
-        side_effect=[0.0, SIN_RESPUESTA_MAXIMO + 1.0],
+        "fundamentals.fetch.time.monotonic", side_effect=[0.0, 200.0, 250.0]
     ):
         with pytest.raises(CorridaAbortada) as abortada:
             load_facts([f"T{i:03d}" for i in range(20)], cache_dir=cache_dir)
-    assert pedido.call_count == 2
+    assert pedido.call_count == SIN_RESPUESTA_RACHA_MINIMA
     assert "180" in str(abortada.value)
 
 
@@ -554,16 +565,75 @@ def test_una_corrida_entera_desde_cache_no_aborta_por_tiempo(cache_dir):
 
 
 def test_un_exito_de_red_reinicia_el_reloj(cache_dir):
-    """Si la SEC vuelve, el tiempo que estuvo caida no cuenta contra la corrida."""
+    """Si la SEC vuelve, el tiempo que estuvo caida no cuenta contra la corrida.
+
+    Sin el reset, el reloj se queda anclado en el primer fallo (tiempo 0) y
+    el tope salta con menos fallos reales tras el exito de lo que deberia.
+    """
     def falla_salvo_el_segundo(ticker):
         if ticker == "T001":
             return _facts(ticker)
         raise httpx.ReadTimeout("colgada")
 
-    # T000 falla (reloj a 0), T001 acierta (reloj a None), T002 falla (reloj a 0
-    # otra vez pese al salto), T003 falla ya pasado el tope.
-    reloj = [0.0, 500.0, 500.0 + SIN_RESPUESTA_MAXIMO + 1.0]
-    with patch("fundamentals.fetch._fetch_facts", side_effect=falla_salvo_el_segundo), \
-         patch("fundamentals.fetch.time.monotonic", side_effect=reloj):
+    # T000 falla (reloj a 0.0, antes del reset). T001 acierta (reinicia el
+    # reloj). T002..T006 fallan con el reloj real avanzando de 50 en 50 s
+    # desde 500.0: hacen falta SIN_RESPUESTA_RACHA_MINIMA fallos para que el
+    # tope empiece a mirar, y con el reloj bien reiniciado el delta no supera
+    # SIN_RESPUESTA_MAXIMO hasta T006 (700.0 - 500.0 = 200.0). Sin el reset el
+    # reloj seguiria anclado en 0.0 y el mismo tope saltaria tres fallos
+    # antes, en T004 (600.0 - 0.0 = 600.0).
+    reloj = [0.0, 500.0, 550.0, 600.0, 650.0, 700.0]
+    with patch(
+        "fundamentals.fetch._fetch_facts", side_effect=falla_salvo_el_segundo
+    ) as pedido, patch("fundamentals.fetch.time.monotonic", side_effect=reloj):
         with pytest.raises(CorridaAbortada):
             load_facts([f"T{i:03d}" for i in range(20)], cache_dir=cache_dir)
+    assert pedido.call_count == 7
+
+
+def test_un_404_en_medio_reinicia_el_reloj(cache_dir):
+    """El otro sitio que reinicia el reloj -- un 404 (empresa sin facts) --
+    tiene que arrastrarlo igual que un acierto de red real.
+
+    Sin esto no habia cobertura: test_un_404_en_medio_reinicia_la_racha usa
+    el reloj real, y sus deltas de microsegundos esconden cualquier fallo en
+    este reset. Mismos numeros que test_un_exito_de_red_reinicia_el_reloj,
+    con un 404 en vez de un acierto en el punto que resetea.
+    """
+    def sin_facts_en_medio(ticker):
+        if ticker == "T001":
+            raise CompanyFactsNotFoundError(cik=1)
+        raise httpx.ReadTimeout("colgada")
+
+    reloj = [0.0, 500.0, 550.0, 600.0, 650.0, 700.0]
+    with patch(
+        "fundamentals.fetch._fetch_facts", side_effect=sin_facts_en_medio
+    ) as pedido, patch("fundamentals.fetch.time.monotonic", side_effect=reloj):
+        with pytest.raises(CorridaAbortada):
+            load_facts([f"T{i:03d}" for i in range(20)], cache_dir=cache_dir)
+    assert pedido.call_count == 7
+
+
+def test_una_racha_de_solo_desconocidos_que_tarda_tambien_dice_fallo_del_programa(
+    cache_dir,
+):
+    """El arreglo de 6068951 para _sin_fuente, alcanzando el camino lento.
+
+    Un to_dataframe() roto solo revienta despues de descargar de verdad, asi
+    que una racha 100% unknown no es gratis: puede tardar lo bastante para
+    disparar el tope de tiempo en vez del de racha. Antes de compartir
+    _diagnostico, _sin_respuesta tenia su propio texto fijo que decia
+    "comprueba tu conexion" sin mirar nunca `desconocidos` -- exactamente la
+    confusion que 6068951 le quito a _sin_fuente, alcanzando por el camino
+    lento a su hermana.
+    """
+    with patch(
+        "fundamentals.fetch._fetch_facts", side_effect=KeyError("valor inesperado")
+    ), patch(
+        "fundamentals.fetch.time.monotonic", side_effect=[0.0, 200.0, 250.0]
+    ):
+        with pytest.raises(CorridaAbortada) as abortada:
+            load_facts([f"T{i:03d}" for i in range(20)], cache_dir=cache_dir)
+    mensaje = str(abortada.value)
+    assert "fallo del propio programa" in mensaje
+    assert "Comprueba tu conexión y si data.sec.gov responde." not in mensaje

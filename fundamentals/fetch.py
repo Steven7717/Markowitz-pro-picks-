@@ -28,6 +28,21 @@ RACHA_MAXIMA = 10
 # son 27 minutos — que es el problema que este módulo existe para no tener.
 SIN_RESPUESTA_MAXIMO = 180.0
 
+# Sin este mínimo, el tope de tiempo dispararía con sólo dos muestras: con 500
+# tickers cacheados entre dos fallos de red 200 s aparte, el reloj no se apaga
+# —los aciertos de caché no lo tocan— y el segundo fallo condenaría una corrida
+# sana que ya reunió casi todo el universo. RACHA_MAXIMA exige diez muestras
+# para decir «no hay fuente»; este mínimo alinea al tope de tiempo con esa
+# misma exigencia sin costarle nada al caso que sí importa: medido, a 162
+# s/ticker el tope ya dispara en el tercer fallo, y a 25 s/ticker en el noveno.
+#
+# La alternativa obvia —que un acierto de caché también reinicie el reloj— se
+# descarta porque rompe el caso para el que existe el tope de tiempo: con la
+# caché medio poblada, fallo, fallo, acierto, fallo, fallo… nunca se acumulan
+# 180 s seguidos, y la corrida cae al tope de racha: diez fallos × 2,7 min son
+# los 27 minutos que este módulo existe para no tener.
+SIN_RESPUESTA_RACHA_MINIMA = 3
+
 
 @dataclass
 class CoverageReport:
@@ -91,13 +106,21 @@ class CorridaAbortada(RuntimeError):
         )
 
 
-def _sin_fuente(racha: int, desconocidos: int, fallo: Fallo) -> str:
-    """Por qué se abortó, diagnosticando sobre la racha entera y no sobre su
-    último fallo.
+def _diagnostico(racha: int, desconocidos: int, fallo: Fallo) -> str:
+    """La atribución de causa, compartida por los dos topes.
 
-    Decidir por el último manda al usuario al sitio equivocado en cuanto la
-    racha mezcla causas, y mezclarlas es fácil: `unknown` sale por empresa de un
-    `to_dataframe()` sobre un payload malformado, así que unos pocos tickers
+    Vive aparte porque los dos mensajes difieren sólo en cómo llegaron —uno
+    cuenta fallos, el otro cuenta segundos— y en nada en el diagnóstico. Cuando
+    estaban duplicados, arreglar uno dejó al otro mintiendo: una racha 100%
+    `unknown` que tarda más de `SIN_RESPUESTA_MAXIMO` en abortar por tiempo es
+    alcanzable —un `to_dataframe()` que revienta después de descargar de
+    verdad cuesta un ticker entero, no microsegundos— y hasta este cambio el
+    texto de ese aborto decía «comprueba tu conexión» sobre un fallo que no
+    tiene nada que ver con la conexión.
+
+    Decidir por el último fallo manda al usuario al sitio equivocado en cuanto
+    la racha mezcla causas, y mezclarlas es fácil: `unknown` sale por empresa de
+    un `to_dataframe()` sobre un payload malformado, así que unos pocos tickers
     malos repartidos por el universo se entrelazan con los timeouts de una
     caída. Medido sobre la implementación anterior: nueve errores nuestros y un
     timeout final le decían al usuario que revisara una conexión que funciona, y
@@ -148,19 +171,30 @@ def _sin_fuente(racha: int, desconocidos: int, fallo: Fallo) -> str:
     )
 
 
-def _sin_respuesta(fallo: Fallo) -> str:
-    # Mismo cuidado que en _sin_fuente: el reloj también corre con 5xx, así que
-    # «no entregó datos» y no «no contestó».
-    #
-    # Y no dice «en una sola petición», que sería falso por construcción: el
+def _sin_fuente(racha: int, desconocidos: int, fallo: Fallo) -> str:
+    """Por qué se abortó por racha: la atribución de `_diagnostico`, tal cual.
+
+    `_diagnostico` ya empieza nombrando la racha («N empresas seguidas
+    fallaron…»), así que este tope no necesita una frase propia delante — a
+    diferencia de `_sin_respuesta`, que sí la necesita para decir que llegó
+    por tiempo y no por conteo.
+    """
+    return _diagnostico(racha, desconocidos, fallo)
+
+
+def _sin_respuesta(racha: int, desconocidos: int, fallo: Fallo) -> str:
+    """Por qué se abortó por tiempo: la misma atribución que `_sin_fuente`,
+    con una frase propia delante que dice cómo se llegó — por segundos, no
+    por conteo.
+    """
+    # No dice «en una sola petición», que sería falso por construcción: el
     # reloj arranca en el primer fallo contado con delta 0, así que el tope no
     # puede saltar antes del segundo. El tramo cubre siempre dos peticiones o
     # más, y puede cubrir cientos de lecturas de caché entre medias, porque los
     # aciertos de caché no tocan el reloj.
     return (
-        f"Pasaron {SIN_RESPUESTA_MAXIMO:.0f} segundos sin que la SEC entregara "
-        f"datos (el último fallo, {fallo.detalle}). Comprueba tu conexión y si "
-        "data.sec.gov responde."
+        f"Pasaron {SIN_RESPUESTA_MAXIMO:.0f} segundos sin que ningún intento "
+        "tuviera éxito. " + _diagnostico(racha, desconocidos, fallo)
     )
 
 
@@ -248,7 +282,8 @@ class Intento:
 
     `desde_cache` no es instrumentación: es lo que impide que un fichero leído
     de disco cuente como prueba de que la SEC responde. Sin ese dato, una caché
-    a medio poblar apagaría el cortacircuitos de `load_facts`.
+    a medio poblar apagaría los dos cortacircuitos de `load_facts` -- el de
+    racha y el de tiempo, que comparten el mismo reinicio.
     """
 
     facts: pd.DataFrame | None
@@ -326,10 +361,19 @@ def load_facts(
     Un ticker que falla se registra y se salta. Que fallen todos por la misma
     causa no es un ticker que falla: es que no hay fuente, y entonces levanta
     `CorridaAbortada` en vez de recorrer el universo entero para no devolver
-    nada. La racha se reinicia cuando la SEC entrega datos —un acierto de red o
-    un 404, que también exigió preguntar—, avanza cuando preguntamos y no los
-    entregó, y no se toca cuando no llegamos a preguntar: un acierto de caché o
-    un CIK que resuelve contra el parquet local.
+    nada.
+
+    Hay dos topes, no uno, porque «no hay fuente» tiene dos formas. Una racha
+    de `RACHA_MAXIMA` fallos seguidos cubre la SEC que contesta rápido y mal
+    -- rechazos, 5xx. Un tope de `SIN_RESPUESTA_MAXIMO` segundos sin ningún
+    éxito cubre la SEC que no contesta y por tanto no falla rápido: con un
+    read timeout de 30 s y los 5 intentos de stamina de edgartools, un solo
+    ticker colgado cuesta minutos, y la racha sola tardaría demasiado en
+    notarlo. Los dos comparten diagnóstico (`_diagnostico`) y el mismo
+    reinicio: se reinician cuando la SEC entrega datos —un acierto de red o
+    un 404, que también exigió preguntar—, avanzan cuando preguntamos y no los
+    entregó, y no se tocan cuando no llegamos a preguntar: un acierto de caché
+    o un CIK que resuelve contra el parquet local.
     """
     cache_dir = cache_dir or _DEFAULT_CACHE
     cobertura = CoverageReport(requested=list(tickers))
@@ -372,7 +416,12 @@ def load_facts(
             raise CorridaAbortada(
                 fallo.causa, _sin_fuente(racha, desconocidos, fallo), cobertura
             )
-        if ahora - sin_respuesta_desde >= SIN_RESPUESTA_MAXIMO:
-            raise CorridaAbortada(fallo.causa, _sin_respuesta(fallo), cobertura)
+        if (
+            racha >= SIN_RESPUESTA_RACHA_MINIMA
+            and ahora - sin_respuesta_desde >= SIN_RESPUESTA_MAXIMO
+        ):
+            raise CorridaAbortada(
+                fallo.causa, _sin_respuesta(racha, desconocidos, fallo), cobertura
+            )
 
     return hechos, cobertura
