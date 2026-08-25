@@ -418,3 +418,108 @@ def test_la_excepcion_dice_la_causa_y_cuanto_se_llego_a_bajar(cache_dir):
     assert "2 de 50" in mensaje
     assert "ConnectTimeout" in mensaje
     assert abortada.value.cobertura.included == ["T000", "T001"]
+
+
+def test_una_racha_de_solo_desconocidos_dice_que_es_un_fallo_del_programa(cache_dir):
+    """Diez KeyError seguidos no apuntan a la SEC: el mensaje debe decirlo.
+
+    KeyError no es ninguna de las excepciones que `clasificar` reconoce, asi
+    que cae en `unknown` -- el mismo camino que un `to_dataframe()` roto sobre
+    un payload malformado.
+    """
+    with patch(
+        "fundamentals.fetch._fetch_facts", side_effect=KeyError("valor inesperado")
+    ) as pedido:
+        with pytest.raises(CorridaAbortada) as abortada:
+            load_facts([f"T{i:03d}" for i in range(20)], cache_dir=cache_dir)
+    mensaje = str(abortada.value)
+    assert pedido.call_count == RACHA_MAXIMA
+    assert "fallo del propio programa" in mensaje
+    assert "no hay fuente" not in mensaje
+
+
+def test_una_racha_mezclada_distingue_cuantos_de_cada_causa(cache_dir):
+    """9 errores nuestros + 1 timeout de la SEC no pueden leerse igual que 10
+    de cualquiera de los dos por separado.
+
+    Los dos numeros salen distintos (9 y 1) a proposito: si el mensaje
+    intercambiara `desconocidos` por `racha - desconocidos`, este test lo
+    nota porque ninguna de las dos aserciones sobreviviria al canje.
+    """
+    def nueve_desconocidos_y_un_timeout(ticker):
+        if ticker == "T009":
+            raise httpx.ConnectTimeout("sin red")
+        raise KeyError("valor inesperado")
+
+    with patch(
+        "fundamentals.fetch._fetch_facts", side_effect=nueve_desconocidos_y_un_timeout
+    ):
+        with pytest.raises(CorridaAbortada) as abortada:
+            load_facts([f"T{i:03d}" for i in range(20)], cache_dir=cache_dir)
+    mensaje = str(abortada.value)
+    assert "9 con" in mensaje
+    assert "1 de la SEC" in mensaje
+
+
+def test_un_404_en_medio_reinicia_tambien_el_contador_de_desconocidos(cache_dir):
+    """El 404 ya reinicia `racha` (ver test_un_404_en_medio_reinicia_la_racha);
+    esto prueba que arrastra a `desconocidos` con ella.
+
+    Si no lo hiciera, los KeyError de antes del 404 seguirian contando en el
+    diagnostico final aunque la racha que realmente dispara el aborto sea de
+    puros timeouts, y el mensaje diria "mezclada" sobre una racha que no lo es.
+    """
+    def desconocidos_luego_sin_facts_luego_timeouts(ticker):
+        if ticker == "SINFACTS":
+            raise CompanyFactsNotFoundError(cik=1)
+        if ticker.startswith("K"):
+            raise KeyError("valor inesperado")
+        raise httpx.ConnectTimeout("sin red")
+
+    tickers = (
+        [f"K{i:03d}" for i in range(5)]
+        + ["SINFACTS"]
+        + [f"T{i:03d}" for i in range(20)]
+    )
+    with patch(
+        "fundamentals.fetch._fetch_facts",
+        side_effect=desconocidos_luego_sin_facts_luego_timeouts,
+    ):
+        with pytest.raises(CorridaAbortada) as abortada:
+            load_facts(tickers, cache_dir=cache_dir)
+    mensaje = str(abortada.value)
+    assert "no hay fuente" in mensaje
+    assert "mezcladas" not in mensaje
+
+
+def test_un_exito_de_red_en_medio_reinicia_tambien_el_contador_de_desconocidos(
+    cache_dir,
+):
+    """El otro sitio que reinicia `racha` -- un acierto de red real -- tiene
+    que arrastrar a `desconocidos` igual que el 404.
+
+    Un acierto de cache no cuenta aqui a proposito (ver
+    test_un_acierto_de_cache_no_reinicia_la_racha): este test usa una empresa
+    nueva, sin fichero previo, para forzar el camino de descarga real.
+    """
+    def desconocidos_luego_exito_luego_timeouts(ticker):
+        if ticker == "EXITOSO":
+            return _facts(ticker)
+        if ticker.startswith("K"):
+            raise KeyError("valor inesperado")
+        raise httpx.ConnectTimeout("sin red")
+
+    tickers = (
+        [f"K{i:03d}" for i in range(5)]
+        + ["EXITOSO"]
+        + [f"T{i:03d}" for i in range(20)]
+    )
+    with patch(
+        "fundamentals.fetch._fetch_facts",
+        side_effect=desconocidos_luego_exito_luego_timeouts,
+    ):
+        with pytest.raises(CorridaAbortada) as abortada:
+            load_facts(tickers, cache_dir=cache_dir)
+    mensaje = str(abortada.value)
+    assert "no hay fuente" in mensaje
+    assert "mezcladas" not in mensaje

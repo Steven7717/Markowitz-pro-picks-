@@ -101,9 +101,13 @@ def _sin_fuente(racha: int, desconocidos: int, fallo: Fallo) -> str:
 
     Con tres textos, el mensaje no afirma más de lo que la evidencia sostiene.
     """
-    # «el último» y no el detalle a secas: un «(ConnectTimeout)» pelado se lee
-    # como si caracterizara los diez fallos, y sólo caracteriza uno.
-    ultimo = f"el último, {fallo.detalle}"
+    # «el último fallo» y no el detalle a secas: un «(ConnectTimeout)» pelado se
+    # lee como si caracterizara los diez fallos, y sólo caracteriza uno. Lleva
+    # «fallo» explícito porque sin él el texto sólo funciona en la rama
+    # all-unknown («errores... el último») -- en la pura SEC el sustantivo más
+    # cercano es «datos» (leería «el último dato») y en la mixta es «la red»
+    # (leería «el último de la red» en vez de el último de los diez).
+    ultimo = f"el último fallo, {fallo.detalle}"
     if desconocidos == racha:
         return (
             f"{racha} empresas seguidas fallaron con errores que este programa "
@@ -120,12 +124,22 @@ def _sin_fuente(racha: int, desconocidos: int, fallo: Fallo) -> str:
             f"({ultimo}). No es que fallen esas empresas: es que no hay fuente. "
             "Comprueba tu conexión y si data.sec.gov responde."
         )
+    # La rama mixta no puede decir «sin entregar datos» de las dos partes: la
+    # mitad `unknown` es justo lo contrario, un to_dataframe() que falló sobre
+    # un cuerpo que la SEC sí entregó. Y termina diciendo qué hacer, no que el
+    # programa no puede decidir: comprobar la conexión es gratis e instantáneo,
+    # así que va primero; culpar al programa sólo se justifica una vez que esa
+    # comprobación sale limpia.
+    sin_interpretar = (
+        "un error que este programa no sabe interpretar"
+        if desconocidos == 1
+        else "errores que este programa no sabe interpretar"
+    )
     return (
-        f"{racha} empresas seguidas fallaron sin entregar datos, por causas "
-        f"mezcladas: {desconocidos} con errores que este programa no sabe "
-        f"interpretar y {racha - desconocidos} de la SEC o de la red ({ultimo}). "
-        "Puede ser la fuente o puede ser el programa, así que la corrida se para "
-        "aquí en vez de repetirlo 503 veces."
+        f"{racha} empresas seguidas fallaron por causas mezcladas: "
+        f"{desconocidos} con {sin_interpretar} y {racha - desconocidos} de la "
+        f"SEC o de la red ({ultimo}). Comprueba primero tu conexión y si "
+        "data.sec.gov responde; si van bien, es un fallo del propio programa."
     )
 
 
