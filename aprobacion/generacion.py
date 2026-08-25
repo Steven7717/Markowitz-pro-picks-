@@ -33,8 +33,11 @@ class Disponibilidad:
         the fundamentals in the first place. Without it there is nothing to
         download and nothing to rank, AI or not — a previous version of this
         docstring said the opposite, and that is what let "Sin IA" ship as an
-        option that actually spends ~25 minutes retrying 503 tickers before
-        failing outright (see `fundamentals/fetch.py:_load_one`).
+        option that actually aborts on the very first ticker: a rejected
+        identity is `systemic` (`fundamentals/fallos.py:clasificar`), so
+        `load_facts` raises `CorridaAbortada` with the cause instead of working
+        through all 503 tickers to reach the same conclusion (see
+        `fundamentals/fetch.py:_load_one`).
         """
         return self.hay_identidad
 

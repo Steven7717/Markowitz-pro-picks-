@@ -79,8 +79,8 @@ def test_el_tope_se_aplica_sobre_la_cache_sin_redescargar(cache):
 def test_sin_seccion_devuelve_none_y_no_lo_cachea(cache):
     """Una ausencia de hoy puede dejar de serlo mañana (la empresa presenta su
     10-K), así que no se cachea: se reintenta la descarga en cada corrida,
-    igual que fundamentals/fetch.py:_load_one hace con unresolved_cik y
-    failed_download.
+    igual que fundamentals/fetch.py:_load_one hace con unresolved_cik, no_facts
+    y failed_download.
     """
     with patch("ranking.filings._descargar", return_value=None) as descarga:
         primera = cargar_riesgos("XYZ", cache_dir=cache)

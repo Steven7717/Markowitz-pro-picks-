@@ -76,8 +76,11 @@ def construir_ranking(
 ) -> Resultado:
     """Panel in, ranked candidates out.
 
-    A company that fails at any stage is recorded and skipped, never aborting
-    the run — the same policy fundamentals already applies to downloads.
+    A company that fails at any stage is recorded and skipped — the same policy
+    fundamentals applies to downloads. The one thing that does abort is
+    `CorridaAbortada` from `fundamentals.fetch`, which is not a company failing
+    but the source being gone; it is left to propagate on purpose, so the caller
+    can say why instead of showing an empty ranking.
     """
     panel, metadatos, cobertura = build_panel(source, con_zscore=True)
     sectores = metadatos["sector_gics"]

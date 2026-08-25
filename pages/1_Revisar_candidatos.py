@@ -41,14 +41,24 @@ if "anadidos" not in st.session_state:
 
 def _generar(con_ia: bool) -> None:
     """Run sub-project B and overwrite salidas/, then reload the page."""
+    from fundamentals.fetch import CorridaAbortada
     from ranking.run import construir_ranking, guardar
 
-    with st.spinner(
-        "Generando candidatos"
-        + (" y redactando fichas con IA" if con_ia else " sin IA")
-        + "… puede tardar unos minutos. No cierres ni recargues."
-    ):
-        guardar(construir_ranking(con_llm=con_ia), "salidas")
+    try:
+        with st.spinner(
+            "Generando candidatos"
+            + (" y redactando fichas con IA" if con_ia else " sin IA")
+            + "… puede tardar unos minutos. No cierres ni recargues."
+        ):
+            guardar(construir_ranking(con_llm=con_ia), "salidas")
+    except CorridaAbortada as error:
+        # Ni se limpia el estado ni se recarga: no se llegó a sobrescribir
+        # salidas/, así que lo que el revisor tenga marcado sigue apuntando a la
+        # lista que está viendo. Borrarlo aquí sería el defecto que arregló
+        # cbe71a0, y encima castigaría al usuario por un fallo que no es suyo.
+        st.error(str(error))
+        return
+
     # Lo marcado antes se refiere a una lista que acaba de dejar de existir.
     for clave in [c for c in st.session_state if c.startswith("ok_")]:
         del st.session_state[clave]

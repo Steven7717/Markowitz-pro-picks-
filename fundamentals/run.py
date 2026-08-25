@@ -82,7 +82,10 @@ def build_panel(
       - metadatos: indexed by ticker, carrying sector_gics
       - cobertura: every exclusion, counted and attributed
 
-    A company that fails is recorded and skipped; it never aborts the run.
+    A company that fails is recorded and skipped. All of them failing for the
+    same cause is not a company failing: it means there is no source, and
+    `load_facts` raises `CorridaAbortada` rather than walking the whole universe
+    to return nothing.
     """
     tickers = resolve(source)
     hechos, cobertura = load_facts(tickers, cache_dir=cache_dir, refresh=refresh)
