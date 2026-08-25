@@ -1,7 +1,10 @@
 # Cortacircuitos de descarga — distinguir el ticker que falla de la fuente que no está
 
 **Fecha:** 2026-08-24
-**Estado:** diseño aprobado, sin implementar
+**Estado:** implementado y en la rama `claude/friendly-albattani-1f4065`
+(commits `f1d57fc`..`HEAD`). Este documento se corrigió varias veces durante
+la implementación, cuando las revisiones encontraron que afirmaba cosas
+falsas sobre la librería; lo que dice ahora es lo que se construyó.
 
 ## Qué entrega
 
@@ -129,7 +132,7 @@ Nota de nombres: `IdentityNotSetException` (el nombre viejo, en
 | Dónde vive la taxonomía | Módulo nuevo `fundamentals/fallos.py` | Es una tabla de decisiones sin red ni pandas, se prueba renglón por renglón; `fetch.py` ya carga con identidad, descarga, caché y cobertura |
 | Nuestro `max_retries` | Se quita | Dos capas de reintento con políticas distintas es lo que causó esto, y la de abajo está mejor informada: sabe qué NO reintentar |
 | Disparador del cortacircuitos | Racha de N seguidos, en cualquier punto de la corrida | Que la SEC se caiga en el ticker 300 produce el mismo resultado inútil que caerse en el primero; «los N primeros» no lo ve |
-| N | 10 | 2 % del universo. Un falso positivo exigiría diez empresas seguidas rotas mientras la SEC va bien |
+| N | 10 | «Seguidas» se cuenta entre los tickers que tocan la red, no entre las posiciones del universo: un acierto de caché no rompe la racha. Lo que topa esta constante no es el 2 % del índice sino el número de empresas permanentemente rotas que haya en él — ver la nota de abajo |
 | Tope de tiempo | ~180 s sin datos, y al menos 3 fallos seguidos | Un conteo solo no acota el caso «SEC colgada»: a 2,7 min por ticker, N=10 son 27 minutos y no hemos arreglado nada. La racha mínima sale de la revisión: ver abajo |
 | Que un acierto de caché reinicie el reloj | Descartado | Sería más limpio pero rompe el caso que motiva el tope: con la caché medio poblada —fallo, fallo, acierto, fallo, fallo— nunca se acumulan 180 s seguidos, y la corrida cae al tope de racha, o sea a los 27 minutos |
 | El diagnóstico de los dos topes | Una sola función, `_diagnostico` | Los dos mensajes difieren en cómo se llegó, no en la causa. Duplicados, arreglar uno dejó al otro mintiendo — pasó, y por eso están juntos |
@@ -300,6 +303,39 @@ muestras a tres, no eliminó la clase. Un fallo justo antes de un bloque contigu
 de caché largo, seguido de dos fallos más, aborta igual. Arreglarlo del todo
 exige cobrar sólo el tiempo dentro de la petición, lo que obliga a instrumentar
 `_load_one` — otro trabajo.
+
+### La caché caliente encoge lo que significa «seguidas» — pendiente de decidir
+
+Esto lo encontró la revisión final y **no está resuelto**, sólo documentado.
+
+Un acierto de caché no rompe la racha, y eso es correcto: no prueba que la SEC
+responda. Pero tiene una consecuencia que ninguna de las tres justificaciones de
+`RACHA_MAXIMA` contemplaba. Con la caché caliente, los únicos tickers que tocan
+la red son los que aún fallan, así que unos pocos fallos permanentes repartidos
+por el índice quedan adyacentes **entre sí**.
+
+Medido: 11 tickers con el payload roto, uno cada 50 posiciones, con la SEC sana.
+
+| Corrida | Resultado |
+|---|---|
+| Primera, caché fría | 492 incluidas, 11 fallos, sin abortar |
+| Segunda, con esas 492 en caché | **aborta a la décima petición**, diciendo que el fallo es del programa |
+
+O sea que una corrida sana aborta en la segunda pasada, y encima pierde las que
+quedaban en disco pasado el punto de aborto. Es una regresión respecto al
+comportamiento anterior para un caso en el que la SEC no tiene nada que ver.
+
+Hoy no dispara: `salidas/corrida.json` da `n_panel` 502 de 503, o sea ~1 empresa
+permanentemente rota contra un umbral de 10. El margen es real pero es de uno
+contra diez, no el que sugería «2 % del universo».
+
+La pregunta que hay que decidir, y que no se decide aquí porque es de producto y
+no de implementación: **¿debe abortar una corrida que tiene 441 empresas en la
+mano?** El propio mensaje de esa rama dice «no apunta a la SEC ni a tu
+conexión», que es justamente el caso en el que seguir tendría sentido. Las
+salidas plausibles son un suelo proporcional —que este diseño declaró fuera de
+alcance—, no contar `unknown` en la racha, o dejarlo como está y subir el umbral
+cuando el número de empresas rotas se acerque.
 
 ### `CorridaAbortada`
 

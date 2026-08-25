@@ -10,6 +10,12 @@
 
 **Diseño:** `docs/superpowers/specs/2026-08-24-cortacircuitos-descarga-design.md`
 
+**Estado:** ejecutado. Las siete tareas están implementadas, revisadas y
+commiteadas. Varios bloques de este plan se corrigieron sobre la marcha —
+predicciones de qué fallaría y por qué que resultaron falsas al medirlas, y
+una firma que habría borrado un contador. Lo que queda escrito es lo que se
+construyó, no lo que se planeó.
+
 ---
 
 ## Antes de empezar
@@ -63,7 +69,7 @@ para y avisa antes de seguir.
 El módulo no inventa taxonomía: la pone `edgar.exceptions`. Aquí sólo se traduce
 a las tres preguntas que `load_facts` necesita responder.
 
-- [ ] **Step 1: Escribir el fichero de tests completo**
+- [x] **Step 1: Escribir el fichero de tests completo**
 
 Crea `tests/test_fundamentals_fallos.py`:
 
@@ -206,7 +212,7 @@ def test_las_tres_preguntas_que_gobiernan_el_cortacircuitos(
     assert fallo.cuenta_racha is cuenta_racha
 ```
 
-- [ ] **Step 2: Correr los tests para verificar que fallan**
+- [x] **Step 2: Correr los tests para verificar que fallan**
 
 ```bash
 uv run pytest tests/test_fundamentals_fallos.py -q
@@ -214,7 +220,7 @@ uv run pytest tests/test_fundamentals_fallos.py -q
 
 Esperado: FAIL con `ModuleNotFoundError: No module named 'fundamentals.fallos'`.
 
-- [ ] **Step 3: Escribir el módulo**
+- [x] **Step 3: Escribir el módulo**
 
 Crea `fundamentals/fallos.py`:
 
@@ -352,7 +358,7 @@ def clasificar(exc: BaseException) -> Fallo:
     return Fallo(UNKNOWN, detalle)
 ```
 
-- [ ] **Step 4: Correr los tests para verificar que pasan**
+- [x] **Step 4: Correr los tests para verificar que pasan**
 
 ```bash
 uv run pytest tests/test_fundamentals_fallos.py -q
@@ -360,7 +366,7 @@ uv run pytest tests/test_fundamentals_fallos.py -q
 
 Esperado: `20 passed` (15 tests sueltos + los 5 casos de la parametrizada).
 
-- [ ] **Step 5: Correr la suite entera para verificar que no se rompió nada**
+- [x] **Step 5: Correr la suite entera para verificar que no se rompió nada**
 
 ```bash
 uv run pytest tests/ -q -m "not red"
@@ -368,7 +374,7 @@ uv run pytest tests/ -q -m "not red"
 
 Esperado: todo pasa, con los tests nuevos sumados a la cuenta.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add fundamentals/fallos.py tests/test_fundamentals_fallos.py && git commit -m "feat: clasificar los fallos de descarga por su tipo"
@@ -385,7 +391,7 @@ git add fundamentals/fallos.py tests/test_fundamentals_fallos.py && git commit -
 Hoy una empresa sin *company facts* se cuenta como fallo de descarga. Es una
 casilla nueva, aditiva, sin nada que la llene todavía — la llena el Task 3.
 
-- [ ] **Step 1: Escribir el test que falla**
+- [x] **Step 1: Escribir el test que falla**
 
 Añade al final de `tests/test_fundamentals_fetch.py`:
 
@@ -396,7 +402,7 @@ def test_el_resumen_cuenta_las_empresas_sin_hechos_aparte(cache_dir):
     assert "sin hechos: 1" in cobertura.summary()
 ```
 
-- [ ] **Step 2: Correr el test para verificar que falla**
+- [x] **Step 2: Correr el test para verificar que falla**
 
 ```bash
 uv run pytest tests/test_fundamentals_fetch.py::test_el_resumen_cuenta_las_empresas_sin_hechos_aparte -q
@@ -404,7 +410,7 @@ uv run pytest tests/test_fundamentals_fetch.py::test_el_resumen_cuenta_las_empre
 
 Esperado: FAIL con `TypeError: CoverageReport.__init__() got an unexpected keyword argument 'no_facts'`.
 
-- [ ] **Step 3: Añadir el campo y su renglón**
+- [x] **Step 3: Añadir el campo y su renglón**
 
 En `fundamentals/fetch.py`, dentro de `class CoverageReport`, añade el campo
 justo debajo de `unresolved_cik`:
@@ -447,7 +453,7 @@ Actualiza también el docstring de la clase, que enumera el criterio:
     """
 ```
 
-- [ ] **Step 4: Correr los tests para verificar que pasan**
+- [x] **Step 4: Correr los tests para verificar que pasan**
 
 ```bash
 uv run pytest tests/test_fundamentals_fetch.py -q
@@ -455,7 +461,7 @@ uv run pytest tests/test_fundamentals_fetch.py -q
 
 Esperado: `12 passed`.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add fundamentals/fetch.py tests/test_fundamentals_fetch.py && git commit -m "feat: casilla propia para la empresa sin company facts"
@@ -473,7 +479,7 @@ Dos defectos en una función de diez líneas: un `except Exception` que conviert
 cualquier cosa rota en «sin CIK», y un `.to_dataframe()` sobre lo que puede ser
 `None`.
 
-- [ ] **Step 1: Escribir los tests que fallan**
+- [x] **Step 1: Escribir los tests que fallan**
 
 Añade a `tests/test_fundamentals_fetch.py`. Los imports nuevos van arriba del
 fichero, junto a los que ya hay:
@@ -551,7 +557,7 @@ def test_el_camino_feliz_devuelve_la_tabla_larga():
         assert len(_fetch_facts("AAA")) == 12
 ```
 
-- [ ] **Step 2: Correr los tests para verificar que fallan**
+- [x] **Step 2: Correr los tests para verificar que fallan**
 
 ```bash
 uv run pytest tests/test_fundamentals_fetch.py -q -k "sin_cik or cuerpo_vacio or sin_facts_deja_pasar or camino_feliz"
@@ -590,7 +596,7 @@ Vale la pena tenerlo escrito porque la primera versión de este plan predecía
 predicciones eran falsas: estaban razonadas sobre el camino de llamada de la
 implementación *nueva* con la *vieja* todavía puesta.
 
-- [ ] **Step 3: Reescribir `_fetch_facts`**
+- [x] **Step 3: Reescribir `_fetch_facts`**
 
 Sustituye la función entera en `fundamentals/fetch.py`:
 
@@ -634,7 +640,7 @@ Dos cosas desaparecen. El guardia `if company is None` era código muerto:
 se sintetiza `CompanyFactsNotFoundError`: la levanta la librería, que es quien
 sabe si hubo un 404 de verdad.
 
-- [ ] **Step 4: Correr los tests para verificar que pasan**
+- [x] **Step 4: Correr los tests para verificar que pasan**
 
 ```bash
 uv run pytest tests/test_fundamentals_fetch.py -q
@@ -646,7 +652,7 @@ verde, incluidos los tests viejos: cada uno de ellos parchea
 afecta. Los que sí cambian de comportamiento —los que dependen de
 `max_retries`— los reescribe el Task 4.
 
-- [ ] **Step 5: Correr la suite entera**
+- [x] **Step 5: Correr la suite entera**
 
 ```bash
 uv run pytest tests/ -q -m "not red"
@@ -654,7 +660,7 @@ uv run pytest tests/ -q -m "not red"
 
 Esperado: todo pasa.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add fundamentals/fetch.py tests/test_fundamentals_fetch.py && git commit -m "fix: que _fetch_facts no disfrace un corte de red de ticker inexistente"
@@ -671,7 +677,7 @@ git add fundamentals/fetch.py tests/test_fundamentals_fetch.py && git commit -m 
 Aquí desaparecen `max_retries` y sus `time.sleep`, que son los que ponían los
 25 minutos. Todavía **sin** cortacircuitos: eso es el Task 5.
 
-- [ ] **Step 1: Adaptar los dos tests que usan `max_retries`**
+- [x] **Step 1: Adaptar los dos tests que usan `max_retries`**
 
 En `tests/test_fundamentals_fetch.py`, sustituye
 `test_an_unresolvable_ticker_is_reported_separately_from_a_network_failure`
@@ -735,7 +741,7 @@ def test_una_empresa_sin_facts_va_a_su_casilla_y_no_a_la_de_descarga(cache_dir):
     assert cobertura.failed_download == []
 ```
 
-- [ ] **Step 2: Correr los tests para verificar que fallan**
+- [x] **Step 2: Correr los tests para verificar que fallan**
 
 ```bash
 uv run pytest tests/test_fundamentals_fetch.py -q -k "no_se_duerme or sin_facts_va_a_su_casilla"
@@ -759,7 +765,7 @@ que comprobada después se clasifica como «sin CIK»— y `_load_one` es el «d
 Ningún test lo cubre entre el Task 3 y el Task 4, y la suite está verde en ese
 hueco.
 
-- [ ] **Step 3: Añadir `Intento` y reescribir `_load_one`**
+- [x] **Step 3: Añadir `Intento` y reescribir `_load_one`**
 
 En `fundamentals/fetch.py`, añade el import arriba del fichero:
 
@@ -830,7 +836,7 @@ def _load_one(ticker: str, cache_dir: Path, refresh: bool) -> Intento:
     return Intento(frame, None)
 ```
 
-- [ ] **Step 4: Adaptar `load_facts` al nuevo `_load_one`**
+- [x] **Step 4: Adaptar `load_facts` al nuevo `_load_one`**
 
 Añade la función auxiliar justo encima de `load_facts`:
 
@@ -872,7 +878,7 @@ def load_facts(
     return hechos, cobertura
 ```
 
-- [ ] **Step 5: Correr la suite entera**
+- [x] **Step 5: Correr la suite entera**
 
 ```bash
 uv run pytest tests/ -q -m "not red"
@@ -882,7 +888,7 @@ Esperado: todo pasa. Si falla `tests/test_fundamentals_run.py`, revisa que no
 hayas cambiado la firma de retorno de `load_facts` — sigue devolviendo la misma
 tupla `(hechos, cobertura)`.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add fundamentals/fetch.py tests/test_fundamentals_fetch.py && git commit -m "refactor: un intento por ticker, y el fallo clasificado"
@@ -896,7 +902,7 @@ git add fundamentals/fetch.py tests/test_fundamentals_fetch.py && git commit -m 
 - Modify: `fundamentals/fetch.py` (`CorridaAbortada`, `load_facts`)
 - Test: `tests/test_fundamentals_fetch.py`
 
-- [ ] **Step 1: Escribir los tests que fallan**
+- [x] **Step 1: Escribir los tests que fallan**
 
 Primero, deja la cabecera de imports de `tests/test_fundamentals_fetch.py` así —
 es la definitiva, ya incluye lo que necesita el Task 6:
@@ -1048,7 +1054,7 @@ def test_la_excepcion_dice_la_causa_y_cuanto_se_llego_a_bajar(cache_dir):
     assert abortada.value.cobertura.included == ["T000", "T001"]
 ```
 
-- [ ] **Step 2: Correr los tests para verificar que fallan**
+- [x] **Step 2: Correr los tests para verificar que fallan**
 
 ```bash
 uv run pytest tests/test_fundamentals_fetch.py -q -k "aborta or racha or 429 or excepcion_dice"
@@ -1062,7 +1068,7 @@ nombre que no existe siguiendo el orden de la tupla, y ahí `RACHA_MAXIMA` va
 antes. Y es `ImportError`, no `NameError`: el fallo ocurre al importar, no al
 usar. Medido.
 
-- [ ] **Step 3: Añadir `CorridaAbortada` y las constantes**
+- [x] **Step 3: Añadir `CorridaAbortada` y las constantes**
 
 Primero, amplía el import de `fundamentals.fallos` que dejó el Task 4 para que
 incluya `UNKNOWN`, que necesita `_sin_fuente`:
@@ -1175,7 +1181,7 @@ def _sin_fuente(racha: int, desconocidos: int, fallo: Fallo) -> str:
     )
 ```
 
-- [ ] **Step 4: Añadir el cortacircuitos a `load_facts`**
+- [x] **Step 4: Añadir el cortacircuitos a `load_facts`**
 
 Sustituye el bucle de `load_facts` por:
 
@@ -1238,7 +1244,7 @@ Y amplía el docstring de `load_facts` con el invariante nuevo:
     """
 ```
 
-- [ ] **Step 5: Correr la suite entera**
+- [x] **Step 5: Correr la suite entera**
 
 ```bash
 uv run pytest tests/ -q -m "not red"
@@ -1246,7 +1252,7 @@ uv run pytest tests/ -q -m "not red"
 
 Esperado: todo pasa.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add fundamentals/fetch.py tests/test_fundamentals_fetch.py && git commit -m "feat: abortar cuando fallan diez seguidos sin respuesta de la SEC"
@@ -1263,7 +1269,7 @@ git add fundamentals/fetch.py tests/test_fundamentals_fetch.py && git commit -m 
 La racha sola no acota el caso «SEC colgada»: con un read timeout de 30 s y 5
 intentos de stamina, cada ticker cuesta ~2,7 min, y diez son 27 minutos.
 
-- [ ] **Step 1: Escribir los tests que fallan**
+- [x] **Step 1: Escribir los tests que fallan**
 
 Añade `SIN_RESPUESTA_MAXIMO` al import de `fundamentals.fetch` que dejaste
 preparado en el Task 5, y los tests al final del fichero:
@@ -1312,7 +1318,7 @@ def test_un_exito_de_red_reinicia_el_reloj(cache_dir):
             load_facts([f"T{i:03d}" for i in range(20)], cache_dir=cache_dir)
 ```
 
-- [ ] **Step 2: Correr los tests para verificar que fallan**
+- [x] **Step 2: Correr los tests para verificar que fallan**
 
 ```bash
 uv run pytest tests/test_fundamentals_fetch.py -q -k "tope_de_tiempo or desde_cache_no_aborta or reinicia_el_reloj"
@@ -1320,7 +1326,7 @@ uv run pytest tests/test_fundamentals_fetch.py -q -k "tope_de_tiempo or desde_ca
 
 Esperado: FAIL con `NameError: name 'SIN_RESPUESTA_MAXIMO' is not defined`.
 
-- [ ] **Step 3: Añadir la constante y el mensaje**
+- [x] **Step 3: Añadir la constante y el mensaje**
 
 Junto a `RACHA_MAXIMA` en `fundamentals/fetch.py`:
 
@@ -1364,7 +1370,7 @@ def _sin_respuesta(racha: int, desconocidos: int, fallo: Fallo) -> str:
     )
 ```
 
-- [ ] **Step 4: Añadir el reloj a `load_facts`**
+- [x] **Step 4: Añadir el reloj a `load_facts`**
 
 **Cuidado con esto:** el bucle ya lleva un contador `desconocidos` en paralelo a
 `racha`, que se declara y se reinicia con ella en los mismos tres sitios. Los
@@ -1431,7 +1437,7 @@ que un `grep "time\."` da dos aciertos y uno es correcto. Lo que fija que no se
 duerme es `test_no_se_duerme_entre_tickers`, y sobrevive a que alguien
 reintroduzca la espera con otro nombre.
 
-- [ ] **Step 5: Correr la suite entera**
+- [x] **Step 5: Correr la suite entera**
 
 ```bash
 uv run pytest tests/ -q -m "not red"
@@ -1439,7 +1445,7 @@ uv run pytest tests/ -q -m "not red"
 
 Esperado: todo pasa.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add fundamentals/fetch.py tests/test_fundamentals_fetch.py && git commit -m "feat: tope de tiempo para la SEC que no cuelga la llamada pero no contesta"
@@ -1464,7 +1470,7 @@ git add fundamentals/fetch.py tests/test_fundamentals_fetch.py && git commit -m 
 Ningún test cubre esta tarea: la página es Streamlit y no se prueba, y los otros
 tres cambios son docstrings. Es la razón por la que va al final y sola.
 
-- [ ] **Step 1: Que `_generar` atrape y pinte**
+- [x] **Step 1: Que `_generar` atrape y pinte**
 
 En `pages/1_Revisar_candidatos.py`, sustituye la función `_generar` entera:
 
@@ -1496,7 +1502,7 @@ def _generar(con_ia: bool) -> None:
     st.rerun()
 ```
 
-- [ ] **Step 2: Enmendar el docstring de `build_panel`**
+- [x] **Step 2: Enmendar el docstring de `build_panel`**
 
 En `fundamentals/run.py`, sustituye la última línea del docstring de
 `build_panel` — hoy dice:
@@ -1514,7 +1520,7 @@ por:
     to return nothing.
 ```
 
-- [ ] **Step 3: Enmendar el docstring de `construir_ranking`**
+- [x] **Step 3: Enmendar el docstring de `construir_ranking`**
 
 En `ranking/run.py`, sustituye:
 
@@ -1539,7 +1545,7 @@ por:
     """
 ```
 
-- [ ] **Step 4: Enmendar el docstring de `cargar_riesgos`**
+- [x] **Step 4: Enmendar el docstring de `cargar_riesgos`**
 
 En `ranking/filings.py`, dentro del docstring de `cargar_riesgos`, sustituye:
 
@@ -1557,7 +1563,7 @@ por:
     results are written to disk.
 ```
 
-- [ ] **Step 5: Comprobar que la página importa sin errores**
+- [x] **Step 5: Comprobar que la página importa sin errores**
 
 ```bash
 uv run python -c "import ast, pathlib; ast.parse(pathlib.Path('pages/1_Revisar_candidatos.py').read_text(encoding='utf-8')); print('sintaxis ok')"
@@ -1571,7 +1577,7 @@ uv run python -c "from fundamentals.fetch import CorridaAbortada; print(CorridaA
 
 Esperado: `(<class 'fundamentals.fetch.CorridaAbortada'>, <class 'RuntimeError'>)`.
 
-- [ ] **Step 6: Correr la suite entera**
+- [x] **Step 6: Correr la suite entera**
 
 ```bash
 uv run pytest tests/ -q -m "not red"
@@ -1579,7 +1585,7 @@ uv run pytest tests/ -q -m "not red"
 
 Esperado: todo pasa.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add pages/1_Revisar_candidatos.py fundamentals/run.py ranking/run.py ranking/filings.py && git commit -m "feat: decir por que se aborto, en vez de dejar la pagina en blanco"
@@ -1589,7 +1595,7 @@ git add pages/1_Revisar_candidatos.py fundamentals/run.py ranking/run.py ranking
 
 ## Verificación final
 
-- [ ] **Suite completa, sin red**
+- [x] **Suite completa, sin red**
 
 ```bash
 uv run pytest tests/ -q -m "not red"
@@ -1598,7 +1604,7 @@ uv run pytest tests/ -q -m "not red"
 Esperado: el total de la línea base (618 según `CONTEXTO.md`, más los tests
 nuevos), 0 fallos, 2 omitidos en Windows.
 
-- [ ] **Que no quede ni un `sleep` ni un `max_retries` en el módulo**
+- [x] **Que no quede ni un `sleep` ni un `max_retries` en el módulo**
 
 Un `grep` no sirve aquí: el docstring de `_load_one` menciona los dos a
 propósito, explicando qué se quitó y por qué, y esa línea tiene que quedarse.
@@ -1614,7 +1620,7 @@ Que no se duerma ya lo fija `test_no_se_duerme_entre_tickers`, que es mejor
 guarda que un `grep`: sobrevive a que alguien reintroduzca la espera con otro
 nombre.
 
-- [ ] **Que `research/loader.py` siga con el suyo intacto** (era otro módulo, fuera de alcance)
+- [x] **Que `research/loader.py` siga con el suyo intacto** (era otro módulo, fuera de alcance)
 
 ```bash
 grep -c "max_retries" research/loader.py
@@ -1623,7 +1629,7 @@ grep -c "max_retries" research/loader.py
 Esperado: `5` (líneas 60, 71, 75, 94 y 108). Medido, no contado a ojo — la
 primera versión de este plan decía 4.
 
-- [ ] **Actualizar `CONTEXTO.md`** con el número de tests nuevo y una línea sobre
+- [x] **Actualizar `CONTEXTO.md`** con el número de tests nuevo y una línea sobre
   el cortacircuitos, en la sección que corresponda.
 
 ---

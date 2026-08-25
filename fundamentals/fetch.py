@@ -19,8 +19,20 @@ _DEFAULT_CACHE = Path(__file__).parent / ".cache"
 PERIODOS = 12
 MIN_TRIMESTRES = 5
 
-# 2 % del universo. Un falso positivo exigiría diez empresas seguidas rotas
-# mientras la SEC va bien, que no es un escenario real.
+# Diez fallos seguidos, pero «seguidos» no quiere decir seguidos en el universo:
+# quiere decir seguidos entre los tickers que llegaron a tocar la red. Un acierto
+# de caché no reinicia la racha —ver el invariante en `load_facts`— así que con
+# la caché caliente el conjunto se encoge a los tickers que aún fallan, y unos
+# fallos permanentes repartidos por el índice quedan adyacentes entre sí.
+#
+# Medido: 11 tickers con el payload roto, uno cada 50 posiciones, con la SEC
+# sana. Primera corrida, 492 incluidas. Segunda, con los 492 en caché, aborta a
+# la décima petición diciendo que no hay fuente. O sea que lo que de verdad topa
+# esta constante no es el 2 % del universo: es el número de empresas
+# permanentemente rotas que haya en él. Hoy es ~1 (`salidas/corrida.json` da
+# n_panel 502 de 503), así que el margen es de uno contra diez — real, pero no
+# el que sugería el comentario anterior, que hablaba de un escenario
+# «no real».
 RACHA_MAXIMA = 10
 
 # Un conteo solo no acota el caso «SEC colgada»: con un read timeout de 30 s y
@@ -100,9 +112,21 @@ class CorridaAbortada(RuntimeError):
         # empresas salieron de disco sin una sola petición. Este módulo se apoya
         # en que un acierto de caché no prueba que la SEC responda; llamarlos
         # descargas en el mensaje de aborto lo contradiría.
+        #
+        # Y se dice que lo reunido se guarda. Varios de estos mensajes acaban
+        # pidiéndole al usuario que reintente, y lo que le hace no reintentar no
+        # es no saber la causa: es acordarse de que la última vez esto tardó 25
+        # minutos. Decirle que las que ya están no se vuelven a bajar es la mitad
+        # del arreglo, y sin ella sólo se entrega el mecanismo.
+        reunidas = len(cobertura.included)
         super().__init__(
             f"{explicacion} Se abortó tras reunir "
-            f"{len(cobertura.included)} de {len(cobertura.requested)} empresas."
+            f"{reunidas} de {len(cobertura.requested)} empresas"
+            + (
+                f"; esas {reunidas} quedan en caché y no se vuelven a bajar."
+                if reunidas
+                else "."
+            )
         )
 
 
@@ -252,8 +276,10 @@ def _fetch_facts(ticker: str) -> pd.DataFrame:
         # fuente está viva y la racha avanza igualmente. Se acepta porque no se
         # pueden distinguir desde fuera y porque el error cae del lado seguro:
         # abortar de más, nunca seguir con datos malos. Diez tickers seguidos así
-        # abortarían una corrida sana, que es improbable en un universo de 503 y
-        # visible cuando pase.
+        # abortan una corrida sana, y «seguidos» se cuenta entre los que tocan la
+        # red: con la caché caliente eso son sólo los que aún fallan, así que el
+        # margen real es el número de empresas permanentemente rotas del universo,
+        # no su tamaño. Ver el comentario de RACHA_MAXIMA, que lo trae medido.
         raise TransportError(f"la SEC no devolvió hechos usables para {ticker}")
     return facts.to_dataframe()
 
