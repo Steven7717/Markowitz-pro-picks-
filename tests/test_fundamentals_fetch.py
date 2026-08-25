@@ -1,10 +1,12 @@
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
+import httpx
 import pandas as pd
 import pytest
+from edgar.exceptions import CompanyFactsNotFoundError, CompanyNotFoundError
 
-from fundamentals.fetch import CoverageReport, _cache_path, load_facts
+from fundamentals.fetch import CoverageReport, _cache_path, _fetch_facts, load_facts
 
 
 def _facts(ticker: str, n: int = 12) -> pd.DataFrame:
@@ -160,3 +162,64 @@ def test_el_resumen_cuenta_las_empresas_sin_hechos_aparte(cache_dir):
     """Una empresa que existe y no tiene facts no es una caida de red."""
     cobertura = CoverageReport(requested=["AAA"], no_facts=["AAA"])
     assert "sin hechos: 1" in cobertura.summary()
+
+
+def test_un_ticker_sin_cik_deja_pasar_la_excepcion_de_la_libreria():
+    """Envolverla en LookupError solo perdia informacion: clasificar ya la lee."""
+    with patch("edgar.Company", side_effect=CompanyNotFoundError("AAA")):
+        with pytest.raises(CompanyNotFoundError):
+            _fetch_facts("AAA")
+
+
+def test_una_caida_de_red_al_resolver_el_cik_no_se_disfraza_de_sin_cik():
+    """Lo que hacia el `except Exception` que habia aqui: un corte de red
+    acababa contado como 'este ticker no existe'."""
+    with patch("edgar.Company", side_effect=httpx.ConnectTimeout("sin red")):
+        with pytest.raises(httpx.ConnectTimeout):
+            _fetch_facts("AAA")
+
+
+def test_una_empresa_sin_facts_deja_pasar_el_404_de_la_libreria():
+    """get_company_facts la levanta sola; no hay que sintetizarla."""
+    with patch("edgar.Company", return_value=Mock(cik=320193)), patch(
+        "edgar.get_company_facts", side_effect=CompanyFactsNotFoundError(cik=320193)
+    ):
+        with pytest.raises(CompanyFactsNotFoundError):
+            _fetch_facts("AAA")
+
+
+def test_un_cuerpo_vacio_no_se_confunde_con_una_empresa_sin_hechos():
+    """El defecto que habria desarmado el cortacircuitos entero.
+
+    ESTE TEST SOSTIENE LA CORRECCION DE fallos.fuente_viva, no es incidental.
+    Esa propiedad solo es cierta porque _fetch_facts pasa por
+    get_company_facts; ningun test de test_fundamentals_fallos.py puede
+    protegerlo, porque el acoplamiento cruza el borde entre los dos modulos.
+    Si alguien devuelve _fetch_facts a Entity.get_facts(), este es el unico
+    sitio donde salta.
+
+    get_company_facts devuelve None por dos motivos que no son un 404: una
+    descarga que falla en blando y un parseo que no cuaja. Contar eso como
+    no_facts pondria fuente_viva a True y reiniciaria la racha en cada ticker,
+    asi que con la SEC sirviendo cuerpos vacios la corrida no abortaria nunca.
+    """
+    from edgar.exceptions import TransportError
+
+    from fundamentals.fallos import clasificar
+
+    with patch("edgar.Company", return_value=Mock(cik=320193)), patch(
+        "edgar.get_company_facts", return_value=None
+    ):
+        with pytest.raises(TransportError) as levantada:
+            _fetch_facts("AAA")
+    assert clasificar(levantada.value).cuenta_racha is True
+    assert clasificar(levantada.value).fuente_viva is False
+
+
+def test_el_camino_feliz_devuelve_la_tabla_larga():
+    hechos = Mock()
+    hechos.to_dataframe.return_value = _facts("AAA")
+    with patch("edgar.Company", return_value=Mock(cik=320193)), patch(
+        "edgar.get_company_facts", return_value=hechos
+    ):
+        assert len(_fetch_facts("AAA")) == 12

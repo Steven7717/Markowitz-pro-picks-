@@ -75,19 +75,29 @@ def _fetch_facts(ticker: str) -> pd.DataFrame:
     different calendar window for Apple than for JPMorgan, so those labels cannot
     align companies against each other.
 
-    Raises LookupError when the ticker has no CIK, which is a different problem
-    from the network being down and is reported separately.
+    No atrapa nada: las excepciones de edgartools ya distinguen lo que hay que
+    distinguir y `fallos.clasificar` las sabe leer. Aquí hubo un
+    `except Exception` que las convertía todas en «sin CIK», con lo que un corte
+    de red acababa contado como un universo de tickers inexistentes.
+
+    Va por `get_company_facts` y no por `Entity.get_facts()` a propósito. El
+    método atrapa `CompanyFactsNotFoundError` y devuelve `None`, que queda
+    indistinguible del `None` que la función devuelve por una descarga fallida
+    en blando o por un parseo que no cuaja. Confundirlos mandaría un fallo de
+    red a la casilla `no_facts`, cuya `fuente_viva` reinicia la racha: con la
+    SEC sirviendo cuerpos vacíos, el cortacircuitos no saltaría jamás.
     """
-    from edgar import Company
+    from edgar import Company, get_company_facts
+    from edgar.exceptions import TransportError
 
-    try:
-        company = Company(ticker)
-    except Exception as exc:
-        raise LookupError(f"sin CIK para {ticker}") from exc
-    if company is None:
-        raise LookupError(f"sin CIK para {ticker}")
-
-    return company.get_facts().to_dataframe()
+    company = Company(ticker)  # levanta CompanyNotFoundError si no hay CIK
+    facts = get_company_facts(company.cik)  # levanta CompanyFactsNotFoundError si es un 404
+    if facts is None:
+        # Aquí sólo se llega por fallo de descarga o de parseo, nunca por un 404.
+        # TransportError es de la propia librería y clasificar() ya la lee como
+        # transitoria, que es lo que hace avanzar la racha.
+        raise TransportError(f"la SEC no devolvió hechos usables para {ticker}")
+    return facts.to_dataframe()
 
 
 def _cache_path(cache_dir: Path, ticker: str) -> Path:

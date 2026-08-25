@@ -554,12 +554,41 @@ def test_el_camino_feliz_devuelve_la_tabla_larga():
 - [ ] **Step 2: Correr los tests para verificar que fallan**
 
 ```bash
-uv run pytest tests/test_fundamentals_fetch.py -q -k "sin_cik or attributeerror or camino_feliz"
+uv run pytest tests/test_fundamentals_fetch.py -q -k "sin_cik or cuerpo_vacio or sin_facts_deja_pasar or camino_feliz"
 ```
 
-Esperado: FAIL. `test_una_caida_de_red...` falla con `Failed: DID NOT RAISE` (la
-convierte en `LookupError`), y `test_una_empresa_sin_facts...` falla con
-`AttributeError: 'NoneType' object has no attribute 'to_dataframe'`.
+Esperado: fallan **los cinco**, por tres motivos distintos. Estos mensajes están
+copiados de una corrida real, no razonados:
+
+```
+test_un_ticker_sin_cik_deja_pasar_la_excepcion_de_la_libreria
+    LookupError: sin CIK para AAA
+test_una_caida_de_red_al_resolver_el_cik_no_se_disfraza_de_sin_cik
+    LookupError: sin CIK para AAA
+test_una_empresa_sin_facts_deja_pasar_el_404_de_la_libreria
+    Failed: DID NOT RAISE CompanyFactsNotFoundError
+test_un_cuerpo_vacio_no_se_confunde_con_una_empresa_sin_hechos
+    Failed: DID NOT RAISE TransportError
+test_el_camino_feliz_devuelve_la_tabla_larga
+    TypeError: object of type 'Mock' has no len()
+```
+
+Los dos primeros son el `except Exception` de hoy haciendo justo lo que este
+Task viene a quitar: convierte tanto un `CompanyNotFoundError` como un
+`ConnectTimeout` en un `LookupError` pelado. `pytest.raises` no lo acepta —un
+`LookupError` no es un `CompanyNotFoundError`, es su padre— y lo deja escapar.
+
+Los tres últimos son consecuencia de que el doble parchea `get_company_facts`
+mientras la función de hoy llama a `company.get_facts()`. Sobre un `Mock`, esa
+cadena **no** revienta: `Mock` fabrica atributos al vuelo, así que
+`company.get_facts().to_dataframe()` devuelve otro `Mock` tan campante. De ahí
+que no haya ningún `AttributeError` a la vista y que el camino feliz muera
+mucho después, al pedirle `len()` a ese `Mock`.
+
+Vale la pena tenerlo escrito porque la primera versión de este plan predecía
+`AttributeError` en tres de los cinco y `pasa hoy` en el cuarto, y las cinco
+predicciones eran falsas: estaban razonadas sobre el camino de llamada de la
+implementación *nueva* con la *vieja* todavía puesta.
 
 - [ ] **Step 3: Reescribir `_fetch_facts`**
 
@@ -611,9 +640,10 @@ sabe si hubo un 404 de verdad.
 uv run pytest tests/test_fundamentals_fetch.py -q
 ```
 
-Esperado: `16 passed`. Todo verde, incluidos los tests viejos: cada uno de ellos
-parchea `fundamentals.fetch._fetch_facts` entero, así que reescribir su interior
-no les afecta. Los que sí cambian de comportamiento —los que dependen de
+Esperado: `17 passed` — los 12 que hay tras el Task 2, más los 5 nuevos. Todo
+verde, incluidos los tests viejos: cada uno de ellos parchea
+`fundamentals.fetch._fetch_facts` entero, así que reescribir su interior no les
+afecta. Los que sí cambian de comportamiento —los que dependen de
 `max_retries`— los reescribe el Task 4.
 
 - [ ] **Step 5: Correr la suite entera**
