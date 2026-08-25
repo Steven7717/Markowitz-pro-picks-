@@ -118,9 +118,10 @@ def cargar_riesgos(
     deliberately NOT cached: a miss today can stop being one tomorrow (the
     company finally files its 10-K, or edgartools' extraction improves), and
     fundamentals/fetch.py:_load_one already treats its own failure modes
-    (unresolved_cik, no_facts, failed_download) the same way — only successful
-    results are written to disk. The cost is a repeated request per run for whichever
-    tickers keep missing; that trade favors freshness over saving requests.
+    (unresolved_cik, no_facts, failed_download) the same way — only
+    successful results are written to disk. The cost is a repeated request
+    per run for whichever tickers keep missing; that trade favors freshness
+    over saving requests.
 
     The cache stores the full section and truncation happens on read, so raising
     or lowering the token budget never costs a second download.
