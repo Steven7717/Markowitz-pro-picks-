@@ -130,7 +130,9 @@ Nota de nombres: `IdentityNotSetException` (el nombre viejo, en
 | Nuestro `max_retries` | Se quita | Dos capas de reintento con políticas distintas es lo que causó esto, y la de abajo está mejor informada: sabe qué NO reintentar |
 | Disparador del cortacircuitos | Racha de N seguidos, en cualquier punto de la corrida | Que la SEC se caiga en el ticker 300 produce el mismo resultado inútil que caerse en el primero; «los N primeros» no lo ve |
 | N | 10 | 2 % del universo. Un falso positivo exigiría diez empresas seguidas rotas mientras la SEC va bien |
-| Tope de tiempo | ~180 s sin respuesta de la SEC | Un conteo solo no acota el caso «SEC colgada»: a 2,7 min por ticker, N=10 son 27 minutos y no hemos arreglado nada |
+| Tope de tiempo | ~180 s sin datos, y al menos 3 fallos seguidos | Un conteo solo no acota el caso «SEC colgada»: a 2,7 min por ticker, N=10 son 27 minutos y no hemos arreglado nada. La racha mínima sale de la revisión: ver abajo |
+| Que un acierto de caché reinicie el reloj | Descartado | Sería más limpio pero rompe el caso que motiva el tope: con la caché medio poblada —fallo, fallo, acierto, fallo, fallo— nunca se acumulan 180 s seguidos, y la corrida cae al tope de racha, o sea a los 27 minutos |
+| El diagnóstico de los dos topes | Una sola función, `_diagnostico` | Los dos mensajes difieren en cómo se llegó, no en la causa. Duplicados, arreglar uno dejó al otro mintiendo — pasó, y por eso están juntos |
 | Acierto de caché | Ni reinicia la racha ni arranca el reloj | Un fichero leído de disco no dice nada sobre si la SEC responde; si contara como éxito, con media caché poblada el cortacircuitos no saltaría nunca |
 | Panel parcial servido de caché | Se aborta igual | Serían empresas arbitrarias «las que estaban en caché»: un universo que nadie eligió, justo contra lo que existe el docstring de `CoverageReport` |
 
@@ -262,8 +264,9 @@ class Intento:
 ### `fetch.py::load_facts`
 
 ```python
-RACHA_MAXIMA = 10             # 2 % del universo
-SIN_RESPUESTA_MAXIMO = 180.0  # segundos
+RACHA_MAXIMA = 10                # 2 % del universo
+SIN_RESPUESTA_MAXIMO = 180.0     # segundos
+SIN_RESPUESTA_RACHA_MINIMA = 3   # muestras mínimas antes de mirar el reloj
 ```
 
 Un solo invariante gobierna las dos guardas:
@@ -281,8 +284,22 @@ devolver `False` y los mensajes al usuario dirían «la SEC no contestó (HTTP
 503)», contradiciéndose en la misma frase.
 
 Un `systemic` no cuenta racha: aborta en el ticker en que aparece. El reloj
-arranca en el primer intento de red, así que un universo entero en caché nunca lo
-dispara.
+arranca en el primer fallo contado con delta cero, así que el tope de tiempo no
+puede saltar en ese primer fallo, y un universo entero en caché nunca lo dispara.
+
+La racha mínima del tope de tiempo la exigió la revisión, con un caso medido: un
+fallo de red, 500 tickers servidos de caché, y un segundo fallo 200 s después. El
+tope de racha pide diez muestras antes de decir «no hay fuente»; el de tiempo lo
+decía **con dos**, porque los 180 s de por medio eran lecturas de parquet
+productivas, y tiraba una corrida que ya había reunido 500 de 505. Con la racha
+mínima ese caso pasa entero, y al que motiva el tope no le cuesta nada: a 162
+s/ticker ya dispara en el tercer fallo, a 25 s/ticker en el noveno.
+
+Queda un residuo conocido y aceptado: la racha mínima subió el listón de dos
+muestras a tres, no eliminó la clase. Un fallo justo antes de un bloque contiguo
+de caché largo, seguido de dos fallos más, aborta igual. Arreglarlo del todo
+exige cobrar sólo el tiempo dentro de la petición, lo que obliga a instrumentar
+`_load_one` — otro trabajo.
 
 ### `CorridaAbortada`
 

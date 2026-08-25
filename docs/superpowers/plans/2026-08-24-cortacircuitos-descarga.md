@@ -1117,6 +1117,11 @@ def _sin_fuente(racha: int, desconocidos: int, fallo: Fallo) -> str:
     """Por qué se abortó, diagnosticando sobre la racha entera y no sobre su
     último fallo.
 
+    NOTA: el Task 6 extrae este cuerpo a `_diagnostico(racha, desconocidos,
+    fallo)`, que comparten los dos topes, y deja `_sin_fuente` como una
+    delegación de una línea. Si ejecutas el plan de cero, escríbelo así aquí
+    y el Task 6 sólo tendrá que añadir `_sin_respuesta` encima.
+
     Decidir por el último manda al usuario al sitio equivocado en cuanto la
     racha mezcla causas, y mezclarlas es fácil: `unknown` sale por empresa de un
     `to_dataframe()` sobre un payload malformado, así que unos pocos tickers
@@ -1324,12 +1329,26 @@ Junto a `RACHA_MAXIMA` en `fundamentals/fetch.py`:
 # los 5 intentos de stamina, cada ticker cuesta ~2,7 min, y RACHA_MAXIMA de esos
 # son 27 minutos — que es el problema que este módulo existe para no tener.
 SIN_RESPUESTA_MAXIMO = 180.0
+
+# El tope de racha pide diez muestras antes de decir «no hay fuente»; sin este
+# mínimo, el de tiempo lo decía con dos. Medido: un fallo, 500 tickers servidos
+# de caché, y un segundo fallo 200 s después tiraba una corrida que ya había
+# reunido 500 de 505, culpando a la conexión. Tres muestras imponen la misma
+# exigencia sin costarle nada al caso que sí importa: medido, a 162 s/ticker el
+# tope ya dispara en el tercer fallo, y a 25 s/ticker en el noveno.
+#
+# La alternativa obvia —que un acierto de caché también reinicie el reloj— se
+# descarta porque rompe el caso para el que existe el tope de tiempo: con la
+# caché medio poblada, fallo, fallo, acierto, fallo, fallo… nunca se acumulan
+# 180 s seguidos, y la corrida cae al tope de racha: diez fallos × 2,7 min son
+# los 27 minutos que este módulo existe para no tener.
+SIN_RESPUESTA_RACHA_MINIMA = 3
 ```
 
 Y el mensaje, junto a `_sin_fuente`:
 
 ```python
-def _sin_respuesta(fallo: Fallo) -> str:
+def _sin_respuesta(racha: int, desconocidos: int, fallo: Fallo) -> str:
     # Mismo cuidado que en _sin_fuente: el reloj también corre con 5xx, así que
     # «no entregó datos» y no «no contestó».
     #
@@ -1388,8 +1407,13 @@ Y sustituye el bloque final del bucle:
             raise CorridaAbortada(
                 fallo.causa, _sin_fuente(racha, desconocidos, fallo), cobertura
             )
-        if ahora - sin_respuesta_desde >= SIN_RESPUESTA_MAXIMO:
-            raise CorridaAbortada(fallo.causa, _sin_respuesta(fallo), cobertura)
+        if (
+            racha >= SIN_RESPUESTA_RACHA_MINIMA
+            and ahora - sin_respuesta_desde >= SIN_RESPUESTA_MAXIMO
+        ):
+            raise CorridaAbortada(
+                fallo.causa, _sin_respuesta(racha, desconocidos, fallo), cobertura
+            )
 ```
 
 El orden importa: `time.monotonic()` se llama **una vez por fallo contado**, y
