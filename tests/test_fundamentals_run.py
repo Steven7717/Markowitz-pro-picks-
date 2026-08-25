@@ -5,6 +5,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from edgar.exceptions import CompanyNotFoundError
+
 from fundamentals.kpis import TODOS_LOS_KPIS
 from fundamentals.run import DIAS_HASTA_PRESENTACION, _precios_por_periodo, build_panel
 
@@ -152,7 +154,7 @@ def test_a_failed_ticker_does_not_abort_the_whole_run(cache_dir, sectores):
     """Una empresa rota no puede costar el universo entero."""
     def una_falla(ticker):
         if ticker == "BBB":
-            raise LookupError("sin CIK")
+            raise CompanyNotFoundError("BBB")
         return _facts(ticker)
 
     with patch("fundamentals.fetch._fetch_facts", side_effect=una_falla), \

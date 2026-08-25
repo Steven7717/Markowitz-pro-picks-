@@ -6,6 +6,13 @@ from pathlib import Path
 
 import pandas as pd
 
+from fundamentals.fallos import (
+    NO_FACTS,
+    UNRESOLVED_CIK,
+    Fallo,
+    clasificar,
+)
+
 _DEFAULT_CACHE = Path(__file__).parent / ".cache"
 
 PERIODOS = 12
@@ -123,48 +130,71 @@ def _cache_path(cache_dir: Path, ticker: str) -> Path:
     return cache_dir / f"facts_{digest}.parquet"
 
 
-def _load_one(
-    ticker: str, cache_dir: Path, max_retries: int, refresh: bool
-) -> tuple[pd.DataFrame | None, str | None]:
-    """Return (facts, causa_del_fallo). Exactly one of the two is None."""
+@dataclass(frozen=True)
+class Intento:
+    """Qué salió de pedir un ticker, y de dónde salió.
+
+    `desde_cache` no es instrumentación: es lo que impide que un fichero leído
+    de disco cuente como prueba de que la SEC responde. Sin ese dato, una caché
+    a medio poblar apagaría el cortacircuitos de `load_facts`.
+    """
+
+    facts: pd.DataFrame | None
+    fallo: Fallo | None
+    desde_cache: bool = False
+
+
+def _load_one(ticker: str, cache_dir: Path, refresh: bool) -> Intento:
+    """Un intento por ticker; el reintento de lo transitorio es de edgartools.
+
+    Aquí había un bucle de `max_retries=3` con `time.sleep(2.0**intento)`. Se
+    quitó porque no añadía intentos útiles y sí 3 s de espera por ticker: sobre
+    503 tickers, esos 3 s eran los ~25 minutos que esta función tardaba en no
+    devolver nada cuando la SEC rechazaba la identidad.
+
+    edgartools ya reintenta 5 veces con backoff lo que mejora reintentando, y
+    deja pasar al primer intento lo que no —429, SSL, identidad—, que es
+    justamente lo que un bucle de fuera no puede distinguir.
+    """
     path = _cache_path(cache_dir, ticker)
     if path.exists() and not refresh:
         try:
-            return pd.read_parquet(path), None
+            return Intento(pd.read_parquet(path), None, desde_cache=True)
         except Exception:
             # A run killed mid-write leaves a truncated file. Treat it as a miss
             # rather than letting it poison every future run.
             path.unlink(missing_ok=True)
 
-    for intento in range(max_retries):
-        try:
-            frame = _fetch_facts(ticker)
-        except LookupError:
-            return None, "unresolved_cik"
-        except Exception:
-            if intento == max_retries - 1:
-                return None, "failed_download"
-            time.sleep(2.0**intento)
-            continue
+    try:
+        frame = _fetch_facts(ticker)
+    except Exception as exc:
+        return Intento(None, clasificar(exc))
 
-        cache_dir.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_suffix(".tmp")
-        # SEC mixes types in the raw value column and parquet needs one per
-        # column. astype's errors="ignore" does not cover a missing key — it
-        # still raises KeyError — so the column is checked before casting.
-        if "value" in frame.columns:
-            frame = frame.astype({"value": "string"})
-        frame.to_parquet(tmp)
-        tmp.replace(path)  # atomic rename: a reader never sees a partial file
-        return frame, None
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".tmp")
+    # SEC mixes types in the raw value column and parquet needs one per
+    # column. astype's errors="ignore" does not cover a missing key — it
+    # still raises KeyError — so the column is checked before casting.
+    if "value" in frame.columns:
+        frame = frame.astype({"value": "string"})
+    frame.to_parquet(tmp)
+    tmp.replace(path)  # atomic rename: a reader never sees a partial file
+    return Intento(frame, None)
 
-    return None, "failed_download"
+
+def _anotar(cobertura: CoverageReport, ticker: str, fallo: Fallo) -> None:
+    """Cada exclusión, en la casilla que le toca."""
+    if fallo.causa == UNRESOLVED_CIK:
+        cobertura.unresolved_cik.append(ticker)
+    elif fallo.causa == NO_FACTS:
+        cobertura.no_facts.append(ticker)
+    else:
+        cobertura.failed_download.append(ticker)
 
 
 def load_facts(
     tickers: list[str],
     cache_dir: Path | None = None,
-    max_retries: int = 3,
     refresh: bool = False,
 ) -> tuple[dict[str, pd.DataFrame], CoverageReport]:
     """Download SEC's long fact table per ticker, caching each to disk.
@@ -179,15 +209,14 @@ def load_facts(
     hechos: dict[str, pd.DataFrame] = {}
 
     for ticker in tickers:
-        frame, causa = _load_one(ticker, cache_dir, max_retries, refresh)
-        if causa == "unresolved_cik":
-            cobertura.unresolved_cik.append(ticker)
-            continue
-        if causa == "failed_download":
-            cobertura.failed_download.append(ticker)
+        intento = _load_one(ticker, cache_dir, refresh)
+        if intento.fallo is not None:
+            _anotar(cobertura, ticker, intento.fallo)
             continue
 
-        hechos[ticker] = frame if frame is not None else pd.DataFrame()
+        hechos[ticker] = (
+            intento.facts if intento.facts is not None else pd.DataFrame()
+        )
         cobertura.included.append(ticker)
 
     return hechos, cobertura

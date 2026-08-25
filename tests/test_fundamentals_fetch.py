@@ -40,7 +40,7 @@ def test_returns_facts_per_ticker_and_a_coverage_report(cache_dir):
     assert cobertura.included == ["AAA", "BBB"]
 
 
-def test_an_unresolvable_ticker_is_reported_separately_from_a_network_failure(cache_dir):
+def test_un_ticker_sin_cik_se_reporta_aparte_de_un_fallo_de_red(cache_dir):
     """Un ticker que no existe y una caida de SEC son problemas distintos.
 
     Medido durante el diseno: AEP no aparece en el mapa oficial ticker->CIK de
@@ -48,30 +48,49 @@ def test_an_unresolvable_ticker_is_reported_separately_from_a_network_failure(ca
     """
     def falla(ticker):
         if ticker == "BBB":
-            raise LookupError("sin CIK")
-        raise RuntimeError("boom")
+            raise CompanyNotFoundError("BBB")
+        raise httpx.ConnectTimeout("boom")
 
-    with patch("fundamentals.fetch._fetch_facts", side_effect=falla), \
-         patch("fundamentals.fetch.time.sleep"):
-        _, cobertura = load_facts(["AAA", "BBB"], cache_dir=cache_dir, max_retries=1)
+    with patch("fundamentals.fetch._fetch_facts", side_effect=falla):
+        _, cobertura = load_facts(["AAA", "BBB"], cache_dir=cache_dir)
     assert cobertura.unresolved_cik == ["BBB"]
     assert cobertura.failed_download == ["AAA"]
 
 
-def test_a_transient_failure_is_retried(cache_dir):
-    intentos = {"n": 0}
+def test_un_ticker_que_falla_solo_se_registra_y_no_aborta_la_corrida(cache_dir):
+    """La politica que este cambio NO toca.
 
-    def flaky(ticker):
-        intentos["n"] += 1
-        if intentos["n"] == 1:
-            raise RuntimeError("transient")
+    El reintento de lo transitorio se delega en edgartools, que hace 5 intentos
+    con backoff y sabe cuales no reintentar. Testear eso aqui seria testear la
+    libreria; lo que si es nuestro es que un fallo aislado no tumbe la corrida.
+    """
+    def uno_falla(ticker):
+        if ticker == "BBB":
+            raise httpx.ConnectTimeout("tropiezo")
         return _facts(ticker)
 
-    with patch("fundamentals.fetch._fetch_facts", side_effect=flaky), \
-         patch("fundamentals.fetch.time.sleep"):
-        _, cobertura = load_facts(["AAA"], cache_dir=cache_dir, max_retries=3)
-    assert intentos["n"] == 2
-    assert cobertura.included == ["AAA"]
+    with patch("fundamentals.fetch._fetch_facts", side_effect=uno_falla):
+        hechos, cobertura = load_facts(["AAA", "BBB", "CCC"], cache_dir=cache_dir)
+    assert sorted(hechos) == ["AAA", "CCC"]
+    assert cobertura.failed_download == ["BBB"]
+
+
+def test_no_se_duerme_entre_tickers(cache_dir):
+    """Los 25 minutos eran 3 s por ticker de time.sleep nuestro, 503 veces."""
+    with patch("fundamentals.fetch._fetch_facts", side_effect=httpx.ConnectTimeout("x")), \
+         patch("fundamentals.fetch.time.sleep") as siesta:
+        load_facts(["AAA", "BBB"], cache_dir=cache_dir)
+    assert siesta.call_count == 0
+
+
+def test_una_empresa_sin_facts_va_a_su_casilla_y_no_a_la_de_descarga(cache_dir):
+    def sin_facts(ticker):
+        raise CompanyFactsNotFoundError(cik=1)
+
+    with patch("fundamentals.fetch._fetch_facts", side_effect=sin_facts):
+        _, cobertura = load_facts(["AAA"], cache_dir=cache_dir)
+    assert cobertura.no_facts == ["AAA"]
+    assert cobertura.failed_download == []
 
 
 def test_the_second_call_reads_from_cache_without_downloading(cache_dir):
