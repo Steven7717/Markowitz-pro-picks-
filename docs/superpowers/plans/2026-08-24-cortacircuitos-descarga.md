@@ -1576,11 +1576,19 @@ nuevos), 0 fallos, 2 omitidos en Windows.
 
 - [ ] **Que no quede ni un `sleep` ni un `max_retries` en el módulo**
 
+Un `grep` no sirve aquí: el docstring de `_load_one` menciona los dos a
+propósito, explicando qué se quitó y por qué, y esa línea tiene que quedarse.
+Los `.pyc` de `__pycache__` también acertarían. Se comprueba el comportamiento:
+
 ```bash
-grep -rn "max_retries\|time.sleep" fundamentals/
+uv run python -c "import inspect; from fundamentals import fetch; assert 'max_retries' not in inspect.signature(fetch.load_facts).parameters; assert 'max_retries' not in inspect.signature(fetch._load_one).parameters; print('sin max_retries en las firmas')"
 ```
 
-Esperado: sin resultados.
+Esperado: `sin max_retries en las firmas`.
+
+Que no se duerma ya lo fija `test_no_se_duerme_entre_tickers`, que es mejor
+guarda que un `grep`: sobrevive a que alguien reintroduzca la espera con otro
+nombre.
 
 - [ ] **Que `research/loader.py` siga con el suyo intacto** (era otro módulo, fuera de alcance)
 
