@@ -1399,13 +1399,13 @@ lista se agota y el test revienta con `StopIteration` en vez de con lo que
 mide.
 
 `time` ya está importado en el fichero; ahora se usa para `monotonic` en vez de
-para `sleep`. Comprueba que no queda ningún `time.sleep` en `fetch.py`:
+para `sleep`.
 
-```bash
-grep -n "time\." fundamentals/fetch.py
-```
-
-Esperado: sólo `time.monotonic()`.
+No lo compruebes con `grep`: el docstring de `_load_one` menciona
+`time.sleep(2.0**intento)` a propósito, explicando qué se quitó y por qué, así
+que un `grep "time\."` da dos aciertos y uno es correcto. Lo que fija que no se
+duerme es `test_no_se_duerme_entre_tickers`, y sobrevive a que alguien
+reintroduzca la espera con otro nombre.
 
 - [ ] **Step 5: Correr la suite entera**
 
