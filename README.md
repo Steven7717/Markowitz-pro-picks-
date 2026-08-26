@@ -9,6 +9,28 @@ que apruebas; no compra ni vende nada, y el orden que produce es un criterio
 de selección transparente, **no una previsión de rentabilidad** — no está
 validado empíricamente y no debe leerse como una recomendación de inversión.
 
+## Cómo se descarga
+
+Con `git clone`, no con el botón verde de descargar ZIP:
+
+```
+git clone https://github.com/Steven7717/Markowitz-pro-picks-.git
+```
+
+Esa es la diferencia entre una copia que se actualiza sola y una que no. Un ZIP
+no guarda ningún vínculo con el repositorio: se queda para siempre en la versión
+que bajaste, sin forma de avisarte de que hay una nueva.
+
+Hace falta tener git. En Mac normalmente ya está, y si no, el propio comando
+ofrece instalarlo con unos clics. En Windows se instala desde
+[git-scm.com](https://git-scm.com/download/win), aceptando todas las opciones
+por defecto.
+
+Si no puedes instalar git, el ZIP también funciona y el programa arranca igual —
+pero no se actualizará nunca. Para ponerlo al día tendrías que volver a bajarlo
+entero, y antes copiar a otro sitio tu carpeta `actas/`, que es donde viven tus
+registros de aprobación.
+
 ## Cómo se abre
 
 **Windows:** doble clic en `Iniciar App.bat`
@@ -20,6 +42,24 @@ No hace falta instalar Python. La primera vez el programa usa una herramienta
 llamada [uv](https://astral.sh/uv) para descargar todo lo que necesita: te
 preguntará antes de instalar nada. Esa primera vez tarda unos minutos y baja
 varios cientos de MB. Las siguientes, arranca en segundos.
+
+## Cómo se actualiza
+
+Sola, si la descargaste con `git clone`. Cada vez que abres el programa comprueba
+si hay versión nueva y se la trae antes de arrancar — verás una línea de
+«Buscando actualizaciones...» al principio. No tienes que hacer nada ni saber
+ningún comando.
+
+Si no hay internet, o si tocaste a mano algún fichero del programa, te lo dice y
+abre la versión que ya tienes. **Una actualización que falla nunca te impide usar
+el programa.**
+
+Tus cosas no se tocan: los resultados (`salidas/`), las actas de aprobación
+(`actas/`) y tus credenciales —que viven en tu carpeta personal, fuera del
+proyecto— no forman parte del repositorio, así que ninguna actualización los
+pisa. Lo que sí verás al clonar es una lista de ejemplo en «Revisar candidatos»,
+para que haya algo que mirar antes de generar la tuya; en cuanto generes la
+primera, esa pasa a mandar.
 
 ## Mac: la primera vez
 

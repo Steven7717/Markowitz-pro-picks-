@@ -46,6 +46,26 @@ El programa se reparte como **repo descargable**, no como URL pública. Cada
 usuario corre su copia en su disco con `uv`, que se encarga de Python y las
 dependencias: `Iniciar App.bat` en Windows, `Iniciar App.command` en Mac.
 
+**Se reparte por `git clone`, no por ZIP** (2026-08-26). Un ZIP no guarda
+vínculo con el repo: quien lo baja se queda en esa versión para siempre y no hay
+forma de hacerle llegar nada. Con un clon, los dos lanzadores hacen `git pull
+--ff-only` al arrancar y el usuario se actualiza sin aprender ningún comando. El
+`--ff-only` es deliberado: avanza el puntero si se puede y no hace nada más, así
+que nunca fabrica un merge ni pisa ficheros de nadie. Un fallo de red no puede
+impedir abrir el programa — se avisa y se arranca con lo que haya. El ZIP se
+sigue soportando (sin `.git` el bloque entero se salta), documentado como la vía
+de quien no pueda instalar git.
+
+Para que eso funcione hubo que **sacar `salidas/` del repo**: sus cuatro ficheros
+estaban versionados y la app los sobrescribe en cada corrida, así que cualquiera
+que usara el programa pasaba a tener cambios locales sobre ficheros del repo, y
+el primer commit que tocara `salidas/` le bloqueaba la actualización. El ejemplo
+—que existe para que quien acaba de clonar vea una lista real sin pagar una
+corrida con IA— se conserva en `salidas_ejemplo/`, versionado. `cargar_candidatos()`
+cae a él solo por el camino por defecto: quien pasa un directorio a mano está
+diciendo exactamente dónde mirar, y sustituírselo convertiría un fallo en un
+falso verde.
+
 Las credenciales (`ANTHROPIC_API_KEY` y `EDGAR_IDENTITY`) se meten desde la
 página de candidatos y se guardan en `~/.markowitz-pro-picks/credenciales.json`,
 fuera del proyecto — ver `credenciales.py`. El entorno gana sobre el fichero,
@@ -288,7 +308,7 @@ Detalles que no son obvios y conviene no deshacer:
 - **El acta se escribe antes del traspaso.** Lo peor sería aprobar, perder el registro y seguir creyendo que quedó constancia.
 - **El traspaso va por `st.session_state`**, así que hay que pasar al optimizador **por el enlace de la barra lateral**: recargar abre una sesión nueva de Streamlit y pierde la selección.
 
-`actas/` vive en la raíz y no en `salidas/` a propósito: salidas se regenera, un acta no se regenera nunca.
+`actas/` vive en la raíz y no en `salidas/` a propósito: salidas se regenera, un acta no se regenera nunca. Ninguna de las dos está versionada, para que una actualización no pueda pisarlas — ver «Cómo se distribuye».
 
 ---
 
