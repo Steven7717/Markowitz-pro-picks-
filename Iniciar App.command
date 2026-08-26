@@ -136,7 +136,11 @@ if [ ! -f "$MARCA" ]; then
     mkdir -p "$HOME/.markowitz-pro-picks"
     case "$QUIERE" in
         s|S|si|Si|SI|y|Y)
-            ATAJO="$HOME/Desktop/Markowitz Pro Picks"
+            # Con la extension y no sin ella: Finder decide con que abrir un
+            # fichero por su extension, y un enlace sin ninguna es una apuesta.
+            # La .command la oculta el propio Finder salvo que el usuario haya
+            # pedido ver todas, asi que en el Escritorio se lee igual.
+            ATAJO="$HOME/Desktop/Markowitz Pro Picks.command"
             if ln -sf "$RAIZ/Iniciar App.command" "$ATAJO"; then
                 echo si > "$MARCA"
                 echo 'Acceso directo creado en el Escritorio.'
