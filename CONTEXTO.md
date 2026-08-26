@@ -55,17 +55,38 @@ así que un shell con las variables puestas sigue mandando.
 globales del proceso, así que dos visitantes simultáneos se pisarían los datos.
 Publicarlo exigiría aislarlas por sesión, que es un trabajo aparte.
 
-**El `.command` de Mac está pendiente de su primera prueba real** (2026-08-25).
-Hasta ahora nadie del equipo tenía un Mac, así que la sintaxis está revisada
-pero el comportamiento nunca se comprobó; el README ya avisa y da la línea
-`chmod +x` de rescate. Esa prueba es **la puerta a la siguiente fase**: si el
-arranque funciona en un Mac, se pasa al rediseño visual de la interfaz.
+**El `.command` de Mac ya se probó en un Mac real** (2026-08-26, macOS 12.7.6
+Intel, llegado como ZIP desde Safari). Arranca, instala y abre la app. Hicieron
+falta cuatro arreglos, y la lista de sospechosos que había aquí acertó poco:
 
-Qué mirar en esa prueba, por orden de probabilidad de fallo: que Gatekeeper deje
-ejecutar el `.command` descargado (puede pedir botón derecho → Abrir la primera
-vez, o `xattr -d com.apple.quarantine`), que el `chmod +x` no haga falta porque
-el ZIP conservó el bit de ejecución, que `uv` se instale solo si no está, y que
-el navegador abra en el puerto correcto.
+- **Sin permiso sobre la carpeta, uv muere sin decir nada útil.** El proyecto
+  estaba en `~/Downloads`, que macOS protege. El `cd` del script funciona igual
+  —`chdir` no lee la carpeta— pero uv pide su directorio de trabajo nada más
+  arrancar y se cae con `Current directory does not exist`, que no menciona ni
+  permisos ni carpetas. Ahora el lanzador lo comprueba antes con `/bin/pwd`, que
+  es un proceso hijo llamando a `getcwd()` igual que uv, y explica las dos
+  salidas en castellano.
+- **Streamlit se para a pedir un email por consola** la primera vez y deja la
+  ventana colgada sin explicación. El lanzador crea
+  `~/.streamlit/credentials.toml` si no existe, que es la forma oficial de
+  declinar.
+- **Mover la carpeta rompe el entorno.** Los lanzadores de `.venv/bin` llevan la
+  ruta absoluta en el shebang, así que al cambiarla de sitio uv falla con
+  `Failed to spawn: streamlit`, que suena a dependencia ausente y no lo es. El
+  lanzador compara el shebang con dónde está y rehace el `.venv` si no cuadran
+  (con la caché caliente, un segundo).
+- **Los errores se perdían.** Terminal cierra la ventana al acabar un `.command`,
+  así que cualquier fallo desaparecía antes de poder leerlo. Ahora se para a
+  esperar una tecla.
+
+Lo que **no** dio problema: Gatekeeper, que era el primer sospechoso de esta
+lista — abrir el `.command` por su ruta desde Terminal no pasa por el diálogo de
+Finder. Y el `chmod +x` tampoco hizo falta: el ZIP conservó el bit de ejecución.
+Las dos cosas siguen documentadas en el README porque quien haga doble clic
+desde Finder sí puede encontrárselas.
+
+Con esto **la puerta a la siguiente fase está abierta**: toca el rediseño visual
+de la interfaz.
 
 Diseño: `docs/superpowers/specs/2026-08-22-compartir-el-programa-design.md`.
 
@@ -277,9 +298,7 @@ El sistema está completo de punta a punta: A ingiere, B ordena y razona, C deci
 
 **El plan inmediato, en este orden:**
 
-1. **Probar el arranque en un Mac real.** Es lo único que bloquea lo siguiente
-   — ver «Cómo se distribuye» para qué mirar.
-2. **Rediseño visual de la interfaz.** Fase acordada el 2026-08-25, aún sin
+1. **Rediseño visual de la interfaz.** Fase acordada el 2026-08-25, aún sin
    diseñar: no hay spec ni decisiones tomadas. Cuando se abra, conviene empezar
    por `brainstorming` como el resto de sub-proyectos, y tener presente que la
    página de candidatos (`pages/1_Revisar_candidatos.py`) acumula ya bastante
@@ -287,6 +306,9 @@ El sistema está completo de punta a punta: A ingiere, B ordena y razona, C deci
    avisos de `CorridaAbortada`— y que ese estado tiene defectos ya arreglados
    que no conviene reintroducir al mover cosas: ver los comentarios que citan
    `cbe71a0` y `_recargar_si_toca`.
+
+El arranque en Mac, que era el punto 1 de esta lista, se probó el 2026-08-26 y
+ya no bloquea nada — ver «Cómo se distribuye».
 
 **Lo único sin ejecutar** son los dos tests `red` que llaman a Sonnet 5 (~5 céntimos), que saltan sin `ANTHROPIC_API_KEY`. Sin clave el ranking sale igual, con fichas de plantilla.
 

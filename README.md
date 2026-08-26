@@ -13,23 +13,51 @@ validado empíricamente y no debe leerse como una recomendación de inversión.
 
 **Windows:** doble clic en `Iniciar App.bat`
 
-**Mac:** doble clic en `Iniciar App.command`. **Este lanzador no se ha
-probado en un Mac real** — nadie en el equipo tiene uno. La sintaxis está
-revisada, pero la primera vez que lo abras eres tú quien la comprueba. Si
-Finder da un error de permisos (lo más probable la primera vez, sobre todo
-si el programa llegó como ZIP y no como `git clone`), abre la Terminal en
-esta misma carpeta y ejecuta una vez:
-
-```
-chmod +x "Iniciar App.command"
-```
-
-y vuelve a intentar el doble clic.
+**Mac:** doble clic en `Iniciar App.command` — con un rodeo la primera vez,
+explicado justo debajo.
 
 No hace falta instalar Python. La primera vez el programa usa una herramienta
 llamada [uv](https://astral.sh/uv) para descargar todo lo que necesita: te
 preguntará antes de instalar nada. Esa primera vez tarda unos minutos y baja
 varios cientos de MB. Las siguientes, arranca en segundos.
+
+## Mac: la primera vez
+
+Probado en macOS 12.7.6 (Intel). Son cuatro cosas, y ninguna vuelve a hacer
+falta después.
+
+**1. Saca la carpeta de Descargas.** macOS protege Descargas, Escritorio y
+Documentos: si Terminal no tiene permiso sobre la carpeta donde está el
+programa, el lanzador arranca, imprime las primeras líneas y se corta. Lo más
+cómodo es arrastrar la carpeta a tu carpeta de usuario (la de la casita).
+
+Si prefieres dejarla donde está y el lanzador se queja, dale el permiso en
+**menú Apple → Preferencias del Sistema → Seguridad y privacidad → Privacidad
+→ Archivos y carpetas**, busca Terminal, marca la casilla de la carpeta que
+toque, y cierra Terminal del todo (Cmd+Q) antes de reintentar.
+
+**2. Ábrelo con clic derecho, no con doble clic.** Si el programa llegó como
+ZIP, macOS lo marca como descargado de internet y el primer doble clic da un
+error de desarrollador no identificado. Haz **clic derecho sobre `Iniciar
+App.command` → Abrir**, y confirma **Abrir** en el diálogo. A partir de ahí el
+doble clic normal ya funciona.
+
+**3. Si Finder da un error de permisos**, abre la Terminal en esta misma
+carpeta y ejecuta una vez:
+
+```
+chmod +x "Iniciar App.command"
+```
+
+**4. Ten paciencia con el primer arranque.** Se descargan Python y las
+librerías, varios cientos de MB, y la ventana se queda un rato sin decir nada.
+Cuando termine, la app se abre sola en el navegador. No cierres la ventana
+negra mientras uses el programa: ahí es donde corre.
+
+Mover o copiar la carpeta más adelante no rompe nada. El entorno de Python
+lleva su propia ruta grabada dentro, así que al cambiarla de sitio deja de
+servir; el lanzador lo detecta y lo rehace solo, en un par de segundos, sin
+volver a descargar nada.
 
 ## Las credenciales
 
