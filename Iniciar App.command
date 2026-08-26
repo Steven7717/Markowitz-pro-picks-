@@ -26,6 +26,39 @@ if [ -x /bin/pwd ] && ! /bin/pwd >/dev/null 2>&1; then
     exit 1
 fi
 
+# Si la carpeta es un clon, se trae lo nuevo antes de arrancar. Quien la
+# descargo como ZIP no tiene .git y se salta esto entero: sigue funcionando,
+# solo que sin actualizarse.
+#
+# --ff-only es la parte importante: avanza el puntero si se puede y no hace
+# nada mas. Nunca fabrica un merge ni reescribe nada de quien haya tocado sus
+# ficheros, asi que lo peor que puede pasar es quedarse en la version que ya
+# tenia. Un fallo aqui no puede impedir abrir el programa: sin internet, en un
+# avion, la app tiene que abrirse igual.
+if [ -d .git ] && command -v git >/dev/null 2>&1; then
+    echo
+    echo 'Buscando actualizaciones...'
+    # Sin las dos primeras, una red que acepta la conexion y luego no responde
+    # deja el arranque colgado para siempre y sin explicacion; con ellas git
+    # se rinde a los 10 s. La tercera evita que un repo que pida credenciales
+    # se quede esperando un usuario que nadie va a escribir.
+    export GIT_HTTP_LOW_SPEED_LIMIT=1000
+    export GIT_HTTP_LOW_SPEED_TIME=10
+    export GIT_TERMINAL_PROMPT=0
+    ANTES=$(git rev-parse HEAD 2>/dev/null)
+    if git pull --ff-only --quiet 2>/dev/null; then
+        if [ "$(git rev-parse HEAD 2>/dev/null)" != "$ANTES" ]; then
+            echo 'Actualizado a la ultima version.'
+        else
+            echo 'Ya tienes la ultima version.'
+        fi
+    else
+        echo 'No se ha podido actualizar: puede que no haya conexion, o que'
+        echo 'tengas cambios propios sin guardar. Se abre la version que ya'
+        echo 'tienes, que funciona igual.'
+    fi
+fi
+
 # Recien instalado, uv queda en ~/.local/bin, que no esta en el PATH de esta
 # ventana. Sin esta linea el primer arranque falla justo despues de una
 # instalacion que acaba de decir que fue bien.

@@ -42,6 +42,40 @@ pause
 exit /b 1
 
 :arrancar
+rem Si la carpeta es un clon, se trae lo nuevo antes de arrancar. Quien la
+rem descargo como ZIP no tiene .git y se salta esto entero. --ff-only avanza
+rem el puntero si se puede y no hace nada mas: nunca fabrica un merge ni pisa
+rem los ficheros de nadie. Un fallo aqui no impide abrir el programa.
+if not exist ".git" goto lanzar
+where git >nul 2>&1
+if errorlevel 1 goto lanzar
+echo.
+echo Buscando actualizaciones...
+rem Sin las dos primeras, una red que acepta la conexion y luego no responde
+rem deja el arranque colgado sin explicacion. La tercera evita quedarse
+rem esperando unas credenciales que nadie va a escribir.
+set "GIT_HTTP_LOW_SPEED_LIMIT=1000"
+set "GIT_HTTP_LOW_SPEED_TIME=10"
+set "GIT_TERMINAL_PROMPT=0"
+git pull --ff-only --quiet
+if errorlevel 1 (
+  echo No se ha podido actualizar: puede que no haya conexion, o que tengas
+  echo cambios propios sin guardar. Se abre la version que ya tienes.
+) else (
+  echo Al dia.
+)
+
+:lanzar
+rem La primera vez, streamlit se para a pedir un email por consola y deja la
+rem ventana colgada esperando un Enter que nadie sabe que hay que pulsar.
+rem Este fichero es la forma oficial de declinar; solo se crea si no existe,
+rem para no pisar el de quien ya use streamlit para otra cosa.
+if not exist "%USERPROFILE%\.streamlit\credentials.toml" (
+  if not exist "%USERPROFILE%\.streamlit" mkdir "%USERPROFILE%\.streamlit"
+  > "%USERPROFILE%\.streamlit\credentials.toml" echo [general]
+  >> "%USERPROFILE%\.streamlit\credentials.toml" echo email = ""
+)
+
 echo.
 echo Iniciando Markowitz Pro Picks...
 echo.
