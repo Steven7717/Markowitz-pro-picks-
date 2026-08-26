@@ -1,7 +1,11 @@
 # Contexto del proyecto — para retomar en una sesión nueva
 
-**Última actualización:** 2026-08-22
+**Última actualización:** 2026-08-25
 **Rama:** `master` · **Tests:** 688 pasando (`uv run pytest tests/ -q -m "not red"`), 2 omitidos en Windows (permisos POSIX), más 6 marcados `red`
+**Remoto:** `https://github.com/Steven7717/Markowitz-pro-picks-.git` — `master` es lo publicado
+
+> **Al retomar:** la copia local puede estar todavía en `compartir-el-programa`,
+> que ya está contenida en `master`. Lo actual y lo publicado es `master`.
 
 ---
 
@@ -51,9 +55,17 @@ así que un shell con las variables puestas sigue mandando.
 globales del proceso, así que dos visitantes simultáneos se pisarían los datos.
 Publicarlo exigiría aislarlas por sesión, que es un trabajo aparte.
 
-**El `.command` de Mac sigue sin ejecutarse en un Mac real** — nadie en el
-equipo tiene uno. Sintaxis revisada, comportamiento sin comprobar; el README
-ya avisa de esto y da la línea `chmod +x` de rescate.
+**El `.command` de Mac está pendiente de su primera prueba real** (2026-08-25).
+Hasta ahora nadie del equipo tenía un Mac, así que la sintaxis está revisada
+pero el comportamiento nunca se comprobó; el README ya avisa y da la línea
+`chmod +x` de rescate. Esa prueba es **la puerta a la siguiente fase**: si el
+arranque funciona en un Mac, se pasa al rediseño visual de la interfaz.
+
+Qué mirar en esa prueba, por orden de probabilidad de fallo: que Gatekeeper deje
+ejecutar el `.command` descargado (puede pedir botón derecho → Abrir la primera
+vez, o `xattr -d com.apple.quarantine`), que el `chmod +x` no haga falta porque
+el ZIP conservó el bit de ejecución, que `uv` se instale solo si no está, y que
+el navegador abra en el puerto correcto.
 
 Diseño: `docs/superpowers/specs/2026-08-22-compartir-el-programa-design.md`.
 
@@ -263,13 +275,37 @@ Detalles que no son obvios y conviene no deshacer:
 
 El sistema está completo de punta a punta: A ingiere, B ordena y razona, C decide, y el optimizador reparte pesos.
 
+**El plan inmediato, en este orden:**
+
+1. **Probar el arranque en un Mac real.** Es lo único que bloquea lo siguiente
+   — ver «Cómo se distribuye» para qué mirar.
+2. **Rediseño visual de la interfaz.** Fase acordada el 2026-08-25, aún sin
+   diseñar: no hay spec ni decisiones tomadas. Cuando se abra, conviene empezar
+   por `brainstorming` como el resto de sub-proyectos, y tener presente que la
+   página de candidatos (`pages/1_Revisar_candidatos.py`) acumula ya bastante
+   lógica de estado —casillas por ticker, añadidos a mano, credenciales, los
+   avisos de `CorridaAbortada`— y que ese estado tiene defectos ya arreglados
+   que no conviene reintroducir al mover cosas: ver los comentarios que citan
+   `cbe71a0` y `_recargar_si_toca`.
+
 **Lo único sin ejecutar** son los dos tests `red` que llaman a Sonnet 5 (~5 céntimos), que saltan sin `ANTHROPIC_API_KEY`. Sin clave el ranking sale igual, con fichas de plantilla.
 
 Trabajo posterior anotado, por orden de valor:
 
-1. **Los z-scores no están acotados.** El |z| máximo del panel es 8,62 y el primer clasificado lo es en buena parte por un único KPI a +6,37. Es el primer candidato a revisar cuando se reabra el criterio de B — que hoy está congelado por pre-registro.
-2. **Validar los pesos empíricamente.** Requiere ampliar el panel a ~40 trimestres con universo point-in-time.
-3. **¿Cuántas acciones debería tener el portafolio final?** Sigue sin responder, e interactúa con que Markowitz concentra pesos: 15 candidatos no son 15 posiciones.
+1. **El cortacircuitos puede condenar una corrida sana con la caché caliente.** Un
+   acierto de caché no rompe la racha —correcto, no prueba que la SEC responda—
+   pero eso hace que con la caché llena sólo toquen la red los tickers que aún
+   fallan, y unos pocos fallos permanentes repartidos por el índice queden
+   adyacentes *entre sí*. Hoy no dispara: ~1 empresa rota contra un umbral de
+   10. **Se intentó arreglar y se deshizo**, y el intento enseñó más que el
+   problema — está contado entero en el diseño del cortacircuitos. Para
+   retomarlo hace falta un dato que no se puede obtener sin red: **por qué
+   puerta fallan las empresas que fallan** (¿levantan desde `to_dataframe()`, o
+   `get_company_facts` devuelve `None` antes?). Sin eso, cualquier arreglo es
+   maquinaria para un escenario que puede no existir.
+2. **Los z-scores no están acotados.** El |z| máximo del panel es 8,62 y el primer clasificado lo es en buena parte por un único KPI a +6,37. Es el primer candidato a revisar cuando se reabra el criterio de B — que hoy está congelado por pre-registro.
+3. **Validar los pesos empíricamente.** Requiere ampliar el panel a ~40 trimestres con universo point-in-time.
+4. **¿Cuántas acciones debería tener el portafolio final?** Sigue sin responder, e interactúa con que Markowitz concentra pesos: 15 candidatos no son 15 posiciones.
 
 Sigue sin responder: **¿cuántas acciones debería tener el portafolio final?** Interactúa con que Markowitz concentra pesos, así que 15 candidatos no son 15 posiciones.
 
