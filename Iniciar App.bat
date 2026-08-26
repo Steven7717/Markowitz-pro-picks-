@@ -6,6 +6,19 @@ rem PATH de esta ventana. Sin esta linea el primer arranque falla justo
 rem despues de una instalacion que acaba de decir que fue bien.
 set "PATH=%USERPROFILE%\.local\bin;%PATH%"
 
+rem uv instala las librerias creando enlaces duros desde su cache para ahorrar
+rem espacio. Si la carpeta del programa esta en OneDrive -- y el Escritorio y
+rem Documentos lo estan por defecto en muchos Windows -- el filtro de archivos
+rem en la nube rechaza esos enlaces y la instalacion muere con "os error 396:
+rem La operacion de nube no se puede realizar en un archivo con vinculos
+rem permanentes incompatibles", que no le dice nada a nadie.
+rem
+rem Copiar en vez de enlazar siempre funciona. Cuesta algo mas de disco y unos
+rem segundos mas la primera vez; a cambio, el programa arranca en cualquier
+rem carpeta. Un lanzador que va lento es mejor que uno que falla con un error
+rem incomprensible en la primera pantalla que ve el usuario.
+set "UV_LINK_MODE=copy"
+
 where uv >nul 2>&1
 if not errorlevel 1 goto arrancar
 
