@@ -106,16 +106,51 @@ rem proposito se le resucita en cada arranque.
 set "MARCA=%USERPROFILE%\.markowitz-pro-picks\atajo.txt"
 if exist "%MARCA%" goto sin_atajo
 echo.
+rem Se limpia la variable antes de preguntar y se le quitan las comillas a la
+rem respuesta: una comilla suelta dentro del if rompe la sintaxis y cmd cierra
+rem la ventana de golpe, sin que de tiempo a leer nada. El "if defined" hace
+rem falta porque si contesta con un Enter a secas la variable no existe y la
+rem linea de abajo tampoco se puede escribir.
+set "QUIERE="
 set /p QUIERE="Quieres un acceso directo en el Escritorio? (s/n): "
+if defined QUIERE set "QUIERE=%QUIERE:"=%"
 if not exist "%USERPROFILE%\.markowitz-pro-picks" mkdir "%USERPROFILE%\.markowitz-pro-picks"
-if /i not "%QUIERE%"=="s" (
-  > "%MARCA%" echo no
-  goto sin_atajo
-)
+rem A un "(s/n)" mucha gente contesta "si", no "s". Aceptar solo "s" convertiria
+rem ese "si" en un no definitivo y silencioso, porque la respuesta se guarda y
+rem no se vuelve a preguntar. Es la misma lista que acepta el lanzador de Mac.
+if /i "%QUIERE%"=="s"  goto crear_atajo
+if /i "%QUIERE%"=="si" goto crear_atajo
+if /i "%QUIERE%"=="y"  goto crear_atajo
+> "%MARCA%" echo no
+echo.
+echo De acuerdo, no se crea nada. Si algun dia lo quieres, borra el fichero
+echo %MARCA% y este lanzador volvera a preguntar.
+goto sin_atajo
+
+:crear_atajo
+rem La ruta viaja por variable de entorno en vez de incrustada en el comando:
+rem dentro de las comillas simples de PowerShell, un apostrofo en la ruta
+rem --C:\Users\O'Brien\...-- cierra la cadena antes de tiempo y el comando ni
+rem llega a ejecutarse. Como la ruta suele llevar el nombre de la cuenta, no es
+rem un caso tan raro.
+set "RAIZ=%~dp0"
 rem GetFolderPath y no %USERPROFILE%\Desktop: con OneDrive el Escritorio real
 rem puede estar redirigido, y el atajo acabaria en una carpeta que el usuario
 rem no ve.
-powershell -NoProfile -Command "$d=[Environment]::GetFolderPath('Desktop'); $w=New-Object -ComObject WScript.Shell; $s=$w.CreateShortcut((Join-Path $d 'Markowitz Pro Picks.lnk')); $s.TargetPath='%~dp0Iniciar App.bat'; $s.WorkingDirectory='%~dp0'; $s.IconLocation='%~dp0programa\icono.ico'; $s.Description='Markowitz Pro Picks'; $s.Save()"
+rem
+rem El 2>nul se traga el volcado de error de PowerShell a proposito: es un muro
+rem de texto para alguien que no lo puede interpretar, y justo debajo va nuestro
+rem mensaje con lo unico que necesita saber.
+powershell -NoProfile -Command "$r=$env:RAIZ; $d=[Environment]::GetFolderPath('Desktop'); $w=New-Object -ComObject WScript.Shell; $s=$w.CreateShortcut((Join-Path $d 'Markowitz Pro Picks.lnk')); $s.TargetPath=(Join-Path $r 'Iniciar App.bat'); $s.WorkingDirectory=$r; $s.IconLocation=(Join-Path $r 'programa\icono.ico'); $s.Description='Markowitz Pro Picks'; $s.Save()" 2>nul
+rem Sin esta comprobacion se anunciaba un atajo que no existe y ademas se
+rem guardaba la marca: no se reintentaba nunca mas. No escribir la marca cuando
+rem falla es lo que deja la puerta abierta al proximo arranque.
+if errorlevel 1 (
+  echo.
+  echo No se ha podido crear el acceso directo. El programa se abre igual con
+  echo este mismo archivo, y se volvera a intentar la proxima vez.
+  goto sin_atajo
+)
 > "%MARCA%" echo si
 echo Acceso directo creado en el Escritorio.
 :sin_atajo
