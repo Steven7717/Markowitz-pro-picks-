@@ -1,7 +1,7 @@
 # Contexto del proyecto — para retomar en una sesión nueva
 
 **Última actualización:** 2026-08-22
-**Rama:** `master` · **Tests:** 685 pasando (`uv run pytest tests/ -q -m "not red"`), 2 omitidos en Windows (permisos POSIX), más 6 marcados `red`
+**Rama:** `master` · **Tests:** 690 pasando (`uv run pytest tests/ -q -m "not red"`), 2 omitidos en Windows (permisos POSIX), más 6 marcados `red`
 
 ---
 
@@ -109,8 +109,10 @@ sin nada y sin explicar por qué. Medido, no estimado.
 
 Ahora `fallos.clasificar` lee la excepción de edgartools y `load_facts` decide:
 una causa sistémica (429, identidad rechazada, SSL) aborta en el primer ticker;
-diez fallos seguidos sin que la SEC entregue datos, o 180 s sin entregarlos con
-al menos tres fallos de por medio, abortan también. En los tres casos levanta
+diez fallos seguidos sin que la SEC entregue datos, o 180 s **de petición** sin
+entregarlos, abortan también. Son segundos dentro de la petición y no de reloj
+de pared a propósito: un acierto de caché no es espera, y midiendo pared una
+corrida sana con la caché caliente acababa condenada. En los tres casos levanta
 `CorridaAbortada`, que sube sin que nadie la atrape hasta la página y dice la
 causa y qué hacer. Un ticker que falla solo se sigue registrando y saltando: eso
 no cambió.

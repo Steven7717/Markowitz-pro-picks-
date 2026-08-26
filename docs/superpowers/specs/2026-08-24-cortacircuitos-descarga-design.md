@@ -133,8 +133,9 @@ Nota de nombres: `IdentityNotSetException` (el nombre viejo, en
 | Nuestro `max_retries` | Se quita | Dos capas de reintento con políticas distintas es lo que causó esto, y la de abajo está mejor informada: sabe qué NO reintentar |
 | Disparador del cortacircuitos | Racha de N seguidos, en cualquier punto de la corrida | Que la SEC se caiga en el ticker 300 produce el mismo resultado inútil que caerse en el primero; «los N primeros» no lo ve |
 | N | 10 | «Seguidas» se cuenta entre los tickers que tocan la red, no entre las posiciones del universo: un acierto de caché no rompe la racha. Lo que topa esta constante no es el 2 % del índice sino el número de empresas permanentemente rotas que haya en él — ver la nota de abajo |
-| Tope de tiempo | ~180 s sin datos, y al menos 3 fallos seguidos | Un conteo solo no acota el caso «SEC colgada»: a 2,7 min por ticker, N=10 son 27 minutos y no hemos arreglado nada. La racha mínima sale de la revisión: ver abajo |
-| Que un acierto de caché reinicie el reloj | Descartado | Sería más limpio pero rompe el caso que motiva el tope: con la caché medio poblada —fallo, fallo, acierto, fallo, fallo— nunca se acumulan 180 s seguidos, y la corrida cae al tope de racha, o sea a los 27 minutos |
+| Tope de tiempo | ~180 s **dentro de la petición**, no de reloj de pared | Un conteo solo no acota el caso «SEC colgada»: a 2,7 min por ticker, N=10 son 27 minutos y no hemos arreglado nada. Cobrar sólo la petición es lo que evita que los aciertos de caché entre dos fallos cuenten como espera |
+| El payload que llega y no se convierte | Causa propia, `unparseable`, que **reinicia** la racha | Que no sepamos leerlo prueba que la fuente entregó. Contarlo como evidencia de que no hay fuente condenaba corridas sanas con la caché caliente |
+| Que un acierto de caché reinicie el reloj | Innecesario | Se planteó cuando el tope medía reloj de pared. Cobrando sólo la petición, un acierto aporta cero por construcción y no hay nada que reiniciar |
 | El diagnóstico de los dos topes | Una sola función, `_diagnostico` | Los dos mensajes difieren en cómo se llegó, no en la causa. Duplicados, arreglar uno dejó al otro mintiendo — pasó, y por eso están juntos |
 | Acierto de caché | Ni reinicia la racha ni arranca el reloj | Un fichero leído de disco no dice nada sobre si la SEC responde; si contara como éxito, con media caché poblada el cortacircuitos no saltaría nunca |
 | Panel parcial servido de caché | Se aborta igual | Serían empresas arbitrarias «las que estaban en caché»: un universo que nadie eligió, justo contra lo que existe el docstring de `CoverageReport` |
@@ -175,6 +176,7 @@ después del renglón genérico de transporte se clasificarían como transitoria
 | Excepción | causa | Por qué |
 |---|---|---|
 | `CompanyFactsNotFoundError` | `no_facts` | La SEC contestó: esa CIK no tiene facts. Va antes que `NotFoundError` porque hereda de él |
+| `ParsingError` | `unparseable` | El payload llegó entero y no se dejó convertir. `_fetch_facts` la levanta envolviendo el `to_dataframe()`, que es el único punto donde se sabe que la SEC entregó |
 | `NotFoundError` (incl. `CompanyNotFoundError`) | `unresolved_cik` | Sin CIK. Sale del parquet empaquetado, sin red de por medio |
 | `IdentityError` | `systemic` | Cubre `IdentityNotSetError` y `SECIdentityError` de una vez: misma causa raíz, mismo arreglo |
 | `TooManyRequestsError` | `systemic` | El bloqueo es de IP, no de ticker. Lleva `status_code=429`, así que la fila de 4xx ya lo declararía sistémico: esta fila está por el mensaje, no por la clasificación |
@@ -267,15 +269,15 @@ class Intento:
 ### `fetch.py::load_facts`
 
 ```python
-RACHA_MAXIMA = 10                # 2 % del universo
-SIN_RESPUESTA_MAXIMO = 180.0     # segundos
-SIN_RESPUESTA_RACHA_MINIMA = 3   # muestras mínimas antes de mirar el reloj
+RACHA_MAXIMA = 10             # fallos seguidos entre los que tocan la red
+SIN_RESPUESTA_MAXIMO = 180.0  # segundos DENTRO de la petición, no de pared
 ```
 
 Un solo invariante gobierna las dos guardas:
 
-> **La racha y el reloj se reinician cuando la SEC entrega datos** — un `facts`
-> bueno o un 404, que también exigió preguntar. **Avanzan cuando preguntamos y no
+> **La racha y el tiempo perdido se reinician cuando la SEC entrega datos** — un
+> `facts` bueno, un 404, o un payload que llegó y no se dejó convertir: los tres
+> exigieron preguntar y obtener respuesta. **Avanzan cuando preguntamos y no
 > los entregó** (`transient`, `unknown`). **No se tocan cuando no preguntamos**
 > (acierto de caché, o CIK que resuelve contra el parquet local).
 
@@ -290,111 +292,46 @@ Un `systemic` no cuenta racha: aborta en el ticker en que aparece. El reloj
 arranca en el primer fallo contado con delta cero, así que el tope de tiempo no
 puede saltar en ese primer fallo, y un universo entero en caché nunca lo dispara.
 
-La racha mínima del tope de tiempo la exigió la revisión, con un caso medido: un
-fallo de red, 500 tickers servidos de caché, y un segundo fallo 200 s después. El
-tope de racha pide diez muestras antes de decir «no hay fuente»; el de tiempo lo
-decía **con dos**, porque los 180 s de por medio eran lecturas de parquet
-productivas, y tiraba una corrida que ya había reunido 500 de 505. Con la racha
-mínima ese caso pasa entero, y al que motiva el tope no le cuesta nada: a 162
-s/ticker ya dispara en el tercer fallo, a 25 s/ticker en el noveno.
+El tope de tiempo cobra **sólo el tiempo dentro de la petición**, sumado desde
+`Intento.segundos_de_red`. Midiendo reloj de pared, 500 tickers servidos de
+caché entre dos fallos metían en la cuenta minutos que la corrida pasó leyendo
+parquet productivamente, y el segundo fallo condenaba una corrida sana culpando
+a la conexión. Hubo un `SIN_RESPUESTA_RACHA_MINIMA = 3` para tapar ese síntoma;
+cobrando sólo la petición sobra, porque un acierto de caché aporta cero
+segundos — que es exactamente lo que aportó a la espera.
 
-Queda un residuo conocido y aceptado: la racha mínima subió el listón de dos
-muestras a tres, no eliminó la clase. Un fallo justo antes de un bloque contiguo
-de caché largo, seguido de dos fallos más, aborta igual. Arreglarlo del todo
-exige cobrar sólo el tiempo dentro de la petición, lo que obliga a instrumentar
-`_load_one` — otro trabajo.
+Eso obligó a una costura pequeña y no negociable: `_ahora`, alias de
+`time.monotonic` en `fetch.py`. Parchear `fundamentals.fetch.time.monotonic` en
+un test parchea el atributo del módulo `time` global, y medido, un banco de
+pruebas que leía 500 parquets veía 3,8 millones de llamadas en vez de las dos
+por petición que creía contar: pandas y httpx miran el reloj por su cuenta. Con
+el alias, la contabilidad es nuestra y nadie más la toca.
 
-### La caché caliente encoge lo que significa «seguidas» — pendiente de decidir
-
-Esto lo encontró la revisión final y **no está resuelto**, sólo documentado.
+### La caché caliente encoge lo que significa «seguidas»
 
 Un acierto de caché no rompe la racha, y eso es correcto: no prueba que la SEC
-responda. Pero tiene una consecuencia que ninguna de las tres justificaciones de
-`RACHA_MAXIMA` contemplaba. Con la caché caliente, los únicos tickers que tocan
-la red son los que aún fallan, así que unos pocos fallos permanentes repartidos
-por el índice quedan adyacentes **entre sí**.
+responda. Pero tiene una consecuencia que las primeras justificaciones de
+`RACHA_MAXIMA` no contemplaban. Con la caché caliente, los únicos tickers que
+tocan la red son los que aún fallan, así que unos pocos fallos permanentes
+repartidos por el índice quedan adyacentes **entre sí**.
 
-Medido: 11 tickers con el payload roto, uno cada 50 posiciones, con la SEC sana.
+Medido: 11 tickers con el payload roto, uno cada 50 posiciones, la SEC sana. La
+primera corrida entraba con 492 incluidas; la segunda, con esas 492 en caché,
+abortaba a la décima petición diciendo que el fallo era del programa. Una
+corrida sana condenada en la segunda pasada, y sin salida: cada intento
+posterior repetía el aborto.
 
-| Corrida | Resultado |
-|---|---|
-| Primera, caché fría | 492 incluidas, 11 fallos, sin abortar |
-| Segunda, con esas 492 en caché | **aborta a la décima petición**, diciendo que el fallo es del programa |
+**El arreglo no fue subir el umbral.** Un payload que llega y no se deja
+convertir *prueba* que la fuente entregó — es la prueba más directa que hay.
+`_fetch_facts` envuelve el `to_dataframe()` en `ParsingError`, que es el único
+punto del programa donde eso se sabe (más allá de ahí, `clasificar` sólo ve el
+tipo de la excepción y no puede distinguirlo de un `unknown` cualquiera), y esa
+causa —`unparseable`— reinicia la racha en vez de avanzarla, con casilla propia
+en el informe.
 
-O sea que una corrida sana aborta en la segunda pasada, y encima pierde las que
-quedaban en disco pasado el punto de aborto. Es una regresión respecto al
-comportamiento anterior para un caso en el que la SEC no tiene nada que ver.
+Verificado: la segunda corrida del caso medido ahora completa con 492 incluidas
+y 11 ilegibles.
 
-Hoy no dispara: `salidas/corrida.json` da `n_panel` 502 de 503, o sea ~1 empresa
-permanentemente rota contra un umbral de 10. El margen es real pero es de uno
-contra diez, no el que sugería «2 % del universo».
-
-La pregunta que hay que decidir, y que no se decide aquí porque es de producto y
-no de implementación: **¿debe abortar una corrida que tiene 441 empresas en la
-mano?** El propio mensaje de esa rama dice «no apunta a la SEC ni a tu
-conexión», que es justamente el caso en el que seguir tendría sentido. Las
-salidas plausibles son un suelo proporcional —que este diseño declaró fuera de
-alcance—, no contar `unknown` en la racha, o dejarlo como está y subir el umbral
-cuando el número de empresas rotas se acerque.
-
-### `CorridaAbortada`
-
-```python
-class CorridaAbortada(RuntimeError):
-    """La corrida entera está condenada; seguir sólo gasta tiempo."""
-    # lleva: causa, explicacion, y la CoverageReport hasta donde se llegó
-```
-
-Llevar la cobertura dentro es lo que permite decir «se bajaron 42 de 503 antes de
-abortar» en vez de sólo «falló».
-
-Sube sin que nadie la atrape hasta `_generar`, que la pinta con `st.error`. En
-ese `except`, `_generar` **no** limpia el `session_state` ni hace `st.rerun()`:
-no se sobrescribió `salidas/`, así que lo que el revisor tenía marcado sigue
-siendo válido y borrarlo sería el defecto que arregló `cbe71a0`.
-
-## El invariante, enmendado
-
-Tres docstrings describen hoy la política vieja y hay que corregir los tres:
-
-- `fundamentals/run.py::build_panel`
-- `ranking/run.py::construir_ranking` (línea 79)
-- `ranking/filings.py::cargar_riesgos` (línea 121, que enumera las casillas de
-  fallo por su nombre y ahora son tres)
-
-El invariante pasa a ser:
-
-> Un ticker que falla se registra y se salta. Que fallen todos por la misma causa
-> no es un ticker que falla: es que no hay fuente.
-
-## Tests — todos sin red
-
-`tests/test_fundamentals_fallos.py`, nuevo: un test por renglón de la tabla de
-clasificación, construyendo excepciones reales (`TooManyRequestsError("url")`,
-`SECIdentityError`, `IdentityNotSetError`, `CompanyNotFoundError`,
-`CompanyFactsNotFoundError`, `SSLVerificationError`, `httpx.HTTPStatusError` con
-respuesta 403 y con 503, `httpx.ConnectTimeout`).
-
-Uno de esos tests es específicamente sobre el **orden**: un `SECIdentityError`
-tiene que salir `systemic` y no `transient`, que es lo que saldría si el renglón
-genérico de transporte se evaluara antes.
-
-En `tests/test_fundamentals_fetch.py`:
-
-- un fallo sistémico en el primer ticker aborta sin tocar los otros 502
-  (`call_count == 1`)
-- el 429 en concreto no se reintenta — el caso donde hoy hacemos daño activo
-- 10 fallos ambiguos seguidos abortan; 9 y un éxito, no
-- un 404 en medio reinicia la racha; un acierto de caché **no**
-- un acierto de caché tampoco arranca el reloj
-- el tope de tiempo dispara, con `time.monotonic` parcheado
-- `no_facts` se reporta aparte de `failed_download`
-- la excepción nombra la causa y cuántos tickers se bajaron antes de abortar
-- **el invariante conservado**: un ticker que falla solo se registra y se salta
-
-`test_a_transient_failure_is_retried` se reescribe. Su mecánica se va a stamina
-—código que no es nuestro y que no nos toca testear— pero su intención se queda
-con otro nombre: un fallo transitorio aislado se registra y no tumba la corrida.
-
-El cambio en `_generar` queda sin test, como el resto de la página: Streamlit no
-se prueba, y por eso las decisiones viven en `aprobacion/`.
+Lo que sigue topando `RACHA_MAXIMA` es el número de empresas cuyo fallo **no**
+prueba nada sobre la fuente —timeouts y errores no reconocidos— seguidas entre
+sí. Eso sí es un escenario de fuente caída, que es para lo que existe.
