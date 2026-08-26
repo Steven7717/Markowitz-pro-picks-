@@ -13,7 +13,6 @@ from edgar.exceptions import (
 from fundamentals.fetch import (
     RACHA_MAXIMA,
     SIN_RESPUESTA_MAXIMO,
-    SIN_RESPUESTA_RACHA_MINIMA,
     CorridaAbortada,
     CoverageReport,
     _cache_path,
@@ -43,6 +42,25 @@ def _facts(ticker: str, n: int = 12) -> pd.DataFrame:
 @pytest.fixture
 def cache_dir(tmp_path: Path) -> Path:
     return tmp_path / "cache"
+
+
+def _reloj_por_peticion(segundos: float):
+    """time.monotonic falso donde cada intento de red cuesta `segundos`.
+
+    _load_one lo llama dos veces por intento -- antes y despues de
+    _fetch_facts -- asi que el reloj avanza en la segunda de cada par. Un
+    acierto de cache no entra por ahi y no lo llama nunca, que es justo la
+    propiedad que el tope de tiempo necesita y que el reloj de pared no daba.
+    """
+    estado = {"t": 0.0, "n": 0}
+
+    def reloj():
+        estado["n"] += 1
+        if estado["n"] % 2 == 0:
+            estado["t"] += segundos
+        return estado["t"]
+
+    return reloj
 
 
 def test_returns_facts_per_ticker_and_a_coverage_report(cache_dir):
@@ -530,88 +548,107 @@ def test_un_exito_de_red_en_medio_reinicia_tambien_el_contador_de_desconocidos(
 def test_el_tope_de_tiempo_aborta_aunque_no_se_llegue_a_la_racha(cache_dir):
     """La SEC colgada: pocos tickers, mucho tiempo. La racha sola no lo acota.
 
-    Hacen falta SIN_RESPUESTA_RACHA_MINIMA fallos antes de que el tope de
-    tiempo llegue a mirar el reloj (ver SIN_RESPUESTA_RACHA_MINIMA en
-    fetch.py): con menos, dos muestras sueltas separadas por horas de
-    aciertos de cache abortarian una corrida sana.
-
-    El reloj (0.0, 200.0, 250.0) no es arbitrario: en el segundo fallo el
-    delta ya es 200.0 - 0.0 = 200.0, por encima de SIN_RESPUESTA_MAXIMO. Sin
-    el minimo de racha, esto abortaria en el segundo fallo (call_count == 2);
-    con el, no se mira hasta el tercero.
+    Cada intento cuesta 100 s, asi que el segundo acumula 200 s y pasa de
+    SIN_RESPUESTA_MAXIMO mucho antes de que la racha llegue a diez.
     """
     with patch(
         "fundamentals.fetch._fetch_facts", side_effect=httpx.ReadTimeout("colgada")
     ) as pedido, patch(
-        "fundamentals.fetch.time.monotonic", side_effect=[0.0, 200.0, 250.0]
+        "fundamentals.fetch._ahora", side_effect=_reloj_por_peticion(100.0)
     ):
         with pytest.raises(CorridaAbortada) as abortada:
             load_facts([f"T{i:03d}" for i in range(20)], cache_dir=cache_dir)
-    assert pedido.call_count == SIN_RESPUESTA_RACHA_MINIMA
+    assert pedido.call_count == 2
     assert "180" in str(abortada.value)
 
 
-def test_una_corrida_entera_desde_cache_no_aborta_por_tiempo(cache_dir):
-    """El reloj arranca en el primer fallo de red; sin red no hay reloj."""
+def test_los_aciertos_de_cache_no_cuentan_contra_el_tope_de_tiempo(cache_dir):
+    """El defecto que motivo cobrar solo el tiempo dentro de la peticion.
+
+    Midiendo reloj de pared, los tickers servidos de disco entre dos fallos
+    metian en la cuenta el rato que la corrida paso leyendo parquet
+    productivamente, y bastaban dos fallos separados para condenar una corrida
+    sana culpando a la conexion. Cobrando solo la peticion, esos aciertos no
+    llegan siquiera a mirar el reloj.
+
+    Dos fallos de 50 s son 100 s, por debajo de los 180: no aborta. Las cuatro
+    llamadas al reloj son dos por intento de red -- antes y despues -- y ni una
+    por los 20 aciertos de cache de por medio.
+    """
+    cacheados = [f"C{i:03d}" for i in range(20)]
+    with patch("fundamentals.fetch._fetch_facts", side_effect=_facts):
+        load_facts(cacheados, cache_dir=cache_dir)
+
+    reloj = Mock(side_effect=_reloj_por_peticion(50.0))
+    with patch(
+        "fundamentals.fetch._fetch_facts", side_effect=httpx.ReadTimeout("colgada")
+    ) as pedido, patch("fundamentals.fetch._ahora", reloj):
+        _, cobertura = load_facts(
+            ["NUEVO1"] + cacheados + ["NUEVO2"], cache_dir=cache_dir
+        )
+
+    assert pedido.call_count == 2
+    assert reloj.call_count == 4
+    assert len(cobertura.included) == 20
+    assert cobertura.failed_download == ["NUEVO1", "NUEVO2"]
+
+
+def test_una_corrida_entera_desde_cache_ni_mira_el_reloj(cache_dir):
+    """Sin peticiones no hay tiempo que cobrar, ni llamada al reloj."""
     with patch("fundamentals.fetch._fetch_facts", side_effect=_facts):
         load_facts(["AAA", "BBB"], cache_dir=cache_dir)
 
+    reloj = Mock(return_value=99_999.0)
     with patch("fundamentals.fetch._fetch_facts") as ninguna, patch(
-        "fundamentals.fetch.time.monotonic", return_value=99_999.0
+        "fundamentals.fetch._ahora", reloj
     ):
         _, cobertura = load_facts(["AAA", "BBB"], cache_dir=cache_dir)
     assert ninguna.call_count == 0
+    assert reloj.call_count == 0
     assert cobertura.included == ["AAA", "BBB"]
 
 
-def test_un_exito_de_red_reinicia_el_reloj(cache_dir):
-    """Si la SEC vuelve, el tiempo que estuvo caida no cuenta contra la corrida.
+def test_un_exito_de_red_reinicia_el_tiempo_perdido(cache_dir):
+    """Si la SEC vuelve, lo que se perdio antes no cuenta contra la corrida.
 
-    Sin el reset, el reloj se queda anclado en el primer fallo (tiempo 0) y
-    el tope salta con menos fallos reales tras el exito de lo que deberia.
+    Cada intento cuesta 100 s. Sin el reinicio: T000=100, T002=200 -> aborta
+    en la tercera peticion. Con el reinicio: T000=100, T001 acierta y pone a
+    cero, T002=100, T003=200 -> aborta en la cuarta.
     """
     def falla_salvo_el_segundo(ticker):
         if ticker == "T001":
             return _facts(ticker)
         raise httpx.ReadTimeout("colgada")
 
-    # T000 falla (reloj a 0.0, antes del reset). T001 acierta (reinicia el
-    # reloj). T002..T006 fallan con el reloj real avanzando de 50 en 50 s
-    # desde 500.0: hacen falta SIN_RESPUESTA_RACHA_MINIMA fallos para que el
-    # tope empiece a mirar, y con el reloj bien reiniciado el delta no supera
-    # SIN_RESPUESTA_MAXIMO hasta T006 (700.0 - 500.0 = 200.0). Sin el reset el
-    # reloj seguiria anclado en 0.0 y el mismo tope saltaria tres fallos
-    # antes, en T004 (600.0 - 0.0 = 600.0).
-    reloj = [0.0, 500.0, 550.0, 600.0, 650.0, 700.0]
     with patch(
         "fundamentals.fetch._fetch_facts", side_effect=falla_salvo_el_segundo
-    ) as pedido, patch("fundamentals.fetch.time.monotonic", side_effect=reloj):
+    ) as pedido, patch(
+        "fundamentals.fetch._ahora", side_effect=_reloj_por_peticion(100.0)
+    ):
         with pytest.raises(CorridaAbortada):
             load_facts([f"T{i:03d}" for i in range(20)], cache_dir=cache_dir)
-    assert pedido.call_count == 7
+    assert pedido.call_count == 4
 
 
-def test_un_404_en_medio_reinicia_el_reloj(cache_dir):
-    """El otro sitio que reinicia el reloj -- un 404 (empresa sin facts) --
-    tiene que arrastrarlo igual que un acierto de red real.
+def test_un_404_en_medio_reinicia_el_tiempo_perdido(cache_dir):
+    """El otro sitio que reinicia -- un 404 -- tiene que arrastrarlo igual.
 
-    Sin esto no habia cobertura: test_un_404_en_medio_reinicia_la_racha usa
-    el reloj real, y sus deltas de microsegundos esconden cualquier fallo en
-    este reset. Mismos numeros que test_un_exito_de_red_reinicia_el_reloj,
-    con un 404 en vez de un acierto en el punto que resetea.
+    Mismos numeros que test_un_exito_de_red_reinicia_el_tiempo_perdido, con
+    un 404 en vez de un acierto en el punto que resetea.
     """
     def sin_facts_en_medio(ticker):
         if ticker == "T001":
             raise CompanyFactsNotFoundError(cik=1)
         raise httpx.ReadTimeout("colgada")
 
-    reloj = [0.0, 500.0, 550.0, 600.0, 650.0, 700.0]
     with patch(
         "fundamentals.fetch._fetch_facts", side_effect=sin_facts_en_medio
-    ) as pedido, patch("fundamentals.fetch.time.monotonic", side_effect=reloj):
+    ) as pedido, patch(
+        "fundamentals.fetch._ahora", side_effect=_reloj_por_peticion(100.0)
+    ):
         with pytest.raises(CorridaAbortada):
             load_facts([f"T{i:03d}" for i in range(20)], cache_dir=cache_dir)
-    assert pedido.call_count == 7
+    assert pedido.call_count == 4
 
 
 def test_una_racha_de_solo_desconocidos_que_tarda_tambien_dice_fallo_del_programa(
@@ -630,10 +667,66 @@ def test_una_racha_de_solo_desconocidos_que_tarda_tambien_dice_fallo_del_program
     with patch(
         "fundamentals.fetch._fetch_facts", side_effect=KeyError("valor inesperado")
     ), patch(
-        "fundamentals.fetch.time.monotonic", side_effect=[0.0, 200.0, 250.0]
+        "fundamentals.fetch._ahora", side_effect=_reloj_por_peticion(100.0)
     ):
         with pytest.raises(CorridaAbortada) as abortada:
             load_facts([f"T{i:03d}" for i in range(20)], cache_dir=cache_dir)
     mensaje = str(abortada.value)
     assert "fallo del propio programa" in mensaje
     assert "Comprueba tu conexión y si data.sec.gov responde." not in mensaje
+
+
+def test_un_payload_que_no_se_deja_convertir_no_es_un_fallo_de_descarga(cache_dir):
+    """La SEC entrego y no supimos leerlo: casilla propia, no failed_download.
+
+    _fetch_facts envuelve el to_dataframe() en ParsingError justo porque ese
+    punto es el unico donde se sabe que el payload llego. Sin esa etiqueta
+    llegaria aqui como un `unknown` cualquiera.
+    """
+    from edgar.exceptions import ParsingError
+
+    with patch(
+        "fundamentals.fetch._fetch_facts", side_effect=ParsingError("no convierte")
+    ):
+        _, cobertura = load_facts(["AAA"], cache_dir=cache_dir)
+    assert cobertura.unparseable == ["AAA"]
+    assert cobertura.failed_download == []
+    assert "ilegibles: 1" in cobertura.summary()
+
+
+def test_una_cache_caliente_con_empresas_rotas_no_condena_la_corrida(cache_dir):
+    """La regresion que encontro la revision final del conjunto.
+
+    Un acierto de cache no rompe la racha -- correcto, no prueba que la SEC
+    responda -- asi que con la cache caliente los unicos tickers que tocan la
+    red son los que aun fallan, y unos fallos permanentes repartidos por el
+    indice quedan adyacentes ENTRE SI. Medido antes del arreglo: 11 empresas
+    con el payload roto, una cada 50 posiciones y la SEC sana, entraban 492 en
+    la primera corrida y la segunda abortaba a la decima peticion diciendo que
+    no habia fuente.
+
+    Lo que lo arregla es que un payload ilegible prueba que la fuente entrego,
+    asi que reinicia la racha en vez de avanzarla. Si alguien quita
+    UNPARSEABLE de `Fallo.fuente_viva`, este test vuelve a rojo.
+    """
+    from edgar.exceptions import ParsingError
+
+    universo = [f"T{i:03d}" for i in range(503)]
+    rotos = {universo[i] for i in range(0, 503, 50)}
+
+    def efecto(ticker):
+        if ticker in rotos:
+            raise ParsingError("payload malformado")
+        return _facts(ticker)
+
+    with patch("fundamentals.fetch._fetch_facts", side_effect=efecto):
+        _, primera = load_facts(universo, cache_dir=cache_dir)
+    assert len(primera.included) == 503 - len(rotos)
+
+    # Segunda pasada: las 492 buenas salen de cache y solo los 11 rotos tocan
+    # la red, uno detras de otro. Antes del arreglo, esto abortaba.
+    with patch("fundamentals.fetch._fetch_facts", side_effect=efecto) as pedido:
+        _, segunda = load_facts(universo, cache_dir=cache_dir)
+    assert pedido.call_count == len(rotos)
+    assert len(segunda.included) == 503 - len(rotos)
+    assert sorted(segunda.unparseable) == sorted(rotos)

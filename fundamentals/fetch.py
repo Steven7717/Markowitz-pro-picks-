@@ -9,12 +9,23 @@ import pandas as pd
 from fundamentals.fallos import (
     NO_FACTS,
     UNKNOWN,
+    UNPARSEABLE,
     UNRESOLVED_CIK,
     Fallo,
     clasificar,
 )
 
 _DEFAULT_CACHE = Path(__file__).parent / ".cache"
+
+# El reloj del tope de tiempo, con nombre propio en este módulo.
+#
+# No es ceremonia: `patch("fundamentals.fetch.time.monotonic")` parchea el
+# atributo del módulo `time` global, que comparte todo el proceso. Medido, un
+# test que lo hiciera y leyera 500 parquets de caché veía 3,8 millones de
+# llamadas en vez de las dos por petición que creía estar contando — pandas y
+# httpx miran el reloj por su cuenta. Con este alias, un test parchea
+# `fundamentals.fetch._ahora` y nadie más lo toca.
+_ahora = time.monotonic
 
 PERIODOS = 12
 MIN_TRIMESTRES = 5
@@ -38,22 +49,15 @@ RACHA_MAXIMA = 10
 # Un conteo solo no acota el caso «SEC colgada»: con un read timeout de 30 s y
 # los 5 intentos de stamina, cada ticker cuesta ~2,7 min, y RACHA_MAXIMA de esos
 # son 27 minutos — que es el problema que este módulo existe para no tener.
-SIN_RESPUESTA_MAXIMO = 180.0
-
-# Sin este mínimo, el tope de tiempo dispararía con sólo dos muestras: con 500
-# tickers cacheados entre dos fallos de red 200 s aparte, el reloj no se apaga
-# —los aciertos de caché no lo tocan— y el segundo fallo condenaría una corrida
-# sana que ya reunió casi todo el universo. RACHA_MAXIMA exige diez muestras
-# para decir «no hay fuente»; este mínimo alinea al tope de tiempo con esa
-# misma exigencia sin costarle nada al caso que sí importa: medido, a 162
-# s/ticker el tope ya dispara en el tercer fallo, y a 25 s/ticker en el noveno.
 #
-# La alternativa obvia —que un acierto de caché también reinicie el reloj— se
-# descarta porque rompe el caso para el que existe el tope de tiempo: con la
-# caché medio poblada, fallo, fallo, acierto, fallo, fallo… nunca se acumulan
-# 180 s seguidos, y la corrida cae al tope de racha: diez fallos × 2,7 min son
-# los 27 minutos que este módulo existe para no tener.
-SIN_RESPUESTA_RACHA_MINIMA = 3
+# Son segundos **dentro de la petición**, sumados desde `Intento.segundos_de_red`,
+# no reloj de pared. La diferencia importa: midiendo pared, 500 tickers servidos
+# de caché entre dos fallos metían minutos en la cuenta que la corrida pasó
+# leyendo parquet productivamente, y el segundo fallo condenaba una corrida sana
+# culpando a la conexión. Hubo un `SIN_RESPUESTA_RACHA_MINIMA = 3` para tapar
+# eso; cobrando sólo el tiempo de petición sobra, porque un acierto de caché
+# aporta cero segundos, que es lo que aportó a la espera.
+SIN_RESPUESTA_MAXIMO = 180.0
 
 
 @dataclass
@@ -74,6 +78,7 @@ class CoverageReport:
     included: list[str] = field(default_factory=list)
     unresolved_cik: list[str] = field(default_factory=list)
     no_facts: list[str] = field(default_factory=list)
+    unparseable: list[str] = field(default_factory=list)
     failed_download: list[str] = field(default_factory=list)
     short_history: dict[str, int] = field(default_factory=dict)
     missing_concepts: dict[str, list[str]] = field(default_factory=dict)
@@ -86,6 +91,7 @@ class CoverageReport:
             f"incluidos: {len(self.included)} | "
             f"sin CIK: {len(self.unresolved_cik)} | "
             f"sin hechos: {len(self.no_facts)} | "
+            f"ilegibles: {len(self.unparseable)} | "
             f"fallos de descarga: {len(self.failed_download)} | "
             f"historia corta: {len(self.short_history)} | "
             f"sin sector: {len(self.missing_sector)} | "
@@ -261,7 +267,7 @@ def _fetch_facts(ticker: str) -> pd.DataFrame:
     SEC sirviendo cuerpos vacíos, el cortacircuitos no saltaría jamás.
     """
     from edgar import Company, get_company_facts
-    from edgar.exceptions import TransportError
+    from edgar.exceptions import ParsingError, TransportError
 
     company = Company(ticker)  # levanta CompanyNotFoundError si no hay CIK
     facts = get_company_facts(company.cik)  # levanta CompanyFactsNotFoundError si es un 404
@@ -281,7 +287,18 @@ def _fetch_facts(ticker: str) -> pd.DataFrame:
         # margen real es el número de empresas permanentemente rotas del universo,
         # no su tamaño. Ver el comentario de RACHA_MAXIMA, que lo trae medido.
         raise TransportError(f"la SEC no devolvió hechos usables para {ticker}")
-    return facts.to_dataframe()
+
+    # Pasado este punto la SEC ya entregó, y eso es información que no se puede
+    # recuperar más tarde: `clasificar` sólo ve el tipo de la excepción, y un
+    # fallo al convertir es indistinguible de cualquier otro `unknown` si no se
+    # etiqueta aquí. Etiquetarlo es lo que permite que reinicie la racha en vez
+    # de avanzarla, que es lo correcto — el payload llegó.
+    try:
+        return facts.to_dataframe()
+    except Exception as exc:
+        raise ParsingError(
+            f"los hechos de {ticker} llegaron pero no se dejaron convertir: {exc}"
+        ) from exc
 
 
 def _cache_path(cache_dir: Path, ticker: str) -> Path:
@@ -310,11 +327,19 @@ class Intento:
     de disco cuente como prueba de que la SEC responde. Sin ese dato, una caché
     a medio poblar apagaría los dos cortacircuitos de `load_facts` -- el de
     racha y el de tiempo, que comparten el mismo reinicio.
+
+    `segundos_de_red` es lo que tardó la petición, y sólo la petición. El tope
+    de tiempo lo suma en vez de mirar el reloj de pared porque son cosas
+    distintas: con 500 tickers en caché entre dos fallos, el reloj de pared
+    marca minutos que la corrida pasó leyendo parquet productivamente, y
+    abortaba una corrida sana culpando a la conexión. Un acierto de caché aporta
+    cero aquí, que es exactamente lo que aportó a la espera.
     """
 
     facts: pd.DataFrame | None
     fallo: Fallo | None
     desde_cache: bool = False
+    segundos_de_red: float = 0.0
 
 
 def _load_one(ticker: str, cache_dir: Path, refresh: bool) -> Intento:
@@ -338,10 +363,14 @@ def _load_one(ticker: str, cache_dir: Path, refresh: bool) -> Intento:
             # rather than letting it poison every future run.
             path.unlink(missing_ok=True)
 
+    comenzo = _ahora()
     try:
         frame = _fetch_facts(ticker)
     except Exception as exc:
-        return Intento(None, clasificar(exc))
+        return Intento(
+            None, clasificar(exc), segundos_de_red=_ahora() - comenzo
+        )
+    segundos = _ahora() - comenzo
 
     cache_dir.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(".tmp")
@@ -352,7 +381,7 @@ def _load_one(ticker: str, cache_dir: Path, refresh: bool) -> Intento:
         frame = frame.astype({"value": "string"})
     frame.to_parquet(tmp)
     tmp.replace(path)  # atomic rename: a reader never sees a partial file
-    return Intento(frame, None)
+    return Intento(frame, None, segundos_de_red=segundos)
 
 
 def _anotar(cobertura: CoverageReport, ticker: str, fallo: Fallo) -> None:
@@ -368,6 +397,8 @@ def _anotar(cobertura: CoverageReport, ticker: str, fallo: Fallo) -> None:
         cobertura.unresolved_cik.append(ticker)
     elif fallo.causa == NO_FACTS:
         cobertura.no_facts.append(ticker)
+    elif fallo.causa == UNPARSEABLE:
+        cobertura.unparseable.append(ticker)
     else:
         cobertura.failed_download.append(ticker)
 
@@ -405,7 +436,7 @@ def load_facts(
     cobertura = CoverageReport(requested=list(tickers))
     hechos: dict[str, pd.DataFrame] = {}
     racha = desconocidos = 0
-    sin_respuesta_desde: float | None = None
+    segundos_perdidos = 0.0
 
     for ticker in tickers:
         intento = _load_one(ticker, cache_dir, refresh)
@@ -417,7 +448,7 @@ def load_facts(
             cobertura.included.append(ticker)
             if not intento.desde_cache:
                 racha = desconocidos = 0
-                sin_respuesta_desde = None
+                segundos_perdidos = 0.0
             continue
 
         fallo = intento.fallo
@@ -427,7 +458,7 @@ def load_facts(
             raise CorridaAbortada(fallo.causa, fallo.explicacion, cobertura)
         if fallo.fuente_viva:
             racha = desconocidos = 0
-            sin_respuesta_desde = None
+            segundos_perdidos = 0.0
             continue
         if not fallo.cuenta_racha:
             continue
@@ -435,17 +466,12 @@ def load_facts(
         racha += 1
         if fallo.causa == UNKNOWN:
             desconocidos += 1
-        ahora = time.monotonic()
-        if sin_respuesta_desde is None:
-            sin_respuesta_desde = ahora
+        segundos_perdidos += intento.segundos_de_red
         if racha >= RACHA_MAXIMA:
             raise CorridaAbortada(
                 fallo.causa, _sin_fuente(racha, desconocidos, fallo), cobertura
             )
-        if (
-            racha >= SIN_RESPUESTA_RACHA_MINIMA
-            and ahora - sin_respuesta_desde >= SIN_RESPUESTA_MAXIMO
-        ):
+        if segundos_perdidos >= SIN_RESPUESTA_MAXIMO:
             raise CorridaAbortada(
                 fallo.causa, _sin_respuesta(racha, desconocidos, fallo), cobertura
             )

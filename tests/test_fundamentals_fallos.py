@@ -5,6 +5,7 @@ from edgar.exceptions import (
     CompanyNotFoundError,
     IdentityNotSetError,
     NotFoundError,
+    ParsingError,
     SECIdentityError,
     TooManyRequestsError,
 )
@@ -16,6 +17,7 @@ from fundamentals.fallos import (
     SYSTEMIC,
     TRANSIENT,
     UNKNOWN,
+    UNPARSEABLE,
     UNRESOLVED_CIK,
     clasificar,
 )
@@ -45,6 +47,7 @@ def _ssl() -> SSLVerificationError:
 _CASOS = [
     (CompanyFactsNotFoundError(cik=1), NO_FACTS),
     (CompanyNotFoundError("AAA"), UNRESOLVED_CIK),
+    (ParsingError("no convierte"), UNPARSEABLE),
     (IdentityNotSetError(), SYSTEMIC),
     (SECIdentityError("rechazada"), SYSTEMIC),
     (TooManyRequestsError("u"), SYSTEMIC),
@@ -218,3 +221,17 @@ def test_las_tres_preguntas_que_gobiernan_el_cortacircuitos(
     assert fallo.aborta is aborta
     assert fallo.fuente_viva is fuente_viva
     assert fallo.cuenta_racha is cuenta_racha
+
+
+def test_un_payload_ilegible_prueba_que_la_fuente_entrego():
+    """La mitad interesante de UNPARSEABLE: reinicia la racha, no la avanza.
+
+    Para que el to_dataframe() falle, la SEC tuvo que entregar el payload
+    entero. Que no sepamos leerlo no dice nada malo de la fuente -- es la
+    prueba mas directa de que esta viva. Sin esto, una decena de empresas con
+    el payload roto abortaba cualquier corrida con la cache caliente.
+    """
+    fallo = clasificar(ParsingError("no convierte"))
+    assert fallo.fuente_viva is True
+    assert fallo.cuenta_racha is False
+    assert fallo.aborta is False

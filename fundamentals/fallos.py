@@ -14,17 +14,17 @@ no está.
 
 from dataclasses import dataclass
 
-# Las dos primeras conservan el nombre de la casilla que ya existía en
-# CoverageReport, para que el informe no cambie de vocabulario a mitad. Las
-# otras tres — transient, systemic, unknown — no tienen casilla propia ahí:
-# las tres colapsan en failed_download.
+# Las tres primeras tienen casilla propia en CoverageReport y conservan su
+# nombre, para que el informe no cambie de vocabulario a mitad. Las otras tres
+# — transient, systemic, unknown — no la tienen: colapsan en failed_download.
 UNRESOLVED_CIK = "unresolved_cik"
 NO_FACTS = "no_facts"
+UNPARSEABLE = "unparseable"
 TRANSIENT = "transient"
 SYSTEMIC = "systemic"
 UNKNOWN = "unknown"
 
-CAUSAS = (UNRESOLVED_CIK, NO_FACTS, TRANSIENT, SYSTEMIC, UNKNOWN)
+CAUSAS = (UNRESOLVED_CIK, NO_FACTS, UNPARSEABLE, TRANSIENT, SYSTEMIC, UNKNOWN)
 
 _IDENTIDAD = (
     "La SEC no aceptó la identidad con la que se piden los datos. Exige un "
@@ -87,14 +87,19 @@ class Fallo:
     def fuente_viva(self) -> bool:
         """Si este fallo prueba que data.sec.gov está sirviendo datos.
 
-        Sólo un `no_facts` lo prueba: para saber que una CIK no tiene hechos hubo
-        que preguntarlo y recibir un 404. Esto sólo es cierto porque
-        `fetch.py:_fetch_facts` llama a `edgar.get_company_facts(cik)`
-        directamente, que levanta `CompanyFactsNotFoundError` para el 404 real;
-        la ruta por `Entity.get_facts()` traga ese 404 en un `None`
-        indistinguible de una descarga fallida, y por ahí esta propiedad
-        también saldría verdadera para un fallo de red. Reinicia la racha
-        igual que un acierto.
+        Dos causas lo prueban, y las dos porque hubo que preguntar para llegar
+        a ellas:
+
+        - `no_facts`: para saber que una CIK no tiene hechos hizo falta pedirlos
+          y recibir un 404. Esto sólo es cierto porque `fetch.py:_fetch_facts`
+          llama a `edgar.get_company_facts(cik)` directamente, que levanta
+          `CompanyFactsNotFoundError` para el 404 real; la ruta por
+          `Entity.get_facts()` traga ese 404 en un `None` indistinguible de una
+          descarga fallida, y por ahí esta propiedad también saldría verdadera
+          para un fallo de red.
+        - `unparseable`: el payload llegó entero y no se dejó convertir. Que no
+          sepamos leerlo no dice nada malo de la fuente — al contrario, es la
+          prueba más directa de que entregó.
 
         Un 5xx no cuenta, aunque técnicamente sea una respuesta: la SEC diciendo
         «estoy rota» diez veces seguidas es exactamente el caso para el que
@@ -102,7 +107,7 @@ class Fallo:
         `hubo_respuesta` — con ese nombre, un 503 devolvería False y el nombre
         estaría mintiendo.
         """
-        return self.causa == NO_FACTS
+        return self.causa in (NO_FACTS, UNPARSEABLE)
 
     @property
     def cuenta_racha(self) -> bool:
@@ -137,6 +142,7 @@ def clasificar(exc: BaseException) -> Fallo:
         CompanyFactsNotFoundError,
         IdentityError,
         NotFoundError,
+        ParsingError,
         TooManyRequestsError,
         http_status,
     )
@@ -146,6 +152,18 @@ def clasificar(exc: BaseException) -> Fallo:
 
     if isinstance(exc, CompanyFactsNotFoundError):
         return Fallo(NO_FACTS, detalle)
+    # Va antes que NotFoundError por la misma razón que la anterior: ParsingError
+    # no hereda de él, pero el orden aquí se lee como una tabla y las causas
+    # por-empresa van juntas arriba.
+    #
+    # `_fetch_facts` sólo la levanta envolviendo el `to_dataframe()`, o sea
+    # después de que `get_company_facts` haya devuelto un objeto. Ese punto es
+    # el único del programa donde se sabe con certeza que la SEC entregó, y de
+    # ahí sale la mitad interesante: esta causa reinicia la racha en vez de
+    # avanzarla. Sin eso, una decena de empresas con el payload roto abortaban
+    # cualquier corrida con la caché caliente — ver el docstring de RACHA_MAXIMA.
+    if isinstance(exc, ParsingError):
+        return Fallo(UNPARSEABLE, detalle)
     # NotFoundError y no LookupError a secas: KeyError también es LookupError, y
     # un fallo de pandas acabaría contado como un ticker sin CIK.
     if isinstance(exc, NotFoundError):
