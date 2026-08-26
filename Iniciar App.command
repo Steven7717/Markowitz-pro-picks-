@@ -121,6 +121,76 @@ if ! command -v uv >/dev/null 2>&1; then
     fi
 fi
 
+# Mismo razonamiento que en el .bat: el .command no puede llevar icono propio
+# --en macOS vive en el resource fork, que git no guarda-- y un alias guardado
+# en el repo dejaria de resolver al mover la carpeta. Se genera aqui, donde la
+# ruta absoluta si es la correcta.
+#
+# Se pregunta porque crear un fichero en el Escritorio de alguien sin avisar es
+# invasivo. Y se guarda la respuesta: comprobando solo si el atajo existe, a
+# quien lo borre a proposito se le resucita en cada arranque.
+MARCA="$HOME/.markowitz-pro-picks/atajo.txt"
+if [ ! -f "$MARCA" ]; then
+    echo
+    read -r -p 'Quieres un acceso directo en el Escritorio? (s/n): ' QUIERE
+    mkdir -p "$HOME/.markowitz-pro-picks"
+    case "$QUIERE" in
+        s|S|si|Si|SI|y|Y)
+            ATAJO="$HOME/Desktop/Markowitz Pro Picks"
+            if ln -sf "$RAIZ/Iniciar App.command" "$ATAJO"; then
+                echo si > "$MARCA"
+                echo 'Acceso directo creado en el Escritorio.'
+
+                # El icono es de mejor esfuerzo y NO esta verificado en un Mac.
+                #
+                # macOS guarda el icono de un fichero en su resource fork, que
+                # git no almacena; por eso hay que ponerlo aqui y no traerlo
+                # hecho. El .icns si viene en el repo, para no depender de que
+                # sips sepa leer un .ico, que es lo que no consta.
+                #
+                # Se le pone al lanzador y no al alias a proposito: Finder pinta
+                # el alias con el icono de su destino, asi que poniendoselo al
+                # destino salen los dos con icono. Y de todas formas Rez sigue
+                # el enlace simbolico, asi que apuntarlo al alias acabaria
+                # escribiendo aqui igualmente.
+                #
+                # Rez, DeRez y SetFile vienen con las herramientas de linea de
+                # comandos de Xcode y pueden no estar instaladas. Cada paso va
+                # con guarda: si algo falta o falla, el alias se queda con el
+                # icono generico y el arranque continua. Nunca rompe nada.
+                #
+                # Si al probarlo en un Mac el icono no aparece, borra este
+                # bloque entero en vez de dejarlo aparentando que hace algo.
+                if command -v sips >/dev/null 2>&1 \
+                   && command -v Rez >/dev/null 2>&1 \
+                   && command -v DeRez >/dev/null 2>&1 \
+                   && command -v SetFile >/dev/null 2>&1; then
+                    ICNS="$HOME/.markowitz-pro-picks/icono.icns"
+                    RSRC="$HOME/.markowitz-pro-picks/icono.rsrc"
+                    if cp "$RAIZ/programa/icono.icns" "$ICNS" 2>/dev/null \
+                       && sips -i "$ICNS" >/dev/null 2>&1 \
+                       && DeRez -only icns "$ICNS" > "$RSRC" 2>/dev/null \
+                       && Rez -append "$RSRC" -o "$RAIZ/Iniciar App.command" 2>/dev/null; then
+                        SetFile -a C "$RAIZ/Iniciar App.command" 2>/dev/null
+                    fi
+                    rm -f "$RSRC"
+                fi
+            else
+                echo
+                echo 'No se ha podido crear el acceso directo. El programa se abre'
+                echo 'igual con este mismo archivo, y se volvera a intentar la'
+                echo 'proxima vez.'
+            fi
+            ;;
+        *)
+            echo no > "$MARCA"
+            echo
+            echo 'De acuerdo, no se crea nada. Si algun dia lo quieres, borra el'
+            echo "fichero $MARCA y este lanzador volvera a preguntar."
+            ;;
+    esac
+fi
+
 echo
 echo 'Iniciando Markowitz Pro Picks...'
 echo
