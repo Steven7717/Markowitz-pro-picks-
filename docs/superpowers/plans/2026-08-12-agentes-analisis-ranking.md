@@ -2574,7 +2574,7 @@ def test_el_modelo_devuelve_el_esquema_y_cita_de_verdad():
 
 - [ ] **Step 2: Ejecuta el test de red**
 
-Run: `EDGAR_IDENTITY="esteban.110203@gmail.com" pytest tests/test_ranking_contraste.py -q -m red`
+Run: `EDGAR_IDENTITY="tu@correo.com" pytest tests/test_ranking_contraste.py -q -m red`
 Expected: PASS, o SKIP si falta `ANTHROPIC_API_KEY`.
 
 Si `thinking={"type": "disabled"}` fuera rechazado junto a `output_format=`, quita ese parámetro de `ranking/llm.py` y vuelve a ejecutar.
@@ -2584,7 +2584,7 @@ Si `thinking={"type": "disabled"}` fuera rechazado junto a `output_format=`, qui
 Este es el número que el diseño dejó explícitamente pendiente de medir.
 
 ```bash
-EDGAR_IDENTITY="esteban.110203@gmail.com" python -c "
+EDGAR_IDENTITY="tu@correo.com" python -c "
 from ranking.run import construir_ranking, guardar
 r = construir_ranking(con_llm=False)
 print('excluidas:', r.exclusiones)
