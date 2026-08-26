@@ -9,7 +9,6 @@ import pandas as pd
 from fundamentals.fallos import (
     NO_FACTS,
     UNKNOWN,
-    UNPARSEABLE,
     UNRESOLVED_CIK,
     Fallo,
     clasificar,
@@ -78,7 +77,6 @@ class CoverageReport:
     included: list[str] = field(default_factory=list)
     unresolved_cik: list[str] = field(default_factory=list)
     no_facts: list[str] = field(default_factory=list)
-    unparseable: list[str] = field(default_factory=list)
     failed_download: list[str] = field(default_factory=list)
     short_history: dict[str, int] = field(default_factory=dict)
     missing_concepts: dict[str, list[str]] = field(default_factory=dict)
@@ -91,7 +89,6 @@ class CoverageReport:
             f"incluidos: {len(self.included)} | "
             f"sin CIK: {len(self.unresolved_cik)} | "
             f"sin hechos: {len(self.no_facts)} | "
-            f"ilegibles: {len(self.unparseable)} | "
             f"fallos de descarga: {len(self.failed_download)} | "
             f"historia corta: {len(self.short_history)} | "
             f"sin sector: {len(self.missing_sector)} | "
@@ -166,9 +163,16 @@ def _diagnostico(racha: int, desconocidos: int, fallo: Fallo) -> str:
     # cercano es «datos» (leería «el último dato») y en la mixta es «la red»
     # (leería «el último de la red» en vez de el último de los diez).
     ultimo = f"el último fallo, {fallo.detalle}"
+    # El tope de tiempo puede abortar con un solo fallo -- una peticion que
+    # tarde mas de SIN_RESPUESTA_MAXIMO ella sola basta, y 200 s por ticker
+    # sobre 503 son 28 horas, asi que abortar es lo correcto. Lo que no valia
+    # era el texto: «1 empresas seguidas fallaron» no es una frase.
+    cuantas = (
+        "1 empresa falló" if racha == 1 else f"{racha} empresas seguidas fallaron"
+    )
     if desconocidos == racha:
         return (
-            f"{racha} empresas seguidas fallaron con errores que este programa "
+            f"{cuantas} con errores que este programa "
             f"no sabe interpretar ({ultimo}). No apunta a la SEC ni a tu "
             "conexión: lo más probable es que sea un fallo del propio programa. "
             "La corrida se para aquí en vez de repetirlo 503 veces."
@@ -178,7 +182,7 @@ def _diagnostico(racha: int, desconocidos: int, fallo: Fallo) -> str:
         # un 5xx, que técnicamente es una respuesta. Decir «no contestó» delante
         # de un «(HTTP 503)» sería contradecirse en la misma frase.
         return (
-            f"{racha} empresas seguidas fallaron sin que la SEC entregara datos "
+            f"{cuantas} sin que la SEC entregara datos "
             f"({ultimo}). No es que fallen esas empresas: es que no hay fuente. "
             "Comprueba tu conexión y si data.sec.gov responde."
         )
@@ -194,7 +198,7 @@ def _diagnostico(racha: int, desconocidos: int, fallo: Fallo) -> str:
         else "errores que este programa no sabe interpretar"
     )
     return (
-        f"{racha} empresas seguidas fallaron por causas mezcladas: "
+        f"{cuantas}, por causas mezcladas: "
         f"{desconocidos} con {sin_interpretar} y {racha - desconocidos} de la "
         f"SEC o de la red ({ultimo}). Comprueba primero tu conexión y si "
         "data.sec.gov responde; si van bien, es un fallo del propio programa."
@@ -217,11 +221,13 @@ def _sin_respuesta(racha: int, desconocidos: int, fallo: Fallo) -> str:
     con una frase propia delante que dice cómo se llegó — por segundos, no
     por conteo.
     """
-    # No dice «en una sola petición», que sería falso por construcción: el
-    # reloj arranca en el primer fallo contado con delta 0, así que el tope no
-    # puede saltar antes del segundo. El tramo cubre siempre dos peticiones o
-    # más, y puede cubrir cientos de lecturas de caché entre medias, porque los
-    # aciertos de caché no tocan el reloj.
+    # No dice «sin contestar» sino «sin que ningún intento tuviera éxito»,
+    # porque el tiempo también corre con un 5xx, que sí es una respuesta.
+    #
+    # Puede saltar con una sola petición: desde que se cobra el tiempo dentro
+    # de la petición, una que tarde más de SIN_RESPUESTA_MAXIMO ella sola basta.
+    # Es lo correcto —200 s por ticker sobre 503 son 28 horas— y por eso
+    # `_diagnostico` sabe decir «1 empresa falló» en singular.
     return (
         f"Pasaron {SIN_RESPUESTA_MAXIMO:.0f} segundos sin que ningún intento "
         "tuviera éxito. " + _diagnostico(racha, desconocidos, fallo)
@@ -267,7 +273,7 @@ def _fetch_facts(ticker: str) -> pd.DataFrame:
     SEC sirviendo cuerpos vacíos, el cortacircuitos no saltaría jamás.
     """
     from edgar import Company, get_company_facts
-    from edgar.exceptions import ParsingError, TransportError
+    from edgar.exceptions import TransportError
 
     company = Company(ticker)  # levanta CompanyNotFoundError si no hay CIK
     facts = get_company_facts(company.cik)  # levanta CompanyFactsNotFoundError si es un 404
@@ -288,17 +294,7 @@ def _fetch_facts(ticker: str) -> pd.DataFrame:
         # no su tamaño. Ver el comentario de RACHA_MAXIMA, que lo trae medido.
         raise TransportError(f"la SEC no devolvió hechos usables para {ticker}")
 
-    # Pasado este punto la SEC ya entregó, y eso es información que no se puede
-    # recuperar más tarde: `clasificar` sólo ve el tipo de la excepción, y un
-    # fallo al convertir es indistinguible de cualquier otro `unknown` si no se
-    # etiqueta aquí. Etiquetarlo es lo que permite que reinicie la racha en vez
-    # de avanzarla, que es lo correcto — el payload llegó.
-    try:
-        return facts.to_dataframe()
-    except Exception as exc:
-        raise ParsingError(
-            f"los hechos de {ticker} llegaron pero no se dejaron convertir: {exc}"
-        ) from exc
+    return facts.to_dataframe()
 
 
 def _cache_path(cache_dir: Path, ticker: str) -> Path:
@@ -397,8 +393,6 @@ def _anotar(cobertura: CoverageReport, ticker: str, fallo: Fallo) -> None:
         cobertura.unresolved_cik.append(ticker)
     elif fallo.causa == NO_FACTS:
         cobertura.no_facts.append(ticker)
-    elif fallo.causa == UNPARSEABLE:
-        cobertura.unparseable.append(ticker)
     else:
         cobertura.failed_download.append(ticker)
 

@@ -676,57 +676,50 @@ def test_una_racha_de_solo_desconocidos_que_tarda_tambien_dice_fallo_del_program
     assert "Comprueba tu conexión y si data.sec.gov responde." not in mensaje
 
 
-def test_un_payload_que_no_se_deja_convertir_no_es_un_fallo_de_descarga(cache_dir):
-    """La SEC entrego y no supimos leerlo: casilla propia, no failed_download.
+def test_un_solo_fallo_muy_lento_aborta_y_lo_dice_en_singular(cache_dir):
+    """Desde que se cobra el tiempo DENTRO de la peticion, una sola que tarde
+    mas de SIN_RESPUESTA_MAXIMO basta para abortar.
 
-    _fetch_facts envuelve el to_dataframe() en ParsingError justo porque ese
-    punto es el unico donde se sabe que el payload llego. Sin esa etiqueta
-    llegaria aqui como un `unknown` cualquiera.
+    Es lo correcto: 200 s por ticker sobre 503 son 28 horas. Pero el texto
+    tiene que concordar -- «1 empresas seguidas fallaron» no es una frase, y
+    era lo que salia antes de que _diagnostico supiera contar hasta uno.
     """
-    from edgar.exceptions import ParsingError
-
     with patch(
-        "fundamentals.fetch._fetch_facts", side_effect=ParsingError("no convierte")
+        "fundamentals.fetch._fetch_facts", side_effect=httpx.ReadTimeout("colgada")
+    ) as pedido, patch(
+        "fundamentals.fetch._ahora", side_effect=_reloj_por_peticion(200.0)
     ):
-        _, cobertura = load_facts(["AAA"], cache_dir=cache_dir)
-    assert cobertura.unparseable == ["AAA"]
-    assert cobertura.failed_download == []
-    assert "ilegibles: 1" in cobertura.summary()
+        with pytest.raises(CorridaAbortada) as abortada:
+            load_facts([f"T{i:03d}" for i in range(20)], cache_dir=cache_dir)
+    mensaje = str(abortada.value)
+    assert pedido.call_count == 1
+    assert "1 empresa falló" in mensaje
+    assert "1 empresas" not in mensaje
 
 
-def test_una_cache_caliente_con_empresas_rotas_no_condena_la_corrida(cache_dir):
-    """La regresion que encontro la revision final del conjunto.
+def test_un_acierto_de_cache_no_reinicia_el_tiempo_perdido(cache_dir):
+    """La otra mitad del invariante del reloj, que no cubria nadie.
 
-    Un acierto de cache no rompe la racha -- correcto, no prueba que la SEC
-    responda -- asi que con la cache caliente los unicos tickers que tocan la
-    red son los que aun fallan, y unos fallos permanentes repartidos por el
-    indice quedan adyacentes ENTRE SI. Medido antes del arreglo: 11 empresas
-    con el payload roto, una cada 50 posiciones y la SEC sana, entraban 492 en
-    la primera corrida y la segunda abortaba a la decima peticion diciendo que
-    no habia fuente.
-
-    Lo que lo arregla es que un payload ilegible prueba que la fuente entrego,
-    asi que reinicia la racha en vez de avanzarla. Si alguien quita
-    UNPARSEABLE de `Fallo.fuente_viva`, este test vuelve a rojo.
+    Un acierto de cache no reinicia la racha -- eso ya esta pinchado -- pero
+    tampoco puede reiniciar el tiempo perdido: si lo hiciera, una cache a medio
+    poblar apagaria el tope de tiempo entero y volveriamos a los 27 minutos.
+    Aqui el acierto va justo entre los dos fallos que juntos pasan de 180 s.
     """
-    from edgar.exceptions import ParsingError
+    with patch("fundamentals.fetch._fetch_facts", side_effect=_facts):
+        load_facts(["CACHEADO"], cache_dir=cache_dir)
 
-    universo = [f"T{i:03d}" for i in range(503)]
-    rotos = {universo[i] for i in range(0, 503, 50)}
+    def falla_salvo_el_cacheado(ticker):
+        raise httpx.ReadTimeout("colgada")
 
-    def efecto(ticker):
-        if ticker in rotos:
-            raise ParsingError("payload malformado")
-        return _facts(ticker)
-
-    with patch("fundamentals.fetch._fetch_facts", side_effect=efecto):
-        _, primera = load_facts(universo, cache_dir=cache_dir)
-    assert len(primera.included) == 503 - len(rotos)
-
-    # Segunda pasada: las 492 buenas salen de cache y solo los 11 rotos tocan
-    # la red, uno detras de otro. Antes del arreglo, esto abortaba.
-    with patch("fundamentals.fetch._fetch_facts", side_effect=efecto) as pedido:
-        _, segunda = load_facts(universo, cache_dir=cache_dir)
-    assert pedido.call_count == len(rotos)
-    assert len(segunda.included) == 503 - len(rotos)
-    assert sorted(segunda.unparseable) == sorted(rotos)
+    tickers = ["T000", "CACHEADO"] + [f"T{i:03d}" for i in range(1, 20)]
+    with patch(
+        "fundamentals.fetch._fetch_facts", side_effect=falla_salvo_el_cacheado
+    ) as pedido, patch(
+        "fundamentals.fetch._ahora", side_effect=_reloj_por_peticion(95.0)
+    ):
+        with pytest.raises(CorridaAbortada) as abortada:
+            load_facts(tickers, cache_dir=cache_dir)
+    # Dos fallos de 95 s son 190 s. Si el acierto de en medio reiniciara el
+    # contador, el segundo fallo empezaria de cero y no abortaria aqui.
+    assert pedido.call_count == 2
+    assert "Pasaron 180 segundos" in str(abortada.value)

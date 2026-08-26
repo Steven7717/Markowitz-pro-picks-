@@ -134,7 +134,6 @@ Nota de nombres: `IdentityNotSetException` (el nombre viejo, en
 | Disparador del cortacircuitos | Racha de N seguidos, en cualquier punto de la corrida | Que la SEC se caiga en el ticker 300 produce el mismo resultado inútil que caerse en el primero; «los N primeros» no lo ve |
 | N | 10 | «Seguidas» se cuenta entre los tickers que tocan la red, no entre las posiciones del universo: un acierto de caché no rompe la racha. Lo que topa esta constante no es el 2 % del índice sino el número de empresas permanentemente rotas que haya en él — ver la nota de abajo |
 | Tope de tiempo | ~180 s **dentro de la petición**, no de reloj de pared | Un conteo solo no acota el caso «SEC colgada»: a 2,7 min por ticker, N=10 son 27 minutos y no hemos arreglado nada. Cobrar sólo la petición es lo que evita que los aciertos de caché entre dos fallos cuenten como espera |
-| El payload que llega y no se convierte | Causa propia, `unparseable`, que **reinicia** la racha | Que no sepamos leerlo prueba que la fuente entregó. Contarlo como evidencia de que no hay fuente condenaba corridas sanas con la caché caliente |
 | Que un acierto de caché reinicie el reloj | Innecesario | Se planteó cuando el tope medía reloj de pared. Cobrando sólo la petición, un acierto aporta cero por construcción y no hay nada que reiniciar |
 | El diagnóstico de los dos topes | Una sola función, `_diagnostico` | Los dos mensajes difieren en cómo se llegó, no en la causa. Duplicados, arreglar uno dejó al otro mintiendo — pasó, y por eso están juntos |
 | Acierto de caché | Ni reinicia la racha ni arranca el reloj | Un fichero leído de disco no dice nada sobre si la SEC responde; si contara como éxito, con media caché poblada el cortacircuitos no saltaría nunca |
@@ -176,7 +175,6 @@ después del renglón genérico de transporte se clasificarían como transitoria
 | Excepción | causa | Por qué |
 |---|---|---|
 | `CompanyFactsNotFoundError` | `no_facts` | La SEC contestó: esa CIK no tiene facts. Va antes que `NotFoundError` porque hereda de él |
-| `ParsingError` | `unparseable` | El payload llegó entero y no se dejó convertir. `_fetch_facts` la levanta envolviendo el `to_dataframe()`, que es el único punto donde se sabe que la SEC entregó |
 | `NotFoundError` (incl. `CompanyNotFoundError`) | `unresolved_cik` | Sin CIK. Sale del parquet empaquetado, sin red de por medio |
 | `IdentityError` | `systemic` | Cubre `IdentityNotSetError` y `SECIdentityError` de una vez: misma causa raíz, mismo arreglo |
 | `TooManyRequestsError` | `systemic` | El bloqueo es de IP, no de ticker. Lleva `status_code=429`, así que la fila de 4xx ya lo declararía sistémico: esta fila está por el mensaje, no por la clasificación |
@@ -276,8 +274,7 @@ SIN_RESPUESTA_MAXIMO = 180.0  # segundos DENTRO de la petición, no de pared
 Un solo invariante gobierna las dos guardas:
 
 > **La racha y el tiempo perdido se reinician cuando la SEC entrega datos** — un
-> `facts` bueno, un 404, o un payload que llegó y no se dejó convertir: los tres
-> exigieron preguntar y obtener respuesta. **Avanzan cuando preguntamos y no
+> `facts` bueno o un 404, que también exigió preguntar. **Avanzan cuando preguntamos y no
 > los entregó** (`transient`, `unknown`). **No se tocan cuando no preguntamos**
 > (acierto de caché, o CIK que resuelve contra el parquet local).
 
@@ -307,31 +304,42 @@ pruebas que leía 500 parquets veía 3,8 millones de llamadas en vez de las dos
 por petición que creía contar: pandas y httpx miran el reloj por su cuenta. Con
 el alias, la contabilidad es nuestra y nadie más la toca.
 
-### La caché caliente encoge lo que significa «seguidas»
+### La caché caliente encoge lo que significa «seguidas» — sin resolver
 
 Un acierto de caché no rompe la racha, y eso es correcto: no prueba que la SEC
-responda. Pero tiene una consecuencia que las primeras justificaciones de
-`RACHA_MAXIMA` no contemplaban. Con la caché caliente, los únicos tickers que
-tocan la red son los que aún fallan, así que unos pocos fallos permanentes
-repartidos por el índice quedan adyacentes **entre sí**.
+responda. Pero con la caché caliente los únicos tickers que tocan la red son los
+que aún fallan, así que unos pocos fallos permanentes repartidos por el índice
+quedan adyacentes **entre sí**, y una corrida sana puede abortar en la segunda
+pasada. Hoy no dispara: `salidas/corrida.json` da `n_panel` 502 de 503, o sea ~1
+empresa permanentemente rota contra un umbral de 10.
 
-Medido: 11 tickers con el payload roto, uno cada 50 posiciones, la SEC sana. La
-primera corrida entraba con 492 incluidas; la segunda, con esas 492 en caché,
-abortaba a la décima petición diciendo que el fallo era del programa. Una
-corrida sana condenada en la segunda pasada, y sin salida: cada intento
-posterior repetía el aborto.
+**Se intentó arreglar y se deshizo.** Queda escrito porque el intento enseñó
+más que el problema.
 
-**El arreglo no fue subir el umbral.** Un payload que llega y no se deja
-convertir *prueba* que la fuente entregó — es la prueba más directa que hay.
-`_fetch_facts` envuelve el `to_dataframe()` en `ParsingError`, que es el único
-punto del programa donde eso se sabe (más allá de ahí, `clasificar` sólo ve el
-tipo de la excepción y no puede distinguirlo de un `unknown` cualquiera), y esa
-causa —`unparseable`— reinicia la racha en vez de avanzarla, con casilla propia
-en el informe.
+La idea era: un payload que llega y no se deja convertir prueba que la fuente
+entregó, así que debería reiniciar la racha en vez de avanzarla. Se implementó
+envolviendo el `to_dataframe()` en `ParsingError` y dándole una causa propia,
+`unparseable`, con `fuente_viva` a verdadero.
 
-Verificado: la segunda corrida del caso medido ahora completa con 492 incluidas
-y 11 ilegibles.
+Dos cosas lo tumbaron:
 
-Lo que sigue topando `RACHA_MAXIMA` es el número de empresas cuyo fallo **no**
-prueba nada sobre la fuente —timeouts y errores no reconocidos— seguidas entre
-sí. Eso sí es un escenario de fuente caída, que es para lo que existe.
+1. **Reiniciar la racha y no tener ningún tope son cosas distintas, y se
+   confundieron.** Con el cambio puesto, un fallo de parseo *sistémico* —un bug
+   nuestro, o edgartools cambiando un atributo— dejaba de abortar por completo:
+   503 peticiones, panel vacío, sin mensaje. Medido. O sea que el arreglo
+   reintroducía exactamente el fallo que este módulo existe para eliminar, y el
+   mensaje que sustituía prometía «en vez de repetirlo 503 veces».
+2. **La premisa no se verificó nunca.** Todos los tests inyectaban
+   `ParsingError` en un `_fetch_facts` parcheado, así que medían la propia
+   inyección. `EntityFactsParser.parse_company_facts` devuelve `None` cuando el
+   payload no cuaja, y ese `None` sale por la rama `TransportError` → `transient`,
+   que **sí** avanza la racha. Lo que llega al `to_dataframe()` es un
+   `EntityFacts` ya materializado, así que la población real de esa causa se
+   inclina hacia agotamiento de memoria y bugs propios — justo lo que no debe
+   reiniciar nada.
+
+**Lo que hace falta para retomarlo:** una corrida real contra EDGAR que diga por
+qué puerta fallan las empresas que fallan. Si salen por el `None`, este enfoque
+no arregla nada. Si salen por `to_dataframe()`, el arreglo es viable pero tiene
+que llevar su propio contador y su propio aborto con diagnóstico de fallo del
+programa, en vez de quedarse sin tope.

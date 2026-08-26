@@ -1,7 +1,7 @@
 # Contexto del proyecto — para retomar en una sesión nueva
 
 **Última actualización:** 2026-08-22
-**Rama:** `master` · **Tests:** 690 pasando (`uv run pytest tests/ -q -m "not red"`), 2 omitidos en Windows (permisos POSIX), más 6 marcados `red`
+**Rama:** `master` · **Tests:** 688 pasando (`uv run pytest tests/ -q -m "not red"`), 2 omitidos en Windows (permisos POSIX), más 6 marcados `red`
 
 ---
 
