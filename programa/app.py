@@ -27,7 +27,9 @@ from validation import walk_forward_validation
 
 st.set_page_config(
     page_title="Markowitz Pro Picks",
-    page_icon="📈",
+    # Ruta relativa: el lanzador entra en programa/ antes de arrancar, asi que
+    # resuelve. Streamlit lo pasa por PIL, que lee .ico sin problema.
+    page_icon="icono.ico",
     layout="wide",
 )
 

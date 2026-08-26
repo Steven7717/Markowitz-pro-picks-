@@ -32,7 +32,7 @@ from credenciales import (
 from credenciales import guardar as guardar_credenciales
 from fundamentals.kpis import TODOS_LOS_KPIS
 
-st.set_page_config(page_title="Revisar candidatos", page_icon="✅", layout="wide")
+st.set_page_config(page_title="Revisar candidatos", page_icon="icono.ico", layout="wide")
 st.title("✅ Revisar candidatos")
 
 if "anadidos" not in st.session_state:
