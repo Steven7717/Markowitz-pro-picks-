@@ -94,6 +94,32 @@ if errorlevel 1 (
   exit /b 1
 )
 
+rem Un .bat no puede llevar icono propio --lo pone la asociacion del sistema
+rem para la extension-- y un .lnk guardado en el repo tampoco sirve: al mover
+rem la carpeta deja de resolver, y cada usuario la extrae en un sitio distinto.
+rem Generarlo aqui es lo que hace que la ruta absoluta sea la correcta.
+rem
+rem Se pregunta porque crear un fichero en el Escritorio de alguien sin avisar
+rem es invasivo, y este lanzador ya pregunta antes de instalar uv. Y se guarda
+rem la respuesta: comprobando solo si el atajo existe, a quien lo borre a
+rem proposito se le resucita en cada arranque.
+set "MARCA=%USERPROFILE%\.markowitz-pro-picks\atajo.txt"
+if exist "%MARCA%" goto sin_atajo
+echo.
+set /p QUIERE="Quieres un acceso directo en el Escritorio? (s/n): "
+if not exist "%USERPROFILE%\.markowitz-pro-picks" mkdir "%USERPROFILE%\.markowitz-pro-picks"
+if /i not "%QUIERE%"=="s" (
+  > "%MARCA%" echo no
+  goto sin_atajo
+)
+rem GetFolderPath y no %USERPROFILE%\Desktop: con OneDrive el Escritorio real
+rem puede estar redirigido, y el atajo acabaria en una carpeta que el usuario
+rem no ve.
+powershell -NoProfile -Command "$d=[Environment]::GetFolderPath('Desktop'); $w=New-Object -ComObject WScript.Shell; $s=$w.CreateShortcut((Join-Path $d 'Markowitz Pro Picks.lnk')); $s.TargetPath='%~dp0Iniciar App.bat'; $s.WorkingDirectory='%~dp0'; $s.IconLocation='%~dp0programa\icono.ico'; $s.Description='Markowitz Pro Picks'; $s.Save()"
+> "%MARCA%" echo si
+echo Acceso directo creado en el Escritorio.
+:sin_atajo
+
 rem La primera vez, streamlit se para a pedir un email por consola y deja la
 rem ventana colgada esperando un Enter que nadie sabe que hay que pulsar.
 rem Este fichero es la forma oficial de declinar; solo se crea si no existe,
