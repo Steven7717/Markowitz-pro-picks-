@@ -4,6 +4,13 @@ from pathlib import Path
 
 SALIDAS = Path("salidas")
 
+# salidas/ lo escribe B y no viaja en el repo: cada usuario genera el suyo, y
+# versionarlo convertia a cualquiera que abriese el programa en alguien con
+# cambios locales sobre ficheros del repo, que es lo que rompia `git pull`.
+# El ejemplo se queda versionado aparte para que quien acaba de clonar vea una
+# lista real sin pagar una corrida con IA.
+EJEMPLO = Path("salidas_ejemplo")
+
 _CAMPOS_FICHA = frozenset(
     {
         "ticker",
@@ -156,7 +163,13 @@ def cargar_candidatos(directorio: Path | None = None) -> Candidatos:
     ficha is worse than no page at all: the reviewer would be approving on
     incomplete information without knowing it.
     """
-    directorio = Path(directorio or SALIDAS)
+    # Solo el camino por defecto cae al ejemplo. Quien pasa un directorio a
+    # mano -- los tests, un script -- esta diciendo exactamente donde mirar, y
+    # sustituirselo por otra cosa convertiria un fallo en un falso verde.
+    if directorio is None:
+        directorio = SALIDAS if (SALIDAS / "fichas.json").exists() else EJEMPLO
+    else:
+        directorio = Path(directorio)
     fichero_fichas = directorio / "fichas.json"
     if not fichero_fichas.exists():
         raise FaltanFichas(_COMO_GENERARLO)
