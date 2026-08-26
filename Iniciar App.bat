@@ -79,6 +79,12 @@ if errorlevel 1 (
 )
 
 :lanzar
+rem El git pull de arriba se hace en la raiz, que es donde esta .git. Entrar en
+rem programa/ antes de esa comprobacion la haria fallar --alli no hay .git-- y
+rem el pull se saltaria en silencio: el programa arrancaria igual y nadie
+rem notaria que dejo de actualizarse.
+cd /d "%~dp0programa" || exit /b 1
+
 rem La primera vez, streamlit se para a pedir un email por consola y deja la
 rem ventana colgada esperando un Enter que nadie sabe que hay que pulsar.
 rem Este fichero es la forma oficial de declinar; solo se crea si no existe,

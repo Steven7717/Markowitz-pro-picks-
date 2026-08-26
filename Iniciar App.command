@@ -59,6 +59,16 @@ if [ -d .git ] && command -v git >/dev/null 2>&1; then
     fi
 fi
 
+# El git pull de arriba se hace en la raiz, que es donde esta .git. Entrar en
+# programa/ antes de esa comprobacion la haria fallar --alli no hay .git-- y el
+# pull se saltaria en silencio: el programa arrancaria igual y nadie notaria que
+# dejo de actualizarse.
+#
+# Tambien tiene que ir antes de la comprobacion del shebang del .venv, que mira
+# .venv/bin/streamlit: ese .venv vive ahora dentro de programa/.
+RAIZ="$(/bin/pwd)"
+cd programa || exit 1
+
 # Recien instalado, uv queda en ~/.local/bin, que no esta en el PATH de esta
 # ventana. Sin esta linea el primer arranque falla justo despues de una
 # instalacion que acaba de decir que fue bien.
