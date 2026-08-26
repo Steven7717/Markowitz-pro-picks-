@@ -66,8 +66,19 @@ fi
 #
 # Tambien tiene que ir antes de la comprobacion del shebang del .venv, que mira
 # .venv/bin/streamlit: ese .venv vive ahora dentro de programa/.
+#
+# Se guarda antes del cd: una tarea posterior lo necesita para apuntar un
+# acceso directo del Escritorio a este lanzador, que se queda en la raiz.
 RAIZ="$(/bin/pwd)"
-cd programa || exit 1
+if ! cd programa; then
+    echo
+    echo 'No se encuentra la carpeta "programa", que tiene que estar junto a'
+    echo 'este archivo. Puede que la descarga se extrajera a medias, o que se'
+    echo 'moviera solo el lanzador. Vuelve a descargar la carpeta entera.'
+    echo
+    read -r -n 1 -s -p 'Pulsa una tecla para cerrar.'
+    exit 1
+fi
 
 # Recien instalado, uv queda en ~/.local/bin, que no esta en el PATH de esta
 # ventana. Sin esta linea el primer arranque falla justo despues de una

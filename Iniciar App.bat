@@ -83,7 +83,16 @@ rem El git pull de arriba se hace en la raiz, que es donde esta .git. Entrar en
 rem programa/ antes de esa comprobacion la haria fallar --alli no hay .git-- y
 rem el pull se saltaria en silencio: el programa arrancaria igual y nadie
 rem notaria que dejo de actualizarse.
-cd /d "%~dp0programa" || exit /b 1
+cd /d "%~dp0programa"
+if errorlevel 1 (
+  echo.
+  echo No se encuentra la carpeta "programa", que tiene que estar junto a este
+  echo archivo. Puede que la descarga se extrajera a medias, o que se moviera
+  echo solo el lanzador. Vuelve a descargar la carpeta entera.
+  echo.
+  pause
+  exit /b 1
+)
 
 rem La primera vez, streamlit se para a pedir un email por consola y deja la
 rem ventana colgada esperando un Enter que nadie sabe que hay que pulsar.
