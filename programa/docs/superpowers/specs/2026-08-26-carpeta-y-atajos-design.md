@@ -147,11 +147,38 @@ guarda en `~/.markowitz-pro-picks/atajo.txt`, junto a las credenciales que ya
 viven en esa carpeta. Fichero aparte y no un campo dentro de
 `credenciales.json`: ese fichero lo lee y lo valida `credenciales.py`, y meterle
 un dato que nada tiene que ver con credenciales obligaría a tocar su contrato y
-sus tests por una marca de dos estados.
+sus tests por esta marca.
 
 Guardar la respuesta no es adorno. Comprobando sólo «¿existe el atajo?», a quien
 lo borre a propósito se le resucita en cada arranque. Con la marca se pregunta
 una vez y se respeta lo que contestó, en los dos sentidos.
+
+### El «sí» se ata a la carpeta; el «no», no
+
+La marca lleva la respuesta en la primera línea y, sólo cuando fue que sí, la
+carpeta desde la que se creó el atajo en la segunda. Si la carpeta actual no es
+ésa, se vuelve a preguntar.
+
+Hace falta porque el atajo apunta a una carpeta concreta con ruta absoluta,
+mientras que la marca vive en el perfil del usuario y no sabe de carpetas. Quien
+no usa git actualiza como dice el README: baja el ZIP nuevo y lo extrae en otro
+sitio. Con una marca sin ruta no se le volvía a ofrecer nada y su icono del
+Escritorio seguía apuntando a la copia anterior. Si la borró, se queda con un
+icono muerto. Si no —y ése es el caso peor— con uno que abre la versión vieja en
+silencio, justo cuando acaba de actualizar y ha movido allí sus actas. El ZIP no
+trae `.git`, así que el aviso de actualización tampoco salta.
+
+Volver a preguntar reescribe el mismo fichero del Escritorio, con el mismo
+nombre: el icono se arregla en su sitio y no se acumula un segundo.
+
+Sólo el «sí» se ata a la carpeta. Un «no» es una preferencia sobre el
+Escritorio, no sobre una carpeta: atarlo también significaría volver a preguntar
+cada vez que la mueve, que es exactamente el acoso que esta marca existe para
+evitar.
+
+Una marca escrita antes de este cambio tiene una sola línea. La ruta guardada
+sale vacía, no coincide, y se pregunta una vez; a partir de ahí ya queda con
+ruta.
 
 ## Verificación
 
@@ -166,6 +193,17 @@ una vez y se respeta lo que contestó, en los dos sentidos.
    mirando la pestaña, no razonándolo.
 7. En un Mac: que el `.command` arranque, que el alias aparezca, y si el icono
    llega a ponerse o no.
+8. Mover la carpeta entera a otro sitio y arrancar desde allí: vuelve a
+   preguntar, y al aceptar el atajo del Escritorio pasa a apuntar a la
+   ubicación nueva sin que aparezca un segundo icono.
+9. Lo mismo después de haber contestado que no: **no** vuelve a preguntar.
+
+De los puntos 8 y 9, la parte de decisión —qué hace el lanzador ante cada marca
+posible— está comprobada en Windows ejecutando el bloque real extraído del
+`.bat`: sin marca, con marca antigua de una línea, con la ruta igual, distinta y
+con distintas mayúsculas, y con rutas que llevan espacios, `&` y apóstrofo. En
+macOS se comprobó ese mismo bloque del `.command` bajo bash, pero **no** en un
+Mac: sigue sin verificar que Finder abra bien el atajo rehecho.
 
 ## Lo que cambia para quien desarrolla
 

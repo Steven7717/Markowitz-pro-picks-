@@ -49,9 +49,17 @@ cada vez. Te lo pregunta antes de crearlo: no aparece nada en tu Escritorio sin
 que lo digas tú.
 
 **La pregunta se hace una sola vez.** La respuesta se guarda, así que si
-contestas que no, el programa no te vuelve a insistir nunca más. Si luego
-cambias de idea, borra este fichero y volverá a preguntártelo en el siguiente
-arranque:
+contestas que no, el programa no te vuelve a insistir nunca más.
+
+Con una excepción: si dijiste que sí y luego mueves la carpeta de sitio —o
+descargas un ZIP nuevo y lo extraes en otro lado—, te lo vuelve a ofrecer. El
+acceso directo apunta a la carpeta donde estaba el programa cuando lo creaste,
+así que al moverla dejaría de servir. En vez de dejarte un icono que ya no
+funciona —o, peor, uno que sigue abriendo la copia antigua sin decírtelo—, el
+programa te ofrece rehacerlo, y el nuevo sustituye al viejo en el Escritorio.
+
+Si cambias de idea en cualquier otro momento, borra este fichero y volverá a
+preguntártelo en el siguiente arranque:
 
 - **Windows:** `%USERPROFILE%\.markowitz-pro-picks\atajo.txt`
 - **Mac:** `~/.markowitz-pro-picks/atajo.txt`

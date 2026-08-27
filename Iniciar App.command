@@ -129,8 +129,33 @@ fi
 # Se pregunta porque crear un fichero en el Escritorio de alguien sin avisar es
 # invasivo. Y se guarda la respuesta: comprobando solo si el atajo existe, a
 # quien lo borre a proposito se le resucita en cada arranque.
+#
+# La marca lleva la respuesta en la primera linea y, solo si fue que si, la
+# carpeta desde la que se creo el atajo en la segunda. El atajo apunta aqui con
+# ruta absoluta, asi que una marca sin ruta la daba por buena tambien despues de
+# mover la carpeta o de extraer un ZIP nuevo en otro sitio --el camino de
+# actualizacion de quien no usa git--: el icono del Escritorio seguia abriendo
+# la copia vieja, en silencio, y no se ofrecia rehacerlo. Volver a preguntar
+# reescribe el mismo fichero del Escritorio, con el mismo nombre, asi que el
+# icono se arregla en su sitio y no se acumula un segundo.
+#
+# Solo el "si" se ata a la carpeta. Un "no" es una preferencia sobre el
+# Escritorio, no sobre una carpeta concreta: atarlo tambien seria volver a
+# preguntar cada vez que la mueve, que es justo lo que la marca evita.
+#
+# Una marca escrita por la version anterior tiene una sola linea: RUTA_ATAJO se
+# queda vacia, no coincide, y se pregunta una vez. Despues ya lleva ruta.
 MARCA="$HOME/.markowitz-pro-picks/atajo.txt"
-if [ ! -f "$MARCA" ]; then
+PREGUNTAR_ATAJO=si
+if [ -f "$MARCA" ]; then
+    RESPUESTA_ATAJO=$(sed -n '1p' "$MARCA")
+    RUTA_ATAJO=$(sed -n '2p' "$MARCA")
+    if [ "$RESPUESTA_ATAJO" = 'no' ] || [ "$RUTA_ATAJO" = "$RAIZ" ]; then
+        PREGUNTAR_ATAJO=no
+    fi
+fi
+
+if [ "$PREGUNTAR_ATAJO" = si ]; then
     echo
     read -r -p 'Quieres un acceso directo en el Escritorio? (s/n): ' QUIERE
     mkdir -p "$HOME/.markowitz-pro-picks"
@@ -155,7 +180,7 @@ if [ ! -f "$MARCA" ]; then
             # pongamos a mano. Es el mismo fallo que se arreglo en Windows.
             if printf '#!/bin/bash\nexec %q\n' "$RAIZ/Iniciar App.command" > "$ATAJO" 2>/dev/null \
                && chmod +x "$ATAJO"; then
-                echo si > "$MARCA"
+                printf '%s\n%s\n' si "$RAIZ" > "$MARCA"
                 echo 'Acceso directo creado en el Escritorio.'
 
                 # El icono es de mejor esfuerzo y NO esta verificado en un Mac.

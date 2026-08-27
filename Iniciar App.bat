@@ -111,8 +111,33 @@ rem Se pregunta porque crear un fichero en el Escritorio de alguien sin avisar
 rem es invasivo, y este lanzador ya pregunta antes de instalar uv. Y se guarda
 rem la respuesta: comprobando solo si el atajo existe, a quien lo borre a
 rem proposito se le resucita en cada arranque.
+rem
+rem La marca lleva la respuesta en la primera linea y, solo si fue que si, la
+rem carpeta desde la que se creo el atajo en la segunda. El atajo apunta aqui
+rem con ruta absoluta, asi que una marca sin ruta la daba por buena tambien
+rem despues de mover la carpeta o de extraer un ZIP nuevo en otro sitio --el
+rem camino de actualizacion de quien no usa git--: el icono del Escritorio
+rem seguia abriendo la copia vieja, en silencio, y no se ofrecia rehacerlo.
+rem Volver a preguntar reescribe el mismo fichero del Escritorio, con el mismo
+rem nombre, asi que el icono se arregla en su sitio y no se acumula un segundo.
+rem
+rem Solo el "si" se ata a la carpeta. Un "no" es una preferencia sobre el
+rem Escritorio, no sobre una carpeta concreta: atarlo tambien seria volver a
+rem preguntar cada vez que la mueve, que es justo lo que la marca evita.
+rem
+rem Una marca escrita por la version anterior tiene una sola linea: RUTA_ATAJO
+rem se queda vacia, no coincide, y se pregunta una vez. Despues ya lleva ruta.
 set "MARCA=%USERPROFILE%\.markowitz-pro-picks\atajo.txt"
-if exist "%MARCA%" goto sin_atajo
+set "RAIZ=%~dp0"
+if not exist "%MARCA%" goto preguntar_atajo
+set "RESPUESTA_ATAJO="
+set "RUTA_ATAJO="
+set /p RESPUESTA_ATAJO=<"%MARCA%"
+for /f "usebackq skip=1 delims=" %%l in ("%MARCA%") do if not defined RUTA_ATAJO set "RUTA_ATAJO=%%l"
+if /i "%RESPUESTA_ATAJO%"=="no" goto sin_atajo
+if /i "%RUTA_ATAJO%"=="%RAIZ%" goto sin_atajo
+
+:preguntar_atajo
 echo.
 rem Se limpia la variable antes de preguntar y se le quitan las comillas a la
 rem respuesta: una comilla suelta dentro del if rompe la sintaxis y cmd cierra
@@ -140,8 +165,7 @@ rem La ruta viaja por variable de entorno en vez de incrustada en el comando:
 rem dentro de las comillas simples de PowerShell, un apostrofo en la ruta
 rem --C:\Users\O'Brien\...-- cierra la cadena antes de tiempo y el comando ni
 rem llega a ejecutarse. Como la ruta suele llevar el nombre de la cuenta, no es
-rem un caso tan raro.
-set "RAIZ=%~dp0"
+rem un caso tan raro. RAIZ ya viene puesta de la comprobacion de la marca.
 rem GetFolderPath y no %USERPROFILE%\Desktop: con OneDrive el Escritorio real
 rem puede estar redirigido, y el atajo acabaria en una carpeta que el usuario
 rem no ve.
@@ -159,7 +183,14 @@ if errorlevel 1 (
   echo este mismo archivo, y se volvera a intentar la proxima vez.
   goto sin_atajo
 )
+rem La ruta se escribe con expansion retardada: con un echo normal, un
+rem ampersand en el nombre de una carpeta se interpretaria como separador de
+rem comandos en vez de escribirse. Mismo tipo de fallo que el apostrofo de
+rem aqui arriba.
+setlocal enabledelayedexpansion
 > "%MARCA%" echo si
+>> "%MARCA%" echo !RAIZ!
+endlocal
 echo Acceso directo creado en el Escritorio.
 :sin_atajo
 
