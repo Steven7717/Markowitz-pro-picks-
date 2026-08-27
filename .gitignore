@@ -1,0 +1,8 @@
+# El .gitignore del proyecto vive en programa/, junto a lo que ignora. Este
+# cubre solo la raiz, donde no deberia generarse nada: si alguien ejecuta algo
+# desde aqui por error, que no acabe en un commit.
+.env
+.venv/
+__pycache__/
+salidas/
+actas/
