@@ -28,8 +28,16 @@ echo librerias necesarias por ti. Ahora mismo no lo tienes.
 echo.
 echo Se descargaria del sitio oficial: https://astral.sh/uv
 echo.
+rem La misma limpieza y la misma lista que en la pregunta del atajo, mas abajo:
+rem una comilla suelta rompe la sintaxis del if y cierra la ventana de golpe, y
+rem a un "(s/n)" mucha gente contesta "si". El lanzador de Mac ya acepta las
+rem tres formas en esta misma pregunta.
+set "RESPUESTA="
 set /p RESPUESTA="Quieres instalarlo ahora? (s/n): "
-if /i "%RESPUESTA%"=="s" goto instalar
+if defined RESPUESTA set "RESPUESTA=%RESPUESTA:"=%"
+if /i "%RESPUESTA%"=="s"  goto instalar
+if /i "%RESPUESTA%"=="si" goto instalar
+if /i "%RESPUESTA%"=="y"  goto instalar
 
 echo.
 echo De acuerdo, no se ha instalado nada. Puedes instalarlo tu mismo desde
