@@ -3,8 +3,8 @@
   "configurations": [
     {
       "name": "markowitz-app",
-      "runtimeExecutable": "python",
-      "runtimeArgs": ["-m", "streamlit", "run", "programa/app.py", "--server.port", "8501", "--server.headless", "true"],
+      "runtimeExecutable": "uv",
+      "runtimeArgs": ["run", "--directory", "programa", "streamlit", "run", "app.py", "--server.port", "8501", "--server.headless", "true"],
       "port": 8501
     }
   ]
