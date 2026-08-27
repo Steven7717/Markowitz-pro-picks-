@@ -360,7 +360,8 @@ Sigue sin responder: **¿cuántas acciones debería tener el portafolio final?**
 ## Comandos
 
 ```bash
-pytest tests/ -q -m "not red"       # 576 tests, sin red
+# Todos estos se ejecutan desde programa/, no desde la raiz del repo.
+pytest tests/ -q -m "not red"       # 688 tests, sin red
 python -m research.run              # correr el estudio (~5 min, luego caché)
 streamlit run app.py                # la app: optimizador + pagina de revision
 python scripts/bootstrap_universe.py   # regenerar el snapshot del universo
