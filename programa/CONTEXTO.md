@@ -108,6 +108,16 @@ Finder. Y el `chmod +x` tampoco hizo falta: el ZIP conservó el bit de ejecució
 Las dos cosas siguen documentadas en el README porque quien haga doble clic
 desde Finder sí puede encontrárselas.
 
+**Lo que sigue sin probarse en un Mac es el acceso directo del Escritorio y su
+icono:** ese bloque se escribió después de aquella prueba y aquí no hay forma de
+ejecutarlo. Al probarlo allí hay que mirar que Finder abra con Terminal el
+`.command` que aparece en el Escritorio —es un envoltorio de dos líneas con la
+ruta real dentro, y no un enlace simbólico, porque `bash` no resuelve enlaces en
+`$0` y el lanzador se orienta con `dirname "$0"`—, que desde él arranque la app,
+y que el icono salga. Si el icono no aparece, se borra entero el bloque
+`sips`/`Rez`/`SetFile` junto con `programa/icono.icns`, en vez de dejar código
+que aparenta hacer algo.
+
 Con esto **la puerta a la siguiente fase está abierta**: toca el rediseño visual
 de la interfaz.
 
