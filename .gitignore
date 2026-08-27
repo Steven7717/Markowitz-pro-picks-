@@ -1,8 +1,12 @@
 # El .gitignore del proyecto vive en programa/, junto a lo que ignora. Este
 # cubre solo la raiz, donde no deberia generarse nada: si alguien ejecuta algo
 # desde aqui por error, que no acabe en un commit.
-.env
-.venv/
-__pycache__/
-salidas/
-actas/
+#
+# La barra inicial es lo que hace cierta esa frase. Sin ella, "actas/" tambien
+# taparia programa/actas/, que el de dentro deja a la vista a proposito, y este
+# fichero estaria decidiendo por el otro sin que nadie se enterase.
+/.env
+/.venv/
+/__pycache__/
+/salidas/
+/actas/
