@@ -28,8 +28,8 @@ por defecto.
 
 Si no puedes instalar git, el ZIP también funciona y el programa arranca igual —
 pero no se actualizará nunca. Para ponerlo al día tendrías que volver a bajarlo
-entero, y antes copiar a otro sitio tu carpeta `actas/`, que es donde viven tus
-registros de aprobación.
+entero, y antes copiar a otro sitio tu carpeta `programa/actas/`, que es donde
+viven tus registros de aprobación.
 
 ## Cómo se abre
 
@@ -43,6 +43,19 @@ llamada [uv](https://astral.sh/uv) para descargar todo lo que necesita: te
 preguntará antes de instalar nada. Esa primera vez tarda unos minutos y baja
 varios cientos de MB. Las siguientes, arranca en segundos.
 
+Esa primera vez el programa te ofrece además crear un acceso directo en el
+Escritorio, para abrirlo desde ahí y no tener que venir a buscar esta carpeta
+cada vez. Te lo pregunta antes de crearlo: no aparece nada en tu Escritorio sin
+que lo digas tú.
+
+**La pregunta se hace una sola vez.** La respuesta se guarda, así que si
+contestas que no, el programa no te vuelve a insistir nunca más. Si luego
+cambias de idea, borra este fichero y volverá a preguntártelo en el siguiente
+arranque:
+
+- **Windows:** `%USERPROFILE%\.markowitz-pro-picks\atajo.txt`
+- **Mac:** `~/.markowitz-pro-picks/atajo.txt`
+
 ## Cómo se actualiza
 
 Sola, si la descargaste con `git clone`. Cada vez que abres el programa comprueba
@@ -54,10 +67,10 @@ Si no hay internet, o si tocaste a mano algún fichero del programa, te lo dice 
 abre la versión que ya tienes. **Una actualización que falla nunca te impide usar
 el programa.**
 
-Tus cosas no se tocan: los resultados (`salidas/`), las actas de aprobación
-(`actas/`) y tus credenciales —que viven en tu carpeta personal, fuera del
-proyecto— no forman parte del repositorio, así que ninguna actualización los
-pisa. Lo que sí verás al clonar es una lista de ejemplo en «Revisar candidatos»,
+Tus cosas no se tocan: los resultados (`programa/salidas/`), las actas de
+aprobación (`programa/actas/`) y tus credenciales —que viven en tu carpeta
+personal, fuera del proyecto— no forman parte del repositorio, así que ninguna
+actualización los pisa. Lo que sí verás al clonar es una lista de ejemplo en «Revisar candidatos»,
 para que haya algo que mirar antes de generar la tuya; en cuanto generes la
 primera, esa pasa a mandar.
 
@@ -132,13 +145,33 @@ arrepentiste a mitad de editarla, o **Borrar** para quitarla del todo.
 
 ## Para desarrollar
 
+Los comandos se ejecutan desde `programa/`, no desde esta carpeta: ahí es donde
+vive el proyecto de Python, con su `pyproject.toml` y su entorno.
+
 ```
+cd programa
 uv sync --all-groups     # entorno con dependencias de desarrollo
 uv run pytest tests/ -q -m "not red"
 ```
 
 `pandas` está topado por debajo de la versión 3 a propósito (ver
-`pyproject.toml`): la 3.0 cambia el comportamiento de `.stack()` y rompe un
-test de la investigación. El código está validado contra pandas 2.x.
+`programa/pyproject.toml`): la 3.0 cambia el comportamiento de `.stack()` y
+rompe un test de la investigación. El código está validado contra pandas 2.x.
 
-Los detalles de diseño están en `CONTEXTO.md` y en `docs/superpowers/specs/`.
+Los detalles de diseño están en `programa/CONTEXTO.md` y en
+`programa/docs/superpowers/specs/`.
+
+## Si vienes de una versión anterior
+
+La estructura cambió: ahora el programa vive dentro de `programa/` y en la
+carpeta principal sólo quedan los dos lanzadores y este archivo. Los lanzadores
+entran solos donde toca, así que no tienes que hacer nada para usarlo.
+
+Dos restos que puedes limpiar a mano:
+
+- **Un `.venv` en la carpeta principal**, de unos 600 MB. Ya no se usa: el
+  nuevo se crea dentro de `programa/`. Bórralo.
+- **`salidas/` y `actas/`**, si habías generado rankings o aprobaciones antes
+  del cambio. El programa ahora los busca en `programa/salidas` y
+  `programa/actas`. Muévelos ahí y los vuelves a ver; no se han perdido, sólo
+  están donde ya no se mira.

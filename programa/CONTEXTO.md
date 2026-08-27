@@ -1,8 +1,11 @@
 # Contexto del proyecto — para retomar en una sesión nueva
 
-**Última actualización:** 2026-08-25
+**Última actualización:** 2026-08-26
 **Rama:** `master` · **Tests:** 688 pasando (`uv run pytest tests/ -q -m "not red"`), 2 omitidos en Windows (permisos POSIX), más 6 marcados `red`
 **Remoto:** `https://github.com/Steven7717/Markowitz-pro-picks-.git` — `master` es lo publicado
+**Estructura:** el programa vive en `programa/`; en la raíz sólo están los dos
+lanzadores y el `README.md`. Los comandos (`uv run pytest`, `uv run streamlit`)
+se ejecutan desde `programa/`, no desde la raíz.
 
 > **Al retomar:** la copia local puede estar todavía en `compartir-el-programa`,
 > que ya está contenida en `master`. Lo actual y lo publicado es `master`.
@@ -308,7 +311,8 @@ Detalles que no son obvios y conviene no deshacer:
 - **El acta se escribe antes del traspaso.** Lo peor sería aprobar, perder el registro y seguir creyendo que quedó constancia.
 - **El traspaso va por `st.session_state`**, así que hay que pasar al optimizador **por el enlace de la barra lateral**: recargar abre una sesión nueva de Streamlit y pierde la selección.
 
-`actas/` vive en la raíz y no en `salidas/` a propósito: salidas se regenera, un acta no se regenera nunca. Ninguna de las dos está versionada, para que una actualización no pueda pisarlas — ver «Cómo se distribuye».
+`actas/` vive en la raíz del programa (`programa/actas`, junto a `salidas/`) y no
+dentro de `salidas/` a propósito: salidas se regenera, un acta no se regenera nunca. Ninguna de las dos está versionada, para que una actualización no pueda pisarlas — ver «Cómo se distribuye».
 
 ---
 
