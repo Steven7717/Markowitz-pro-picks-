@@ -141,7 +141,20 @@ if [ ! -f "$MARCA" ]; then
             # La .command la oculta el propio Finder salvo que el usuario haya
             # pedido ver todas, asi que en el Escritorio se lee igual.
             ATAJO="$HOME/Desktop/Markowitz Pro Picks.command"
-            if ln -sf "$RAIZ/Iniciar App.command" "$ATAJO"; then
+            # Un .command de dos lineas y no un enlace simbolico. Este lanzador
+            # se orienta con cd "$(dirname "$0")", y bash no resuelve enlaces en
+            # $0: si Finder le pasara a Terminal la ruta del enlace, dirname
+            # daria el Escritorio, el cd a programa/ fallaria y el usuario leeria
+            # "vuelve a descargar la carpeta entera", que seria mentira. Y como
+            # la marca ya estaria escrita, no se le volveria a ofrecer nunca.
+            # Con el envoltorio, $0 es siempre la ruta real, y ademas es el mismo
+            # mecanismo que ya funciona aqui: un .command ejecutable.
+            #
+            # printf %q escapa la ruta antes de meterla dentro del fichero: un
+            # apostrofo en el nombre de la cuenta rompe cualquier comilla que
+            # pongamos a mano. Es el mismo fallo que se arreglo en Windows.
+            if printf '#!/bin/bash\nexec %q\n' "$RAIZ/Iniciar App.command" > "$ATAJO" 2>/dev/null \
+               && chmod +x "$ATAJO"; then
                 echo si > "$MARCA"
                 echo 'Acceso directo creado en el Escritorio.'
 
@@ -152,11 +165,9 @@ if [ ! -f "$MARCA" ]; then
                 # hecho. El .icns si viene en el repo, para no depender de que
                 # sips sepa leer un .ico, que es lo que no consta.
                 #
-                # Se le pone al lanzador y no al alias a proposito: Finder pinta
-                # el alias con el icono de su destino, asi que poniendoselo al
-                # destino salen los dos con icono. Y de todas formas Rez sigue
-                # el enlace simbolico, asi que apuntarlo al alias acabaria
-                # escribiendo aqui igualmente.
+                # Se le pone al atajo directamente: ahora es un fichero propio y
+                # no un enlace, asi que ya no hay que ponerselo al destino para
+                # que Finder lo herede.
                 #
                 # Rez, DeRez y SetFile vienen con las herramientas de linea de
                 # comandos de Xcode y pueden no estar instaladas. Cada paso va
@@ -174,8 +185,8 @@ if [ ! -f "$MARCA" ]; then
                     if cp "$RAIZ/programa/icono.icns" "$ICNS" 2>/dev/null \
                        && sips -i "$ICNS" >/dev/null 2>&1 \
                        && DeRez -only icns "$ICNS" > "$RSRC" 2>/dev/null \
-                       && Rez -append "$RSRC" -o "$RAIZ/Iniciar App.command" 2>/dev/null; then
-                        SetFile -a C "$RAIZ/Iniciar App.command" 2>/dev/null
+                       && Rez -append "$RSRC" -o "$ATAJO" 2>/dev/null; then
+                        SetFile -a C "$ATAJO" 2>/dev/null
                     fi
                     rm -f "$RSRC"
                 fi
