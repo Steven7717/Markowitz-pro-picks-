@@ -307,7 +307,7 @@ EDGAR_IDENTITY="tu@correo.com" ANTHROPIC_API_KEY=... pytest tests/ -q -m red
 
 ## Resultado del sub-proyecto C
 
-Paquete `aprobacion/` (lógica, sin Streamlit, 34 tests) y `pages/1_Revisar_candidatos.py` (widgets, sin lógica). `app.py` cambió una constante y una línea: su campo de tickers lee de `st.session_state`.
+Paquete `aprobacion/` (lógica, sin Streamlit, 34 tests) y la página de candidatos (widgets, sin lógica; vive en `vistas/candidatos.py` desde el rediseño). `app.py` cambió una constante y una línea: su campo de tickers lee de `st.session_state`.
 
 El flujo: la página lee `salidas/`, muestra los 15 candidatos con **las casillas desmarcadas** —si llegaran marcadas, aprobar los quince sería un clic y el gate sería decorado—, y al aprobar escribe un acta fechada en `actas/` y deja los tickers en la sesión.
 
@@ -319,30 +319,69 @@ Detalles que no son obvios y conviene no deshacer:
 - **El motivo es obligatorio al añadir a mano.** Un ticker que entra sin ranking no tiene respaldo cuantitativo: la razón humana es la única justificación que existirá.
 - **Un añadido que ya está en el ranking se rechaza, no se deduplica**, porque deduplicar en silencio borraría el motivo escrito.
 - **El acta se escribe antes del traspaso.** Lo peor sería aprobar, perder el registro y seguir creyendo que quedó constancia.
-- **El traspaso va por `st.session_state`**, así que hay que pasar al optimizador **por el enlace de la barra lateral**: recargar abre una sesión nueva de Streamlit y pierde la selección.
+- **El traspaso va por `st.session_state`**, así que hay que pasar al optimizador **por el enlace de la barra lateral**: recargar por URL abre una sesión nueva de Streamlit y pierde la selección. Desde el rediseño hay una segunda vía que no depende de la sesión: la pantalla de actas relee el acta del disco y carga sus tickers.
 
 `actas/` vive en la raíz del programa (`programa/actas`, junto a `salidas/`) y no
 dentro de `salidas/` a propósito: salidas se regenera, un acta no se regenera nunca. Ninguna de las dos está versionada, para que una actualización no pueda pisarlas — ver «Cómo se distribuye».
 
 ---
 
+## Resultado del rediseño de la interfaz
+
+Hecho el 2026-09-01. Era el punto 1 del plan, acordado el 2026-08-25.
+
+**Estructura.** `app.py` pasó de ser el optimizador entero a un enrutador de
+veinte líneas: fija el tema, aplica las credenciales una vez y declara las
+pantallas con `st.navigation`. Las ocho pantallas viven en `vistas/`, agrupadas
+en Análisis, Cartera y Cuenta. Desapareció `pages/`, que no permitía ni agrupar
+ni tener un único `set_page_config`.
+
+**Módulos nuevos, todos sin Streamlit y con tests:**
+
+| Módulo | Qué decide |
+|---|---|
+| `tema.py` | La paleta y la hoja de estilo. Fuente única: `charts.py` y `medidores.py` leen sus colores de aquí. |
+| `cartera.py` | Guardar, listar, releer y borrar portafolios en `portafolios/`. |
+| `preferencias.py` | Los valores con los que arranca el optimizador, en la carpeta personal. |
+| `medidores.py` | (del rediseño anterior) z-score → bueno / regular / malo. |
+
+**Dos defectos que el rediseño arregló, y que no son de estilo:**
+
+- **Los resultados desaparecían al descargar el informe.** El optimizador
+  terminaba en `st.stop()` si no se acababa de pulsar el botón, y cualquier
+  interacción posterior —una descarga, una pestaña— reejecutaba el guion con el
+  botón ya en falso. Ahora la corrida vive en `st.session_state`.
+- **Cada deslizador relanzaba todo.** Mover un límite de peso volvía a descargar
+  los precios y a correr el walk-forward de las tres estrategias. Los controles
+  están dentro de un `st.form`.
+
+**Sobre el CSS.** La hoja se cuelga de los `data-testid` de Streamlit. La regla
+que lo hace aceptable, y que `tests/test_tema.py` comprueba: **ninguna regla
+cambia lo que la aplicación hace** —nada de `display:none` ni de
+`position:fixed`—, así que un `data-testid` renombrado sólo deja algo sin
+pintar. Tres selectores del primer intento no casaban con nada (Streamlit dejó
+de usar `data-baseweb` en las pestañas) y el estilo no se aplicaba en silencio:
+por eso el test fija la lista de ganchos comprobados y obliga a mirarlos en la
+aplicación en marcha antes de añadir uno. Otro test comprueba que todo color
+que lleva texto contrasta 4,5:1 sobre el fondo.
+
+**Un detalle que confunde al leer el código:** `_recargar_si_toca` ya no existe.
+Existía porque un `st.rerun()` desde el desplegable de credenciales se disparaba
+antes de dibujar las casillas de aprobación y Streamlit descartaba su estado.
+Las credenciales se mudaron a «Perfil y ajustes», donde no hay ningún trabajo a
+medias que una recarga pueda tirar, y el peligro dejó de existir. El defecto que
+cita `cbe71a0` sí sigue vigente y su comentario sigue en su sitio.
+
+---
+
 ## Lo siguiente
 
-El sistema está completo de punta a punta: A ingiere, B ordena y razona, C decide, y el optimizador reparte pesos.
+El sistema está completo de punta a punta: A ingiere, B ordena y razona, C
+decide, y el optimizador reparte pesos.
 
-**El plan inmediato, en este orden:**
-
-1. **Rediseño visual de la interfaz.** Fase acordada el 2026-08-25, aún sin
-   diseñar: no hay spec ni decisiones tomadas. Cuando se abra, conviene empezar
-   por `brainstorming` como el resto de sub-proyectos, y tener presente que la
-   página de candidatos (`pages/1_Revisar_candidatos.py`) acumula ya bastante
-   lógica de estado —casillas por ticker, añadidos a mano, credenciales, los
-   avisos de `CorridaAbortada`— y que ese estado tiene defectos ya arreglados
-   que no conviene reintroducir al mover cosas: ver los comentarios que citan
-   `cbe71a0` y `_recargar_si_toca`.
-
-El arranque en Mac, que era el punto 1 de esta lista, se probó el 2026-08-26 y
-ya no bloquea nada — ver «Cómo se distribuye».
+El rediseño de la interfaz, que era el punto 1 de esta lista, se hizo el
+2026-09-01 — ver la sección anterior. El arranque en Mac, que fue el punto 1
+antes que él, se probó el 2026-08-26 — ver «Cómo se distribuye».
 
 **Lo único sin ejecutar** son los dos tests `red` que llaman a Sonnet 5 (~5 céntimos), que saltan sin `ANTHROPIC_API_KEY`. Sin clave el ranking sale igual, con fichas de plantilla.
 

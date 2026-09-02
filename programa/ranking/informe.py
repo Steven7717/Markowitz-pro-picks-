@@ -91,7 +91,7 @@ def render(fichas: list[dict], exclusiones: dict[str, int]) -> str:
             # re-estandarizado dentro del sector (enmienda 1 del diseño), así que
             # un compuesto de +1,5 puede convivir con pilares de +0,1.
             f"Compuesto (z dentro del sector) {ficha['compuesto']:+.2f}",
-            f"Pilares (z frente a todo el universo): {_pilares(ficha)}",
+            f"Pilares (media de los z frente a sus pares del sector): {_pilares(ficha)}",
             "",
             f"- Fuerte en: {_kpis(ficha['destacados'])}",
             f"- Flojo en: {_kpis(ficha['flojos'])}",

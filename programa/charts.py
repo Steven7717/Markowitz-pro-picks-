@@ -2,19 +2,26 @@ import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 
-_DARK_BG = "#0f1117"
-_CARD_BG = "#1e2130"
-_ACCENT = "#7c83fd"
-_GREEN = "#4ade80"
-_ORANGE = "#fb923c"
-_BLUE = "#60a5fa"
+# La paleta vive en tema.py y no aqui: antes habia tres juegos de colores --
+# este, el de .streamlit/config.toml y el de los medidores-- que coincidian por
+# costumbre y no por construccion, asi que cualquiera se podia mover sin que los
+# otros se enterasen y la aplicacion dejaba de verse como una sola cosa.
+from tema import (
+    ACENTO as _ACCENT,
+    AZUL as _BLUE,
+    FONDO as _DARK_BG,
+    NARANJA as _ORANGE,
+    TARJETA as _CARD_BG,
+    TEXTO as _TEXTO,
+    VERDE as _GREEN,
+)
 
 
 def _base_layout(**extra) -> dict:
     return dict(
         paper_bgcolor=_DARK_BG,
         plot_bgcolor=_CARD_BG,
-        font=dict(color="#cccccc", family="sans-serif"),
+        font=dict(color=_TEXTO, family="sans-serif"),
         margin=dict(l=40, r=20, t=50, b=40),
         legend=dict(bgcolor="rgba(0,0,0,0)"),
         **extra,

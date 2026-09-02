@@ -46,7 +46,16 @@ def test_recoge_identidad_puesto_y_pilares():
     assert ficha["ticker"] == "AAA"
     assert ficha["puesto"] == 3
     assert ficha["pilares"]["calidad"] == 1.9
-    assert ficha["cobertura"] == {"kpis_con_dato": 17, "pilares_con_dato": 4}
+    assert ficha["cobertura"] == {
+        "kpis_con_dato": 17,
+        "pilares_con_dato": 4,
+        "kpis_por_pilar": {
+            "calidad": 7,
+            "crecimiento": 3,
+            "valoracion": 4,
+            "solidez": 3,
+        },
+    }
 
 
 def test_el_multiplo_caro_sale_entre_los_flojos_no_entre_los_destacados():
@@ -99,6 +108,24 @@ def test_un_pilar_sin_medir_sale_como_nulo_no_como_cero():
     ficha = ficha_ejemplo(pilares=pilares, conteo=conteo)
     assert ficha["pilares"]["crecimiento"] is None
     assert ficha["cobertura"]["pilares_con_dato"] == 3
+
+
+def test_la_cobertura_dice_cuantos_kpis_sostienen_cada_pilar():
+    # Un pilar que descansa en un solo KPI y otro que descansa en siete dan el
+    # mismo numero y no valen lo mismo. Sin este recuento, la interfaz no puede
+    # distinguirlos y el revisor lee un +6,39 sostenido por una sola linea del
+    # balance como si lo sostuvieran tres.
+    conteo = pd.Series({"calidad": 7, "crecimiento": 0, "valoracion": 4, "solidez": 1})
+    ficha = ficha_ejemplo(conteo=conteo)
+    assert ficha["cobertura"]["kpis_por_pilar"] == {
+        "calidad": 7,
+        "crecimiento": 0,
+        "valoracion": 4,
+        "solidez": 1,
+    }
+    # Enteros de Python, no de numpy: json.dumps revienta con los segundos y
+    # fichas.json es el contrato con el sub-proyecto C.
+    json.dumps(ficha["cobertura"], allow_nan=False)
 
 
 def test_la_ficha_es_serializable_a_json_estricto():

@@ -234,3 +234,51 @@ def test_los_tickers_aprobados_incluyen_los_anadidos_a_mano():
     acta = construir_acta(candidatos("AAA"), aprobados={"AAA"},
                           anadidos=[Anadido(ticker="JPM", motivo="x")])
     assert tickers_aprobados(acta) == ["AAA", "JPM"]
+
+
+# --- Leer el historial -------------------------------------------------------
+
+
+def test_listar_actas_devuelve_las_mas_nuevas_primero(tmp_path):
+    from datetime import datetime
+
+    from aprobacion.acta import listar_actas
+
+    for momento in (
+        datetime(2026, 1, 5, 9, 0, 0),
+        datetime(2026, 8, 30, 17, 54, 6),
+        datetime(2026, 3, 2, 12, 0, 0),
+    ):
+        guardar_acta(
+            {
+                "fecha": momento.isoformat(timespec="seconds"),
+                "corrida": None,
+                "aprobados": [{"ticker": "AAA", "puesto": 1, "ficha": {}, "motivo": None}],
+                "no_aprobados": [],
+            },
+            tmp_path,
+        )
+
+    fechas = [g.acta["fecha"][:10] for g in listar_actas(tmp_path)]
+    assert fechas == ["2026-08-30", "2026-03-02", "2026-01-05"]
+
+
+def test_un_acta_ilegible_sale_en_la_lista_con_su_motivo(tmp_path):
+    # Saltarsela la haria indistinguible de una que nunca se escribio, y lo peor
+    # que le puede pasar a un registro es desaparecer sin que nadie se entere.
+    from aprobacion.acta import listar_actas
+
+    (tmp_path / "2026-01-01-000000.json").write_text("{ rota", encoding="utf-8")
+    (tmp_path / "2026-01-02-000000.json").write_text('{"fecha": "hoy"}', encoding="utf-8")
+
+    guardadas = listar_actas(tmp_path)
+    assert len(guardadas) == 2
+    assert all(g.acta is None for g in guardadas)
+    assert "le faltan campos" in guardadas[0].error
+    assert "no se puede leer" in guardadas[1].error
+
+
+def test_una_carpeta_de_actas_que_no_existe_es_una_lista_vacia(tmp_path):
+    from aprobacion.acta import listar_actas
+
+    assert listar_actas(tmp_path / "todavia-no") == []

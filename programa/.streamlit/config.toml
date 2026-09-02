@@ -2,5 +2,10 @@
 base = "dark"
 primaryColor = "#7c83fd"
 backgroundColor = "#0f1117"
-secondaryBackgroundColor = "#1e2130"
-textColor = "#cccccc"
+secondaryBackgroundColor = "#1a1d2b"
+textColor = "#e6e8ef"
+
+[client]
+# Sin el boton "Deploy": este programa se arranca con un .bat en el escritorio
+# de alguien y no se despliega en ningun sitio. El menu de ajustes sigue ahi.
+toolbarMode = "minimal"
