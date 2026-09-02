@@ -30,6 +30,8 @@ Se reutiliza, no se reescribe:
 | `cartera.guardar` (tmp + `replace`, sufijo en colisión) | El mismo patrón de escritura para el libro |
 | `cartera.Entrada` / `listar` (devuelve los rotos con su motivo) | Listar libros sin esconder los ilegibles |
 | `cartera.formato_cifra` / `formato_porcentaje` | La regla "—, nunca 0,00" para lo que no se midió |
+| `cartera._rebanada` | El nombre de fichero. Pasa a ser público: llamarlo con el guion bajo desde fuera sería meter la mano en las tripas de otro módulo, y duplicarlo dejaría dos reglas que se pueden separar |
+| `exporter.to_excel` | La exportación. `to_pdf` no sirve — ver abajo |
 | `tema.cabecera` / `tema.etiqueta` | El lenguaje visual de las demás pantallas |
 | `medidores.py` | La base de los medidores; la explota **G**, no F |
 
@@ -375,7 +377,15 @@ misma filosofía que el Equal Weight de la pantalla del optimizador.
 8. Historial de asientos, con los anulados tachados y los de `precio_estimado`
    marcados, para que se vea de un vistazo qué números salieron del bróker y
    cuáles del cierre del día.
-9. Exportar a Excel y PDF reutilizando `exporter.py`.
+9. Exportar a **Excel**, con `exporter.to_excel`, que es genérico: acepta
+   cualquier DataFrame y cualquier dict de métricas.
+
+**PDF no, y no es un olvido.** `exporter.to_pdf` pasa por `kpi_rows`, que indexa
+directamente `sharpe`, `annual_return`, `annual_vol` y `rf_rate` — claves de una
+corrida del optimizador que un libro de seguimiento no tiene, y que lanzarían
+`KeyError`. Hacer que `kpi_rows` tolere dos formas distintas de métricas es un
+cambio a un módulo compartido por dos pantallas, y se decide aparte en vez de
+colarse dentro de F.
 
 Crear un libro desde un portafolio guardado se ofrece también en
 `vistas/portafolios.py`, junto a "Cargar en el optimizador": es donde el usuario
