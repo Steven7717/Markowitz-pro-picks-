@@ -421,8 +421,31 @@ anterior no lo vería cambiar nunca —la ruta coincidía, así que no se tocaba
 seguiría abriendo la consola. Con la versión, el atajo viejo se rehace en su
 sitio y sin volver a preguntar: ya dijo que sí una vez.
 
-En Mac no aplica: `.command` abre Terminal.app siempre, y esconderla exigiría
-envolverlo en un `.app`. Sin hacer.
+**En Mac se queda como está, y no es trabajo pendiente: se miró y se
+descartó.** `.command` abre Terminal.app siempre, y esconderla exigiría
+envolver el lanzador en un `.app`. Los cuatro motivos, por orden de peso:
+
+- **Gatekeeper empeora.** Hoy el rodeo de la primera vez es «clic derecho →
+  Abrir», que sigue existiendo para ficheros sueltos. Para *aplicaciones*,
+  macOS 15 lo quitó: hay que ir a Ajustes del Sistema → Privacidad y seguridad
+  después de que el intento haya fallado. Quitar el diálogo del todo exige
+  firmar y notarizar, con cuenta de Apple Developer de pago.
+- **El bundle viaja peor.** Es una carpeta, y depende de que el bit de ejecución
+  sobreviva a git, al ZIP de GitHub y al descompresor. Cuando no sobrevive, el
+  fallo es mudo — y el README ofrece explícitamente la vía «descargar ZIP»,
+  donde no hay un `chmod +x` de una línea que sirva dentro de un bundle.
+- **Reabre el permiso TCC** de Archivos y carpetas. Hoy recae sobre Terminal y
+  está resuelto en el README; un `.app` es otra identidad para el sistema.
+- **No ahorra el trabajo difícil.** Seguiría haciendo falta la lógica de cuándo
+  mostrar la ventana —primer arranque con preguntas, servidor ya vivo, arranque
+  que falla—, que es el grueso.
+
+Si el tema se reabre, **la alternativa barata no es el `.app`**: es quedarse con
+el `.command` y cerrarle la ventana — lanzar Streamlit desacoplado (`nohup` +
+`disown`) y cerrar la ventana de Terminal con `osascript`, exportando
+`MPP_AUTOAPAGADO=1` igual que hace el `.vbs`. Mismo resultado visible sin tocar
+Gatekeeper ni TCC. Su único riesgo propio es que Terminal pregunte por los
+procesos en marcha si el desacoplo no está bien hecho.
 
 ---
 
