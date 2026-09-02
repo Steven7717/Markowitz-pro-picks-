@@ -8,5 +8,6 @@ research/.cache/
 fundamentals/.cache/
 ranking/.cache/
 actas/*.tmp
+portafolios/*.tmp
 .venv/
 salidas/

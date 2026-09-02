@@ -69,6 +69,11 @@ def ficha_numerica(
         "cobertura": {
             "kpis_con_dato": int(conteo.sum()),
             "pilares_con_dato": int((conteo > 0).sum()),
+            # Cuantos KPIs sostienen cada pilar, y no solo cuantos en total: un
+            # +6,39 en solidez apoyado en 1 de 3 KPIs y otro apoyado en los 3 se
+            # leen igual en la ficha y no significan lo mismo. Es el primer caso
+            # de la primera corrida real, no una hipotesis.
+            "kpis_por_pilar": {pilar: int(n) for pilar, n in conteo.items()},
         },
         "desplazo_a": list(desplazo_a),
         "generada_por": "plantilla",

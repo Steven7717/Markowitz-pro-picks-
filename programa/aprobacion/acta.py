@@ -142,6 +142,55 @@ def tickers_aprobados(acta: dict) -> list[str]:
     return [entrada["ticker"] for entrada in acta["aprobados"]]
 
 
+@dataclass(frozen=True)
+class ActaGuardada:
+    """Un fichero de `actas/`: el acta si se pudo leer, o por qué no.
+
+    Las rotas se devuelven en vez de saltarse, por la misma razón por la que un
+    acta se escribe antes del traspaso al optimizador: lo peor que puede pasarle
+    a un registro es desaparecer sin que nadie se entere. Un acta que no sale en
+    la lista es indistinguible de una que nunca se escribió.
+    """
+
+    ruta: Path
+    acta: dict | None
+    error: str | None
+
+
+_CAMPOS_ACTA = frozenset({"fecha", "corrida", "aprobados", "no_aprobados"})
+
+
+def listar_actas(directorio: Path | None = None) -> list[ActaGuardada]:
+    """Every act on disk, newest first, including the unreadable ones.
+
+    De más nueva a más vieja porque los nombres empiezan por la fecha en formato
+    ordenable, así que ordenar por nombre al revés ordena por antigüedad sin
+    tener que abrir ningún fichero.
+    """
+    directorio = Path(directorio or ACTAS)
+    if not directorio.is_dir():
+        return []
+
+    guardadas = []
+    for ruta in sorted(directorio.glob("*.json"), reverse=True):
+        try:
+            acta = json.loads(ruta.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError, UnicodeDecodeError) as error:
+            guardadas.append(ActaGuardada(ruta, None, f"no se puede leer: {error}"))
+            continue
+        if not isinstance(acta, dict):
+            guardadas.append(ActaGuardada(ruta, None, "no contiene un objeto"))
+            continue
+        faltan = _CAMPOS_ACTA - set(acta)
+        if faltan:
+            guardadas.append(
+                ActaGuardada(ruta, None, f"le faltan campos: {', '.join(sorted(faltan))}")
+            )
+            continue
+        guardadas.append(ActaGuardada(ruta, acta, None))
+    return guardadas
+
+
 def guardar_acta(acta: dict, directorio: Path | None = None) -> Path:
     """Write the act atomically and return where it landed.
 
