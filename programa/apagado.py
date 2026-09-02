@@ -129,16 +129,43 @@ def sesiones_activas() -> int:
     return Runtime.instance()._session_mgr.num_active_sessions()
 
 
-def detener() -> None:
-    """Pedirle a Streamlit que cierre. `stop()` es público y seguro entre hilos.
+# Lo que se le da al apagado ordenado antes de forzar la salida.
+GRACIA = 5.0
 
-    Se pide el apagado ordenado en vez de matar el proceso: así se cierran las
-    sesiones, se sueltan los ficheros abiertos y el puerto queda libre de
-    verdad para el siguiente arranque.
+
+def detener(gracia: float = GRACIA, salir: Callable[[int], None] = None) -> None:
+    """Cerrar de verdad: pedirlo por las buenas y, si no, forzarlo.
+
+    **`Runtime.stop()` no basta, y creer que sí costó un fallo en manos del
+    usuario.** Para el runtime de Streamlit, pero *no termina el proceso*: el
+    servidor HTTP se queda en pie, agarrado al puerto, respondiendo 503 a todo.
+    Medido el 2026-09-01: tras el apagado automático, `netstat` seguía mostrando
+    el 8501 en LISTENING y el arranque siguiente no podía enlazarlo, así que el
+    programa dejó de abrirse desde el acceso directo. Es exactamente el zombi
+    que este módulo existe para evitar, reintroducido por dar por hecho que
+    pedir el cierre es cerrarlo.
+
+    Así que se pide primero —`stop()` cierra las sesiones abiertas y deja que
+    el servidor se despida— y, pasados `gracia` segundos, se sale a la fuerza si
+    el proceso sigue ahí. `os._exit` se salta los `atexit` y los búferes, y aquí
+    eso no cuesta nada: lo que el usuario guarda —portafolios y actas— se
+    escribe con fichero temporal y `replace`, así que ya está en disco y
+    completo antes de llegar aquí.
     """
-    from streamlit.runtime import Runtime
+    import os
 
-    Runtime.instance().stop()
+    salir = salir or os._exit
+    try:
+        from streamlit.runtime import Runtime
+
+        Runtime.instance().stop()
+    except Exception:
+        # Si ni siquiera se puede pedir el cierre, forzarlo es aún más
+        # necesario: lo que no puede quedar es el proceso agarrado al puerto.
+        pass
+
+    time.sleep(gracia)
+    salir(0)
 
 
 def detener_en(segundos: float = 1.5, apagar: Callable[[], None] = detener) -> None:

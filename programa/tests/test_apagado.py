@@ -185,3 +185,59 @@ def test_vigilar_arranca_el_hilo_cuando_toca(monkeypatch):
         time.sleep(0.01)
     else:
         raise AssertionError("el hilo de vigilancia no se detuvo")
+
+
+# --- Cerrar de verdad --------------------------------------------------------
+
+
+def falso_runtime(monkeypatch, al_parar):
+    """Sustituye Runtime.instance() por algo que registra la llamada a stop()."""
+    from streamlit.runtime import Runtime
+
+    class Falso:
+        def stop(self):
+            al_parar()
+
+    monkeypatch.setattr(Runtime, "instance", classmethod(lambda cls: Falso()))
+
+
+def test_detener_pide_el_cierre_ordenado_y_ademas_se_asegura(monkeypatch):
+    # Runtime.stop() para el runtime pero NO termina el proceso: el servidor
+    # HTTP se queda agarrado al puerto respondiendo 503. Sin la salida forzada,
+    # cada apagado automatico dejaba un zombi y el arranque siguiente no podia
+    # enlazar el puerto -- que es como el programa dejo de abrirse desde el
+    # acceso directo el 2026-09-01.
+    llamadas = []
+    falso_runtime(monkeypatch, lambda: llamadas.append("stop"))
+
+    salidas = []
+    apagado.detener(gracia=0, salir=salidas.append)
+
+    assert llamadas == ["stop"]
+    assert salidas == [0]
+
+
+def test_detener_sale_igual_aunque_no_pueda_pedir_el_cierre(monkeypatch):
+    # Si ni siquiera se puede pedir el cierre, forzarlo es mas necesario, no
+    # menos: lo unico que no puede quedar es el proceso ocupando el puerto.
+    from streamlit.runtime import Runtime
+
+    def explota(cls):
+        raise RuntimeError("no hay runtime")
+
+    monkeypatch.setattr(Runtime, "instance", classmethod(explota))
+
+    salidas = []
+    apagado.detener(gracia=0, salir=salidas.append)
+    assert salidas == [0]
+
+
+def test_detener_espera_antes_de_forzar(monkeypatch):
+    # La gracia no es decorativa: es lo que le da tiempo a stop() a cerrar las
+    # sesiones abiertas antes de que el proceso desaparezca de golpe.
+    falso_runtime(monkeypatch, lambda: None)
+    salidas = []
+    inicio = time.monotonic()
+    apagado.detener(gracia=0.2, salir=salidas.append)
+    assert time.monotonic() - inicio >= 0.2
+    assert salidas == [0]

@@ -25,6 +25,12 @@ Option Explicit
 Const PUERTO = "8501"
 Const ESPERA_MAX = 120   ' segundos que se le dan al servidor para responder
 
+' Estados del puerto. Distinguir el segundo del tercero importa: son la misma
+' respuesta para quien solo pregunta "esta vivo?", y piden cosas opuestas.
+Const LIBRE = 0    ' no hay nadie escuchando: se puede arrancar
+Const SANO = 1     ' hay un Streamlit nuestro respondiendo: se reutiliza
+Const OCUPADO = 2  ' algo escucha y no es esto: arrancar no va a servir de nada
+
 Dim fso, shell, raiz, bat, marca, i
 Set fso = CreateObject("Scripting.FileSystemObject")
 Set shell = CreateObject("WScript.Shell")
@@ -41,10 +47,26 @@ shell.Environment("PROCESS").Item("PATH") = _
     shell.ExpandEnvironmentStrings("%USERPROFILE%") & "\.local\bin;" & _
     shell.Environment("PROCESS").Item("PATH")
 
-' --- 1. Reutilizar un servidor que ya este vivo -----------------------------
-If Vivo() Then
+' --- 1. Segun quien tenga el puerto ----------------------------------------
+Dim estado
+estado = EstadoPuerto()
+
+If estado = SANO Then
+    ' Ya hay un programa abierto: se le manda el navegador y no se arranca otro.
     shell.Run "http://localhost:" & PUERTO, 1, False
     WScript.Quit 0
+End If
+
+If estado = OCUPADO Then
+    ' Arrancar aqui no serviria de nada --Streamlit no podria enlazar el
+    ' puerto-- y el usuario se quedaria dos minutos mirando una nada silenciosa
+    ' antes del aviso. Se le dice ya, y se le dice que hacer.
+    MsgBox "El puerto " & PUERTO & " lo esta usando otro programa, asi que " & _
+           "Markowitz Pro Picks no puede arrancar ahi." & vbCrLf & vbCrLf & _
+           "Si acabas de cerrarlo, espera unos segundos y vuelve a intentarlo. " & _
+           "Si sigue igual, reinicia el ordenador o cierra el programa que " & _
+           "este ocupando ese puerto.", vbExclamation, "Markowitz Pro Picks"
+    WScript.Quit 1
 End If
 
 ' --- 2. Primer arranque: con ventana, que hay que contestar cosas -----------
@@ -67,7 +89,7 @@ shell.Run bat, 0, False
 
 For i = 1 To ESPERA_MAX
     WScript.Sleep 1000
-    If Vivo() Then
+    If EstadoPuerto() = SANO Then
         shell.Run "http://localhost:" & PUERTO, 1, False
         WScript.Quit 0
     End If
@@ -83,25 +105,31 @@ MsgBox "Markowitz Pro Picks no ha respondido en " & ESPERA_MAX & " segundos." & 
 shell.Run bat, 1, False
 
 
-Function Vivo()
-    ' Si hay un Streamlit escuchando en el puerto. /_stcore/health devuelve
-    ' "ok"; se comprueba el contenido y no solo el codigo 200 para no confundir
-    ' a cualquier otro programa que ocupe el mismo puerto con este.
+Function EstadoPuerto()
+    ' /_stcore/health devuelve "ok". Se mira el contenido y no solo el codigo,
+    ' porque un Streamlit al que ya le pararon el runtime sigue escuchando y
+    ' contestando 503: parece vivo a nivel de socket y no lo esta.
     Dim http
-    Vivo = False
+    EstadoPuerto = LIBRE
     On Error Resume Next
     ' ServerXMLHTTP y no XMLHTTP: es el unico que admite tiempo maximo de
     ' espera. Con el otro, un puerto abierto que no contesta cuelga este guion
     ' indefinidamente y el usuario se queda sin ventana y sin navegador.
     Set http = CreateObject("MSXML2.ServerXMLHTTP.6.0")
+    If Err.Number <> 0 Then
+        Err.Clear
+        On Error GoTo 0
+        Exit Function
+    End If
+    http.setTimeouts 2000, 2000, 2000, 2000
+    http.Open "GET", "http://localhost:" & PUERTO & "/_stcore/health", False
+    http.Send
     If Err.Number = 0 Then
-        http.setTimeouts 2000, 2000, 2000, 2000
-        http.Open "GET", "http://localhost:" & PUERTO & "/_stcore/health", False
-        http.Send
-        If Err.Number = 0 Then
-            If http.Status = 200 And InStr(http.responseText, "ok") > 0 Then
-                Vivo = True
-            End If
+        ' Contesto alguien. Que conteste ya descarta que el puerto este libre.
+        If http.Status = 200 And InStr(http.responseText, "ok") > 0 Then
+            EstadoPuerto = SANO
+        Else
+            EstadoPuerto = OCUPADO
         End If
     End If
     Err.Clear
