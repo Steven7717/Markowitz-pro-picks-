@@ -391,8 +391,32 @@ ser la forma de parar el programa. Hay dos respuestas y hacen falta las dos:
 
 - El botón **«Salir del programa»** en la barra lateral, para quien lo busca.
 - `apagado.py`, para quien no: un hilo pregunta cada 5 s cuántas pestañas hay
-  conectadas y, si lleva 90 s sin ninguna, pide el apagado ordenado. Comprobado
-  de punta a punta: cerrada la pestaña, el servidor se apagó solo.
+  conectadas y, si lleva 90 s sin ninguna, cierra el programa.
+
+**`Runtime.stop()` no cierra el proceso, y darlo por hecho rompió el programa en
+manos del usuario el mismo día.** Para el runtime de Streamlit, pero el servidor
+HTTP se queda en pie agarrado al puerto respondiendo **503** a todo. Medido: tras
+el apagado automático, `netstat` seguía mostrando el 8501 en LISTENING; el
+siguiente doble clic en el acceso directo arrancaba un Streamlit que no podía
+enlazar el puerto, y el lanzador se quedaba esperando en silencio hasta el aviso
+de los dos minutos. Justo el zombi que este módulo existe para evitar.
+
+Por eso `detener()` pide el cierre y, pasados 5 segundos de gracia, sale a la
+fuerza con `os._exit`. No se pierde nada: portafolios y actas se escriben con
+fichero temporal y `replace`, así que ya están completos en disco. Verificado
+después del arreglo — el proceso termina con código 0 y el puerto queda
+enlazable.
+
+Dos avisos para quien vuelva a tocar esto:
+
+- **Comprobar el puerto con `bind` no vale en Windows.** Enlazar `127.0.0.1:8501`
+  tiene éxito aunque otro socket tenga `0.0.0.0:8501`, así que un test hecho así
+  da el puerto por libre cuando no lo está. Hay que **conectar**, o mirar
+  `netstat`.
+- **El lanzador distingue tres estados del puerto, no dos.** Libre, sano y
+  ocupado-por-otra-cosa. Con solo «vivo o no», un puerto tomado por un tercero
+  se trata como libre, se arranca un servidor que no puede enlazarlo y el
+  usuario espera dos minutos mirando nada. Ahora se le dice al momento.
 
 Dos guardas que no son opcionales, y que están en los tests:
 
