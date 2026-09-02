@@ -374,6 +374,58 @@ cita `cbe71a0` sí sigue vigente y su comentario sigue en su sitio.
 
 ---
 
+## Arranque sin ventana de consola
+
+Hecho el 2026-09-01, a continuación del rediseño.
+
+El acceso directo del Escritorio apunta ahora a `Iniciar App.vbs`, que envuelve
+al `.bat` de siempre y decide **si esa ventana tiene que verse**. Se ve en tres
+casos, y los tres son deliberados: primer arranque —el `.bat` hace dos preguntas
+y oculto se quedaría colgado esperando una respuesta que nadie puede dar—, un
+servidor ya vivo —entonces no arranca otro, abre el navegador contra el que
+hay— y un arranque oculto que no llega a levantar el servidor, que reabre con
+ventana para que el error se pueda leer.
+
+**El problema que esto crea, y cómo se resuelve.** Sin ventana, cerrarla deja de
+ser la forma de parar el programa. Hay dos respuestas y hacen falta las dos:
+
+- El botón **«Salir del programa»** en la barra lateral, para quien lo busca.
+- `apagado.py`, para quien no: un hilo pregunta cada 5 s cuántas pestañas hay
+  conectadas y, si lleva 90 s sin ninguna, pide el apagado ordenado. Comprobado
+  de punta a punta: cerrada la pestaña, el servidor se apagó solo.
+
+Dos guardas que no son opcionales, y que están en los tests:
+
+- **No cuenta hasta que llega el primer navegador.** Entre arrancar el servidor
+  y abrirse la pestaña hay cero sesiones, y en un primer arranque pueden ser
+  minutos: sin esta guarda el programa se apagaría justo antes de que el usuario
+  lo vea por primera vez.
+- **El cero tiene que sostenerse.** Recargar la página tira el websocket un
+  instante. Si bastara con verlo una vez, recargar cerraría el programa.
+
+`sesiones_activas()` toca `_session_mgr`, que es privado de Streamlit. Si un día
+desaparece, el vigilante se desactiva a sí mismo y el programa sigue igual que
+antes; lo único inaceptable sería cerrarse por sorpresa mientras alguien lo usa.
+
+**Un detalle que costó un test.** El primer intento del hilo de vigilancia usaba
+`time.sleep` y no se podía parar. El test que lo arrancaba dejaba el hilo vivo
+el resto de la sesión de pytest y tumbaba
+`test_fundamentals_fetch.py::test_no_se_duerme_entre_tickers`, que comprueba con
+un mock **global** de `time.sleep` que la descarga no se duerme entre tickers.
+Por eso el bucle espera sobre un `threading.Event`: se puede parar, y no toca
+`time.sleep`.
+
+La marca del atajo (`~/.markowitz-pro-picks/atajo.txt`) ganó una tercera línea
+con la versión. Sin ella, quien ya tuviera un atajo creado por la versión
+anterior no lo vería cambiar nunca —la ruta coincidía, así que no se tocaba— y
+seguiría abriendo la consola. Con la versión, el atajo viejo se rehace en su
+sitio y sin volver a preguntar: ya dijo que sí una vez.
+
+En Mac no aplica: `.command` abre Terminal.app siempre, y esconderla exigiría
+envolverlo en un `.app`. Sin hacer.
+
+---
+
 ## Lo siguiente
 
 El sistema está completo de punta a punta: A ingiere, B ordena y razona, C
