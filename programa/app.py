@@ -20,6 +20,7 @@ directo del escritorio y `.claude/launch.json` apuntan aquí.
 
 import streamlit as st
 
+import apagado
 import tema
 from credenciales import ConfigIlegible, Credenciales, aplicar, cargar
 from preferencias import cargar as cargar_preferencias
@@ -34,6 +35,32 @@ st.set_page_config(
 )
 
 tema.aplicar(st)
+
+
+# Una sola vez por proceso, no por sesion ni por reejecucion: cache_resource es
+# lo que distingue "arrancar un hilo" de "arrancar un hilo en cada clic".
+@st.cache_resource
+def _vigilante():
+    """El apagado automatico cuando ya no queda ninguna pestana abierta."""
+    return apagado.vigilar()
+
+
+_vigilante()
+
+if st.session_state.get("cerrando"):
+    # La despedida ocupa la pantalla entera y no hay navegacion debajo: lo que
+    # queda no es una pagina de la que se pueda seguir tirando.
+    st.markdown(
+        tema.cabecera(
+            "Programa cerrado",
+            "Ya puedes cerrar esta pestaña. Para volver a abrirlo, usa el "
+            "acceso directo del Escritorio o «Iniciar App».",
+        ),
+        unsafe_allow_html=True,
+    )
+    apagado.detener_en()
+    st.stop()
+
 
 # Lo guardado ayer no sirve de nada si nadie lo carga hoy: guardar es lo que
 # escribe, arrancar es lo que aplica, y hacen falta los dos. Una sola vez por
@@ -112,5 +139,16 @@ with st.sidebar:
         "El orden de los candidatos es un criterio de selección transparente, "
         "**no** una previsión de rentabilidad."
     )
+    # Con la ventana de consola oculta, cerrarla ya no es una opcion: este boton
+    # es la forma visible de terminar. Para quien cierre la pestana sin usarlo
+    # --la mayoria-- esta el apagado automatico de `apagado.py`.
+    if st.button(
+        "Salir del programa", use_container_width=True,
+        icon=":material/power_settings_new:",
+        help="Cierra el programa. Los portafolios y las actas guardadas se "
+        "quedan donde están.",
+    ):
+        st.session_state.cerrando = True
+        st.rerun()
 
 navegacion.run()

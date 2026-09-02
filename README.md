@@ -38,6 +38,10 @@ viven tus registros de aprobación.
 **Mac:** doble clic en `Iniciar App.command` — con un rodeo la primera vez,
 explicado justo debajo.
 
+En Windows, el acceso directo del Escritorio abre el programa **sin ventana
+negra**: sólo se abre el navegador. `Iniciar App.bat` sigue mostrándola, que es
+lo que hace falta cuando algo va mal y hay que leer el error.
+
 No hace falta instalar Python. La primera vez el programa usa una herramienta
 llamada [uv](https://astral.sh/uv) para descargar todo lo que necesita: te
 preguntará antes de instalar nada. Esa primera vez tarda unos minutos y baja
@@ -120,6 +124,25 @@ lleva su propia ruta grabada dentro, así que al cambiarla de sitio deja de
 servir; el lanzador lo detecta y lo rehace solo, en un par de segundos, sin
 volver a descargar nada.
 
+## Cómo se cierra
+
+Si abriste con **el acceso directo del Escritorio**, no hay ventana negra que
+cerrar. Tienes dos formas, y las dos valen:
+
+- El botón **«Salir del programa»**, abajo del todo en la barra lateral.
+- Cerrar la pestaña del navegador y olvidarte. El programa comprueba cada pocos
+  segundos si queda alguna pestaña abierta, y si lleva minuto y medio sin
+  ninguna, se apaga solo.
+
+Recargar la página no lo apaga, y volver a abrir el acceso directo mientras
+sigue vivo no arranca un segundo programa: reutiliza el que ya está.
+
+Si abriste con **`Iniciar App.bat`**, además puedes cerrar la ventana negra,
+como siempre.
+
+Lo que hayas guardado —portafolios y actas— se queda donde está en cualquiera
+de los casos.
+
 ## Las credenciales
 
 El programa funciona en dos mitades:
@@ -172,7 +195,7 @@ Los detalles de diseño están en `programa/CONTEXTO.md` y en
 ## Si vienes de una versión anterior
 
 La estructura cambió: ahora el programa vive dentro de `programa/` y en la
-carpeta principal sólo quedan los dos lanzadores y este archivo. Los lanzadores
+carpeta principal sólo quedan los lanzadores y este archivo. Los lanzadores
 entran solos donde toca, así que no tienes que hacer nada para usarlo.
 
 Dos restos que puedes limpiar a mano:
