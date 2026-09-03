@@ -1896,7 +1896,12 @@ from seguimiento import rendimiento
 
 
 def serie(valores, fechas=None) -> pd.Series:
-    fechas = fechas or pd.bdate_range("2026-01-05", periods=len(valores))
+    # `fechas or ...` no vale: un DatetimeIndex no tiene valor de verdad y
+    # pandas lanza "The truth value of a DatetimeIndex is ambiguous". Con los
+    # llamantes de esta tarea, que pasan None, nunca se notaria; el control
+    # negativo de la Task 7 pasa un indice real y revienta antes de medir nada.
+    if fechas is None:
+        fechas = pd.bdate_range("2026-01-05", periods=len(valores))
     return pd.Series(valores, index=pd.DatetimeIndex(fechas), dtype=float)
 
 
@@ -2095,9 +2100,25 @@ def test_un_solo_flujo_tampoco_tiene_tir():
 
 
 def test_un_periodo_corto_no_devuelve_una_tir_anualizada_absurda():
-    # 2% en tres dias. Misma guarda que TWR: por debajo de 30 dias no se
-    # anualiza, y aqui la TIR *es* una tasa anual, asi que no hay nada que dar.
-    flujos = [(date(2026, 1, 1), -1000.0), (date(2026, 1, 4), 1020.0)]
+    # 1% en tres dias: la tasa anual equivalente es del 236%, y cae DENTRO del
+    # intervalo de busqueda. Sin la guarda de los 30 dias, brentq la encuentra
+    # y `tir()` devuelve ese 2,36 como si alguien lo hubiera medido.
+    #
+    # La version anterior de este test usaba 2%, y pasaba por casualidad: su
+    # tasa equivalente es 10,126, apenas por encima del techo de 10, asi que lo
+    # cortaba la guarda del INTERVALO y no la de los dias. Con 1,9% el mismo
+    # test ya devolvia 8,87. De ahi el assert de la precondicion, que es lo que
+    # impide que vuelva a pasar por el motivo equivocado.
+    flujos = [(date(2026, 1, 1), -1000.0), (date(2026, 1, 4), 1010.0)]
+
+    ordenados = sorted(flujos, key=lambda par: par[0])
+    bajo = rendimiento._valor_actual(ordenados, rendimiento._SUELO_TIR)
+    alto = rendimiento._valor_actual(ordenados, rendimiento._TECHO_TIR)
+    assert (bajo > 0) != (alto > 0), (
+        "la raiz cae fuera del intervalo, asi que este caso no prueba la guarda "
+        "de los dias sino la del intervalo"
+    )
+
     assert rendimiento.tir(flujos) is None
 
 
@@ -2211,8 +2232,14 @@ def tir(flujos: "list[tuple[date, float]]") -> float | None:
     if alto == 0.0:
         return _TECHO_TIR
     if (bajo > 0) == (alto > 0):
-        # Sin cambio de signo en el intervalo no hay raiz que encontrar dentro
-        # de el. brentq lanzaria ValueError; decirlo con None es la respuesta.
+        # Sin cambio de signo no hay raíz dentro del intervalo. **Esta guarda no
+        # cambia lo que se devuelve para ninguna entrada**: sin ella, `brentq`
+        # lanzaría `ValueError` y el `except` de abajo devolvería `None` igual.
+        # Está porque reconocer explícitamente un caso que sabemos nombrar es
+        # mejor que llegar a él por una excepción, y porque así el `except`
+        # queda como lo que debe ser — la red para lo que no supimos prever, no
+        # el camino normal. Ningún test conductual puede pinzarla, y decirlo
+        # aquí evita que alguien escriba uno creyendo que sí.
         return None
 
     try:
@@ -2227,10 +2254,27 @@ def tir(flujos: "list[tuple[date, float]]") -> float | None:
 UV_LINK_MODE=copy uv run pytest tests/test_seguimiento_rendimiento.py -q
 ```
 
-Esperado: `15 passed`. Los dos de `numpy_financial` saldrán como `skipped` si
-no está instalada — eso es correcto y no hay que instalarla.
+Esperado: `16 passed` con `numpy_financial` instalada — 8 de la Task 6 más 8
+tuyos, que son seis tests sueltos y uno parametrizado de dos casos. **Sin ella,
+`14 passed, 2 skipped`**: los dos del contraste se omiten solos, y eso es
+correcto. No la instales.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Comprueba que las dos guardas que sí son observables muerden**
+
+Rompe cada una y confirma que falla el test que dice probarla. Deshaz después.
+
+| Sabotaje | Tiene que fallar |
+|---|---|
+| Quitar `if len(flujos) < 2: return None` | `test_un_solo_flujo_tampoco_tiene_tir` |
+| Quitar la guarda de los 30 días | `test_un_periodo_corto_no_devuelve_una_tir_anualizada_absurda` |
+| `/ 365.0` → `/ 360.0` en `_valor_actual` | el control negativo |
+
+**No intentes sabotear la guarda del intervalo.** No es observable, y el
+comentario del código explica por qué: sin ella el `except` devuelve `None`
+igual, así que no hay entrada que distinga las dos versiones. Un test que
+pretendiera pinzarla estaría midiendo otra cosa.
+
+- [ ] **Step 6: Commit**
 
 ```bash
 git add seguimiento/rendimiento.py tests/test_seguimiento_rendimiento.py
