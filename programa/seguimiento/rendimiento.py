@@ -12,7 +12,10 @@ Cuando los dos se separan, la diferencia *es* el efecto de las aportaciones. Es
 información, no ruido, y la pantalla lo dice.
 """
 
+from datetime import date
+
 import pandas as pd
+from scipy.optimize import brentq
 
 # Por debajo de un mes, anualizar convierte un ruido en una afirmación: un 2% en
 # tres días sale a +780% anual. Se devuelve el retorno del periodo, sin
@@ -65,3 +68,67 @@ def anualizar(retorno: float, dias: float) -> float | None:
     if dias < MINIMO_DIAS_ANUALIZAR or dias <= 0:
         return None
     return (1.0 + retorno) ** (365.0 / dias) - 1.0
+
+
+# El intervalo en el que se busca la raiz. -0,999 y no -1: en -1 el
+# denominador (1+r) vale cero y la funcion no esta definida. El techo de 10 son
+# 1.000% anual, muy por encima de cualquier cartera real, y acotar es lo que
+# convierte "no converge" en "no hay solucion aqui" en vez de en un bucle.
+_SUELO_TIR = -0.999
+_TECHO_TIR = 10.0
+
+
+def _valor_actual(flujos: "list[tuple[date, float]]", tasa: float) -> float:
+    origen = flujos[0][0]
+    return sum(
+        importe / (1.0 + tasa) ** ((cuando - origen).days / 365.0)
+        for cuando, importe in flujos
+    )
+
+
+def tir(flujos: "list[tuple[date, float]]") -> float | None:
+    """Money-weighted return (XIRR), or None when there is no answer.
+
+    Raíz de `Σ CF_i / (1+r)^(d_i/365) = 0`, con `brentq` sobre un intervalo
+    acotado. Aportaciones negativas, retiros positivos, y el valor actual de la
+    cartera positivo al cierre.
+
+    **Devuelve `None` en vez de un número siempre que no haya una respuesta
+    defendible.** Con flujos mezclados la ecuación puede tener varias raíces o
+    ninguna, y una TIR inventada es indistinguible de una real: no lleva marca,
+    no tiene unidades raras, y el usuario la lee como si alguien la hubiera
+    medido. Los tres casos en que se devuelve `None`:
+
+    - **Menos de dos flujos.** No hay ecuación que resolver.
+    - **Todos del mismo signo.** No existe tasa que los anule, porque el valor
+      actual nunca cruza el cero.
+    - **Menos de 30 días.** Misma guarda que `anualizar`: la TIR *es* una tasa
+      anual, así que en tres días no hay nada que dar.
+    """
+    if len(flujos) < 2:
+        return None
+
+    ordenados = sorted(flujos, key=lambda par: par[0])
+    dias = (ordenados[-1][0] - ordenados[0][0]).days
+    if dias < MINIMO_DIAS_ANUALIZAR:
+        return None
+
+    importes = [importe for _, importe in ordenados]
+    if not (any(v > 0 for v in importes) and any(v < 0 for v in importes)):
+        return None
+
+    bajo = _valor_actual(ordenados, _SUELO_TIR)
+    alto = _valor_actual(ordenados, _TECHO_TIR)
+    if bajo == 0.0:
+        return _SUELO_TIR
+    if alto == 0.0:
+        return _TECHO_TIR
+    if (bajo > 0) == (alto > 0):
+        # Sin cambio de signo en el intervalo no hay raiz que encontrar dentro
+        # de el. brentq lanzaria ValueError; decirlo con None es la respuesta.
+        return None
+
+    try:
+        return float(brentq(lambda r: _valor_actual(ordenados, r), _SUELO_TIR, _TECHO_TIR))
+    except (ValueError, RuntimeError):
+        return None
