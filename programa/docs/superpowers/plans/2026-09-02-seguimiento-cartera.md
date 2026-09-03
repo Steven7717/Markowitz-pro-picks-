@@ -59,7 +59,7 @@ del optimizador (Task 10), un `_rebanada` que pasa a ser público en
 |---|---|
 | `seguimiento/__init__.py` | Vacío, como `aprobacion/__init__.py` |
 | `seguimiento/libro.py` | El asiento y el libro: tipos, validación, alta, lectura y escritura |
-| `seguimiento/posiciones.py` | Asientos → acciones, efectivo y valor, día a día |
+| `seguimiento/posiciones.py` | Asientos → acciones, efectivo y valor, día a día, y si el libro cuadra en todo momento |
 | `seguimiento/precios.py` | Cierres sin ajustar, dividendos y splits |
 | `seguimiento/rendimiento.py` | TWR, TIR, coste medio, ganancia, contribución |
 | `seguimiento/comparacion.py` | Objetivo teórico, 1/N y S&P 500 sobre los mismos flujos |
@@ -1001,6 +1001,63 @@ def test_el_asiento_aceptado_se_queda_en_el_libro():
         id="ap", fecha="2026-09-01", tipo="aportacion", importe=1000.0), hoy=HOY)
     assert len(libro.asientos) == 1
     assert libro.asientos[0].tipo == "aportacion"
+
+
+def test_no_se_puede_vender_en_una_fecha_anterior_a_la_compra():
+    # El caso que rompe comprobar solo el saldo final: hoy tengo diez acciones,
+    # asi que una venta de diez "cuadra" -- pero fechada en julio deja la
+    # cartera con menos diez acciones en julio, y `estado(hasta=...)` lo
+    # devolveria tal cual. No es un caso raro: es lo que pasa siempre que
+    # alguien registra lo que ya tenia comprado y mete los asientos en el orden
+    # del extracto y no en orden cronologico.
+    libro = con(
+        Asiento(id="ap", fecha="2026-08-01", tipo="aportacion", importe=5000.0),
+        compra(id="c1", fecha="2026-08-01", acciones=10.0),
+    )
+    venta = Asiento(
+        id="v1", fecha="2026-07-01", tipo="venta", ticker="AAPL",
+        acciones=10.0, precio=250.0, importe=2500.0,
+    )
+    with pytest.raises(AsientoInvalido, match="2026-07-01"):
+        anadir(libro, venta, hoy=HOY)
+
+
+def test_un_retiro_fechado_antes_de_su_aportacion_no_pasa():
+    libro = con(Asiento(id="ap", fecha="2026-08-01", tipo="aportacion",
+                        importe=5000.0))
+    retiro = Asiento(id="r1", fecha="2026-07-01", tipo="retiro", importe=1000.0)
+    with pytest.raises(AsientoInvalido, match="2026-07-01"):
+        anadir(libro, retiro, hoy=HOY)
+
+
+def test_una_compra_del_pasado_se_financia_con_el_saldo_de_entonces():
+    # Aportar 5.000 en agosto no paga una compra fechada en julio. La
+    # aportacion que se escribe tiene que cubrirla entera, no la diferencia
+    # contra un saldo que en esa fecha todavia no existia.
+    libro = con(Asiento(id="ap", fecha="2026-08-01", tipo="aportacion",
+                        importe=5000.0))
+    _, escritos = anadir(libro, compra(id="c1", fecha="2026-07-01"),
+                         hoy=HOY, financiar=True)
+    assert [a.tipo for a in escritos] == ["aportacion", "compra"]
+    assert escritos[0].importe == pytest.approx(2200.0)
+
+
+def test_vender_exactamente_lo_que_se_tiene_sigue_valiendo():
+    # Las acciones salen de dividir un importe entre un precio, asi que
+    # arrastran redondeo. Sin el margen de polvo en la comparacion, vender la
+    # posicion entera fallaria por una diferencia de femtoacciones.
+    from seguimiento.libro import derivar
+
+    importe, acciones, precio = derivar(importe=1000.0, acciones=None, precio=3.0)
+    libro = con(
+        Asiento(id="ap", fecha="2026-08-01", tipo="aportacion", importe=1000.0),
+        Asiento(id="c1", fecha="2026-08-01", tipo="compra", ticker="AAPL",
+                acciones=acciones, precio=precio, importe=importe),
+    )
+    venta = Asiento(id="v1", fecha="2026-09-01", tipo="venta", ticker="AAPL",
+                    acciones=acciones, precio=4.0, importe=acciones * 4.0)
+    libro, _ = anadir(libro, venta, hoy=HOY)
+    assert len(libro.asientos) == 3
 ```
 
 Y cambia el ayudante `compra()` del principio del fichero para que acepte
@@ -1015,7 +1072,69 @@ UV_LINK_MODE=copy uv run pytest tests/test_seguimiento_libro.py -q
 
 Esperado: `ImportError: cannot import name 'anadir'`.
 
-- [ ] **Step 3: Implementa `anadir`**
+- [ ] **Step 3: Añade el recorrido a `seguimiento/posiciones.py`**
+
+`estado()` sólo mira dónde acaba el libro. Para aceptar un asiento hace falta
+saber si el libro cuadra **en todo momento**, no sólo al final. Añade al final
+de `seguimiento/posiciones.py`:
+
+```python
+def primer_descubierto(asientos: "list[Asiento]") -> str | None:
+    """The first moment the book would go into the red, in words, or None.
+
+    `estado()` responde "qué hay al final". Esta función responde "¿hubo algún
+    día en que esto no cuadrara?", que es otra pregunta y la que hace falta
+    antes de aceptar un asiento.
+
+    La diferencia importa porque un asiento puede llegar **fechado en el
+    pasado**, y es el caso normal: quien empieza a llevar el libro de lo que ya
+    tenía comprado mete las operaciones en el orden en que las encuentra en el
+    extracto, no en orden cronológico. Comprobar sólo el saldo final acepta una
+    venta de julio de acciones compradas en agosto —el final cuadra— y deja la
+    cartera con acciones negativas a mitad del recorrido.
+
+    El margen de `_POLVO` en cada comparación es para que vender exactamente lo
+    que se tiene siga valiendo: el número de acciones viene de dividir un
+    importe entre un precio, así que arrastra error de redondeo y una igualdad
+    exacta fallaría por un femtoaccion de diferencia.
+    """
+    acciones: dict[str, float] = {}
+    efectivo = 0.0
+
+    for a in ordenados(vigentes(asientos)):
+        if a.tipo == "aportacion":
+            efectivo += a.importe
+        elif a.tipo == "dividendo":
+            efectivo += a.importe
+        elif a.tipo == "retiro":
+            if a.importe > efectivo + _POLVO:
+                return (
+                    f"el {a.fecha} no hay efectivo suficiente: harían falta "
+                    f"{a.importe:,.2f} y hay {efectivo:,.2f}"
+                )
+            efectivo -= a.importe
+        elif a.tipo == "compra":
+            coste = a.importe + a.comision
+            if coste > efectivo + _POLVO:
+                return (
+                    f"el {a.fecha} no hay efectivo suficiente: la compra cuesta "
+                    f"{coste:,.2f} y hay {efectivo:,.2f}"
+                )
+            efectivo -= coste
+            acciones[a.ticker] = acciones.get(a.ticker, 0.0) + a.acciones
+        elif a.tipo == "venta":
+            tiene = acciones.get(a.ticker, 0.0)
+            if a.acciones > tiene + _POLVO:
+                return (
+                    f"el {a.fecha} no tienes suficientes acciones de {a.ticker}: "
+                    f"harían falta {a.acciones:g} y hay {tiene:g}"
+                )
+            acciones[a.ticker] = tiene - a.acciones
+            efectivo += a.importe - a.comision
+    return None
+```
+
+- [ ] **Step 4: Implementa `anadir`**
 
 Añade al final de `seguimiento/libro.py`:
 
@@ -1060,41 +1179,40 @@ def anadir(
             )
         return (_con_asientos(libro, [asiento]), [asiento])
 
-    actual = posiciones.estado(libro.asientos)
     escritos = [asiento]
 
-    if asiento.tipo == "venta":
-        tiene = actual.acciones.get(asiento.ticker, 0.0)
-        if asiento.acciones > tiene:
-            raise AsientoInvalido(
-                f"no tienes {asiento.acciones:g} acciones de {asiento.ticker}, "
-                f"tienes {tiene:g}"
-            )
-
-    if asiento.tipo == "retiro" and asiento.importe > actual.efectivo:
-        raise AsientoInvalido(
-            f"no hay efectivo suficiente: pides {asiento.importe:,.2f} y hay "
-            f"{actual.efectivo:,.2f}"
-        )
-
-    if asiento.tipo == "compra":
+    if asiento.tipo == "compra" and financiar:
+        # El efectivo que había **en la fecha del asiento**, no el de hoy. Un
+        # asiento puede llegar fechado en el pasado —es el caso normal cuando
+        # alguien empieza a registrar lo que ya tenía comprado— y financiarlo
+        # con el saldo de hoy escribiría una aportación del tamaño equivocado.
+        disponible = posiciones.estado(libro.asientos, hasta=asiento.fecha).efectivo
         coste = asiento.importe + asiento.comision
-        if coste > actual.efectivo:
-            if not financiar:
-                raise AsientoInvalido(
-                    f"no hay efectivo suficiente: la compra cuesta {coste:,.2f} "
-                    f"y hay {actual.efectivo:,.2f}"
-                )
-            aportacion = Asiento(
-                id=f"{asiento.id}-ap",
-                fecha=asiento.fecha,
-                tipo="aportacion",
-                importe=coste - actual.efectivo,
-                nota="Financia la compra de " + str(asiento.ticker),
-            )
-            escritos = [aportacion, asiento]
+        if coste > disponible:
+            escritos = [
+                Asiento(
+                    id=f"{asiento.id}-ap",
+                    fecha=asiento.fecha,
+                    tipo="aportacion",
+                    importe=coste - disponible,
+                    nota="Financia la compra de " + str(asiento.ticker),
+                ),
+                asiento,
+            ]
 
-    return (_con_asientos(libro, escritos), escritos)
+    candidato = _con_asientos(libro, escritos)
+
+    # **El recorrido entero, no el saldo final.** Comprobar contra el estado de
+    # hoy acepta una venta fechada en julio de acciones compradas en agosto: el
+    # saldo final cuadra, y la cartera queda con acciones negativas a mitad del
+    # camino — justo lo que `posiciones.ordenados` existe para evitar. Medido
+    # antes de escribir esto: `estado(hasta="2026-07-01")` devolvía
+    # `{'AAPL': -10.0}` sin que nada lo hubiera impedido.
+    motivo = posiciones.primer_descubierto(candidato.asientos)
+    if motivo is not None:
+        raise AsientoInvalido(motivo)
+
+    return (candidato, escritos)
 
 
 def _con_asientos(libro: Libro, nuevos: list[Asiento]) -> Libro:
@@ -1104,18 +1222,18 @@ def _con_asientos(libro: Libro, nuevos: list[Asiento]) -> Libro:
     return replace(libro, asientos=tuple(libro.asientos) + tuple(nuevos))
 ```
 
-- [ ] **Step 4: Corre los tests y comprueba que pasan**
+- [ ] **Step 5: Corre los tests y comprueba que pasan**
 
 ```bash
 UV_LINK_MODE=copy uv run pytest tests/test_seguimiento_libro.py -q
 ```
 
-Esperado: `55 passed` (46 de la Task 1 más 9 nuevos).
+Esperado: `59 passed` (46 de la Task 1 más 13 nuevos).
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
-git add seguimiento/libro.py tests/test_seguimiento_libro.py
+git add seguimiento/libro.py seguimiento/posiciones.py tests/test_seguimiento_libro.py
 git commit -m "feat: rechazar la venta y el retiro que el libro no soporta"
 ```
 
@@ -2584,7 +2702,7 @@ En `vistas/optimizador.py`, dentro del dict `metrics` (línea 367), añade las d
 UV_LINK_MODE=copy uv run pytest tests/test_seguimiento_libro.py tests/test_cartera.py -q
 ```
 
-Esperado: `58 passed` en el primero, y `test_cartera.py` sin regresión.
+Esperado: `62 passed` en el primero, y `test_cartera.py` sin regresión.
 
 - [ ] **Step 5: Commit**
 
@@ -2946,7 +3064,7 @@ def listar(directorio: Path | None = None) -> list[Entrada]:
 UV_LINK_MODE=copy uv run pytest tests/test_seguimiento_libro.py tests/test_cartera.py -q
 ```
 
-Esperado: `68 passed` en el primero, y `test_cartera.py` sin regresión por el
+Esperado: `72 passed` en el primero, y `test_cartera.py` sin regresión por el
 renombrado de `rebanada`.
 
 - [ ] **Step 6: Commit**
@@ -3340,8 +3458,8 @@ if pendiente is not None:
 UV_LINK_MODE=copy uv run pytest tests/ -q -m "not red"
 ```
 
-Esperado: **122 tests nuevos** sobre la base. Con `numpy_financial` instalada,
-`903 passed, 2 skipped`; sin ella, `901 passed, 4 skipped` — los dos de
+Esperado: **126 tests nuevos** sobre la base. Con `numpy_financial` instalada,
+`907 passed, 2 skipped`; sin ella, `905 passed, 4 skipped` — los dos de
 contraste se omiten solos y eso es correcto. En ambos casos, `6 deselected`.
 
 Ese recuento cuenta `test_apagado.py::test_detener_espera_antes_de_forzar` como
