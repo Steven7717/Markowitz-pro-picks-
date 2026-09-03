@@ -1454,6 +1454,61 @@ def test_un_dividendo_apuntado_a_mano_manda_sobre_el_calculado():
     assert marcha.efectivo.loc["2026-01-07"] == pytest.approx(1999.0 + 7.1)
 
 
+def test_una_compra_en_la_fecha_ex_no_cobra_ese_dividendo():
+    # Para cobrar hay que tener las acciones ANTES de la fecha ex: quien compra
+    # ese mismo dia las compra ya sin el dividendo, y el cobro es del vendedor.
+    # Medido sobre la version que aplicaba los asientos antes de pagar: una
+    # compra de diez acciones el dia ex se llevaba 2,40 que no le tocaban.
+    tardia = asiento(
+        "a3", "2026-01-06", "compra", ticker="AAPL",
+        acciones=10.0, precio=202.0, importe=2020.0,
+    )
+    h = historia(
+        {"AAPL": [200.0, 202.0, 204.0]},
+        dividendos={"AAPL": [0.0, 0.24, 0.0]},
+    )
+    marcha = posiciones.serie([APORTA, tardia], h)
+    assert float(marcha.dividendos.sum().sum()) == pytest.approx(0.0)
+
+
+def test_una_venta_en_la_fecha_ex_si_cobra_el_dividendo():
+    # El reverso, y sale de la misma foto: quien vende en la fecha ex ya tenia
+    # las acciones al cierre anterior, asi que el dividendo es suyo.
+    venta = asiento(
+        "a3", "2026-01-06", "venta", ticker="AAPL",
+        acciones=40.0, precio=202.0, importe=8080.0,
+    )
+    h = historia(
+        {"AAPL": [200.0, 202.0, 204.0]},
+        dividendos={"AAPL": [0.0, 0.24, 0.0]},
+    )
+    marcha = posiciones.serie([APORTA, COMPRA, venta], h)
+    assert float(marcha.dividendos.sum().sum()) == pytest.approx(9.6)
+
+
+def test_un_hueco_de_precio_no_hunde_el_valor_a_cero():
+    # `(acciones * cierres).sum(axis=1)` trata un NaN como cero por defecto, asi
+    # que un dia sin dato dibujaria una caida a plomo que nunca ocurrio.
+    h = historia({"AAPL": [200.0, float("nan"), 204.0]})
+    marcha = posiciones.serie([APORTA, COMPRA], h)
+    assert marcha.valor.loc["2026-01-06"] == pytest.approx(40 * 200.0 + 1999.0)
+
+
+def test_un_asiento_posterior_al_ultimo_cierre_se_cuenta_aparte():
+    # Pasa cada vez que se registra una compra de hoy antes de que yfinance
+    # tenga el cierre de hoy. La tabla por activo si la ve, porque sale de los
+    # asientos; la serie no puede valorarla. Sin este contador, el valor de
+    # cabecera y la tabla dirian cosas distintas y nada lo explicaria.
+    manana = asiento(
+        "a3", "2026-01-08", "compra", ticker="AAPL",
+        acciones=1.0, precio=204.0, importe=204.0,
+    )
+    h = historia({"AAPL": [200.0, 202.0, 204.0]})
+    marcha = posiciones.serie([APORTA, COMPRA, manana], h)
+    assert marcha.posteriores == 1
+    assert marcha.acciones.loc["2026-01-07", "AAPL"] == pytest.approx(40.0)
+
+
 def test_un_dividendo_posterior_a_la_venta_no_se_cobra():
     venta = asiento(
         "a3", "2026-01-05", "venta", ticker="AAPL",
@@ -1483,13 +1538,22 @@ Añade a `seguimiento/posiciones.py` (arriba, junto a los imports, añade
 ```python
 @dataclass(frozen=True)
 class Marcha:
-    """La cartera día a día: acciones, efectivo, valor y flujos externos."""
+    """La cartera día a día: acciones, efectivo, valor y flujos externos.
+
+    `posteriores` son los asientos fechados **después** del último cierre
+    disponible, que la serie no puede reflejar porque no hay precio con el que
+    valorarlos. Vuelven contados y no en silencio: la tabla por activo sí los
+    incluye —sale de los asientos, no de la serie— así que sin este aviso el
+    valor de cabecera y la tabla dirían cosas distintas y nada explicaría por
+    qué.
+    """
 
     acciones: pd.DataFrame
     efectivo: pd.Series
     valor: pd.Series
     flujos: pd.Series
     dividendos: pd.DataFrame
+    posteriores: int = 0
 
 
 def serie(asientos: "list[Asiento]", historia: Historia) -> Marcha:
@@ -1505,6 +1569,15 @@ def serie(asientos: "list[Asiento]", historia: Historia) -> Marcha:
     `dividendo` para ese ticker y esa fecha. El manual es el neto que llegó de
     verdad; el calculado es teórico y bruto. Sumar los dos contaría el cobro dos
     veces, y el rendimiento saldría alto sin causa visible.
+
+    **El dividendo se paga sobre la tenencia de antes de los movimientos del
+    día, no de después.** Para cobrar hay que tener las acciones *antes* de la
+    fecha ex: quien compra ese mismo día las compra ya sin el dividendo, y el
+    cobro es del vendedor. Aplicar los asientos primero y pagar después le paga
+    al comprador — medido: una compra de diez acciones el día ex cobraba 2,40
+    que no le tocaban. El reverso también importa y sale gratis con la misma
+    foto: quien vende en la fecha ex sí cobra, porque las tenía al cierre
+    anterior.
     """
     vivos = ordenados(vigentes(asientos))
     if not vivos:
@@ -1513,6 +1586,13 @@ def serie(asientos: "list[Asiento]", historia: Historia) -> Marcha:
 
     calendario = historia.cierres.index
     tickers = list(historia.cierres.columns)
+    # Un hueco de precio en un dia que el mercado abrio es un fallo de datos,
+    # no una accion que valga cero. Sin esto, `(acciones * cierres).sum()`
+    # trata el NaN como cero --su comportamiento por defecto-- y el grafico
+    # ensena una caida a plomo que nunca ocurrio. Arrastrar el ultimo cierre
+    # conocido es lo que hace cualquier extracto de broker. Esta acotado:
+    # `precios.desde_panel` ya aparta los tickers que no traen ningun dato.
+    cierres = historia.cierres.ffill()
 
     acciones = pd.DataFrame(0.0, index=calendario, columns=tickers)
     efectivo = pd.Series(0.0, index=calendario)
@@ -1538,7 +1618,12 @@ def serie(asientos: "list[Asiento]", historia: Historia) -> Marcha:
             if factor > 0 and tenencia.get(ticker):
                 tenencia[ticker] *= factor
 
-        # 2. Los asientos fechados hasta hoy que aun no se han aplicado.
+        # 2. La foto de lo que se tenia al cierre de ayer, ya partida por el
+        #    split de hoy si lo hubo. Es la que decide quien cobra el dividendo,
+        #    y por eso se toma ANTES de los movimientos del dia.
+        tenencia_ex = dict(tenencia)
+
+        # 3. Los asientos fechados hasta hoy que aun no se han aplicado.
         while pendientes and pendientes[0].fecha <= clave:
             a = pendientes.pop(0)
             if a.tipo == "aportacion":
@@ -1558,12 +1643,12 @@ def serie(asientos: "list[Asiento]", historia: Historia) -> Marcha:
                 caja += a.importe - a.comision
                 tenencia[a.ticker] = tenencia.get(a.ticker, 0.0) - a.acciones
 
-        # 3. Los dividendos calculados, sobre lo que se tenia en la fecha ex.
+        # 4. Los dividendos calculados, sobre la foto de la fecha ex.
         for ticker in tickers:
             por_accion = float(historia.dividendos.at[dia, ticker] or 0.0)
             if por_accion <= 0 or (ticker, clave) in manuales:
                 continue
-            cobro = tenencia.get(ticker, 0.0) * por_accion
+            cobro = tenencia_ex.get(ticker, 0.0) * por_accion
             if cobro:
                 caja += cobro
                 dividendos.at[dia, ticker] += cobro
@@ -1572,13 +1657,17 @@ def serie(asientos: "list[Asiento]", historia: Historia) -> Marcha:
             acciones.at[dia, ticker] = tenencia.get(ticker, 0.0)
         efectivo[dia] = caja
 
-    valor = (acciones * historia.cierres).sum(axis=1) + efectivo
+    valor = (acciones * cierres).sum(axis=1) + efectivo
     return Marcha(
         acciones=acciones,
         efectivo=efectivo,
         valor=valor,
         flujos=flujos,
         dividendos=dividendos,
+        # Lo que quedo en la cola son asientos posteriores al ultimo cierre
+        # disponible. No se pierden --la tabla por activo los ve-- pero la serie
+        # no puede valorarlos, y quien pinte esto tiene que poder decirlo.
+        posteriores=len(pendientes),
     )
 ```
 
@@ -1588,9 +1677,19 @@ def serie(asientos: "list[Asiento]", historia: Historia) -> Marcha:
 UV_LINK_MODE=copy uv run pytest tests/test_seguimiento_posiciones.py -q
 ```
 
-Esperado: `15 passed`.
+Esperado: `19 passed`.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Comprueba que la foto de la fecha ex se usa de verdad**
+
+Cambia `tenencia_ex.get(ticker, 0.0)` por `tenencia.get(ticker, 0.0)` en el
+paso 4 y vuelve a correr los tests. Tiene que fallar
+`test_una_compra_en_la_fecha_ex_no_cobra_ese_dividendo` — y sólo ese, porque el
+de la venta pasa con las dos versiones. Deshaz el cambio.
+
+Si no falla, la foto no está donde tiene que estar y el libro le paga
+dividendos a quien no le tocan.
+
+- [ ] **Step 6: Commit**
 
 ```bash
 git add seguimiento/posiciones.py tests/test_seguimiento_posiciones.py
@@ -2314,6 +2413,11 @@ def referencia(
     repartiendo el mismo dinero entre menos activos, y la cartera real quedaría
     peor por comparación con algo que nunca existió.
     """
+    # Mismo arrastre que en `posiciones.serie`, y por lo mismo: un hueco de
+    # precio es un fallo de datos, no una acción que valga cero. Aquí envenena
+    # más todavía, porque el valor del día se suma con `float()` uno a uno y un
+    # solo NaN convierte el total en NaN en vez de restar sólo su parte.
+    cierres = cierres.ffill()
     calendario = cierres.index
     disponibles = [t for t in pesos if t in cierres.columns]
 
@@ -2981,6 +3085,16 @@ if fechas and max(fechas) < date.today().isoformat():
         "valorado a esa fecha, no a hoy."
     )
 
+if marcha.posteriores:
+    # La tabla por activo si los ve, porque sale de los asientos; el valor de
+    # cabecera no, porque sale de la serie y la serie no tiene precio con que
+    # valorarlos. Sin decirlo, las dos cifras se contradicen sin explicacion.
+    st.warning(
+        f"{marcha.posteriores} asiento(s) con fecha posterior al último cierre "
+        "disponible. Aparecen en la tabla por activo, pero todavía no en el "
+        "valor ni en el gráfico: no hay precio con el que valorarlos."
+    )
+
 # --- Los numeros de cabecera -------------------------------------------------
 
 aportado = sum(
@@ -3215,8 +3329,8 @@ if pendiente is not None:
 UV_LINK_MODE=copy uv run pytest tests/ -q -m "not red"
 ```
 
-Esperado: **117 tests nuevos** sobre la base. Con `numpy_financial` instalada,
-`898 passed, 2 skipped`; sin ella, `896 passed, 4 skipped` — los dos de
+Esperado: **121 tests nuevos** sobre la base. Con `numpy_financial` instalada,
+`902 passed, 2 skipped`; sin ella, `900 passed, 4 skipped` — los dos de
 contraste se omiten solos y eso es correcto. En ambos casos, `6 deselected`.
 
 Ese recuento cuenta `test_apagado.py::test_detener_espera_antes_de_forzar` como
