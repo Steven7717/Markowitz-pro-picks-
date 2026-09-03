@@ -14,6 +14,10 @@ from dataclasses import dataclass
 from datetime import date
 from typing import TYPE_CHECKING
 
+import pandas as pd
+
+from seguimiento.precios import Historia
+
 if TYPE_CHECKING:  # pragma: no cover
     from seguimiento.libro import Asiento
 
@@ -136,3 +140,138 @@ def primer_descubierto(asientos: "list[Asiento]") -> str | None:
             acciones[a.ticker] = tiene - a.acciones
             efectivo += a.importe - a.comision
     return None
+
+
+@dataclass(frozen=True)
+class Marcha:
+    """La cartera día a día: acciones, efectivo, valor y flujos externos.
+
+    `posteriores` son los asientos fechados **después** del último cierre
+    disponible, que la serie no puede reflejar porque no hay precio con el que
+    valorarlos. Vuelven contados y no en silencio: la tabla por activo sí los
+    incluye —sale de los asientos, no de la serie— así que sin este aviso el
+    valor de cabecera y la tabla dirían cosas distintas y nada explicaría por
+    qué.
+    """
+
+    acciones: pd.DataFrame
+    efectivo: pd.Series
+    valor: pd.Series
+    flujos: pd.Series
+    dividendos: pd.DataFrame
+    posteriores: int = 0
+
+
+def serie(asientos: "list[Asiento]", historia: Historia) -> Marcha:
+    """Walk the ledger forward one trading day at a time.
+
+    El calendario lo pone el índice de precios, no `pandas.bdate_range`: los
+    días hábiles de un calendario genérico incluyen festivos de mercado, y un
+    día sin cotización valorado con el cierre anterior inventa un día de
+    rendimiento cero que nunca existió.
+
+    Los dividendos calculados —acciones en cartera en la fecha ex, por el
+    dividendo por acción— se aplican **salvo** que exista un asiento manual de
+    `dividendo` para ese ticker y esa fecha. El manual es el neto que llegó de
+    verdad; el calculado es teórico y bruto. Sumar los dos contaría el cobro dos
+    veces, y el rendimiento saldría alto sin causa visible.
+
+    **El dividendo se paga sobre la tenencia de antes de los movimientos del
+    día, no de después.** Para cobrar hay que tener las acciones *antes* de la
+    fecha ex: quien compra ese mismo día las compra ya sin el dividendo, y el
+    cobro es del vendedor. Aplicar los asientos primero y pagar después le paga
+    al comprador — medido: una compra de diez acciones el día ex cobraba 2,40
+    que no le tocaban. El reverso también importa y sale gratis con la misma
+    foto: quien vende en la fecha ex sí cobra, porque las tenía al cierre
+    anterior.
+    """
+    vivos = ordenados(vigentes(asientos))
+    if not vivos:
+        vacio = pd.Series(dtype=float)
+        return Marcha(pd.DataFrame(), vacio, vacio, vacio, pd.DataFrame())
+
+    calendario = historia.cierres.index
+    tickers = list(historia.cierres.columns)
+    # Un hueco de precio en un dia que el mercado abrio es un fallo de datos,
+    # no una accion que valga cero. Sin esto, `(acciones * cierres).sum()`
+    # trata el NaN como cero --su comportamiento por defecto-- y el grafico
+    # ensena una caida a plomo que nunca ocurrio. Arrastrar el ultimo cierre
+    # conocido es lo que hace cualquier extracto de broker. Esta acotado:
+    # `precios.desde_panel` ya aparta los tickers que no traen ningun dato.
+    cierres = historia.cierres.ffill()
+
+    acciones = pd.DataFrame(0.0, index=calendario, columns=tickers)
+    efectivo = pd.Series(0.0, index=calendario)
+    flujos = pd.Series(0.0, index=calendario)
+    dividendos = pd.DataFrame(0.0, index=calendario, columns=tickers)
+
+    # Los dividendos que el usuario apunto a mano, indexados para que el
+    # calculado sepa cuando callarse.
+    manuales = {
+        (a.ticker, a.fecha) for a in vivos if a.tipo == "dividendo"
+    }
+
+    tenencia: dict[str, float] = {}
+    caja = 0.0
+    pendientes = list(vivos)
+
+    for dia in calendario:
+        clave = dia.strftime("%Y-%m-%d")
+
+        # 1. Los splits del dia parten lo que ya se tenia.
+        for ticker in tickers:
+            factor = float(historia.splits.at[dia, ticker] or 0.0)
+            if factor > 0 and tenencia.get(ticker):
+                tenencia[ticker] *= factor
+
+        # 2. La foto de lo que se tenia al cierre de ayer, ya partida por el
+        #    split de hoy si lo hubo. Es la que decide quien cobra el dividendo,
+        #    y por eso se toma ANTES de los movimientos del dia.
+        tenencia_ex = dict(tenencia)
+
+        # 3. Los asientos fechados hasta hoy que aun no se han aplicado.
+        while pendientes and pendientes[0].fecha <= clave:
+            a = pendientes.pop(0)
+            if a.tipo == "aportacion":
+                caja += a.importe
+                flujos[dia] += a.importe
+            elif a.tipo == "retiro":
+                caja -= a.importe
+                flujos[dia] -= a.importe
+            elif a.tipo == "dividendo":
+                caja += a.importe
+                if a.ticker in dividendos.columns:
+                    dividendos.at[dia, a.ticker] += a.importe
+            elif a.tipo == "compra":
+                caja -= a.importe + a.comision
+                tenencia[a.ticker] = tenencia.get(a.ticker, 0.0) + a.acciones
+            elif a.tipo == "venta":
+                caja += a.importe - a.comision
+                tenencia[a.ticker] = tenencia.get(a.ticker, 0.0) - a.acciones
+
+        # 4. Los dividendos calculados, sobre la foto de la fecha ex.
+        for ticker in tickers:
+            por_accion = float(historia.dividendos.at[dia, ticker] or 0.0)
+            if por_accion <= 0 or (ticker, clave) in manuales:
+                continue
+            cobro = tenencia_ex.get(ticker, 0.0) * por_accion
+            if cobro:
+                caja += cobro
+                dividendos.at[dia, ticker] += cobro
+
+        for ticker in tickers:
+            acciones.at[dia, ticker] = tenencia.get(ticker, 0.0)
+        efectivo[dia] = caja
+
+    valor = (acciones * cierres).sum(axis=1) + efectivo
+    return Marcha(
+        acciones=acciones,
+        efectivo=efectivo,
+        valor=valor,
+        flujos=flujos,
+        dividendos=dividendos,
+        # Lo que quedo en la cola son asientos posteriores al ultimo cierre
+        # disponible. No se pierden --la tabla por activo los ve-- pero la serie
+        # no puede valorarlos, y quien pinte esto tiene que poder decirlo.
+        posteriores=len(pendientes),
+    )
