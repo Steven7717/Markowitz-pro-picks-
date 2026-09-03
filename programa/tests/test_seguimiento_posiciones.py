@@ -194,6 +194,33 @@ def test_un_hueco_de_precio_no_hunde_el_valor_a_cero():
     assert marcha.valor.loc["2026-01-06"] == pytest.approx(40 * 200.0 + 1999.0)
 
 
+def test_un_ticker_sin_precios_no_aparece_en_las_acciones_y_el_valor_lo_acusa():
+    # Fija un limite conocido de `serie`, no un comportamiento deseable. Si un
+    # asiento mueve un ticker que `precios.desde_panel` aparto por no traer
+    # ningun dato, el efectivo si baja --el dinero salio de verdad-- pero las
+    # acciones no tienen columna donde ir, asi que el valor cae por el importe
+    # entero de la compra y no hay nada en la serie que lo explique.
+    #
+    # No se arregla aqui: el valor de una posicion que no se puede cotizar no
+    # existe, e inventarlo seria peor. Lo que hace la vista es NOMBRARLO, con
+    # `Historia.sin_datos`. Este test esta para que ese contrato no se rompa en
+    # silencio si alguien toca el bucle.
+    fechas = pd.to_datetime(["2026-01-05", "2026-01-06", "2026-01-07"])
+    h = precios.Historia(
+        cierres=pd.DataFrame({"AAPL": [200.0, 202.0, 204.0]}, index=fechas),
+        dividendos=pd.DataFrame({"AAPL": [0.0] * 3}, index=fechas),
+        splits=pd.DataFrame({"AAPL": [0.0] * 3}, index=fechas),
+        sin_datos=["ZZZZ"],
+    )
+    compra_ciega = asiento(
+        "a2", "2026-01-05", "compra", ticker="ZZZZ",
+        acciones=10.0, precio=100.0, importe=1000.0,
+    )
+    marcha = posiciones.serie([APORTA, compra_ciega], h)
+    assert "ZZZZ" not in marcha.acciones.columns
+    assert marcha.valor.iloc[-1] == pytest.approx(9000.0)
+
+
 def test_un_asiento_posterior_al_ultimo_cierre_se_cuenta_aparte():
     # Pasa cada vez que se registra una compra de hoy antes de que yfinance
     # tenga el cierre de hoy. La tabla por activo si la ve, porque sale de los
