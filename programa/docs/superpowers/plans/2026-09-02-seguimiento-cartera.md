@@ -953,14 +953,25 @@ def test_no_se_puede_retirar_mas_efectivo_del_que_hay():
 
 
 def test_una_compra_sin_efectivo_suficiente_arrastra_su_aportacion():
-    # El usuario piensa "compre 2.200 de Apple", no "aporte 2.201 y luego
+    # El usuario piensa "compre 2.200 de Apple", no "aporte 2.205 y luego
     # compre". Escribir la aportacion por el sonaria a magia si no se dijera,
     # asi que anadir() la devuelve para que la pantalla la ensene.
-    libro, escritos = anadir(VACIO, compra(), hoy=HOY, financiar=True)
+    libro, escritos = anadir(VACIO, compra(comision=5.0), hoy=HOY, financiar=True)
     assert [a.tipo for a in escritos] == ["aportacion", "compra"]
-    # La aportacion cubre tambien la comision: sin eso el efectivo quedaria
-    # negativo por el importe exacto de la comision en la primera compra.
-    assert escritos[0].importe == pytest.approx(2200.0)
+    # La comision va DENTRO de la aportacion. Con comision cero este test
+    # pasaria igual sin cubrirla, y el comentario estaria prometiendo una
+    # cobertura que no existe -- que es como se cuelan las guardas muertas.
+    assert escritos[0].importe == pytest.approx(2205.0)
+
+
+def test_la_aportacion_que_financia_deja_el_efectivo_a_cero():
+    # La comprobacion que de verdad cierra el caso: si la aportacion se
+    # quedase corta por el importe de la comision, el efectivo acabaria
+    # negativo -- un descuadre pequeno, permanente y sin causa visible.
+    from seguimiento import posiciones
+
+    libro, _ = anadir(VACIO, compra(comision=5.0), hoy=HOY, financiar=True)
+    assert posiciones.estado(libro.asientos).efectivo == pytest.approx(0.0)
 
 
 def test_una_compra_con_efectivo_suficiente_no_inventa_aportacion():
@@ -1099,7 +1110,7 @@ def _con_asientos(libro: Libro, nuevos: list[Asiento]) -> Libro:
 UV_LINK_MODE=copy uv run pytest tests/test_seguimiento_libro.py -q
 ```
 
-Esperado: `54 passed` (46 de la Task 1 más 8 nuevos).
+Esperado: `55 passed` (46 de la Task 1 más 9 nuevos).
 
 - [ ] **Step 5: Commit**
 
@@ -2573,7 +2584,7 @@ En `vistas/optimizador.py`, dentro del dict `metrics` (línea 367), añade las d
 UV_LINK_MODE=copy uv run pytest tests/test_seguimiento_libro.py tests/test_cartera.py -q
 ```
 
-Esperado: `57 passed` en el primero, y `test_cartera.py` sin regresión.
+Esperado: `58 passed` en el primero, y `test_cartera.py` sin regresión.
 
 - [ ] **Step 5: Commit**
 
@@ -2935,7 +2946,7 @@ def listar(directorio: Path | None = None) -> list[Entrada]:
 UV_LINK_MODE=copy uv run pytest tests/test_seguimiento_libro.py tests/test_cartera.py -q
 ```
 
-Esperado: `67 passed` en el primero, y `test_cartera.py` sin regresión por el
+Esperado: `68 passed` en el primero, y `test_cartera.py` sin regresión por el
 renombrado de `rebanada`.
 
 - [ ] **Step 6: Commit**
@@ -3329,8 +3340,8 @@ if pendiente is not None:
 UV_LINK_MODE=copy uv run pytest tests/ -q -m "not red"
 ```
 
-Esperado: **121 tests nuevos** sobre la base. Con `numpy_financial` instalada,
-`902 passed, 2 skipped`; sin ella, `900 passed, 4 skipped` — los dos de
+Esperado: **122 tests nuevos** sobre la base. Con `numpy_financial` instalada,
+`903 passed, 2 skipped`; sin ella, `901 passed, 4 skipped` — los dos de
 contraste se omiten solos y eso es correcto. En ambos casos, `6 deselected`.
 
 Ese recuento cuenta `test_apagado.py::test_detener_espera_antes_de_forzar` como
