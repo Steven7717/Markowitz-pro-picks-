@@ -1640,6 +1640,33 @@ def test_un_hueco_de_precio_no_hunde_el_valor_a_cero():
     assert marcha.valor.loc["2026-01-06"] == pytest.approx(40 * 200.0 + 1999.0)
 
 
+def test_un_ticker_sin_precios_no_aparece_en_las_acciones_y_el_valor_lo_acusa():
+    # Fija un limite conocido de `serie`, no un comportamiento deseable. Si un
+    # asiento mueve un ticker que `precios.desde_panel` aparto por no traer
+    # ningun dato, el efectivo si baja --el dinero salio de verdad-- pero las
+    # acciones no tienen columna donde ir, asi que el valor cae por el importe
+    # entero de la compra y no hay nada en la serie que lo explique.
+    #
+    # No se arregla aqui: el valor de una posicion que no se puede cotizar no
+    # existe, e inventarlo seria peor. Lo que hace la vista es NOMBRARLO, con
+    # `Historia.sin_datos`. Este test esta para que ese contrato no se rompa en
+    # silencio si alguien toca el bucle.
+    fechas = pd.to_datetime(["2026-01-05", "2026-01-06", "2026-01-07"])
+    h = precios.Historia(
+        cierres=pd.DataFrame({"AAPL": [200.0, 202.0, 204.0]}, index=fechas),
+        dividendos=pd.DataFrame({"AAPL": [0.0] * 3}, index=fechas),
+        splits=pd.DataFrame({"AAPL": [0.0] * 3}, index=fechas),
+        sin_datos=["ZZZZ"],
+    )
+    compra_ciega = asiento(
+        "a2", "2026-01-05", "compra", ticker="ZZZZ",
+        acciones=10.0, precio=100.0, importe=1000.0,
+    )
+    marcha = posiciones.serie([APORTA, compra_ciega], h)
+    assert "ZZZZ" not in marcha.acciones.columns
+    assert marcha.valor.iloc[-1] == pytest.approx(9000.0)
+
+
 def test_un_asiento_posterior_al_ultimo_cierre_se_cuenta_aparte():
     # Pasa cada vez que se registra una compra de hoy antes de que yfinance
     # tenga el cierre de hoy. La tabla por activo si la ve, porque sale de los
@@ -1823,17 +1850,23 @@ def serie(asientos: "list[Asiento]", historia: Historia) -> Marcha:
 UV_LINK_MODE=copy uv run pytest tests/test_seguimiento_posiciones.py -q
 ```
 
-Esperado: `19 passed`.
+Esperado: `20 passed`.
 
 - [ ] **Step 5: Comprueba que la foto de la fecha ex se usa de verdad**
 
 Cambia `tenencia_ex.get(ticker, 0.0)` por `tenencia.get(ticker, 0.0)` en el
-paso 4 y vuelve a correr los tests. Tiene que fallar
-`test_una_compra_en_la_fecha_ex_no_cobra_ese_dividendo` — y sólo ese, porque el
-de la venta pasa con las dos versiones. Deshaz el cambio.
+paso 4 y vuelve a correr los tests. Deshaz el cambio después.
 
-Si no falla, la foto no está donde tiene que estar y el libro le paga
-dividendos a quien no le tocan.
+Tienen que fallar **los dos** tests de la fecha ex, y por motivos opuestos:
+
+- `test_una_compra_en_la_fecha_ex_no_cobra_ese_dividendo` cobra 2,40 que no le
+  tocan, porque la compra del día ya está aplicada cuando se paga.
+- `test_una_venta_en_la_fecha_ex_si_cobra_el_dividendo` deja de cobrar los 9,60
+  que sí le tocan, porque la venta del día también está aplicada y la tenencia
+  ha quedado a cero.
+
+Si alguno de los dos sobrevive, la foto no está donde tiene que estar y el libro
+reparte dividendos a quien no le corresponden.
 
 - [ ] **Step 6: Commit**
 
@@ -3214,10 +3247,16 @@ def _historia(tickers: tuple[str, ...], desde: str):
 historia = _historia(tuple(tickers), desde)
 
 if historia.sin_datos:
+    # No basta con decir que faltan precios. El dinero de esas compras SÍ salió
+    # del efectivo, así que el valor de abajo está rebajado por su importe
+    # entero y el gráfico enseña una caída que no ocurrió. Inventarles un valor
+    # sería peor; nombrarlo es lo único honesto.
     st.warning(
-        "Sin precios para: " + ", ".join(historia.sin_datos) + ". Esas "
-        "posiciones se muestran sin valorar — no valen cero, es que no se "
-        "pudieron descargar."
+        "Sin precios para: " + ", ".join(historia.sin_datos) + ". No valen "
+        "cero: es que no se pudieron descargar. **El valor y el gráfico de "
+        "abajo no las incluyen**, así que la cifra que ves es un mínimo, no el "
+        "total. Comprueba que el ticker es correcto y que la empresa sigue "
+        "cotizando."
     )
 
 marcha = posiciones.serie(actual.asientos, historia)
@@ -3475,8 +3514,8 @@ if pendiente is not None:
 UV_LINK_MODE=copy uv run pytest tests/ -q -m "not red"
 ```
 
-Esperado: **126 tests nuevos** sobre la base. Con `numpy_financial` instalada,
-`907 passed, 2 skipped`; sin ella, `905 passed, 4 skipped` — los dos de
+Esperado: **127 tests nuevos** sobre la base. Con `numpy_financial` instalada,
+`908 passed, 2 skipped`; sin ella, `906 passed, 4 skipped` — los dos de
 contraste se omiten solos y eso es correcto. En ambos casos, `6 deselected`.
 
 Ese recuento cuenta `test_apagado.py::test_detener_espera_antes_de_forzar` como
