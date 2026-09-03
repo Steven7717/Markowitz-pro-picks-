@@ -94,9 +94,18 @@ from datetime import date
 
 import pytest
 
-from seguimiento.libro import Asiento, AsientoInvalido, derivar, validar
+from seguimiento.libro import (
+    Asiento,
+    AsientoInvalido,
+    Libro,
+    Objetivo,
+    derivar,
+    validar,
+)
 
 HOY = date(2026, 9, 2)
+NAN = float("nan")
+INF = float("inf")
 
 
 def compra(**cambios) -> Asiento:
@@ -113,6 +122,9 @@ def compra(**cambios) -> Asiento:
     return Asiento(**campos)
 
 
+# --- Forma del asiento -------------------------------------------------------
+
+
 def test_una_compra_bien_formada_pasa():
     validar(compra(), hoy=HOY)
 
@@ -124,9 +136,61 @@ def test_una_fecha_futura_no_pasa():
         validar(compra(fecha="2026-09-03"), hoy=HOY)
 
 
+def test_una_fecha_en_formato_basico_no_pasa():
+    # date.fromisoformat acepta ISO 8601 entero desde Python 3.11, asi que
+    # "20260901" es una fecha valida para el. Pero la reconstruccion ordena por
+    # la cadena cruda, y '-' es menor que cualquier digito: "20260215" se va
+    # DETRAS de "2026-08-01" al ordenar, y la venta se aplicaria antes que su
+    # propia compra.
+    with pytest.raises(AsientoInvalido, match="YYYY-MM-DD"):
+        validar(compra(fecha="20260901"), hoy=HOY)
+
+
+def test_una_fecha_de_semana_tampoco_pasa():
+    with pytest.raises(AsientoInvalido, match="YYYY-MM-DD"):
+        validar(compra(fecha="2026-W36-2"), hoy=HOY)
+
+
+def test_una_fecha_que_no_es_texto_da_asiento_invalido_y_no_typeerror():
+    # Pasar un `date` es el error mas probable del llamante, porque el resto
+    # del modulo habla en `date`. El docstring promete AsientoInvalido, y un
+    # TypeError crudo llegaria a la pantalla como un traceback de Streamlit en
+    # vez de como un mensaje.
+    with pytest.raises(AsientoInvalido, match="no es una fecha"):
+        validar(compra(fecha=date(2026, 9, 1)), hoy=HOY)
+
+
 def test_un_precio_de_cero_no_pasa():
     with pytest.raises(AsientoInvalido, match="precio"):
         validar(compra(precio=0.0), hoy=HOY)
+
+
+def test_un_precio_negativo_no_pasa():
+    # Sin este test, la mitad `precio <= 0` de la guarda no se ejecuta en toda
+    # la suite: el caso de cero entra por la rama de "esta vacio" y la de
+    # negativo no la prueba nadie.
+    with pytest.raises(AsientoInvalido, match="precio"):
+        validar(compra(precio=-220.0), hoy=HOY)
+
+
+def test_un_importe_de_cero_no_pasa():
+    with pytest.raises(AsientoInvalido, match="importe"):
+        validar(compra(importe=0.0), hoy=HOY)
+
+
+def test_un_importe_negativo_no_pasa():
+    with pytest.raises(AsientoInvalido, match="importe"):
+        validar(compra(importe=-2200.0), hoy=HOY)
+
+
+def test_unas_acciones_de_cero_no_pasan():
+    with pytest.raises(AsientoInvalido, match="acciones"):
+        validar(compra(acciones=0.0), hoy=HOY)
+
+
+def test_unas_acciones_negativas_no_pasan():
+    with pytest.raises(AsientoInvalido, match="acciones"):
+        validar(compra(acciones=-10.0), hoy=HOY)
 
 
 def test_una_compra_sin_ticker_no_pasa():
@@ -137,6 +201,15 @@ def test_una_compra_sin_ticker_no_pasa():
 def test_un_ticker_con_forma_rara_no_pasa():
     with pytest.raises(AsientoInvalido, match="forma de ticker"):
         validar(compra(ticker="AAPL!"), hoy=HOY)
+
+
+def test_un_ticker_con_salto_de_linea_no_pasa():
+    # `$` casa tambien justo antes de un salto final, asi que con `match` esto
+    # pasaria por ticker valido. Y como el ticker es la clave del diccionario
+    # de posiciones, partiria una posicion en dos: "AAPL" y "AAPL\n". El
+    # usuario que cree tener veinte acciones veria diez.
+    with pytest.raises(AsientoInvalido, match="forma de ticker"):
+        validar(compra(ticker="AAPL\n"), hoy=HOY)
 
 
 def test_una_aportacion_no_lleva_ticker():
@@ -155,14 +228,73 @@ def test_una_comision_negativa_no_pasa():
         validar(compra(comision=-1.0), hoy=HOY)
 
 
+def test_un_tipo_inventado_no_pasa():
+    with pytest.raises(AsientoInvalido, match="tipo"):
+        validar(compra(tipo="permuta"), hoy=HOY)
+
+
+# --- Numeros que no son numeros ---------------------------------------------
+
+
+@pytest.mark.parametrize("campo", ["importe", "acciones", "precio", "comision"])
+@pytest.mark.parametrize("veneno", [NAN, INF, -INF])
+def test_ningun_campo_numerico_admite_nan_ni_infinito(campo, veneno):
+    # Ninguna comparacion con NaN es cierta --`nan <= 0` es False-- y `not nan`
+    # tambien es False, porque NaN es truthy. Asi que las guardas de "mayor que
+    # cero" lo dejan pasar entero. Y un solo asiento con NaN hace dos cosas a
+    # la vez: envenena el efectivo, y BORRA el activo de la tabla de
+    # posiciones, porque el filtro de polvo `abs(n) > _POLVO` tambien es False
+    # para NaN. El usuario no ve un error: ve una posicion que desaparecio.
+    with pytest.raises(AsientoInvalido, match="finito"):
+        validar(compra(**{campo: veneno}), hoy=HOY)
+
+
+def test_el_nan_que_entra_desde_disco_lo_para_la_validacion():
+    # No es un caso de laboratorio: json.loads acepta el literal NaN por
+    # defecto, asi que un fichero editado a mano o corrompido lo mete en el
+    # libro sin que nadie lo teclee. Este test recorre ese camino entero, y no
+    # se limita a comprobar lo que hace la libreria estandar.
+    import json
+
+    crudo = json.loads(
+        '{"id": "a1", "fecha": "2026-09-01", "tipo": "compra", '
+        '"ticker": "AAPL", "acciones": 10.0, "precio": 220.0, "importe": NaN}'
+    )
+    with pytest.raises(AsientoInvalido, match="finito"):
+        validar(Asiento(**crudo), hoy=HOY)
+
+
+# --- La anulacion ------------------------------------------------------------
+
+
 def test_una_anulacion_necesita_a_quien_anula():
     with pytest.raises(AsientoInvalido, match="anula"):
         validar(Asiento(id="a3", fecha="2026-09-01", tipo="anulacion"), hoy=HOY)
 
 
-def test_un_tipo_inventado_no_pasa():
-    with pytest.raises(AsientoInvalido, match="tipo"):
-        validar(compra(tipo="permuta"), hoy=HOY)
+def test_una_anulacion_bien_formada_pasa():
+    validar(
+        Asiento(id="a3", fecha="2026-09-01", tipo="anulacion", anula="a1"),
+        hoy=HOY,
+    )
+
+
+def test_una_anulacion_no_arrastra_importe_ni_ticker():
+    # Una anulacion es una nota que tacha otra linea, no un movimiento.
+    # Dejarla llevar ticker o dinero guardaria basura con pinta de dato en un
+    # fichero que nadie vuelve a validar al leerlo.
+    with pytest.raises(AsientoInvalido, match="no lleva ticker"):
+        validar(
+            Asiento(id="a3", fecha="2026-09-01", tipo="anulacion",
+                    anula="a1", ticker="AAPL"),
+            hoy=HOY,
+        )
+    with pytest.raises(AsientoInvalido, match="no mueve dinero"):
+        validar(
+            Asiento(id="a3", fecha="2026-09-01", tipo="anulacion",
+                    anula="a1", importe=9999.0),
+            hoy=HOY,
+        )
 
 
 # --- Derivar el tercer campo -------------------------------------------------
@@ -177,14 +309,74 @@ def test_de_acciones_y_precio_sale_el_importe():
 
 
 def test_con_los_tres_puestos_se_respetan_los_tres():
-    # El bróker cobra redondeos que ninguna division reproduce: si el usuario
+    # El broker cobra redondeos que ninguna division reproduce: si el usuario
     # escribe los tres, mandan los tres, aunque no cuadren al centimo.
     assert derivar(importe=2200.5, acciones=10.0, precio=220.0) == (2200.5, 10.0, 220.0)
 
 
 def test_sin_precio_no_se_puede_derivar_nada():
-    with pytest.raises(AsientoInvalido, match="precio"):
+    with pytest.raises(AsientoInvalido, match="hace falta el precio"):
         derivar(importe=2200.0, acciones=None, precio=None)
+
+
+def test_un_precio_negativo_no_sirve_para_derivar():
+    with pytest.raises(AsientoInvalido, match="mayor que cero"):
+        derivar(importe=2200.0, acciones=None, precio=-220.0)
+
+
+def test_sin_importe_ni_acciones_no_hay_nada_que_completar():
+    with pytest.raises(AsientoInvalido, match="importe o el número de acciones"):
+        derivar(importe=None, acciones=None, precio=220.0)
+
+
+def test_derivar_no_devuelve_un_infinito():
+    # Ni el importe ni el precio son absurdos por separado, pero la division
+    # desborda. `validar` no lo salvaria despues: `inf > 0` es True, asi que
+    # pasa todas las guardas y la cartera acaba con infinitas acciones.
+    with pytest.raises(AsientoInvalido, match="no cuadra"):
+        derivar(importe=2200.0, acciones=None, precio=1e-320)
+
+
+@pytest.mark.parametrize("campo", ["importe", "acciones", "precio"])
+def test_derivar_rechaza_un_nan_de_entrada(campo):
+    # `derivar` corre ANTES que `validar`: recibe lo que el usuario acaba de
+    # teclear y no puede apoyarse en nadie.
+    campos = {"importe": 2200.0, "acciones": None, "precio": 220.0}
+    campos[campo] = NAN
+    with pytest.raises(AsientoInvalido, match="finito"):
+        derivar(**campos)
+
+
+# --- El libro ----------------------------------------------------------------
+
+
+def test_el_objetivo_vigente_es_el_ultimo_apilado():
+    libro = Libro(
+        nombre="Prueba", creado="2026-01-01T10:00:00",
+        objetivos=(
+            Objetivo(fecha="2026-01-01", base="estrategia", portafolio={}),
+            Objetivo(fecha="2026-06-01", base="equal_weight", portafolio={}),
+        ),
+    )
+    assert libro.objetivo.fecha == "2026-06-01"
+
+
+def test_un_libro_sin_objetivos_no_tiene_objetivo_vigente():
+    # None y no un objetivo vacio: "no hay contra que medir" es un estado real
+    # --una cartera creada a mano-- y la pantalla lo dice en vez de ensenar una
+    # deriva de cero que nadie calculo.
+    assert Libro(nombre="Prueba", creado="2026-01-01T10:00:00").objetivo is None
+
+
+def test_los_asientos_de_un_libro_no_se_pueden_editar_en_el_sitio():
+    # `frozen=True` impide reasignar el campo, pero no tocar una lista por
+    # dentro. Con una lista, `libro.asientos.append(...)` funcionaria y la
+    # regla central del modulo --nunca se edita, nunca se borra-- estaria
+    # documentada pero no impuesta.
+    libro = Libro(nombre="Prueba", creado="2026-01-01T10:00:00",
+                  asientos=(compra(),))
+    with pytest.raises(AttributeError):
+        libro.asientos.append(compra())
 ```
 
 - [ ] **Step 2: Corre los tests y comprueba que fallan**
@@ -214,6 +406,7 @@ una corrección aplicada a una sola de ellas produce un libro que se lee
 perfectamente bien y miente.
 """
 
+import math
 import re
 from dataclasses import dataclass, field
 from datetime import date
@@ -231,7 +424,21 @@ CON_TICKER = frozenset({"compra", "venta", "dividendo"})
 # externo inflaría el capital aportado con lo que la cartera acaba de ganar.
 FLUJOS_EXTERNOS = frozenset({"aportacion", "retiro"})
 
-_FORMA_TICKER = re.compile(r"^[A-Z]+(-[A-Z]+)*$")
+# Sin anclas, porque se usa con `fullmatch` y no con `match`. Con `match`, un
+# `$` casa también justo antes de un salto de línea final, así que "AAPL\n"
+# pasaría por ticker válido — y como el ticker es la clave del diccionario de
+# posiciones, eso partiría una posición en dos, "AAPL" y "AAPL\n". El usuario
+# que cree tener veinte acciones vería diez, sin nada en pantalla que lo
+# explicara. `cartera.py` y `aprobacion/acta.py` llevan la variante con `match`
+# y el mismo agujero; aquí no se hereda.
+_FORMA_TICKER = re.compile(r"[A-Z]+(-[A-Z]+)*")
+
+_CAMPOS_NUMERICOS = (
+    ("importe", "el importe"),
+    ("acciones", "las acciones"),
+    ("precio", "el precio"),
+    ("comision", "la comisión"),
+)
 
 
 class AsientoInvalido(ValueError):
@@ -271,18 +478,49 @@ class Objetivo:
 
 @dataclass(frozen=True)
 class Libro:
-    """Un libro entero: el nombre, los objetivos apilados y los asientos."""
+    """Un libro entero: el nombre, los objetivos apilados y los asientos.
+
+    Las dos colecciones son tuplas y no listas. `frozen=True` impide reasignar
+    el campo, pero no tocar una lista por dentro: con listas,
+    `libro.asientos.append(...)` funcionaría y la regla central de este módulo
+    —nunca se edita, nunca se borra— quedaría documentada pero no impuesta.
+    """
 
     nombre: str
     creado: str
     moneda: str = "USD"
-    objetivos: list[Objetivo] = field(default_factory=list)
-    asientos: list[Asiento] = field(default_factory=list)
+    objetivos: tuple[Objetivo, ...] = ()
+    asientos: tuple[Asiento, ...] = ()
 
     @property
     def objetivo(self) -> Objetivo | None:
         """El objetivo vigente: el último que se apiló, o ninguno."""
         return self.objetivos[-1] if self.objetivos else None
+
+
+def _finito(valor, campo: str) -> None:
+    """Reject NaN, infinity, and anything that is not a number at all.
+
+    **Ninguna de las guardas de más abajo lo caza.** Toda comparación con NaN
+    es falsa —`nan <= 0` es `False`— y `not float("nan")` también es `False`,
+    porque NaN es *truthy*. Así que un asiento con NaN las atraviesa enteras, y
+    entonces hace dos cosas a la vez: envenena el efectivo, y **borra el activo
+    de la tabla de posiciones**, porque el filtro de polvo `abs(n) > _POLVO` de
+    `seguimiento.posiciones` también es `False` para NaN. El usuario no ve un
+    error: ve una posición que desapareció y un efectivo que dice "nan".
+
+    No es un caso de laboratorio. `json.loads` acepta los literales `NaN` e
+    `Infinity` por defecto, así que un fichero editado a mano o corrompido los
+    mete en el libro sin que nadie los teclee.
+    """
+    if valor is None:
+        return
+    try:
+        finito = math.isfinite(valor)
+    except TypeError as error:
+        raise AsientoInvalido(f"{campo} no es un número: {valor!r}") from error
+    if not finito:
+        raise AsientoInvalido(f"{campo} tiene que ser un número finito, y es {valor!r}")
 
 
 def validar(asiento: Asiento, hoy: date | None = None) -> None:
@@ -301,10 +539,26 @@ def validar(asiento: Asiento, hoy: date | None = None) -> None:
             f"{', '.join(sorted(TIPOS))}"
         )
 
+    for campo, nombre in _CAMPOS_NUMERICOS:
+        _finito(getattr(asiento, campo), nombre)
+
     try:
         cuando = date.fromisoformat(asiento.fecha)
-    except ValueError as error:
+    except (TypeError, ValueError) as error:
+        # TypeError además de ValueError: pasar un `date` es el error más
+        # probable del llamante, porque el resto del módulo habla en `date`, y
+        # el docstring de arriba promete AsientoInvalido. Sin capturarlo, la
+        # pantalla —que sólo atrapa AsientoInvalido— enseñaría un traceback.
         raise AsientoInvalido(f"{asiento.fecha!r} no es una fecha") from error
+    if cuando.isoformat() != asiento.fecha:
+        # `date.fromisoformat` acepta ISO 8601 entero desde Python 3.11, así
+        # que "20260901" y "2026-W36-2" son fechas válidas para él. Pero la
+        # reconstrucción ordena por la cadena cruda, y '-' es menor que
+        # cualquier dígito: "20260215" acaba DETRÁS de "2026-08-01" al ordenar,
+        # y una venta se aplicaría antes que su propia compra.
+        raise AsientoInvalido(
+            f"{asiento.fecha!r} no está escrita como YYYY-MM-DD"
+        )
     if cuando > hoy:
         raise AsientoInvalido(
             f"{asiento.fecha} es una fecha futura: no se puede registrar algo "
@@ -317,12 +571,20 @@ def validar(asiento: Asiento, hoy: date | None = None) -> None:
     if asiento.tipo == "anulacion":
         if not asiento.anula:
             raise AsientoInvalido("una anulación tiene que decir a qué asiento anula")
+        # Una anulación es una nota que tacha otra línea, no un movimiento.
+        # Dejarla llevar ticker o dinero guardaría basura con pinta de dato en
+        # un fichero que nadie vuelve a validar al leerlo.
+        for campo in ("ticker", "acciones", "precio"):
+            if getattr(asiento, campo) is not None:
+                raise AsientoInvalido(f"una anulación no lleva {campo}")
+        if asiento.importe or asiento.comision:
+            raise AsientoInvalido("una anulación no mueve dinero")
         return
 
     if asiento.tipo in CON_TICKER:
         if not asiento.ticker:
             raise AsientoInvalido(f"un asiento de {asiento.tipo} necesita ticker")
-        if not _FORMA_TICKER.match(asiento.ticker):
+        if not _FORMA_TICKER.fullmatch(asiento.ticker):
             raise AsientoInvalido(f"{asiento.ticker!r} no tiene forma de ticker")
     elif asiento.ticker:
         raise AsientoInvalido(
@@ -334,9 +596,9 @@ def validar(asiento: Asiento, hoy: date | None = None) -> None:
         raise AsientoInvalido("el importe tiene que ser mayor que cero")
 
     if asiento.tipo in {"compra", "venta"}:
-        if not asiento.acciones or asiento.acciones <= 0:
+        if asiento.acciones is None or asiento.acciones <= 0:
             raise AsientoInvalido("las acciones tienen que ser más que cero")
-        if not asiento.precio or asiento.precio <= 0:
+        if asiento.precio is None or asiento.precio <= 0:
             raise AsientoInvalido("el precio tiene que ser mayor que cero")
 
 
@@ -352,16 +614,39 @@ def derivar(
     Cuando llegan los tres, mandan los tres aunque no cuadren al céntimo: el
     bróker aplica redondeos que ninguna división reproduce, y corregir en
     silencio lo que el usuario copió de su extracto sería inventar.
+
+    **No puede apoyarse en `validar`, porque corre antes que él.** La pantalla
+    llama aquí con lo que el usuario acaba de teclear, construye el `Asiento`
+    con el resultado, y sólo entonces llama a `anadir()`, que es quien valida.
+    Así que lo que no se compruebe aquí llega contaminado — y algunos venenos
+    pasan luego las guardas de "mayor que cero" sin despeinarse, porque un
+    `inf` nacido de dividir por un precio diminuto es mayor que cero.
     """
-    if precio is None or precio <= 0:
+    _finito(importe, "el importe")
+    _finito(acciones, "las acciones")
+    _finito(precio, "el precio")
+
+    if precio is None:
         raise AsientoInvalido("hace falta el precio para completar la operación")
+    if precio <= 0:
+        raise AsientoInvalido("el precio tiene que ser mayor que cero")
+
     if importe is not None and acciones is not None:
-        return (float(importe), float(acciones), float(precio))
-    if importe is not None:
-        return (float(importe), float(importe) / float(precio), float(precio))
-    if acciones is not None:
-        return (float(acciones) * float(precio), float(acciones), float(precio))
-    raise AsientoInvalido("hace falta el importe o el número de acciones")
+        completo = (float(importe), float(acciones), float(precio))
+    elif importe is not None:
+        completo = (float(importe), float(importe) / float(precio), float(precio))
+    elif acciones is not None:
+        completo = (float(acciones) * float(precio), float(acciones), float(precio))
+    else:
+        raise AsientoInvalido("hace falta el importe o el número de acciones")
+
+    for valor, (_, nombre) in zip(completo, _CAMPOS_NUMERICOS):
+        if not math.isfinite(valor):
+            raise AsientoInvalido(
+                f"la operación no cuadra: {nombre} sale {valor}. Revisa el "
+                "precio, que es por lo que se divide."
+            )
+    return completo
 ```
 
 - [ ] **Step 4: Corre los tests y comprueba que pasan**
@@ -370,9 +655,27 @@ def derivar(
 UV_LINK_MODE=copy uv run pytest tests/test_seguimiento_libro.py -q
 ```
 
-Esperado: `13 passed`.
+Esperado: `46 passed` — 31 tests sueltos, más 12 del parametrizado de NaN e
+infinito (cuatro campos × tres venenos) y 3 del de `derivar`.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Comprueba que las guardas nuevas se disparan de verdad**
+
+Un test que pasa igual con el código roto no es un test. Sabotea estas cuatro
+líneas de `seguimiento/libro.py`, una a una, y confirma que **cada sabotaje
+rompe al menos un test**. Deshaz cada uno antes del siguiente con
+`git checkout -- seguimiento/libro.py`.
+
+| Sabotaje | Tiene que fallar |
+|---|---|
+| Borrar el bucle `for campo, nombre in _CAMPOS_NUMERICOS` de `validar` | los 12 de NaN/infinito |
+| Borrar el bloque `if asiento.importe <= 0` | los de importe cero y negativo |
+| `if asiento.precio is None or asiento.precio <= 0` → `if asiento.precio is None` | el de precio negativo |
+| `_FORMA_TICKER.fullmatch` → `_FORMA_TICKER.match` | el del salto de línea |
+
+Si alguno de los cuatro sobrevive, el test correspondiente no prueba lo que su
+nombre dice y hay que arreglarlo antes de seguir.
+
+- [ ] **Step 6: Commit**
 
 ```bash
 git add seguimiento/__init__.py seguimiento/libro.py tests/test_seguimiento_libro.py
@@ -617,7 +920,7 @@ VACIO = Libro(nombre="Prueba", creado="2026-01-01T10:00:00")
 
 def con(*asientos) -> Libro:
     from dataclasses import replace
-    return replace(VACIO, asientos=list(asientos))
+    return replace(VACIO, asientos=tuple(asientos))
 
 
 def test_no_se_puede_vender_lo_que_no_se_tiene():
@@ -787,7 +1090,7 @@ def _con_asientos(libro: Libro, nuevos: list[Asiento]) -> Libro:
     """A copy of the book with the entries appended. Never mutates in place."""
     from dataclasses import replace
 
-    return replace(libro, asientos=list(libro.asientos) + list(nuevos))
+    return replace(libro, asientos=tuple(libro.asientos) + tuple(nuevos))
 ```
 
 - [ ] **Step 4: Corre los tests y comprueba que pasan**
@@ -796,7 +1099,7 @@ def _con_asientos(libro: Libro, nuevos: list[Asiento]) -> Libro:
 UV_LINK_MODE=copy uv run pytest tests/test_seguimiento_libro.py -q
 ```
 
-Esperado: `21 passed`.
+Esperado: `54 passed` (46 de la Task 1 más 8 nuevos).
 
 - [ ] **Step 5: Commit**
 
@@ -2166,7 +2469,7 @@ En `vistas/optimizador.py`, dentro del dict `metrics` (línea 367), añade las d
 UV_LINK_MODE=copy uv run pytest tests/test_seguimiento_libro.py tests/test_cartera.py -q
 ```
 
-Esperado: `24 passed` en el primero y los de `test_cartera.py` sin regresión.
+Esperado: `57 passed` en el primero, y `test_cartera.py` sin regresión.
 
 - [ ] **Step 5: Commit**
 
@@ -2286,6 +2589,25 @@ def test_los_objetivos_se_apilan_y_manda_el_ultimo():
     assert con_dos.objetivo.fecha == "2026-06-01"
 
 
+def test_un_nan_escrito_a_mano_en_el_fichero_impide_abrirlo(tmp_path):
+    # json.loads acepta el literal NaN por defecto, asi que un fichero editado
+    # a mano lo mete en el libro sin pasar por ningun formulario. Un NaN
+    # envenena el efectivo y borra un activo de la tabla sin decir nada: el
+    # libro esta corrupto, y se trata como tal en vez de abrirse a medias.
+    ruta = tmp_path / "2026-09-02-100000-envenenado.json"
+    ruta.write_text(
+        '{"nombre": "Prueba", "creado": "2026-09-02T10:00:00", "moneda": "USD",'
+        ' "objetivos": [], "asientos": [{"id": "a1", "fecha": "2026-09-01",'
+        ' "tipo": "compra", "ticker": "AAPL", "acciones": 10.0,'
+        ' "precio": 220.0, "importe": NaN}]}',
+        encoding="utf-8",
+    )
+    with pytest.raises(mod.LibroIlegible, match="a1"):
+        mod.cargar(ruta)
+    # Y sigue en disco: una cache se regenera, un libro no.
+    assert ruta.exists()
+
+
 def test_un_fallo_a_media_escritura_no_deja_medio_libro_en_el_destino(tmp_path, monkeypatch):
     # El patron tmp-then-replace existe justo para esto: lo que se escribe a
     # medias es el .tmp, y el destino solo aparece a traves del replace, que es
@@ -2395,14 +2717,14 @@ def desde_portafolio(
     return Libro(
         nombre=cartera.normalizar_nombre(nombre),
         creado=momento,
-        objetivos=[
+        objetivos=(
             Objetivo(
                 fecha=momento[:10],
                 base=base,
                 portafolio=copia,
                 veredicto=veredicto_de(copia.get("metricas") or {}),
-            )
-        ],
+            ),
+        ),
     )
 
 
@@ -2449,6 +2771,13 @@ def cargar(ruta: Path) -> Libro:
     **No borra el fichero roto**, a diferencia de las cachés de `ranking/` y
     `fundamentals/`, que sí lo hacen. Una caché se regenera; el historial de lo
     que alguien compró, no.
+
+    **Cada asiento se vuelve a validar al leerlo**, y no sólo al escribirlo.
+    `json.loads` acepta los literales `NaN` e `Infinity` por defecto, así que un
+    fichero editado a mano o corrompido puede meter un importe que ninguna
+    guarda de "mayor que cero" detiene — y un solo `NaN` envenena el efectivo y
+    borra un activo de la tabla sin decir nada. Un libro así **está corrupto**, y
+    aquí se trata como tal: se nombra el asiento culpable y no se abre.
     """
     ruta = Path(ruta)
     try:
@@ -2461,15 +2790,25 @@ def cargar(ruta: Path) -> Libro:
         if campo not in crudo:
             raise LibroIlegible(f"a {ruta.name} le falta el campo {campo}")
     try:
-        return Libro(
+        asientos = tuple(Asiento(**a) for a in crudo["asientos"])
+        libro = Libro(
             nombre=cartera.normalizar_nombre(crudo["nombre"]),
             creado=str(crudo["creado"]),
             moneda=str(crudo.get("moneda", "USD")),
-            objetivos=[Objetivo(**o) for o in crudo.get("objetivos", [])],
-            asientos=[Asiento(**a) for a in crudo["asientos"]],
+            objetivos=tuple(Objetivo(**o) for o in crudo.get("objetivos", [])),
+            asientos=asientos,
         )
     except (TypeError, ValueError) as error:
         raise LibroIlegible(f"{ruta.name}: {error}") from error
+
+    for asiento in asientos:
+        try:
+            validar(asiento)
+        except AsientoInvalido as error:
+            raise LibroIlegible(
+                f"{ruta.name}: el asiento {asiento.id} no es válido ({error})"
+            ) from error
+    return libro
 
 
 def listar(directorio: Path | None = None) -> list[Entrada]:
@@ -2492,7 +2831,7 @@ def listar(directorio: Path | None = None) -> list[Entrada]:
 UV_LINK_MODE=copy uv run pytest tests/test_seguimiento_libro.py tests/test_cartera.py -q
 ```
 
-Esperado: `33 passed` en el primero, y `test_cartera.py` sin regresión por el
+Esperado: `67 passed` en el primero, y `test_cartera.py` sin regresión por el
 renombrado de `rebanada`.
 
 - [ ] **Step 6: Commit**
@@ -2876,9 +3215,13 @@ if pendiente is not None:
 UV_LINK_MODE=copy uv run pytest tests/ -q -m "not red"
 ```
 
-Esperado: **83 tests nuevos** sobre los 780 de base. Con `numpy_financial`
-instalada, `863 passed, 2 skipped`; sin ella, `861 passed, 4 skipped` — los dos
-de contraste se omiten solos y eso es correcto. En ambos casos, `6 deselected`.
+Esperado: **117 tests nuevos** sobre la base. Con `numpy_financial` instalada,
+`898 passed, 2 skipped`; sin ella, `896 passed, 4 skipped` — los dos de
+contraste se omiten solos y eso es correcto. En ambos casos, `6 deselected`.
+
+Ese recuento cuenta `test_apagado.py::test_detener_espera_antes_de_forzar` como
+aprobado. Es el intermitente conocido, así que un test menos en la columna de
+aprobados y uno en la de fallos sigue siendo correcto.
 
 El fallo intermitente conocido de `test_apagado` es la única excepción
 tolerada. Cualquier otro fallo es tuyo.
