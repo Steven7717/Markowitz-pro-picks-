@@ -12,6 +12,7 @@ una corrección aplicada a una sola de ellas produce un libro que se lee
 perfectamente bien y miente.
 """
 
+import math
 import re
 from dataclasses import dataclass, field
 from datetime import date
@@ -29,7 +30,21 @@ CON_TICKER = frozenset({"compra", "venta", "dividendo"})
 # externo inflaría el capital aportado con lo que la cartera acaba de ganar.
 FLUJOS_EXTERNOS = frozenset({"aportacion", "retiro"})
 
-_FORMA_TICKER = re.compile(r"^[A-Z]+(-[A-Z]+)*$")
+# Sin anclas, porque se usa con `fullmatch` y no con `match`. Con `match`, un
+# `$` casa también justo antes de un salto de línea final, así que "AAPL\n"
+# pasaría por ticker válido — y como el ticker es la clave del diccionario de
+# posiciones, eso partiría una posición en dos, "AAPL" y "AAPL\n". El usuario
+# que cree tener veinte acciones vería diez, sin nada en pantalla que lo
+# explicara. `cartera.py` y `aprobacion/acta.py` llevan la variante con `match`
+# y el mismo agujero; aquí no se hereda.
+_FORMA_TICKER = re.compile(r"[A-Z]+(-[A-Z]+)*")
+
+_CAMPOS_NUMERICOS = (
+    ("importe", "el importe"),
+    ("acciones", "las acciones"),
+    ("precio", "el precio"),
+    ("comision", "la comisión"),
+)
 
 
 class AsientoInvalido(ValueError):
@@ -69,18 +84,49 @@ class Objetivo:
 
 @dataclass(frozen=True)
 class Libro:
-    """Un libro entero: el nombre, los objetivos apilados y los asientos."""
+    """Un libro entero: el nombre, los objetivos apilados y los asientos.
+
+    Las dos colecciones son tuplas y no listas. `frozen=True` impide reasignar
+    el campo, pero no tocar una lista por dentro: con listas,
+    `libro.asientos.append(...)` funcionaría y la regla central de este módulo
+    —nunca se edita, nunca se borra— quedaría documentada pero no impuesta.
+    """
 
     nombre: str
     creado: str
     moneda: str = "USD"
-    objetivos: list[Objetivo] = field(default_factory=list)
-    asientos: list[Asiento] = field(default_factory=list)
+    objetivos: tuple[Objetivo, ...] = ()
+    asientos: tuple[Asiento, ...] = ()
 
     @property
     def objetivo(self) -> Objetivo | None:
         """El objetivo vigente: el último que se apiló, o ninguno."""
         return self.objetivos[-1] if self.objetivos else None
+
+
+def _finito(valor, campo: str) -> None:
+    """Reject NaN, infinity, and anything that is not a number at all.
+
+    **Ninguna de las guardas de más abajo lo caza.** Toda comparación con NaN
+    es falsa —`nan <= 0` es `False`— y `not float("nan")` también es `False`,
+    porque NaN es *truthy*. Así que un asiento con NaN las atraviesa enteras, y
+    entonces hace dos cosas a la vez: envenena el efectivo, y **borra el activo
+    de la tabla de posiciones**, porque el filtro de polvo `abs(n) > _POLVO` de
+    `seguimiento.posiciones` también es `False` para NaN. El usuario no ve un
+    error: ve una posición que desapareció y un efectivo que dice "nan".
+
+    No es un caso de laboratorio. `json.loads` acepta los literales `NaN` e
+    `Infinity` por defecto, así que un fichero editado a mano o corrompido los
+    mete en el libro sin que nadie los teclee.
+    """
+    if valor is None:
+        return
+    try:
+        finito = math.isfinite(valor)
+    except TypeError as error:
+        raise AsientoInvalido(f"{campo} no es un número: {valor!r}") from error
+    if not finito:
+        raise AsientoInvalido(f"{campo} tiene que ser un número finito, y es {valor!r}")
 
 
 def validar(asiento: Asiento, hoy: date | None = None) -> None:
@@ -99,10 +145,26 @@ def validar(asiento: Asiento, hoy: date | None = None) -> None:
             f"{', '.join(sorted(TIPOS))}"
         )
 
+    for campo, nombre in _CAMPOS_NUMERICOS:
+        _finito(getattr(asiento, campo), nombre)
+
     try:
         cuando = date.fromisoformat(asiento.fecha)
-    except ValueError as error:
+    except (TypeError, ValueError) as error:
+        # TypeError además de ValueError: pasar un `date` es el error más
+        # probable del llamante, porque el resto del módulo habla en `date`, y
+        # el docstring de arriba promete AsientoInvalido. Sin capturarlo, la
+        # pantalla —que sólo atrapa AsientoInvalido— enseñaría un traceback.
         raise AsientoInvalido(f"{asiento.fecha!r} no es una fecha") from error
+    if cuando.isoformat() != asiento.fecha:
+        # `date.fromisoformat` acepta ISO 8601 entero desde Python 3.11, así
+        # que "20260901" y "2026-W36-2" son fechas válidas para él. Pero la
+        # reconstrucción ordena por la cadena cruda, y '-' es menor que
+        # cualquier dígito: "20260215" acaba DETRÁS de "2026-08-01" al ordenar,
+        # y una venta se aplicaría antes que su propia compra.
+        raise AsientoInvalido(
+            f"{asiento.fecha!r} no está escrita como YYYY-MM-DD"
+        )
     if cuando > hoy:
         raise AsientoInvalido(
             f"{asiento.fecha} es una fecha futura: no se puede registrar algo "
@@ -115,12 +177,20 @@ def validar(asiento: Asiento, hoy: date | None = None) -> None:
     if asiento.tipo == "anulacion":
         if not asiento.anula:
             raise AsientoInvalido("una anulación tiene que decir a qué asiento anula")
+        # Una anulación es una nota que tacha otra línea, no un movimiento.
+        # Dejarla llevar ticker o dinero guardaría basura con pinta de dato en
+        # un fichero que nadie vuelve a validar al leerlo.
+        for campo in ("ticker", "acciones", "precio"):
+            if getattr(asiento, campo) is not None:
+                raise AsientoInvalido(f"una anulación no lleva {campo}")
+        if asiento.importe or asiento.comision:
+            raise AsientoInvalido("una anulación no mueve dinero")
         return
 
     if asiento.tipo in CON_TICKER:
         if not asiento.ticker:
             raise AsientoInvalido(f"un asiento de {asiento.tipo} necesita ticker")
-        if not _FORMA_TICKER.match(asiento.ticker):
+        if not _FORMA_TICKER.fullmatch(asiento.ticker):
             raise AsientoInvalido(f"{asiento.ticker!r} no tiene forma de ticker")
     elif asiento.ticker:
         raise AsientoInvalido(
@@ -132,9 +202,9 @@ def validar(asiento: Asiento, hoy: date | None = None) -> None:
         raise AsientoInvalido("el importe tiene que ser mayor que cero")
 
     if asiento.tipo in {"compra", "venta"}:
-        if not asiento.acciones or asiento.acciones <= 0:
+        if asiento.acciones is None or asiento.acciones <= 0:
             raise AsientoInvalido("las acciones tienen que ser más que cero")
-        if not asiento.precio or asiento.precio <= 0:
+        if asiento.precio is None or asiento.precio <= 0:
             raise AsientoInvalido("el precio tiene que ser mayor que cero")
 
 
@@ -150,13 +220,36 @@ def derivar(
     Cuando llegan los tres, mandan los tres aunque no cuadren al céntimo: el
     bróker aplica redondeos que ninguna división reproduce, y corregir en
     silencio lo que el usuario copió de su extracto sería inventar.
+
+    **No puede apoyarse en `validar`, porque corre antes que él.** La pantalla
+    llama aquí con lo que el usuario acaba de teclear, construye el `Asiento`
+    con el resultado, y sólo entonces llama a `anadir()`, que es quien valida.
+    Así que lo que no se compruebe aquí llega contaminado — y algunos venenos
+    pasan luego las guardas de "mayor que cero" sin despeinarse, porque un
+    `inf` nacido de dividir por un precio diminuto es mayor que cero.
     """
-    if precio is None or precio <= 0:
+    _finito(importe, "el importe")
+    _finito(acciones, "las acciones")
+    _finito(precio, "el precio")
+
+    if precio is None:
         raise AsientoInvalido("hace falta el precio para completar la operación")
+    if precio <= 0:
+        raise AsientoInvalido("el precio tiene que ser mayor que cero")
+
     if importe is not None and acciones is not None:
-        return (float(importe), float(acciones), float(precio))
-    if importe is not None:
-        return (float(importe), float(importe) / float(precio), float(precio))
-    if acciones is not None:
-        return (float(acciones) * float(precio), float(acciones), float(precio))
-    raise AsientoInvalido("hace falta el importe o el número de acciones")
+        completo = (float(importe), float(acciones), float(precio))
+    elif importe is not None:
+        completo = (float(importe), float(importe) / float(precio), float(precio))
+    elif acciones is not None:
+        completo = (float(acciones) * float(precio), float(acciones), float(precio))
+    else:
+        raise AsientoInvalido("hace falta el importe o el número de acciones")
+
+    for valor, (_, nombre) in zip(completo, _CAMPOS_NUMERICOS):
+        if not math.isfinite(valor):
+            raise AsientoInvalido(
+                f"la operación no cuadra: {nombre} sale {valor}. Revisa el "
+                "precio, que es por lo que se divide."
+            )
+    return completo
