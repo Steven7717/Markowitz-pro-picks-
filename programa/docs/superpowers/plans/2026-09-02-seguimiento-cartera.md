@@ -1042,22 +1042,39 @@ def test_una_compra_del_pasado_se_financia_con_el_saldo_de_entonces():
     assert escritos[0].importe == pytest.approx(2200.0)
 
 
-def test_vender_exactamente_lo_que_se_tiene_sigue_valiendo():
-    # Las acciones salen de dividir un importe entre un precio, asi que
-    # arrastran redondeo. Sin el margen de polvo en la comparacion, vender la
-    # posicion entera fallaria por una diferencia de femtoacciones.
+def test_vender_la_posicion_entera_sobrevive_al_redondeo():
+    # Dos compras de 2.500 a 3, y despues vender todo a 11. La pantalla ensena
+    # el total acumulado y `derivar()` lo vuelve a calcular desde importe y
+    # precio: los dos numeros NO coinciden, y el recalculado es el mayor por
+    # 2,3e-13 acciones. Sin el margen de _POLVO, el libro rechazaria una venta
+    # de la posicion entera diciendo que no hay suficientes.
+    #
+    # Una version anterior de este test compraba una sola vez y vendia la misma
+    # variable: no probaba nada, porque `0.0 + x` es exactamente `x` en
+    # IEEE-754 y los dos lados eran el mismo float. De ahi el assert de la
+    # precondicion, que es lo que impide que vuelva a quedarse vacio en
+    # silencio si el redondeo cambia.
+    from seguimiento import posiciones
     from seguimiento.libro import derivar
 
-    importe, acciones, precio = derivar(importe=1000.0, acciones=None, precio=3.0)
+    _, acciones, _ = derivar(importe=2500.0, acciones=None, precio=3.0)
     libro = con(
-        Asiento(id="ap", fecha="2026-08-01", tipo="aportacion", importe=1000.0),
+        Asiento(id="ap", fecha="2026-08-01", tipo="aportacion", importe=5000.0),
         Asiento(id="c1", fecha="2026-08-01", tipo="compra", ticker="AAPL",
-                acciones=acciones, precio=precio, importe=importe),
+                acciones=acciones, precio=3.0, importe=2500.0),
+        Asiento(id="c2", fecha="2026-08-02", tipo="compra", ticker="AAPL",
+                acciones=acciones, precio=3.0, importe=2500.0),
     )
+    tiene = posiciones.estado(libro.asientos).acciones["AAPL"]
+    importe_v, vendidas, precio_v = derivar(
+        importe=tiene * 11.0, acciones=None, precio=11.0
+    )
+    assert vendidas > tiene, "sin discrepancia de redondeo el test no prueba nada"
+
     venta = Asiento(id="v1", fecha="2026-09-01", tipo="venta", ticker="AAPL",
-                    acciones=acciones, precio=4.0, importe=acciones * 4.0)
+                    acciones=vendidas, precio=precio_v, importe=importe_v)
     libro, _ = anadir(libro, venta, hoy=HOY)
-    assert len(libro.asientos) == 3
+    assert len(libro.asientos) == 4
 ```
 
 Y cambia el ayudante `compra()` del principio del fichero para que acepte
