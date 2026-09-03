@@ -285,3 +285,95 @@ def test_los_asientos_de_un_libro_no_se_pueden_editar_en_el_sitio():
                   asientos=(compra(),))
     with pytest.raises(AttributeError):
         libro.asientos.append(compra())
+
+
+# --- anadir(): validar contra el estado del libro ----------------------------
+
+from seguimiento.libro import Libro, anadir
+
+VACIO = Libro(nombre="Prueba", creado="2026-01-01T10:00:00")
+
+
+def con(*asientos) -> Libro:
+    from dataclasses import replace
+    return replace(VACIO, asientos=tuple(asientos))
+
+
+def test_no_se_puede_vender_lo_que_no_se_tiene():
+    venta = Asiento(
+        id="v1", fecha="2026-09-01", tipo="venta", ticker="AAPL",
+        acciones=5.0, precio=220.0, importe=1100.0,
+    )
+    with pytest.raises(AsientoInvalido, match="no tienes"):
+        anadir(VACIO, venta, hoy=HOY)
+
+
+def test_no_se_pueden_vender_mas_acciones_de_las_que_hay():
+    libro = con(
+        Asiento(id="ap", fecha="2026-08-01", tipo="aportacion", importe=5000.0),
+        compra(id="c1", fecha="2026-08-01", acciones=10.0),
+    )
+    venta = Asiento(
+        id="v1", fecha="2026-09-01", tipo="venta", ticker="AAPL",
+        acciones=11.0, precio=220.0, importe=2420.0,
+    )
+    with pytest.raises(AsientoInvalido, match="10"):
+        anadir(libro, venta, hoy=HOY)
+
+
+def test_no_se_puede_retirar_mas_efectivo_del_que_hay():
+    libro = con(Asiento(id="ap", fecha="2026-08-01", tipo="aportacion", importe=100.0))
+    retiro = Asiento(id="r1", fecha="2026-09-01", tipo="retiro", importe=200.0)
+    with pytest.raises(AsientoInvalido, match="efectivo"):
+        anadir(libro, retiro, hoy=HOY)
+
+
+def test_una_compra_sin_efectivo_suficiente_arrastra_su_aportacion():
+    # El usuario piensa "compre 2.200 de Apple", no "aporte 2.205 y luego
+    # compre". Escribir la aportacion por el sonaria a magia si no se dijera,
+    # asi que anadir() la devuelve para que la pantalla la ensene.
+    libro, escritos = anadir(VACIO, compra(comision=5.0), hoy=HOY, financiar=True)
+    assert [a.tipo for a in escritos] == ["aportacion", "compra"]
+    # La comision va DENTRO de la aportacion. Con comision cero este test
+    # pasaria igual sin cubrirla, y el comentario estaria prometiendo una
+    # cobertura que no existe -- que es como se cuelan las guardas muertas.
+    assert escritos[0].importe == pytest.approx(2205.0)
+
+
+def test_la_aportacion_que_financia_deja_el_efectivo_a_cero():
+    # La comprobacion que de verdad cierra el caso: si la aportacion se
+    # quedase corta por el importe de la comision, el efectivo acabaria
+    # negativo -- un descuadre pequeno, permanente y sin causa visible.
+    from seguimiento import posiciones
+
+    libro, _ = anadir(VACIO, compra(comision=5.0), hoy=HOY, financiar=True)
+    assert posiciones.estado(libro.asientos).efectivo == pytest.approx(0.0)
+
+
+def test_una_compra_con_efectivo_suficiente_no_inventa_aportacion():
+    libro = con(Asiento(id="ap", fecha="2026-08-01", tipo="aportacion", importe=5000.0))
+    _, escritos = anadir(libro, compra(), hoy=HOY, financiar=True)
+    assert [a.tipo for a in escritos] == ["compra"]
+
+
+def test_no_se_puede_anular_un_asiento_que_no_existe():
+    anulacion = Asiento(id="x1", fecha="2026-09-01", tipo="anulacion", anula="fantasma")
+    with pytest.raises(AsientoInvalido, match="no existe"):
+        anadir(VACIO, anulacion, hoy=HOY)
+
+
+def test_no_se_puede_anular_dos_veces():
+    libro = con(
+        Asiento(id="ap", fecha="2026-08-01", tipo="aportacion", importe=5000.0),
+        Asiento(id="x1", fecha="2026-08-02", tipo="anulacion", anula="ap"),
+    )
+    otra = Asiento(id="x2", fecha="2026-09-01", tipo="anulacion", anula="ap")
+    with pytest.raises(AsientoInvalido, match="ya está anulado"):
+        anadir(libro, otra, hoy=HOY)
+
+
+def test_el_asiento_aceptado_se_queda_en_el_libro():
+    libro, _ = anadir(VACIO, Asiento(
+        id="ap", fecha="2026-09-01", tipo="aportacion", importe=1000.0), hoy=HOY)
+    assert len(libro.asientos) == 1
+    assert libro.asientos[0].tipo == "aportacion"

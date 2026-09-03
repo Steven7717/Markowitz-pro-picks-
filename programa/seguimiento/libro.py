@@ -253,3 +253,87 @@ def derivar(
                 "precio, que es por lo que se divide."
             )
     return completo
+
+
+def anadir(
+    libro: Libro,
+    asiento: Asiento,
+    hoy: date | None = None,
+    financiar: bool = False,
+) -> tuple[Libro, list[Asiento]]:
+    """Validate against the ledger's state and return the new book.
+
+    Devuelve también **qué se escribió de verdad**, que puede ser más de un
+    asiento: una compra que no cabe en el efectivo disponible arrastra la
+    aportación que la financia. El usuario piensa "compré dos mil de Apple", no
+    "aporté dos mil y luego compré"; escribir la aportación por él sin decirlo
+    sería magia, y por eso la lista vuelve para que la pantalla la enseñe antes
+    de guardar.
+
+    La aportación cubre la comisión además del importe. Sin eso, el efectivo
+    quedaría negativo por el importe exacto de la comisión en cuanto se
+    registrase la primera compra — un descuadre pequeño, permanente y sin causa
+    visible.
+    """
+    # Importación local: `posiciones` no importa este módulo en tiempo de
+    # ejecución justamente para que no haya ciclo, y hacerlo arriba lo crearía.
+    from seguimiento import posiciones
+
+    validar(asiento, hoy=hoy)
+
+    if asiento.tipo == "anulacion":
+        por_id = {a.id: a for a in libro.asientos}
+        if asiento.anula not in por_id:
+            raise AsientoInvalido(
+                f"el asiento {asiento.anula} no existe: no hay nada que anular"
+            )
+        ya = {a.anula for a in libro.asientos if a.tipo == "anulacion"}
+        if asiento.anula in ya:
+            raise AsientoInvalido(
+                f"el asiento {asiento.anula} ya está anulado: anularlo dos veces "
+                "no significa nada"
+            )
+        return (_con_asientos(libro, [asiento]), [asiento])
+
+    actual = posiciones.estado(libro.asientos)
+    escritos = [asiento]
+
+    if asiento.tipo == "venta":
+        tiene = actual.acciones.get(asiento.ticker, 0.0)
+        if asiento.acciones > tiene:
+            raise AsientoInvalido(
+                f"no tienes {asiento.acciones:g} acciones de {asiento.ticker}, "
+                f"tienes {tiene:g}"
+            )
+
+    if asiento.tipo == "retiro" and asiento.importe > actual.efectivo:
+        raise AsientoInvalido(
+            f"no hay efectivo suficiente: pides {asiento.importe:,.2f} y hay "
+            f"{actual.efectivo:,.2f}"
+        )
+
+    if asiento.tipo == "compra":
+        coste = asiento.importe + asiento.comision
+        if coste > actual.efectivo:
+            if not financiar:
+                raise AsientoInvalido(
+                    f"no hay efectivo suficiente: la compra cuesta {coste:,.2f} "
+                    f"y hay {actual.efectivo:,.2f}"
+                )
+            aportacion = Asiento(
+                id=f"{asiento.id}-ap",
+                fecha=asiento.fecha,
+                tipo="aportacion",
+                importe=coste - actual.efectivo,
+                nota="Financia la compra de " + str(asiento.ticker),
+            )
+            escritos = [aportacion, asiento]
+
+    return (_con_asientos(libro, escritos), escritos)
+
+
+def _con_asientos(libro: Libro, nuevos: list[Asiento]) -> Libro:
+    """A copy of the book with the entries appended. Never mutates in place."""
+    from dataclasses import replace
+
+    return replace(libro, asientos=tuple(libro.asientos) + tuple(nuevos))
