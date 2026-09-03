@@ -295,41 +295,40 @@ def anadir(
             )
         return (_con_asientos(libro, [asiento]), [asiento])
 
-    actual = posiciones.estado(libro.asientos)
     escritos = [asiento]
 
-    if asiento.tipo == "venta":
-        tiene = actual.acciones.get(asiento.ticker, 0.0)
-        if asiento.acciones > tiene:
-            raise AsientoInvalido(
-                f"no tienes {asiento.acciones:g} acciones de {asiento.ticker}, "
-                f"tienes {tiene:g}"
-            )
-
-    if asiento.tipo == "retiro" and asiento.importe > actual.efectivo:
-        raise AsientoInvalido(
-            f"no hay efectivo suficiente: pides {asiento.importe:,.2f} y hay "
-            f"{actual.efectivo:,.2f}"
-        )
-
-    if asiento.tipo == "compra":
+    if asiento.tipo == "compra" and financiar:
+        # El efectivo que había **en la fecha del asiento**, no el de hoy. Un
+        # asiento puede llegar fechado en el pasado —es el caso normal cuando
+        # alguien empieza a registrar lo que ya tenía comprado— y financiarlo
+        # con el saldo de hoy escribiría una aportación del tamaño equivocado.
+        disponible = posiciones.estado(libro.asientos, hasta=asiento.fecha).efectivo
         coste = asiento.importe + asiento.comision
-        if coste > actual.efectivo:
-            if not financiar:
-                raise AsientoInvalido(
-                    f"no hay efectivo suficiente: la compra cuesta {coste:,.2f} "
-                    f"y hay {actual.efectivo:,.2f}"
-                )
-            aportacion = Asiento(
-                id=f"{asiento.id}-ap",
-                fecha=asiento.fecha,
-                tipo="aportacion",
-                importe=coste - actual.efectivo,
-                nota="Financia la compra de " + str(asiento.ticker),
-            )
-            escritos = [aportacion, asiento]
+        if coste > disponible:
+            escritos = [
+                Asiento(
+                    id=f"{asiento.id}-ap",
+                    fecha=asiento.fecha,
+                    tipo="aportacion",
+                    importe=coste - disponible,
+                    nota="Financia la compra de " + str(asiento.ticker),
+                ),
+                asiento,
+            ]
 
-    return (_con_asientos(libro, escritos), escritos)
+    candidato = _con_asientos(libro, escritos)
+
+    # **El recorrido entero, no el saldo final.** Comprobar contra el estado de
+    # hoy acepta una venta fechada en julio de acciones compradas en agosto: el
+    # saldo final cuadra, y la cartera queda con acciones negativas a mitad del
+    # camino — justo lo que `posiciones.ordenados` existe para evitar. Medido
+    # antes de escribir esto: `estado(hasta="2026-07-01")` devolvía
+    # `{'AAPL': -10.0}` sin que nada lo hubiera impedido.
+    motivo = posiciones.primer_descubierto(candidato.asientos)
+    if motivo is not None:
+        raise AsientoInvalido(motivo)
+
+    return (candidato, escritos)
 
 
 def _con_asientos(libro: Libro, nuevos: list[Asiento]) -> Libro:

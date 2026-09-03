@@ -377,3 +377,60 @@ def test_el_asiento_aceptado_se_queda_en_el_libro():
         id="ap", fecha="2026-09-01", tipo="aportacion", importe=1000.0), hoy=HOY)
     assert len(libro.asientos) == 1
     assert libro.asientos[0].tipo == "aportacion"
+
+
+def test_no_se_puede_vender_en_una_fecha_anterior_a_la_compra():
+    # El caso que rompe comprobar solo el saldo final: hoy tengo diez acciones,
+    # asi que una venta de diez "cuadra" -- pero fechada en julio deja la
+    # cartera con menos diez acciones en julio, y `estado(hasta=...)` lo
+    # devolveria tal cual. No es un caso raro: es lo que pasa siempre que
+    # alguien registra lo que ya tenia comprado y mete los asientos en el orden
+    # del extracto y no en orden cronologico.
+    libro = con(
+        Asiento(id="ap", fecha="2026-08-01", tipo="aportacion", importe=5000.0),
+        compra(id="c1", fecha="2026-08-01", acciones=10.0),
+    )
+    venta = Asiento(
+        id="v1", fecha="2026-07-01", tipo="venta", ticker="AAPL",
+        acciones=10.0, precio=250.0, importe=2500.0,
+    )
+    with pytest.raises(AsientoInvalido, match="2026-07-01"):
+        anadir(libro, venta, hoy=HOY)
+
+
+def test_un_retiro_fechado_antes_de_su_aportacion_no_pasa():
+    libro = con(Asiento(id="ap", fecha="2026-08-01", tipo="aportacion",
+                        importe=5000.0))
+    retiro = Asiento(id="r1", fecha="2026-07-01", tipo="retiro", importe=1000.0)
+    with pytest.raises(AsientoInvalido, match="2026-07-01"):
+        anadir(libro, retiro, hoy=HOY)
+
+
+def test_una_compra_del_pasado_se_financia_con_el_saldo_de_entonces():
+    # Aportar 5.000 en agosto no paga una compra fechada en julio. La
+    # aportacion que se escribe tiene que cubrirla entera, no la diferencia
+    # contra un saldo que en esa fecha todavia no existia.
+    libro = con(Asiento(id="ap", fecha="2026-08-01", tipo="aportacion",
+                        importe=5000.0))
+    _, escritos = anadir(libro, compra(id="c1", fecha="2026-07-01"),
+                         hoy=HOY, financiar=True)
+    assert [a.tipo for a in escritos] == ["aportacion", "compra"]
+    assert escritos[0].importe == pytest.approx(2200.0)
+
+
+def test_vender_exactamente_lo_que_se_tiene_sigue_valiendo():
+    # Las acciones salen de dividir un importe entre un precio, asi que
+    # arrastran redondeo. Sin el margen de polvo en la comparacion, vender la
+    # posicion entera fallaria por una diferencia de femtoacciones.
+    from seguimiento.libro import derivar
+
+    importe, acciones, precio = derivar(importe=1000.0, acciones=None, precio=3.0)
+    libro = con(
+        Asiento(id="ap", fecha="2026-08-01", tipo="aportacion", importe=1000.0),
+        Asiento(id="c1", fecha="2026-08-01", tipo="compra", ticker="AAPL",
+                acciones=acciones, precio=precio, importe=importe),
+    )
+    venta = Asiento(id="v1", fecha="2026-09-01", tipo="venta", ticker="AAPL",
+                    acciones=acciones, precio=4.0, importe=acciones * 4.0)
+    libro, _ = anadir(libro, venta, hoy=HOY)
+    assert len(libro.asientos) == 3

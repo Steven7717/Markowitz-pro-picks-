@@ -81,3 +81,58 @@ def estado(asientos: "list[Asiento]", hasta: str | date | None = None) -> Estado
         acciones={t: n for t, n in acciones.items() if abs(n) > _POLVO},
         efectivo=efectivo,
     )
+
+
+def primer_descubierto(asientos: "list[Asiento]") -> str | None:
+    """The first moment the book would go into the red, in words, or None.
+
+    `estado()` responde "qué hay al final". Esta función responde "¿hubo algún
+    día en que esto no cuadrara?", que es otra pregunta y la que hace falta
+    antes de aceptar un asiento.
+
+    La diferencia importa porque un asiento puede llegar **fechado en el
+    pasado**, y es el caso normal: quien empieza a llevar el libro de lo que ya
+    tenía comprado mete las operaciones en el orden en que las encuentra en el
+    extracto, no en orden cronológico. Comprobar sólo el saldo final acepta una
+    venta de julio de acciones compradas en agosto —el final cuadra— y deja la
+    cartera con acciones negativas a mitad del recorrido.
+
+    El margen de `_POLVO` en cada comparación es para que vender exactamente lo
+    que se tiene siga valiendo: el número de acciones viene de dividir un
+    importe entre un precio, así que arrastra error de redondeo y una igualdad
+    exacta fallaría por un femtoaccion de diferencia.
+    """
+    acciones: dict[str, float] = {}
+    efectivo = 0.0
+
+    for a in ordenados(vigentes(asientos)):
+        if a.tipo == "aportacion":
+            efectivo += a.importe
+        elif a.tipo == "dividendo":
+            efectivo += a.importe
+        elif a.tipo == "retiro":
+            if a.importe > efectivo + _POLVO:
+                return (
+                    f"el {a.fecha} no hay efectivo suficiente: harían falta "
+                    f"{a.importe:,.2f} y hay {efectivo:,.2f}"
+                )
+            efectivo -= a.importe
+        elif a.tipo == "compra":
+            coste = a.importe + a.comision
+            if coste > efectivo + _POLVO:
+                return (
+                    f"el {a.fecha} no hay efectivo suficiente: la compra cuesta "
+                    f"{coste:,.2f} y hay {efectivo:,.2f}"
+                )
+            efectivo -= coste
+            acciones[a.ticker] = acciones.get(a.ticker, 0.0) + a.acciones
+        elif a.tipo == "venta":
+            tiene = acciones.get(a.ticker, 0.0)
+            if a.acciones > tiene + _POLVO:
+                return (
+                    f"el {a.fecha} no tienes suficientes acciones de {a.ticker}: "
+                    f"harían falta {a.acciones:g} y hay {tiene:g}"
+                )
+            acciones[a.ticker] = tiene - a.acciones
+            efectivo += a.importe - a.comision
+    return None
