@@ -2504,7 +2504,11 @@ git commit -m "feat: guardar y leer el libro, con el objetivo copiado dentro"
 
 ---
 
-## Task 12: La pantalla de seguimiento
+## Task 12: Crear un libro y verlo
+
+Todo salvo el alta de operaciones, que es la Task 13. Al terminar esta tarea se
+puede crear un libro desde un portafolio guardado y abrirlo; lo que no se puede
+todavía es meterle nada.
 
 **Files:**
 - Create: `vistas/seguimiento.py`
@@ -2619,22 +2623,6 @@ def _historia(tickers: tuple[str, ...], desde: str):
 
 
 historia = _historia(tuple(tickers), desde)
-
-
-@st.cache_data(ttl=3600, show_spinner=False)
-def _cierre_del_dia(ticker: str, fecha: str):
-    """El cierre de un ticker en una fecha, aunque no esté ya en el libro.
-
-    Se descarga aparte y no se busca en `historia` porque el ticker puede ser
-    nuevo — la primera compra de una empresa que el libro todavía no conoce — y
-    entonces no hay ninguna columna donde mirar. La ventana pide dos días
-    porque `yf.download` trata `end` como exclusivo.
-    """
-    from datetime import timedelta
-
-    hasta = (date.fromisoformat(fecha) + timedelta(days=1)).isoformat()
-    return precios.cierre_en(precios.descargar([ticker], desde=fecha, hasta=hasta),
-                             ticker, fecha)
 
 if historia.sin_datos:
     st.warning(
@@ -2759,80 +2747,6 @@ st.caption(
     "aportaciones de por medio compararía cada activo contra un capital que no "
     "fue el suyo durante todo el periodo."
 )
-
-# --- Alta de asiento ---------------------------------------------------------
-
-with st.expander("Registrar una operación"):
-    tipo = st.selectbox("Tipo", options=sorted(mod.TIPOS - {"anulacion"}))
-    cuando = st.date_input("Fecha", value=date.today(), max_value=date.today())
-    ticker = st.text_input("Ticker").strip().upper() if tipo in mod.CON_TICKER else None
-
-    importe = acciones = precio = None
-    del_cierre = False
-    if tipo in {"compra", "venta"}:
-        col_a, col_b, col_c = st.columns(3)
-        importe = col_a.number_input("Importe", min_value=0.0, value=0.0) or None
-        acciones = col_b.number_input("Acciones", min_value=0.0, value=0.0) or None
-        precio = col_c.number_input("Precio", min_value=0.0, value=0.0) or None
-        del_cierre = st.checkbox(
-            "No recuerdo el precio: usa el cierre de ese día",
-            help="La operación queda marcada como precio estimado y se ve así en "
-                 "el historial. Una compra intradía en un día volátil se desvía "
-                 "un 3-4% del cierre.",
-        )
-        st.caption(
-            "Rellena el importe **o** las acciones, más el precio. El tercero se "
-            "calcula solo. Si escribes los tres, mandan los tres: el bróker "
-            "aplica redondeos que ninguna división reproduce."
-        )
-    else:
-        importe = st.number_input("Importe", min_value=0.0, value=0.0) or None
-
-    comision = st.number_input("Comisión", min_value=0.0, value=0.0)
-    nota = st.text_input("Nota (opcional)")
-
-    if st.button("Registrar", type="primary", icon=":material/add:"):
-        try:
-            estimado = False
-            if tipo in {"compra", "venta"}:
-                # El cierre de ese dia, siempre: si no existe, ese dia no
-                # cotizo -- festivo, fin de semana, o antes de la salida a
-                # bolsa -- y guardar el asiento dejaria una posicion que la
-                # serie diaria no puede valorar.
-                cierre = _cierre_del_dia(ticker, cuando.isoformat())
-                if cierre is None:
-                    raise mod.AsientoInvalido(
-                        f"{ticker} no cotizó el {cuando.isoformat()}: revisa la "
-                        "fecha, o el ticker si la empresa aún no había salido a "
-                        "bolsa."
-                    )
-                if del_cierre or precio is None:
-                    precio, estimado = cierre, True
-                importe, acciones, precio = mod.derivar(importe, acciones, precio)
-            nuevo = mod.Asiento(
-                id=f"{cuando.isoformat()}-{len(actual.asientos) + 1}",
-                fecha=cuando.isoformat(), tipo=tipo, ticker=ticker or None,
-                acciones=acciones, precio=precio, importe=importe or 0.0,
-                comision=comision, precio_estimado=estimado, nota=nota,
-            )
-            actualizado, escritos = mod.anadir(actual, nuevo, financiar=True)
-        except mod.AsientoInvalido as error:
-            st.error(str(error))
-        else:
-            mod.guardar(actualizado, elegida.ruta.parent)
-            if len(escritos) > 1:
-                st.info(
-                    f"No había efectivo suficiente, así que se registró también "
-                    f"una aportación de {escritos[0].importe:,.2f} que financia "
-                    "la compra."
-                )
-            if estimado:
-                st.info(
-                    f"Precio tomado del cierre del {cuando.isoformat()}: "
-                    f"{precio:,.2f}. Queda marcado como estimado en el historial."
-                )
-            st.success("Registrado.")
-            st.rerun()
 
 # --- Historial ---------------------------------------------------------------
 
@@ -2969,9 +2883,10 @@ de contraste se omiten solos y eso es correcto. En ambos casos, `6 deselected`.
 El fallo intermitente conocido de `test_apagado` es la única excepción
 tolerada. Cualquier otro fallo es tuyo.
 
-Después arranca la app y recorre el camino entero: optimiza cinco tickers,
-guárdala, pulsa "Empezar a seguir", elige una base, registra una compra, y
-comprueba que la tabla por activo y el gráfico salen.
+Después arranca la app y recorre el camino hasta donde llega esta tarea:
+optimiza cinco tickers, guárdalos, pulsa "Empezar a seguir", elige una base, y
+comprueba que el libro aparece vacío sin reventar. Un libro sin asientos tiene
+que decir que está vacío, no fallar al dividir por un valor de cero.
 
 ```bash
 UV_LINK_MODE=copy uv run streamlit run app.py
@@ -2987,7 +2902,157 @@ git commit -m "feat: la pantalla de seguimiento, con las tres referencias"
 
 ---
 
-## Task 13: Dejarlo dicho en el README y en CONTEXTO
+## Task 13: Registrar operaciones
+
+Cierra el círculo: hasta aquí un libro sólo se puede crear y mirar. El
+formulario va en su propia tarea porque es lo único de la pantalla que
+**escribe**, y porque arrastra la única pieza de precios que no existía todavía
+— el cierre de un día concreto para un ticker que el libro aún no conoce.
+
+**Files:**
+- Modify: `vistas/seguimiento.py`
+
+- [ ] **Step 1: Añade el ayudante que busca el cierre de un día**
+
+En `vistas/seguimiento.py`, justo después de la línea
+`historia = _historia(tuple(tickers), desde)`:
+
+```python
+@st.cache_data(ttl=3600, show_spinner=False)
+def _cierre_del_dia(ticker: str, fecha: str):
+    """El cierre de un ticker en una fecha, aunque no esté ya en el libro.
+
+    Se descarga aparte y no se busca en `historia` porque el ticker puede ser
+    nuevo — la primera compra de una empresa que el libro todavía no conoce — y
+    entonces no hay ninguna columna donde mirar. La ventana pide dos días
+    porque `yf.download` trata `end` como exclusivo.
+    """
+    from datetime import timedelta
+
+    hasta = (date.fromisoformat(fecha) + timedelta(days=1)).isoformat()
+    return precios.cierre_en(precios.descargar([ticker], desde=fecha, hasta=hasta),
+                             ticker, fecha)
+```
+
+- [ ] **Step 2: Añade el formulario**
+
+En `vistas/seguimiento.py`, entre el bloque "Por activo" y el de "Historial":
+
+```python
+# --- Alta de asiento ---------------------------------------------------------
+
+with st.expander("Registrar una operación"):
+    tipo = st.selectbox("Tipo", options=sorted(mod.TIPOS - {"anulacion"}))
+    cuando = st.date_input("Fecha", value=date.today(), max_value=date.today())
+    ticker = st.text_input("Ticker").strip().upper() if tipo in mod.CON_TICKER else None
+
+    importe = acciones = precio = None
+    del_cierre = False
+    if tipo in {"compra", "venta"}:
+        col_a, col_b, col_c = st.columns(3)
+        importe = col_a.number_input("Importe", min_value=0.0, value=0.0) or None
+        acciones = col_b.number_input("Acciones", min_value=0.0, value=0.0) or None
+        precio = col_c.number_input("Precio", min_value=0.0, value=0.0) or None
+        del_cierre = st.checkbox(
+            "No recuerdo el precio: usa el cierre de ese día",
+            help="La operación queda marcada como precio estimado y se ve así en "
+                 "el historial. Una compra intradía en un día volátil se desvía "
+                 "un 3-4% del cierre.",
+        )
+        st.caption(
+            "Rellena el importe **o** las acciones, más el precio. El tercero se "
+            "calcula solo. Si escribes los tres, mandan los tres: el bróker "
+            "aplica redondeos que ninguna división reproduce."
+        )
+    else:
+        importe = st.number_input("Importe", min_value=0.0, value=0.0) or None
+
+    comision = st.number_input("Comisión", min_value=0.0, value=0.0)
+    nota = st.text_input("Nota (opcional)")
+
+    if st.button("Registrar", type="primary", icon=":material/add:"):
+        try:
+            estimado = False
+            if tipo in {"compra", "venta"}:
+                # El cierre de ese dia, siempre: si no existe, ese dia no
+                # cotizo -- festivo, fin de semana, o antes de la salida a
+                # bolsa -- y guardar el asiento dejaria una posicion que la
+                # serie diaria no puede valorar.
+                cierre = _cierre_del_dia(ticker, cuando.isoformat())
+                if cierre is None:
+                    raise mod.AsientoInvalido(
+                        f"{ticker} no cotizó el {cuando.isoformat()}: revisa la "
+                        "fecha, o el ticker si la empresa aún no había salido a "
+                        "bolsa."
+                    )
+                if del_cierre or precio is None:
+                    precio, estimado = cierre, True
+                importe, acciones, precio = mod.derivar(importe, acciones, precio)
+            nuevo = mod.Asiento(
+                id=f"{cuando.isoformat()}-{len(actual.asientos) + 1}",
+                fecha=cuando.isoformat(), tipo=tipo, ticker=ticker or None,
+                acciones=acciones, precio=precio, importe=importe or 0.0,
+                comision=comision, precio_estimado=estimado, nota=nota,
+            )
+            actualizado, escritos = mod.anadir(actual, nuevo, financiar=True)
+        except mod.AsientoInvalido as error:
+            st.error(str(error))
+        else:
+            mod.guardar(actualizado, elegida.ruta.parent)
+            if len(escritos) > 1:
+                st.info(
+                    f"No había efectivo suficiente, así que se registró también "
+                    f"una aportación de {escritos[0].importe:,.2f} que financia "
+                    "la compra."
+                )
+            if estimado:
+                st.info(
+                    f"Precio tomado del cierre del {cuando.isoformat()}: "
+                    f"{precio:,.2f}. Queda marcado como estimado en el historial."
+                )
+            st.success("Registrado.")
+            st.rerun()
+```
+
+- [ ] **Step 3: Recorre el camino entero en la app**
+
+```bash
+UV_LINK_MODE=copy uv run streamlit run app.py
+```
+
+Cinco cosas que tienen que pasar, y las cinco se comprueban a mano porque son de
+interfaz:
+
+1. Una aportación de 10.000 y una compra: la tabla por activo sale con su coste
+   medio y su peso real.
+2. Una compra sin efectivo suficiente: aparece el aviso de que se registró
+   también la aportación que la financia.
+3. Una compra con "no recuerdo el precio": se rellena con el cierre y el
+   historial la marca como estimada.
+4. Una compra fechada en sábado: se rechaza diciendo que ese día no cotizó, y
+   **no** se guarda.
+5. Una venta de más acciones de las que hay: se rechaza diciendo cuántas hay.
+
+- [ ] **Step 4: Comprueba que no hay regresión**
+
+```bash
+UV_LINK_MODE=copy uv run pytest tests/ -q -m "not red"
+```
+
+Esperado: el mismo recuento que al final de la Task 12. Esta tarea no añade
+tests porque no añade lógica: todo lo que decide algo ya está en `seguimiento/`
+y probado allí. Si te ves escribiendo una regla nueva aquí, va al paquete.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add vistas/seguimiento.py
+git commit -m "feat: registrar operaciones, con el cierre del dia cuando no se sabe el precio"
+```
+
+---
+
+## Task 14: Dejarlo dicho en el README y en CONTEXTO
 
 **Files:**
 - Modify: `../README.md`
