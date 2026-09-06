@@ -124,8 +124,14 @@ def tir(flujos: "list[tuple[date, float]]") -> float | None:
     if alto == 0.0:
         return _TECHO_TIR
     if (bajo > 0) == (alto > 0):
-        # Sin cambio de signo en el intervalo no hay raiz que encontrar dentro
-        # de el. brentq lanzaria ValueError; decirlo con None es la respuesta.
+        # Sin cambio de signo no hay raíz dentro del intervalo. **Esta guarda no
+        # cambia lo que se devuelve para ninguna entrada**: sin ella, `brentq`
+        # lanzaría `ValueError` y el `except` de abajo devolvería `None` igual.
+        # Está porque reconocer explícitamente un caso que sabemos nombrar es
+        # mejor que llegar a él por una excepción, y porque así el `except`
+        # queda como lo que debe ser — la red para lo que no supimos prever, no
+        # el camino normal. Ningún test conductual puede pinzarla, y decirlo
+        # aquí evita que alguien escriba uno creyendo que sí.
         return None
 
     try:

@@ -97,9 +97,25 @@ def test_un_solo_flujo_tampoco_tiene_tir():
 
 
 def test_un_periodo_corto_no_devuelve_una_tir_anualizada_absurda():
-    # 2% en tres dias. Misma guarda que TWR: por debajo de 30 dias no se
-    # anualiza, y aqui la TIR *es* una tasa anual, asi que no hay nada que dar.
-    flujos = [(date(2026, 1, 1), -1000.0), (date(2026, 1, 4), 1020.0)]
+    # 1% en tres dias: la tasa anual equivalente es del 236%, y cae DENTRO del
+    # intervalo de busqueda. Sin la guarda de los 30 dias, brentq la encuentra
+    # y `tir()` devuelve ese 2,36 como si alguien lo hubiera medido.
+    #
+    # La version anterior de este test usaba 2%, y pasaba por casualidad: su
+    # tasa equivalente es 10,126, apenas por encima del techo de 10, asi que lo
+    # cortaba la guarda del INTERVALO y no la de los dias. Con 1,9% el mismo
+    # test ya devolvia 8,87. De ahi el assert de la precondicion, que es lo que
+    # impide que vuelva a pasar por el motivo equivocado.
+    flujos = [(date(2026, 1, 1), -1000.0), (date(2026, 1, 4), 1010.0)]
+
+    ordenados = sorted(flujos, key=lambda par: par[0])
+    bajo = rendimiento._valor_actual(ordenados, rendimiento._SUELO_TIR)
+    alto = rendimiento._valor_actual(ordenados, rendimiento._TECHO_TIR)
+    assert (bajo > 0) != (alto > 0), (
+        "la raiz cae fuera del intervalo, asi que este caso no prueba la guarda "
+        "de los dias sino la del intervalo"
+    )
+
     assert rendimiento.tir(flujos) is None
 
 
