@@ -96,6 +96,15 @@ def test_un_solo_flujo_tampoco_tiene_tir():
     assert rendimiento.tir([(date(2026, 1, 1), -1000.0)]) is None
 
 
+def test_una_lista_de_flujos_vacia_no_revienta():
+    # Este es el que pinza `if len(flujos) < 2`. El de un solo flujo NO lo
+    # pinza: con un elemento, `dias` sale 0, cae por debajo del minimo de 30 y
+    # la guarda de los dias devuelve None igual, asi que el guard se puede
+    # borrar entero sin que ese test se entere. Con la lista vacia no hay
+    # escapatoria -- sin el guard, `ordenados[-1]` lanza IndexError.
+    assert rendimiento.tir([]) is None
+
+
 def test_un_periodo_corto_no_devuelve_una_tir_anualizada_absurda():
     # 1% en tres dias: la tasa anual equivalente es del 236%, y cae DENTRO del
     # intervalo de busqueda. Sin la guarda de los 30 dias, brentq la encuentra

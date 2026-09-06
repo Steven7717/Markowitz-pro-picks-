@@ -2099,6 +2099,15 @@ def test_un_solo_flujo_tampoco_tiene_tir():
     assert rendimiento.tir([(date(2026, 1, 1), -1000.0)]) is None
 
 
+def test_una_lista_de_flujos_vacia_no_revienta():
+    # Este es el que pinza `if len(flujos) < 2`. El de un solo flujo NO lo
+    # pinza: con un elemento, `dias` sale 0, cae por debajo del minimo de 30 y
+    # la guarda de los dias devuelve None igual, asi que el guard se puede
+    # borrar entero sin que ese test se entere. Con la lista vacia no hay
+    # escapatoria -- sin el guard, `ordenados[-1]` lanza IndexError.
+    assert rendimiento.tir([]) is None
+
+
 def test_un_periodo_corto_no_devuelve_una_tir_anualizada_absurda():
     # 1% en tres dias: la tasa anual equivalente es del 236%, y cae DENTRO del
     # intervalo de busqueda. Sin la guarda de los 30 dias, brentq la encuentra
@@ -2254,9 +2263,9 @@ def tir(flujos: "list[tuple[date, float]]") -> float | None:
 UV_LINK_MODE=copy uv run pytest tests/test_seguimiento_rendimiento.py -q
 ```
 
-Esperado: `16 passed` con `numpy_financial` instalada — 8 de la Task 6 más 8
-tuyos, que son seis tests sueltos y uno parametrizado de dos casos. **Sin ella,
-`14 passed, 2 skipped`**: los dos del contraste se omiten solos, y eso es
+Esperado: `17 passed` con `numpy_financial` instalada — 8 de la Task 6 más 9
+tuyos, que son siete tests sueltos y uno parametrizado de dos casos. **Sin ella,
+`15 passed, 2 skipped`**: los dos del contraste se omiten solos, y eso es
 correcto. No la instales.
 
 - [ ] **Step 5: Comprueba que las dos guardas que sí son observables muerden**
@@ -2265,7 +2274,7 @@ Rompe cada una y confirma que falla el test que dice probarla. Deshaz después.
 
 | Sabotaje | Tiene que fallar |
 |---|---|
-| Quitar `if len(flujos) < 2: return None` | `test_un_solo_flujo_tampoco_tiene_tir` |
+| Quitar `if len(flujos) < 2: return None` | `test_una_lista_de_flujos_vacia_no_revienta` — **no** el de un solo flujo, que la guarda de los 30 días tapa |
 | Quitar la guarda de los 30 días | `test_un_periodo_corto_no_devuelve_una_tir_anualizada_absurda` |
 | `/ 365.0` → `/ 360.0` en `_valor_actual` | el control negativo |
 
@@ -3558,8 +3567,8 @@ if pendiente is not None:
 UV_LINK_MODE=copy uv run pytest tests/ -q -m "not red"
 ```
 
-Esperado: **127 tests nuevos** sobre la base. Con `numpy_financial` instalada,
-`908 passed, 2 skipped`; sin ella, `906 passed, 4 skipped` — los dos de
+Esperado: **128 tests nuevos** sobre la base. Con `numpy_financial` instalada,
+`909 passed, 2 skipped`; sin ella, `907 passed, 4 skipped` — los dos de
 contraste se omiten solos y eso es correcto. En ambos casos, `6 deselected`.
 
 Ese recuento cuenta `test_apagado.py::test_detener_espera_antes_de_forzar` como
