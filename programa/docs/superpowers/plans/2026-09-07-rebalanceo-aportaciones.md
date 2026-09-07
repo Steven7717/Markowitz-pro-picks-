@@ -502,9 +502,11 @@ def calcular(
         )
         (ajenos if peso_objetivo <= 0 else lineas).append(desvio)
 
-    # De mas infraponderado a mas sobreponderado: la pantalla pinta en este
-    # orden y asi no tiene que ordenar nada por su cuenta.
-    lineas.sort(key=lambda d: d.desviacion)
+    # De mayor a menor urgencia: el tamaño de la desviacion (en valor
+    # absoluto) es lo que importa, no su signo — un activo un 30% por debajo
+    # de su objetivo pide tanta atencion como uno un 30% por encima. Asi la
+    # pantalla pinta arriba lo mas urgente sin ordenar nada por su cuenta.
+    lineas.sort(key=lambda d: abs(d.desviacion), reverse=True)
     return Deriva(invertido, tuple(lineas), tuple(ajenos), sin_precio,
                   normalizados, pesos)
 ```
