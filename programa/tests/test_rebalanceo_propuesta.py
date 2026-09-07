@@ -67,6 +67,11 @@ def test_una_operacion_que_no_compensa_se_muestra_descartada():
     assert p.y_ademas == ()
     assert {o.ticker for o in p.descartadas_por_coste} == {"AAPL", "MSFT"}
     assert all(not o.viable for o in p.descartadas_por_coste)
+    # Aqui es donde importa que `basta_con_la_aportacion` sea un hecho propio:
+    # `y_ademas` esta vacia, pero la cartera SIGUE fuera de banda -- lo unico
+    # que paso es que arreglarlo no compensa el coste. Deducirlo de `not
+    # y_ademas` diria "no hace falta nada" cuando hace falta y no compensa.
+    assert not p.basta_con_la_aportacion
 
 
 def test_el_coste_del_libro_manda_sobre_el_declarado():
