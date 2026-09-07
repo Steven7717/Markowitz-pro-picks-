@@ -168,3 +168,100 @@ def test_contraste_contra_numpy_financial(caso):
     importes = [v for _, v in caso]
     referencia = npf.xirr(importes, fechas)
     assert rendimiento.tir(caso) == pytest.approx(referencia, abs=1e-6)
+
+
+from seguimiento.libro import Asiento
+
+
+def ap(id_, fecha, importe):
+    return Asiento(id=id_, fecha=fecha, tipo="aportacion", importe=importe)
+
+
+def cp(id_, fecha, ticker, acciones, precio, comision=0.0):
+    return Asiento(
+        id=id_, fecha=fecha, tipo="compra", ticker=ticker,
+        acciones=acciones, precio=precio, importe=acciones * precio,
+        comision=comision,
+    )
+
+
+def vt(id_, fecha, ticker, acciones, precio, comision=0.0):
+    return Asiento(
+        id=id_, fecha=fecha, tipo="venta", ticker=ticker,
+        acciones=acciones, precio=precio, importe=acciones * precio,
+        comision=comision,
+    )
+
+
+def test_el_coste_medio_pondera_las_dos_compras():
+    asientos = [
+        ap("a", "2026-01-05", 10_000.0),
+        cp("c1", "2026-01-05", "AAPL", 10.0, 200.0),
+        cp("c2", "2026-02-05", "AAPL", 10.0, 240.0),
+    ]
+    linea = rendimiento.por_activo(asientos, {"AAPL": 250.0})["AAPL"]
+    assert linea.acciones == pytest.approx(20.0)
+    assert linea.coste_medio == pytest.approx(220.0)
+
+
+def test_la_comision_entra_en_el_coste_medio():
+    # Es dinero que salio para tener esas acciones. Dejarla fuera haria que el
+    # coste medio no fuera el que se pago de verdad.
+    asientos = [
+        ap("a", "2026-01-05", 10_000.0),
+        cp("c1", "2026-01-05", "AAPL", 10.0, 200.0, comision=20.0),
+    ]
+    linea = rendimiento.por_activo(asientos, {"AAPL": 250.0})["AAPL"]
+    assert linea.coste_medio == pytest.approx(202.0)
+
+
+def test_la_ganancia_latente_es_valor_menos_coste_de_lo_que_queda():
+    asientos = [
+        ap("a", "2026-01-05", 10_000.0),
+        cp("c1", "2026-01-05", "AAPL", 10.0, 200.0),
+    ]
+    linea = rendimiento.por_activo(asientos, {"AAPL": 250.0})["AAPL"]
+    assert linea.valor == pytest.approx(2500.0)
+    assert linea.latente == pytest.approx(500.0)
+    assert linea.realizada == pytest.approx(0.0)
+
+
+def test_una_venta_realiza_ganancia_al_coste_medio():
+    asientos = [
+        ap("a", "2026-01-05", 10_000.0),
+        cp("c1", "2026-01-05", "AAPL", 10.0, 200.0),
+        cp("c2", "2026-02-05", "AAPL", 10.0, 240.0),
+        vt("v1", "2026-03-05", "AAPL", 5.0, 300.0),
+    ]
+    linea = rendimiento.por_activo(asientos, {"AAPL": 300.0})["AAPL"]
+    # Coste medio 220; se venden 5 a 300: (300-220)*5 = 400 realizados.
+    assert linea.realizada == pytest.approx(400.0)
+    assert linea.acciones == pytest.approx(15.0)
+    # El coste medio no cambia al vender: sigue siendo 220.
+    assert linea.coste_medio == pytest.approx(220.0)
+
+
+def test_los_dividendos_cobrados_se_cuentan_aparte_del_precio():
+    asientos = [
+        ap("a", "2026-01-05", 10_000.0),
+        cp("c1", "2026-01-05", "AAPL", 10.0, 200.0),
+        Asiento(id="d1", fecha="2026-02-05", tipo="dividendo",
+                ticker="AAPL", importe=24.0),
+    ]
+    linea = rendimiento.por_activo(asientos, {"AAPL": 250.0})["AAPL"]
+    assert linea.dividendos == pytest.approx(24.0)
+    # La contribucion suma las tres piezas: latente, realizada y dividendos.
+    assert linea.contribucion == pytest.approx(500.0 + 0.0 + 24.0)
+
+
+def test_un_activo_sin_precio_no_se_valora_a_cero():
+    # Valorarlo a cero restaria toda la posicion de la ganancia sin decir por
+    # que. La linea vuelve con valor None y quien la pinta escribe "—".
+    asientos = [
+        ap("a", "2026-01-05", 10_000.0),
+        cp("c1", "2026-01-05", "ZZZZ", 10.0, 200.0),
+    ]
+    linea = rendimiento.por_activo(asientos, {})["ZZZZ"]
+    assert linea.valor is None
+    assert linea.latente is None
+    assert linea.contribucion is None

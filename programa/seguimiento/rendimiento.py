@@ -12,10 +12,13 @@ Cuando los dos se separan, la diferencia *es* el efecto de las aportaciones. Es
 información, no ruido, y la pantalla lo dice.
 """
 
+from dataclasses import dataclass
 from datetime import date
 
 import pandas as pd
 from scipy.optimize import brentq
+
+from seguimiento import posiciones
 
 # Por debajo de un mes, anualizar convierte un ruido en una afirmación: un 2% en
 # tres días sale a +780% anual. Se devuelve el retorno del periodo, sin
@@ -138,3 +141,86 @@ def tir(flujos: "list[tuple[date, float]]") -> float | None:
         return float(brentq(lambda r: _valor_actual(ordenados, r), _SUELO_TIR, _TECHO_TIR))
     except (ValueError, RuntimeError):
         return None
+
+
+@dataclass(frozen=True)
+class Linea:
+    """Un activo del libro: lo que se tiene, lo que costó y lo que ha dado."""
+
+    ticker: str
+    acciones: float
+    coste_medio: float
+    precio: float | None
+    valor: float | None
+    latente: float | None
+    realizada: float
+    dividendos: float
+    contribucion: float | None
+
+
+def por_activo(
+    asientos: "list", precios_actuales: dict[str, float]
+) -> dict[str, Linea]:
+    """Per-asset cost, gain and contribution, in dollars.
+
+    **Coste medio ponderado, no FIFO.** Cambia el reparto entre ganancia
+    realizada y latente, nunca el total. Es más simple, no pretende ser un
+    cálculo fiscal, y queda declarado en pantalla.
+
+    La contribución va **en dólares**: cuánto de la ganancia total viene de cada
+    activo. Es exacto y suma. Un porcentaje de contribución con aportaciones de
+    por medio compara cada activo contra un capital que no fue el suyo durante
+    todo el periodo, y por eso no se muestra.
+
+    Un activo sin precio actual vuelve con `valor`, `latente` y `contribucion`
+    en `None`, no en cero. Valorarlo a cero restaría la posición entera de la
+    ganancia sin decir por qué; `None` es lo que hace que quien lo pinta escriba
+    "—" con `cartera.formato_cifra`.
+    """
+    acciones: dict[str, float] = {}
+    coste: dict[str, float] = {}
+    realizada: dict[str, float] = {}
+    dividendos: dict[str, float] = {}
+
+    for a in posiciones.ordenados(posiciones.vigentes(asientos)):
+        if a.tipo == "compra":
+            acciones[a.ticker] = acciones.get(a.ticker, 0.0) + a.acciones
+            coste[a.ticker] = coste.get(a.ticker, 0.0) + a.importe + a.comision
+        elif a.tipo == "venta":
+            tiene = acciones.get(a.ticker, 0.0)
+            medio = (coste.get(a.ticker, 0.0) / tiene) if tiene else 0.0
+            realizada[a.ticker] = (
+                realizada.get(a.ticker, 0.0)
+                + (a.precio - medio) * a.acciones
+                - a.comision
+            )
+            acciones[a.ticker] = tiene - a.acciones
+            # El coste baja en proporcion a lo vendido, para que el coste medio
+            # de lo que queda no se mueva: vender no cambia lo que costo el
+            # resto.
+            coste[a.ticker] = medio * acciones[a.ticker]
+        elif a.tipo == "dividendo":
+            dividendos[a.ticker] = dividendos.get(a.ticker, 0.0) + a.importe
+
+    lineas = {}
+    for ticker in sorted(set(acciones) | set(realizada) | set(dividendos)):
+        n = acciones.get(ticker, 0.0)
+        c = coste.get(ticker, 0.0)
+        medio = c / n if n else 0.0
+        precio = precios_actuales.get(ticker)
+        valor = n * precio if precio is not None else None
+        latente = valor - c if valor is not None else None
+        real = realizada.get(ticker, 0.0)
+        divs = dividendos.get(ticker, 0.0)
+        lineas[ticker] = Linea(
+            ticker=ticker,
+            acciones=n,
+            coste_medio=medio,
+            precio=precio,
+            valor=valor,
+            latente=latente,
+            realizada=real,
+            dividendos=divs,
+            contribucion=None if latente is None else latente + real + divs,
+        )
+    return lineas
