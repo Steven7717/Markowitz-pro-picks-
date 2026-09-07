@@ -602,6 +602,24 @@ def test_los_objetivos_se_apilan_y_manda_el_ultimo():
     assert con_dos.objetivo.fecha == "2026-06-01"
 
 
+def test_actualizar_hace_crecer_el_libro_sin_bifurcarlo(tmp_path):
+    # `guardar` nunca sobrescribe, a proposito. Pero registrar una operacion no
+    # crea un libro nuevo: hace crecer el que hay. Sin `actualizar`, cada alta
+    # dejaba un fichero mas y la pantalla seguia leyendo el primero -- medido en
+    # la app: dos altas, tres ficheros, y el saldo siempre a cero.
+    libro, _ = anadir(VACIO, Asiento(id="ap", fecha="2026-09-01",
+                                     tipo="aportacion", importe=1000.0), hoy=HOY)
+    ruta = mod.guardar(libro, tmp_path)
+
+    crecido, _ = anadir(libro, Asiento(id="ap2", fecha="2026-09-02",
+                                       tipo="aportacion", importe=500.0), hoy=HOY)
+    misma = mod.actualizar(crecido, ruta)
+
+    assert misma == ruta
+    assert [p.name for p in tmp_path.glob("*.json")] == [ruta.name]
+    assert len(mod.cargar(ruta).asientos) == 2
+
+
 def test_un_nan_escrito_a_mano_en_el_fichero_impide_abrirlo(tmp_path):
     # json.loads acepta el literal NaN por defecto, asi que un fichero editado
     # a mano lo mete en el libro sin pasar por ningun formulario. Un NaN

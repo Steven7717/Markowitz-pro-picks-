@@ -459,11 +459,30 @@ def guardar(libro: Libro, directorio: Path | None = None) -> Path:
         fichero = directorio / f"{base}-{copia}.json"
         copia += 1
 
+    return actualizar(libro, fichero)
+
+
+def actualizar(libro: Libro, ruta: Path) -> Path:
+    """Rewrite an existing book in place, atomically.
+
+    `guardar` nunca sobrescribe, y hace bien: dos libros guardados en el mismo
+    segundo son dos libros distintos, y pisar uno seria perderlo. Pero
+    registrar una operacion no crea un libro nuevo, sino que hace crecer el que
+    ya hay -- y con `guardar` cada alta dejaba un fichero mas, de modo que el
+    libro se bifurcaba en cada asiento y la pantalla seguia leyendo el primero.
+    Medido en la app antes de escribir esto: dos altas, tres ficheros, y el
+    saldo siempre a cero.
+
+    La regla de que un asiento no se edita ni se borra sigue intacta. Lo que se
+    reescribe es el fichero; el libro dentro solo crece.
+    """
+    ruta = Path(ruta)
+    ruta.parent.mkdir(parents=True, exist_ok=True)
     texto = json.dumps(asdict(libro), ensure_ascii=False, indent=2, allow_nan=False)
-    tmp = fichero.with_suffix(".tmp")
+    tmp = ruta.with_suffix(".tmp")
     tmp.write_text(texto, encoding="utf-8")
-    tmp.replace(fichero)
-    return fichero
+    tmp.replace(ruta)
+    return ruta
 
 
 def cargar(ruta: Path) -> Libro:
