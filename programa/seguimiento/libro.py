@@ -336,3 +336,27 @@ def _con_asientos(libro: Libro, nuevos: list[Asiento]) -> Libro:
     from dataclasses import replace
 
     return replace(libro, asientos=tuple(libro.asientos) + tuple(nuevos))
+
+
+# Los cinco campos que hacen falta para poder decir "gana", "pierde" o "no se
+# distingue del ruido". Sin `oos_sharpe_stderr` los otros cuatro no bastan: dos
+# Sharpe sueltos no dicen si la diferencia cabe dentro del error de medicion.
+CAMPOS_VEREDICTO = (
+    "oos_sharpe",
+    "oos_equal_weight_sharpe",
+    "oos_sharpe_stderr",
+    "beats_equal_weight",
+    "oos_windows",
+)
+
+
+def veredicto_de(metricas: dict) -> dict:
+    """The out-of-sample verdict as stored, with what is missing left as None.
+
+    Los portafolios guardados antes de que el optimizador escribiera
+    `oos_sharpe_stderr` no lo llevan, y ahí `None` no es `False`: uno significa
+    "no se midió" y el otro "se midió y no gana". Rellenar el hueco con `False`
+    afirmaría un resultado que nadie obtuvo — la misma regla por la que
+    `cartera.formato_cifra` escribe "—" y nunca un 0,00.
+    """
+    return {campo: metricas.get(campo) for campo in CAMPOS_VEREDICTO}

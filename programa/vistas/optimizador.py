@@ -378,6 +378,12 @@ metrics = {
     "oos_sharpe": wf["out_of_sample_sharpe"] if wf else None,
     "oos_equal_weight_sharpe": wf["equal_weight_sharpe"] if wf else None,
     "oos_windows": wf["n_windows"] if wf else 0,
+    # Sin el error estandar, los dos Sharpe de arriba no permiten reconstruir el
+    # veredicto: no dicen si la diferencia entre ellos cabe dentro del ruido.
+    # `beats_equal_weight` es de tres estados a proposito -- None significa "no
+    # hay ventanas suficientes para distinguirlo", que no es lo mismo que False.
+    "oos_sharpe_stderr": wf["sharpe_stderr"] if wf else None,
+    "beats_equal_weight": wf["beats_equal_weight"] if wf else None,
 }
 
 # Las figuras se construyen una vez, antes de las pestañas, y se pintan con una

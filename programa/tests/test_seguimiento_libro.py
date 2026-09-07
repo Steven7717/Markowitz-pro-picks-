@@ -9,6 +9,7 @@ from seguimiento.libro import (
     Objetivo,
     derivar,
     validar,
+    veredicto_de,
 )
 
 HOY = date(2026, 9, 2)
@@ -451,3 +452,32 @@ def test_vender_la_posicion_entera_sobrevive_al_redondeo():
                     acciones=vendidas, precio=precio_v, importe=importe_v)
     libro, _ = anadir(libro, venta, hoy=HOY)
     assert len(libro.asientos) == 4
+
+
+def test_el_veredicto_se_extrae_de_las_metricas_guardadas():
+    metricas = {
+        "oos_sharpe": 0.41,
+        "oos_equal_weight_sharpe": 0.55,
+        "oos_sharpe_stderr": 0.09,
+        "beats_equal_weight": False,
+        "oos_windows": 12,
+    }
+    assert veredicto_de(metricas) == metricas
+
+
+def test_un_portafolio_viejo_sin_error_estandar_no_afirma_un_veredicto():
+    # Los ficheros guardados antes de este cambio no llevan sharpe_stderr. Sin
+    # el, "gana / pierde / no se distingue" no se puede reconstruir: dos Sharpe
+    # sueltos no dicen si la diferencia cabe dentro del ruido. None no es False.
+    viejo = {"oos_sharpe": 0.41, "oos_equal_weight_sharpe": 0.55, "oos_windows": 12}
+    salida = veredicto_de(viejo)
+    assert salida["oos_sharpe_stderr"] is None
+    assert salida["beats_equal_weight"] is None
+
+
+def test_el_veredicto_sobrevive_al_viaje_por_el_objetivo():
+    objetivo = Objetivo(
+        fecha="2026-09-02", base="equal_weight", portafolio={},
+        veredicto=veredicto_de({"oos_sharpe": 0.41, "oos_windows": 12}),
+    )
+    assert objetivo.veredicto["beats_equal_weight"] is None
