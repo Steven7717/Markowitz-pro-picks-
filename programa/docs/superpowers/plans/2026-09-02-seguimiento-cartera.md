@@ -2572,6 +2572,22 @@ def test_un_retiro_saca_dinero_a_prorrata():
     assert valores.iloc[2] == pytest.approx(660.0)
 
 
+def test_un_hueco_de_precio_no_hunde_la_referencia_a_cero():
+    # Aqui el hueco envenena mas que en `posiciones.serie`. Alli el total sale
+    # de `.sum()`, que salta los NaN y los cuenta como cero: se pierde la parte
+    # de ese activo. Aqui el valor del dia se suma `float()` a `float()`, asi
+    # que un solo NaN convierte el total del dia entero en NaN y la linea de la
+    # referencia desaparece del grafico.
+    con_hueco = pd.DataFrame(
+        {"AAPL": [100.0, float("nan"), 121.0], "MSFT": [100.0, 100.0, 100.0]},
+        index=FECHAS,
+    )
+    flujos = pd.Series([1000.0, 0.0, 0.0], index=FECHAS)
+    valores = comparacion.referencia(flujos, {"AAPL": 1.0}, con_hueco)
+    assert not valores.isna().any()
+    assert valores.iloc[1] == pytest.approx(1000.0)
+
+
 def test_equal_weight_reparte_entre_los_tickers_que_hay():
     flujos = pd.Series([1000.0, 0.0, 0.0], index=FECHAS)
     pesos = comparacion.equal_weight(["AAPL", "MSFT"])
@@ -2694,7 +2710,7 @@ def referencia(
 UV_LINK_MODE=copy uv run pytest tests/test_seguimiento_comparacion.py -q
 ```
 
-Esperado: `6 passed`.
+Esperado: `7 passed`.
 
 - [ ] **Step 5: Commit**
 
@@ -3567,8 +3583,8 @@ if pendiente is not None:
 UV_LINK_MODE=copy uv run pytest tests/ -q -m "not red"
 ```
 
-Esperado: **128 tests nuevos** sobre la base. Con `numpy_financial` instalada,
-`909 passed, 2 skipped`; sin ella, `907 passed, 4 skipped` — los dos de
+Esperado: **129 tests nuevos** sobre la base. Con `numpy_financial` instalada,
+`910 passed, 2 skipped`; sin ella, `908 passed, 4 skipped` — los dos de
 contraste se omiten solos y eso es correcto. En ambos casos, `6 deselected`.
 
 Ese recuento cuenta `test_apagado.py::test_detener_espera_antes_de_forzar` como

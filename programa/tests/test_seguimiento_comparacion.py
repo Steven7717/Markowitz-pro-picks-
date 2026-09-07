@@ -45,6 +45,22 @@ def test_un_retiro_saca_dinero_a_prorrata():
     assert valores.iloc[2] == pytest.approx(660.0)
 
 
+def test_un_hueco_de_precio_no_hunde_la_referencia_a_cero():
+    # Aqui el hueco envenena mas que en `posiciones.serie`. Alli el total sale
+    # de `.sum()`, que salta los NaN y los cuenta como cero: se pierde la parte
+    # de ese activo. Aqui el valor del dia se suma `float()` a `float()`, asi
+    # que un solo NaN convierte el total del dia entero en NaN y la linea de la
+    # referencia desaparece del grafico.
+    con_hueco = pd.DataFrame(
+        {"AAPL": [100.0, float("nan"), 121.0], "MSFT": [100.0, 100.0, 100.0]},
+        index=FECHAS,
+    )
+    flujos = pd.Series([1000.0, 0.0, 0.0], index=FECHAS)
+    valores = comparacion.referencia(flujos, {"AAPL": 1.0}, con_hueco)
+    assert not valores.isna().any()
+    assert valores.iloc[1] == pytest.approx(1000.0)
+
+
 def test_equal_weight_reparte_entre_los_tickers_que_hay():
     flujos = pd.Series([1000.0, 0.0, 0.0], index=FECHAS)
     pesos = comparacion.equal_weight(["AAPL", "MSFT"])
