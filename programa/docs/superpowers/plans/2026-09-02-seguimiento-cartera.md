@@ -2921,6 +2921,25 @@ def test_equal_weight_como_base_reparte_por_igual(tmp_path):
     assert mod.pesos_objetivo(nuevo.objetivo) == {"AAPL": 0.5, "MSFT": 0.5}
 
 
+def test_desde_portafolio_no_elige_la_base_por_ti():
+    # `base` no tiene valor por defecto A PROPOSITO. El walk-forward ya dice
+    # cuando la optimizacion no le gana a repartir por igual, y elegir por el
+    # usuario convertiria esa evidencia en un clic que nadie mira -- el mismo
+    # razonamiento que dejo las casillas desmarcadas en el gate de aprobacion.
+    #
+    # Sin este test la decision no esta protegida: los otros tres que llaman a
+    # `desde_portafolio` pasan `base=` explicito, asi que alguien puede
+    # devolverle un default y ninguno se entera. Comprobado saboteandolo.
+    import cartera
+    portafolio = cartera.desde_corrida(
+        nombre="X", tickers=["AAPL"], pesos=[1.0], horizonte="1 Mes",
+        estrategia="max_sharpe", peso_min=0.0, peso_max=1.0,
+        permitir_cortos=False, shrinkage=True, metricas={}, ahora=AHORA,
+    )
+    with pytest.raises(TypeError, match="base"):
+        mod.desde_portafolio("X", portafolio, ahora=AHORA)
+
+
 def test_una_base_inventada_no_pasa():
     import cartera
     portafolio = cartera.desde_corrida(
@@ -3183,7 +3202,7 @@ def listar(directorio: Path | None = None) -> list[Entrada]:
 UV_LINK_MODE=copy uv run pytest tests/test_seguimiento_libro.py tests/test_cartera.py -q
 ```
 
-Esperado: `72 passed` en el primero, y `test_cartera.py` sin regresión por el
+Esperado: `73 passed` en el primero, y `test_cartera.py` sin regresión por el
 renombrado de `rebanada`.
 
 - [ ] **Step 6: Commit**
@@ -3583,8 +3602,8 @@ if pendiente is not None:
 UV_LINK_MODE=copy uv run pytest tests/ -q -m "not red"
 ```
 
-Esperado: **129 tests nuevos** sobre la base. Con `numpy_financial` instalada,
-`910 passed, 2 skipped`; sin ella, `908 passed, 4 skipped` — los dos de
+Esperado: **130 tests nuevos** sobre la base. Con `numpy_financial` instalada,
+`911 passed, 2 skipped`; sin ella, `909 passed, 4 skipped` — los dos de
 contraste se omiten solos y eso es correcto. En ambos casos, `6 deselected`.
 
 Ese recuento cuenta `test_apagado.py::test_detener_espera_antes_de_forzar` como
