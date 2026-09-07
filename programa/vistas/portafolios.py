@@ -76,6 +76,13 @@ for entrada in entradas:
                 st.session_state.portafolio_a_cargar = p
                 st.switch_page("vistas/optimizador.py")
 
+            if st.button(
+                "Empezar a seguir", key=f"seguir_{entrada.ruta.name}",
+                use_container_width=True, icon=":material/monitoring:",
+            ):
+                st.session_state.portafolio_a_seguir = p
+                st.switch_page("vistas/seguimiento.py")
+
             confirmando = st.session_state.get("borrando") == str(entrada.ruta)
             if not confirmando:
                 if st.button(

@@ -11,3 +11,4 @@ actas/*.tmp
 portafolios/*.tmp
 .venv/
 salidas/
+libros/
