@@ -100,7 +100,7 @@ def normalizar_nombre(nombre: str) -> str:
     return limpio
 
 
-def _rebanada(nombre: str) -> str:
+def rebanada(nombre: str) -> str:
     """The name reduced to something a filesystem accepts, for the filename.
 
     Sólo alimenta el nombre del fichero; el nombre de verdad viaja dentro del
@@ -182,7 +182,7 @@ def guardar(portafolio: Portafolio, directorio: Path | None = None) -> Path:
     directorio.mkdir(parents=True, exist_ok=True)
 
     momento = datetime.fromisoformat(portafolio.fecha).strftime("%Y-%m-%d-%H%M%S")
-    base = f"{momento}-{_rebanada(portafolio.nombre)}"
+    base = f"{momento}-{rebanada(portafolio.nombre)}"
     fichero = directorio / f"{base}.json"
     copia = 2
     while fichero.exists():

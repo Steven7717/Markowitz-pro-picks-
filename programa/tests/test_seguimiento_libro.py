@@ -481,3 +481,147 @@ def test_el_veredicto_sobrevive_al_viaje_por_el_objetivo():
         veredicto=veredicto_de({"oos_sharpe": 0.41, "oos_windows": 12}),
     )
     assert objetivo.veredicto["beats_equal_weight"] is None
+
+
+# --- Guardar y leer el libro en disco -----------------------------------------
+
+import json
+from datetime import datetime
+
+from seguimiento import libro as mod
+
+AHORA = datetime(2026, 9, 2, 10, 0, 0)
+
+
+def test_lo_guardado_vuelve_igual(tmp_path):
+    original, _ = anadir(VACIO, Asiento(
+        id="ap", fecha="2026-09-01", tipo="aportacion", importe=1000.0), hoy=HOY)
+    ruta = mod.guardar(original, tmp_path)
+    vuelto = mod.cargar(ruta)
+    assert vuelto.nombre == "Prueba"
+    assert len(vuelto.asientos) == 1
+    assert vuelto.asientos[0].tipo == "aportacion"
+    assert vuelto.asientos[0].importe == 1000.0
+
+
+def test_guardar_dos_veces_no_pisa_el_primero(tmp_path):
+    # Un libro solo crece. Sobrescribirlo en silencio nunca es lo correcto.
+    uno = mod.guardar(VACIO, tmp_path)
+    dos = mod.guardar(VACIO, tmp_path)
+    assert uno != dos
+    assert uno.exists() and dos.exists()
+
+
+def test_un_fichero_truncado_se_nombra_y_no_se_borra(tmp_path):
+    # A diferencia de las caches de ranking/ y fundamentals/, que se borran y se
+    # regeneran. Un libro de posiciones no se regenera.
+    roto = tmp_path / "2026-09-02-100000-roto.json"
+    roto.write_text('{"nombre": "Prue', encoding="utf-8")
+    with pytest.raises(mod.LibroIlegible, match="roto.json"):
+        mod.cargar(roto)
+    assert roto.exists()
+
+
+def test_listar_devuelve_los_rotos_con_su_motivo(tmp_path):
+    mod.guardar(VACIO, tmp_path)
+    (tmp_path / "2026-01-01-000000-roto.json").write_text("{", encoding="utf-8")
+    entradas = mod.listar(tmp_path)
+    assert len(entradas) == 2
+    assert sum(1 for e in entradas if e.libro is None) == 1
+    assert all(e.libro is not None or e.error for e in entradas)
+
+
+def test_un_libro_desde_un_portafolio_copia_los_pesos_dentro(tmp_path):
+    import cartera
+    portafolio = cartera.desde_corrida(
+        nombre="Mi cartera", tickers=["AAPL", "MSFT"], pesos=[0.6, 0.4],
+        horizonte="1 Mes", estrategia="max_sharpe", peso_min=0.0, peso_max=1.0,
+        permitir_cortos=False, shrinkage=True,
+        metricas={"oos_sharpe": 0.41, "oos_sharpe_stderr": 0.09,
+                  "beats_equal_weight": False},
+        ahora=AHORA,
+    )
+    nuevo = mod.desde_portafolio("Seguimiento", portafolio, base="estrategia",
+                                 ahora=AHORA)
+    assert nuevo.objetivo.base == "estrategia"
+    assert nuevo.objetivo.portafolio["posiciones"][0]["ticker"] == "AAPL"
+    assert nuevo.objetivo.veredicto["beats_equal_weight"] is False
+    # Copiado dentro, no referenciado: el fichero de portafolios/ se puede
+    # borrar desde su pantalla, y el libro se quedaria apuntando a nada.
+    assert "ruta" not in nuevo.objetivo.portafolio
+
+
+def test_equal_weight_como_base_reparte_por_igual(tmp_path):
+    import cartera
+    portafolio = cartera.desde_corrida(
+        nombre="Mi cartera", tickers=["AAPL", "MSFT"], pesos=[0.6, 0.4],
+        horizonte="1 Mes", estrategia="max_sharpe", peso_min=0.0, peso_max=1.0,
+        permitir_cortos=False, shrinkage=True, metricas={}, ahora=AHORA,
+    )
+    nuevo = mod.desde_portafolio("Seguimiento", portafolio,
+                                 base="equal_weight", ahora=AHORA)
+    assert mod.pesos_objetivo(nuevo.objetivo) == {"AAPL": 0.5, "MSFT": 0.5}
+
+
+def test_una_base_inventada_no_pasa():
+    import cartera
+    portafolio = cartera.desde_corrida(
+        nombre="X", tickers=["AAPL"], pesos=[1.0], horizonte="1 Mes",
+        estrategia="max_sharpe", peso_min=0.0, peso_max=1.0,
+        permitir_cortos=False, shrinkage=True, metricas={}, ahora=AHORA,
+    )
+    with pytest.raises(AsientoInvalido, match="base"):
+        mod.desde_portafolio("X", portafolio, base="a_ojo", ahora=AHORA)
+
+
+def test_los_objetivos_se_apilan_y_manda_el_ultimo():
+    from dataclasses import replace
+    con_dos = replace(VACIO, objetivos=[
+        Objetivo(fecha="2026-01-01", base="estrategia", portafolio={}),
+        Objetivo(fecha="2026-06-01", base="equal_weight", portafolio={}),
+    ])
+    assert con_dos.objetivo.fecha == "2026-06-01"
+
+
+def test_un_nan_escrito_a_mano_en_el_fichero_impide_abrirlo(tmp_path):
+    # json.loads acepta el literal NaN por defecto, asi que un fichero editado
+    # a mano lo mete en el libro sin pasar por ningun formulario. Un NaN
+    # envenena el efectivo y borra un activo de la tabla sin decir nada: el
+    # libro esta corrupto, y se trata como tal en vez de abrirse a medias.
+    ruta = tmp_path / "2026-09-02-100000-envenenado.json"
+    ruta.write_text(
+        '{"nombre": "Prueba", "creado": "2026-09-02T10:00:00", "moneda": "USD",'
+        ' "objetivos": [], "asientos": [{"id": "a1", "fecha": "2026-09-01",'
+        ' "tipo": "compra", "ticker": "AAPL", "acciones": 10.0,'
+        ' "precio": 220.0, "importe": NaN}]}',
+        encoding="utf-8",
+    )
+    with pytest.raises(mod.LibroIlegible, match="a1"):
+        mod.cargar(ruta)
+    # Y sigue en disco: una cache se regenera, un libro no.
+    assert ruta.exists()
+
+
+def test_un_fallo_a_media_escritura_no_deja_medio_libro_en_el_destino(tmp_path, monkeypatch):
+    # El patron tmp-then-replace existe justo para esto: lo que se escribe a
+    # medias es el .tmp, y el destino solo aparece a traves del replace, que es
+    # atomico. Sin el, un proceso muerto a mitad deja un .json con medio JSON
+    # dentro, y ese historial no se regenera -- nadie recuerda que compro en
+    # marzo.
+    primero, _ = anadir(VACIO, Asiento(
+        id="ap", fecha="2026-09-01", tipo="aportacion", importe=1000.0), hoy=HOY)
+    ruta = mod.guardar(primero, tmp_path)
+    antes = ruta.read_text(encoding="utf-8")
+
+    def revienta(self, *args, **kwargs):
+        raise OSError("disco lleno")
+
+    monkeypatch.setattr("pathlib.Path.replace", revienta)
+    with pytest.raises(OSError):
+        mod.guardar(primero, tmp_path)
+
+    # Ni un .json nuevo a medias, ni el anterior tocado. El .tmp puede quedar de
+    # escombro: es el mismo compromiso, escrito y aceptado, que documenta
+    # `aprobacion/acta.py:guardar_acta`.
+    assert sorted(p.name for p in tmp_path.glob("*.json")) == [ruta.name]
+    assert ruta.read_text(encoding="utf-8") == antes

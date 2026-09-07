@@ -12,10 +12,14 @@ una corrección aplicada a una sola de ellas produce un libro que se lee
 perfectamente bien y miente.
 """
 
+import json
 import math
 import re
-from dataclasses import dataclass, field
-from datetime import date
+from dataclasses import asdict, dataclass, field
+from datetime import date, datetime
+from pathlib import Path
+
+import cartera
 
 TIPOS = frozenset(
     {"aportacion", "retiro", "compra", "venta", "dividendo", "anulacion"}
@@ -360,3 +364,163 @@ def veredicto_de(metricas: dict) -> dict:
     `cartera.formato_cifra` escribe "—" y nunca un 0,00.
     """
     return {campo: metricas.get(campo) for campo in CAMPOS_VEREDICTO}
+
+
+DIRECTORIO = Path("libros")
+
+BASES = frozenset({"estrategia", "equal_weight"})
+
+
+class LibroIlegible(ValueError):
+    """Hay un fichero de libro, pero no se puede leer."""
+
+
+@dataclass(frozen=True)
+class Entrada:
+    """Un fichero de la carpeta: el libro si se pudo leer, o por qué no.
+
+    Los ilegibles se devuelven en vez de saltarse, igual que hace
+    `cartera.listar`. Un libro que desaparece de la lista sin decir nada es
+    indistinguible de uno que nunca existió, y el usuario se queda buscándolo.
+    """
+
+    ruta: Path
+    libro: Libro | None
+    error: str | None
+
+
+def desde_portafolio(
+    nombre: str,
+    portafolio,
+    base: str,
+    acta: str | None = None,
+    ahora: datetime | None = None,
+) -> Libro:
+    """Start a book whose target is a saved portfolio snapshot.
+
+    El portafolio se copia **dentro**, no se referencia por ruta:
+    `vistas/portafolios.py` tiene un botón de borrar, y un libro que apuntase a
+    un fichero borrado se quedaría sin objetivo contra el que medir.
+
+    `base` no tiene valor por defecto a propósito. El walk-forward ya dice
+    cuándo la optimización no le gana a repartir por igual, y elegir por el
+    usuario convertiría esa evidencia en un clic que nadie mira. Es el mismo
+    razonamiento que dejó las casillas desmarcadas en el gate de aprobación.
+    """
+    if base not in BASES:
+        raise AsientoInvalido(
+            f"{base!r} no es una base válida: {', '.join(sorted(BASES))}"
+        )
+    momento = (ahora or datetime.now()).isoformat(timespec="seconds")
+    copia = asdict(portafolio)
+    if acta:
+        copia["acta"] = acta
+    return Libro(
+        nombre=cartera.normalizar_nombre(nombre),
+        creado=momento,
+        objetivos=(
+            Objetivo(
+                fecha=momento[:10],
+                base=base,
+                portafolio=copia,
+                veredicto=veredicto_de(copia.get("metricas") or {}),
+            ),
+        ),
+    )
+
+
+def pesos_objetivo(objetivo: Objetivo | None) -> dict[str, float]:
+    """The weights the drift is measured against, honouring `base`."""
+    if objetivo is None:
+        return {}
+    posiciones_ = objetivo.portafolio.get("posiciones") or []
+    tickers = [p["ticker"] for p in posiciones_]
+    if objetivo.base == "equal_weight":
+        return {t: 1.0 / len(tickers) for t in tickers} if tickers else {}
+    return {p["ticker"]: float(p["peso"]) for p in posiciones_}
+
+
+def guardar(libro: Libro, directorio: Path | None = None) -> Path:
+    """Write the book atomically and return where it landed.
+
+    Mismo esquema que `cartera.guardar` y `aprobacion.acta.guardar_acta`: fecha
+    delante para que la carpeta se ordene sola, sufijo numérico en colisión, y
+    tmp-then-`replace()` para que un proceso muerto a media escritura no deje el
+    libro a medias.
+    """
+    directorio = Path(directorio or DIRECTORIO)
+    directorio.mkdir(parents=True, exist_ok=True)
+
+    momento = datetime.fromisoformat(libro.creado).strftime("%Y-%m-%d-%H%M%S")
+    base = f"{momento}-{cartera.rebanada(libro.nombre)}"
+    fichero = directorio / f"{base}.json"
+    copia = 2
+    while fichero.exists():
+        fichero = directorio / f"{base}-{copia}.json"
+        copia += 1
+
+    texto = json.dumps(asdict(libro), ensure_ascii=False, indent=2, allow_nan=False)
+    tmp = fichero.with_suffix(".tmp")
+    tmp.write_text(texto, encoding="utf-8")
+    tmp.replace(fichero)
+    return fichero
+
+
+def cargar(ruta: Path) -> Libro:
+    """Read a book back, naming whatever is wrong with it.
+
+    **No borra el fichero roto**, a diferencia de las cachés de `ranking/` y
+    `fundamentals/`, que sí lo hacen. Una caché se regenera; el historial de lo
+    que alguien compró, no.
+
+    **Cada asiento se vuelve a validar al leerlo**, y no sólo al escribirlo.
+    `json.loads` acepta los literales `NaN` e `Infinity` por defecto, así que un
+    fichero editado a mano o corrompido puede meter un importe que ninguna
+    guarda de "mayor que cero" detiene — y un solo `NaN` envenena el efectivo y
+    borra un activo de la tabla sin decir nada. Un libro así **está corrupto**, y
+    aquí se trata como tal: se nombra el asiento culpable y no se abre.
+    """
+    ruta = Path(ruta)
+    try:
+        crudo = json.loads(ruta.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError) as error:
+        raise LibroIlegible(f"{ruta.name} no se puede leer: {error}") from error
+    if not isinstance(crudo, dict):
+        raise LibroIlegible(f"{ruta.name} no contiene un objeto")
+    for campo in ("nombre", "creado", "asientos"):
+        if campo not in crudo:
+            raise LibroIlegible(f"a {ruta.name} le falta el campo {campo}")
+    try:
+        asientos = tuple(Asiento(**a) for a in crudo["asientos"])
+        libro = Libro(
+            nombre=cartera.normalizar_nombre(crudo["nombre"]),
+            creado=str(crudo["creado"]),
+            moneda=str(crudo.get("moneda", "USD")),
+            objetivos=tuple(Objetivo(**o) for o in crudo.get("objetivos", [])),
+            asientos=asientos,
+        )
+    except (TypeError, ValueError) as error:
+        raise LibroIlegible(f"{ruta.name}: {error}") from error
+
+    for asiento in asientos:
+        try:
+            validar(asiento)
+        except AsientoInvalido as error:
+            raise LibroIlegible(
+                f"{ruta.name}: el asiento {asiento.id} no es válido ({error})"
+            ) from error
+    return libro
+
+
+def listar(directorio: Path | None = None) -> list[Entrada]:
+    """Every saved book, newest first, including the broken ones."""
+    directorio = Path(directorio or DIRECTORIO)
+    if not directorio.is_dir():
+        return []
+    entradas = []
+    for ruta in sorted(directorio.glob("*.json"), reverse=True):
+        try:
+            entradas.append(Entrada(ruta=ruta, libro=cargar(ruta), error=None))
+        except LibroIlegible as error:
+            entradas.append(Entrada(ruta=ruta, libro=None, error=str(error)))
+    return entradas
