@@ -27,6 +27,10 @@ El objetivo mayor es construir, **aguas arriba de esa app**, un sistema donde un
 | C | Handoff + gate de aprobación | UI de revisión → tickers al optimizador | ✅ **terminado** |
 | D | ¿El análisis técnico aporta ventaja? | Veredicto reproducible | ✅ **terminado** |
 | E | Módulo de timing de entrada | — | ❌ **descartado por D** |
+| F | Libro de posiciones y seguimiento | Valoración, rendimiento y referencias | ✅ **terminado** |
+| G | Rebalanceo y aportaciones | Medidores de deriva, reparto de la aportación | ⬜ pendiente |
+| H | Noticias y calendario | Feed de EDGAR, prensa, eventos | ⬜ pendiente |
+| I | Capa de IA sobre F, G y H | Interpretación y propuestas de ajuste | ⬜ pendiente |
 
 ## Resultado del sub-proyecto D
 
@@ -134,6 +138,18 @@ estimators.py    Ledoit-Wolf + James-Stein
 validation.py    walk-forward out-of-sample
 charts.py        Plotly
 exporter.py      PDF (fpdf2) + Excel (openpyxl)
+```
+
+### El libro de posiciones
+```
+seguimiento/
+├── libro.py        el asiento: tipos, validación, alta, persistencia
+├── posiciones.py   asientos → acciones, efectivo y valor, día a día
+├── precios.py      cierres SIN ajustar, dividendos y splits
+├── rendimiento.py  TWR, TIR, coste medio, contribución por activo
+└── comparacion.py  objetivo teórico, 1/N y S&P 500 sobre los mismos flujos
+vistas/seguimiento.py   widgets, sin lógica
+libros/                 datos del usuario, ignorado en git
 ```
 
 ### El paquete del estudio
@@ -473,10 +489,137 @@ procesos en marcha si el desacoplo no está bien hecho.
 
 ---
 
+## Resultado del sub-proyecto F
+
+Paquete `seguimiento/` (lógica, sin Streamlit) y `vistas/seguimiento.py` (widgets,
+sin lógica), con **131 tests nuevos**. Fuera del paquete cambian tres cosas y
+nada más: `vistas/optimizador.py` guarda dos campos más en `metrics`,
+`cartera.py` hace público `rebanada`, y `app.py` registra la pantalla.
+
+El libro guarda **sólo asientos**. Posiciones, pesos, valor y rendimiento se
+derivan en cada apertura, así que no hay estado guardado que pueda
+desincronizarse con el historial — porque no hay estado guardado. Corregir un
+error es añadir un asiento de anulación, nunca editar.
+
+Un `cartera.Portafolio` guardado y un libro no son lo mismo y no hay que
+fundirlos: aquel es *una fotografía* de una optimización, congelada y sin dinero
+dentro; este es el registro vivo de lo que pasó después. La pantalla mide la
+distancia entre los dos, que es justo lo que se borraría al unirlos.
+
+### Decisiones que no hay que relitigar
+
+- **Los precios del seguimiento van sin ajustar, y `data.py` sigue ajustando.**
+  Un precio ajustado cambia hacia atrás con cada dividendo y cada split, así que
+  el precio al que se compró en enero no es el mismo número tres meses después.
+  Al optimizador le da igual —sólo usa retornos, y el ajuste es consistente
+  dentro de una descarga— pero a un libro de posiciones le mueve el coste de
+  adquisición solo, y nadie lo ve porque el número sigue siendo plausible.
+  Módulo aparte y no un interruptor en `data.py`: un interruptor arriesga lo
+  contrario, que el optimizador reciba algún día precios sin ajustar.
+- **El dividendo no es un flujo externo.** Sólo `aportacion` y `retiro` lo son.
+  Contarlo como aportación infla el capital aportado con lo que la cartera
+  acaba de ganar, y hunde el rendimiento sin causa visible.
+- **El dividendo se paga sobre la tenencia de antes de los movimientos del
+  día.** Para cobrarlo hay que tener las acciones *antes* de la fecha ex.
+- **Coste medio ponderado, no FIFO.** Cambia el reparto entre ganancia
+  realizada y latente, nunca el total. No pretende ser un cálculo fiscal, y la
+  pantalla lo dice.
+- **`libros/` se ignora en git, a diferencia de `actas/` y `portafolios/`.**
+  Aquellos están a la vista a propósito y guardan decisiones y pesos; un libro
+  guarda cuánto dinero tiene el usuario y en qué. Es otra categoría, y la
+  excepción es deliberada.
+- **Un fichero de libro corrupto se nombra y no se borra**, al revés que las
+  cachés de `ranking/` y `fundamentals/`. Una caché se regenera; el historial de
+  lo que alguien compró, no. Y cada asiento se revalida al leerlo, porque
+  `json.loads` acepta el literal `NaN` por defecto.
+- **La elección entre los pesos de la estrategia y 1/N no viene
+  preseleccionada,** y `desde_portafolio` no le da valor por defecto a `base`.
+  El walk-forward ya dice cuándo la optimización no le gana a repartir por
+  igual; elegir por el usuario convertiría esa evidencia en un clic que nadie
+  mira. Hay un test que protege la ausencia del valor por defecto, porque sin
+  él nadie se enteraría de que alguien se lo devuelve.
+- **Lo que no se puede medir se muestra como «—», nunca como 0,00.** Misma
+  regla que `cartera.formato_cifra` ya aplicaba: un cero es una afirmación, y
+  ahí no la hizo nadie.
+
+### Dieciséis defectos, y ninguno se veía leyendo
+
+F se ejecutó con un plan escrito por adelantado, un subagente por tarea, y
+**revisión por sabotaje**: romper a mano la línea que cada guarda protege y
+comprobar que algún test cae. **Los dieciséis eran defectos del plan, no de quien
+lo implementó**: el código se copiaba literal y se verificaba con un diff. Lo que los encontró se reparte en tres métodos, y
+cada uno caza una clase distinta:
+
+**Sabotear una guarda y ver si algún test se entera** — caza guardas decorativas:
+
+| Defecto | Qué pasaba |
+|---|---|
+| `NaN` e infinito atraviesan toda la validación | `nan <= 0` es `False` y `not nan` también. Un asiento con `NaN` envenena el efectivo **y borra el activo de la tabla**, porque el filtro de polvo también falla con `NaN`. Y entra desde disco sin que nadie lo teclee |
+| Cinco mutantes vivos en la Task 1 | Ningún test tocaba las guardas de `importe` ni de `acciones`, y el de precio cero pasaba por la rama de *truthiness*, dejando sin cubrir `precio <= 0` |
+| La guarda de los 30 días pasaba por 0,126 de casualidad | El caso usaba 2% en tres días, cuya tasa anual (10,126) se sale del techo del intervalo por una décima: lo cortaba **la guarda del intervalo**. Con 1,9% ya devolvía 8,87 |
+| `if len(flujos) < 2` tapada por la de los 30 días | Con un solo flujo, `dias` sale 0 y cae bajo el mínimo. La guarda hace falta —con lista vacía, `ordenados[-1]` lanza `IndexError`— pero nada la probaba |
+| `base` sin valor por defecto no estaba protegida | Los tres tests pasaban `base=` explícito, así que devolverle un default no rompía nada |
+
+**Sondear una hipótesis con un script** — caza lógica que se lee bien:
+
+| Defecto | Qué pasaba |
+|---|---|
+| El dividendo se le pagaba a quien compraba **el día de la fecha ex** | Los asientos se aplicaban antes de pagar. Medido: una compra de diez acciones el día ex se llevaba 2,40 que no le tocaban |
+| `anadir` validaba contra el saldo final, no el del día del asiento | Una venta fechada en julio de acciones compradas en agosto se aceptaba y dejaba **−10 acciones en julio**. No es raro: es lo que pasa al registrar lo que ya tenías comprado, en el orden del extracto |
+| Un hueco de precio valía cero | `.sum()` salta los `NaN` por defecto, así que el gráfico dibujaba una caída a plomo que nunca ocurrió. En `comparacion` era peor: un solo `NaN` convertía el día entero en `NaN` |
+| Los asientos posteriores al último cierre desaparecían en silencio | Pasa al registrar una compra de hoy antes de que yfinance tenga el cierre de hoy |
+| El regex aceptaba `"AAPL\n"` y `fromisoformat` aceptaba `"20260901"` | El primero parte una posición en dos claves de diccionario; el segundo, ordenado como cadena, se va detrás de `"2026-08-01"` y aplica una venta antes que su compra |
+
+**Arrancar la app y recorrerla** — caza lo que ninguna prueba unitaria puede ver:
+
+| Defecto | Qué pasaba |
+|---|---|
+| Un libro recién creado era un callejón sin salida | Decía «añade el primero abajo» y hacía `st.stop()` antes de dibujar el formulario |
+| Registrar una operación **bifurcaba el libro** | `guardar` nunca sobrescribe, a propósito. Pero un alta no crea un libro, hace crecer el que hay. Medido: dos altas, tres ficheros, y la pantalla leyendo siempre el primero |
+| Un libro con aportación y sin compras reventaba | Sin tickers, la descarga llamaba a yfinance con lista vacía: `No objects to concatenate` |
+| `GANANCIA −9.700` sin que nadie hubiera perdido un dólar | `aportado` se sumaba sobre todos los asientos y `valor` salía de la serie, que acaba en el último cierre. Dos cortes temporales distintos restándose. La TIR tenía el mismo defecto y salía «no calculable» |
+
+La lección que confirma: **los tres métodos son necesarios y ninguno sustituye a
+los otros.** Los sabotajes cazan tests que mienten; las sondas, lógica plausible
+y falsa; arrancar la app, todo lo que sólo existe cuando las piezas se tocan
+entre sí. Los cuatro últimos habrían llegado a manos del usuario con la suite
+entera en verde.
+
+### Qué hereda G
+
+F deja exactamente tres cosas, y ninguna más:
+
+- `libro.pesos_objetivo(l.objetivo)` — los pesos contra los que medir la deriva,
+  ya resueltos según `base`.
+- La columna «peso real» de la tabla por activo — el otro lado de la resta.
+- `posiciones.estado(asientos).efectivo` — el dinero sin asignar, que es
+  literalmente lo que G va a repartir.
+
+`medidores.py` ya existe y es la base visual de los medidores de deriva.
+
+### Lo que F no resuelve
+
+- **Una divisa, USD.** Un ticker de otra moneda daría cifras mezcladas; se
+  declara en pantalla en vez de fingir soporte.
+- **No es un cálculo fiscal.** Media ponderada y no lotes, dividendos brutos.
+- **Una posición sin precio rebaja el valor sin poder valorarla.** El dinero
+  salió del efectivo y las acciones no tienen precio, así que el total mostrado
+  es un mínimo. La pantalla lo dice; inventarle un valor sería peor.
+- **PDF no.** `exporter.to_pdf` pasa por `kpi_rows`, que indexa claves de una
+  corrida del optimizador que un libro no tiene. Sólo Excel.
+
 ## Lo siguiente
 
 El sistema está completo de punta a punta: A ingiere, B ordena y razona, C
-decide, y el optimizador reparte pesos.
+decide, el optimizador reparte pesos, y **F sigue lo que se compró de verdad**.
+
+Lo natural es continuar por **G — rebalanceo y aportaciones**, que es lo que F
+deja servido: los pesos objetivo, los pesos reales y el efectivo sin asignar.
+Su diseño no está escrito; lo que sí está decidido es que el medidor no debe
+mostrar sólo la deriva sino **lo que cuesta corregirla** — el sub-proyecto D
+concluyó que ninguna señal técnica aporta ventaja, así que el mayor destructor
+de valor disponible aquí es operar de más. `research/costs.py` ya tiene los
+escenarios de coste.
 
 El rediseño de la interfaz, que era el punto 1 de esta lista, se hizo el
 2026-09-01 — ver la sección anterior. El arranque en Mac, que fue el punto 1
@@ -509,7 +652,7 @@ Sigue sin responder: **¿cuántas acciones debería tener el portafolio final?**
 
 ```bash
 # Todos estos se ejecutan desde programa/, no desde la raiz del repo.
-pytest tests/ -q -m "not red"       # 688 tests, sin red
+pytest tests/ -q -m "not red"       # 911 tests, sin red
 python -m research.run              # correr el estudio (~5 min, luego caché)
 streamlit run app.py                # la app: optimizador + pagina de revision
 python scripts/bootstrap_universe.py   # regenerar el snapshot del universo

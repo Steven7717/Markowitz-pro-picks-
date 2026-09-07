@@ -174,6 +174,20 @@ siempre enmascarada (por ejemplo `sk-ant-…4f2a`), nunca entera. Desde ese
 mismo apartado puedes **Cambiar** la clave guardada, **Cancelar** si te
 arrepentiste a mitad de editarla, o **Borrar** para quitarla del todo.
 
+## Tus posiciones
+
+Si usas el **Seguimiento** para anotar lo que compraste, eso se guarda en
+`programa/libros/`, **dentro de esta carpeta**. Es la diferencia con la clave:
+la clave vive fuera y no viaja nunca; tus posiciones sí están aquí.
+
+Git las ignora, así que no acaban en un commit por accidente. Pero **un
+`.gitignore` protege de git, no de un ZIP**: si comprimes esta carpeta y se la
+pasas a alguien, va dentro cuánto dinero tienes y en qué. Bórrala antes, o
+mejor, pásale el enlace de descarga en vez de tu copia.
+
+Lo mismo vale para `programa/actas/` y `programa/portafolios/`, aunque esos
+guardan decisiones y pesos, no importes.
+
 ## Para desarrollar
 
 Los comandos se ejecutan desde `programa/`, no desde esta carpeta: ahí es donde
