@@ -59,6 +59,25 @@ def test_un_activo_sin_objetivo_va_a_su_propio_bloque():
     assert d.fuera_del_objetivo[0].peso_real == pytest.approx(0.2)
 
 
+def test_los_del_plan_se_miden_entre_ellos_y_los_de_fuera_sobre_el_total():
+    # Dos denominadores, y cada uno responde una pregunta distinta. La banda mide
+    # la MEZCLA del plan, asi que sus pesos van sobre lo que el plan contempla:
+    # AAPL es el 100% del plan aunque solo sea el 85,7% del dinero. Y TSLA se
+    # mide sobre el total, porque ahi la pregunta es cuanto hay fuera del plan.
+    #
+    # Sin esta separacion, unos pesos que suman uno aplicados sobre un total que
+    # incluye TSLA pediran que el plan ocupe el cien por cien de un dinero del
+    # que TSLA ya se lleva una parte -- y la propuesta de ventas y compras sale
+    # descuadrada en exactamente el valor de TSLA. Medido en la app: 879,48.
+    d = deriva.calcular({"AAPL": 6000.0, "TSLA": 1000.0}, {"AAPL": 1.0})
+    assert d.invertido == pytest.approx(7000.0)
+    assert d.en_plan == pytest.approx(6000.0)
+    assert d.lineas[0].peso_real == pytest.approx(1.0)
+    assert d.lineas[0].desviacion == pytest.approx(0.0)
+    assert not d.lineas[0].fuera_de_banda
+    assert d.fuera_del_objetivo[0].peso_real == pytest.approx(1000.0 / 7000.0)
+
+
 def test_un_activo_sin_precio_se_aparta_y_se_nombra():
     # Valorarlo a cero rebajaria el total y falsearia la deriva de TODOS los
     # demas, no solo la suya. Se aparta del calculo y vuelve nombrado, para que

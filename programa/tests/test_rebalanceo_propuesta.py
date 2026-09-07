@@ -54,6 +54,38 @@ def test_las_ventas_y_compras_se_autofinancian():
     assert sum(o.importe for o in p.y_ademas) == pytest.approx(0.0, abs=1e-6)
 
 
+def test_un_activo_fuera_del_plan_no_descuadra_la_propuesta():
+    # El defecto que aparecio al recorrer la pantalla: con TSLA en cartera y
+    # fuera del objetivo, la propuesta pedia vender 2.138 y comprar 3.017 --
+    # 879 mas de los que hay, y exactamente el valor de TSLA. Los pesos suman
+    # uno y se aplicaban sobre un total que incluia un activo que nadie propone
+    # vender, asi que el plan tenia que ocupar el 100% de un dinero del que
+    # TSLA ya se llevaba una parte. No era ejecutable.
+    p = propuesta.construir({"AAPL": 8000.0, "MSFT": 2000.0, "TSLA": 3000.0},
+                            OBJETIVO, efectivo=0.0, asientos=[],
+                            coste_declarado=1.0)
+    assert sum(o.importe for o in p.y_ademas) == pytest.approx(0.0, abs=1e-6)
+    assert [x.ticker for x in p.deriva.fuera_del_objetivo] == ["TSLA"]
+    # Y TSLA no aparece en ninguna operacion: no se propone liquidarlo.
+    assert "TSLA" not in {o.ticker for o in p.y_ademas + p.con_efectivo}
+
+
+def test_se_rebalancea_el_plan_entero_no_solo_lo_fuera_de_banda():
+    # AAPL se pasa 6 puntos y rompe la banda del 5%; MSFT (-2) y NVDA (-4) se
+    # quedan dentro. Aun asi se mueven los tres, porque moviendo solo a AAPL la
+    # venta no tendria adonde ir y la propuesta dejaria efectivo suelto en vez
+    # de volver al objetivo. La banda decide CUANDO tocar; una vez que se toca,
+    # se vuelve al objetivo entero.
+    objetivo = {"AAPL": 0.34, "MSFT": 0.33, "NVDA": 0.33}
+    p = propuesta.construir({"AAPL": 4000.0, "MSFT": 3100.0, "NVDA": 2900.0},
+                            objetivo, efectivo=0.0, asientos=[],
+                            coste_declarado=1.0)
+    fuera = {l.ticker for l in p.deriva.lineas if l.fuera_de_banda}
+    assert fuera == {"AAPL"}
+    assert {o.ticker for o in p.y_ademas} == {"AAPL", "MSFT", "NVDA"}
+    assert sum(o.importe for o in p.y_ademas) == pytest.approx(0.0, abs=1e-6)
+
+
 def test_una_operacion_que_no_compensa_se_muestra_descartada():
     # No desaparece. Una propuesta omitida en silencio es indistinguible de una
     # que nadie calculo, y el usuario no puede saber cual de las dos fue.

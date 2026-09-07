@@ -30,6 +30,14 @@ class Deriva:
     """La cartera entera frente a su objetivo, más lo que no encaja en él."""
 
     invertido: float
+    # Sólo lo que el objetivo contempla. Es el denominador de los pesos del
+    # plan y la base de los valores objetivo: aplicar unos pesos que suman uno
+    # sobre un total que incluye activos que nadie va a vender pediria que el
+    # plan ocupase el cien por cien de un dinero del que otra cosa ya se lleva
+    # una parte. Medido en la app antes de separarlo: una posicion fuera del
+    # plan de 879,48 dejaba la propuesta de ventas y compras descuadrada en
+    # exactamente esos 879,48, o sea no ejecutable.
+    en_plan: float
     lineas: tuple[Desvio, ...]
     fuera_del_objetivo: tuple[Desvio, ...]
     sin_precio: tuple[str, ...]
@@ -66,12 +74,20 @@ def calcular(
     if invertido <= 0:
         # Sin valor no hay mezcla que medir, y eso no es lo mismo que una
         # deriva de cero. Se devuelve vacio para que la pantalla lo diga.
-        return Deriva(0.0, (), (), sin_precio, normalizados, pesos)
+        return Deriva(0.0, 0.0, (), (), sin_precio, normalizados, pesos)
+
+    en_plan = sum(v for t, v in con_precio.items() if pesos.get(t, 0.0) > 0)
 
     lineas, ajenos = [], []
     for ticker in sorted(set(con_precio) | set(pesos)):
         valor = con_precio.get(ticker, 0.0)
-        peso_real = valor / invertido
+        del_plan = pesos.get(ticker, 0.0) > 0
+        # Dos denominadores, y cada uno responde una pregunta distinta. Los del
+        # plan se comparan entre ellos, porque la banda mide la MEZCLA. Los de
+        # fuera se miden sobre el total, porque ahi la pregunta es "cuanto de
+        # mi dinero esta fuera del plan".
+        base = en_plan if del_plan else invertido
+        peso_real = valor / base if base > 0 else 0.0
         peso_objetivo = pesos.get(ticker, 0.0)
         desviacion = peso_real - peso_objetivo
         desvio = Desvio(
@@ -82,12 +98,12 @@ def calcular(
             desviacion=desviacion,
             fuera_de_banda=criterio.fuera_de_banda(desviacion, peso_objetivo),
         )
-        (ajenos if peso_objetivo <= 0 else lineas).append(desvio)
+        (lineas if del_plan else ajenos).append(desvio)
 
     # De mayor a menor urgencia: el tamaño de la desviacion (en valor
     # absoluto) es lo que importa, no su signo — un activo un 30% por debajo
     # de su objetivo pide tanta atencion como uno un 30% por encima. Asi la
     # pantalla pinta arriba lo mas urgente sin ordenar nada por su cuenta.
     lineas.sort(key=lambda d: abs(d.desviacion), reverse=True)
-    return Deriva(invertido, tuple(lineas), tuple(ajenos), sin_precio,
+    return Deriva(invertido, en_plan, tuple(lineas), tuple(ajenos), sin_precio,
                   normalizados, pesos)

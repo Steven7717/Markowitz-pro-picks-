@@ -155,8 +155,20 @@ Se recalcula la deriva tras el reparto. **Si todo vuelve a banda, se dice que no
 hace falta vender nada** — ese es el resultado bueno y merece decirse en voz
 alta, no deducirse de una lista vacía.
 
-Si no basta, segundo bloque: llevar cada activo fuera de banda a `(V+C)·wᵢ`.
-Esas operaciones suman cero por construcción, o sea que se autofinancian.
+Si no basta, segundo bloque: **se rebalancea el plan entero**, no sólo lo que
+rompió la banda. La banda decide *cuándo* tocar la cartera; una vez que se toca,
+se vuelve al objetivo completo.
+
+No es una preferencia de estilo. Moviendo sólo los activos fuera de banda, las
+ventas no tienen por qué cubrir las compras, y la propuesta pide dinero que no
+hay. Con el plan entero, `Σ(objetivoᵢ − valorᵢ) = 0` por construcción.
+
+Y el valor objetivo se calcula sobre **lo que el plan contempla**, no sobre el
+patrimonio entero. Los pesos suman uno: aplicarlos sobre un total que incluye
+activos que nadie propone vender pediría que el plan ocupase el cien por cien de
+un dinero del que otra cosa ya se lleva una parte. Medido en la app antes de
+separarlo: una posición fuera del plan de 879,48 dejaba la propuesta descuadrada
+en exactamente esos 879,48.
 
 Cada una se filtra por `COSTE_MAXIMO`. La que no pasa **se muestra igualmente,
 diciendo que su coste se come el beneficio**, en vez de desaparecer sin

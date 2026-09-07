@@ -65,7 +65,12 @@ def construir(
     # hay todo el efectivo por asignar.
     pesos = antes.pesos
 
-    reparto = reparto_mod.repartir(con_precio, pesos, efectivo, por_operacion)
+    # Solo lo que el objetivo contempla. Los pesos suman uno, asi que aplicarlos
+    # sobre un total que incluye activos que nadie va a vender pediria que el
+    # plan ocupase el cien por cien de un dinero del que otra cosa ya se lleva
+    # una parte.
+    en_plan = {t: v for t, v in con_precio.items() if pesos.get(t, 0.0) > 0}
+    reparto = reparto_mod.repartir(en_plan, pesos, efectivo, por_operacion)
     con_efectivo = tuple(
         Operacion(t, "comprar", importe, por_operacion, True)
         for t, importe in sorted(reparto.asignaciones.items())
@@ -74,24 +79,33 @@ def construir(
     # La cartera tal como quedaria tras invertir el efectivo, que es contra lo
     # que se decide si ademas hace falta vender.
     despues_valores = {
-        t: con_precio.get(t, 0.0) + reparto.asignaciones.get(t, 0.0)
-        for t in set(con_precio) | set(reparto.asignaciones)
+        t: en_plan.get(t, 0.0) + reparto.asignaciones.get(t, 0.0)
+        for t in set(en_plan) | set(reparto.asignaciones)
     }
     despues = deriva_mod.calcular(despues_valores, pesos)
     pendientes = [l for l in despues.lineas if l.fuera_de_banda]
 
     y_ademas, descartadas = [], []
-    for linea in pendientes:
-        objetivo_valor = despues.invertido * linea.peso_objetivo
-        importe = objetivo_valor - linea.valor
-        operacion = Operacion(
-            ticker=linea.ticker,
-            accion="comprar" if importe > 0 else "vender",
-            importe=importe,
-            coste=por_operacion,
-            viable=criterio.merece_la_pena(importe, por_operacion),
-        )
-        (y_ademas if operacion.viable else descartadas).append(operacion)
+    if pendientes:
+        # **Se rebalancea el plan entero, no solo lo que rompio la banda.** La
+        # banda decide CUANDO tocar la cartera; una vez que se toca, se vuelve al
+        # objetivo completo. Y no es una preferencia de estilo: moviendo solo los
+        # activos fuera de banda, las ventas no tienen por que cubrir las
+        # compras, y la propuesta pide dinero que no hay. Con el plan entero,
+        # `Σ(objetivo_i − valor_i) = en_plan − en_plan = 0` por construccion.
+        for linea in despues.lineas:
+            objetivo_valor = despues.en_plan * linea.peso_objetivo
+            importe = objetivo_valor - linea.valor
+            if importe == 0:
+                continue
+            operacion = Operacion(
+                ticker=linea.ticker,
+                accion="comprar" if importe > 0 else "vender",
+                importe=importe,
+                coste=por_operacion,
+                viable=criterio.merece_la_pena(importe, por_operacion),
+            )
+            (y_ademas if operacion.viable else descartadas).append(operacion)
 
     return Propuesta(
         deriva=antes,

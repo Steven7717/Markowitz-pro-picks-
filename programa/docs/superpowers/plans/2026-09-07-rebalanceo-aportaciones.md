@@ -351,6 +351,25 @@ def test_un_activo_sin_objetivo_va_a_su_propio_bloque():
     assert d.fuera_del_objetivo[0].peso_real == pytest.approx(0.2)
 
 
+def test_los_del_plan_se_miden_entre_ellos_y_los_de_fuera_sobre_el_total():
+    # Dos denominadores, y cada uno responde una pregunta distinta. La banda mide
+    # la MEZCLA del plan, asi que sus pesos van sobre lo que el plan contempla:
+    # AAPL es el 100% del plan aunque solo sea el 85,7% del dinero. Y TSLA se
+    # mide sobre el total, porque ahi la pregunta es cuanto hay fuera del plan.
+    #
+    # Sin esta separacion, unos pesos que suman uno aplicados sobre un total que
+    # incluye TSLA pediran que el plan ocupe el cien por cien de un dinero del
+    # que TSLA ya se lleva una parte -- y la propuesta de ventas y compras sale
+    # descuadrada en exactamente el valor de TSLA. Medido en la app: 879,48.
+    d = deriva.calcular({"AAPL": 6000.0, "TSLA": 1000.0}, {"AAPL": 1.0})
+    assert d.invertido == pytest.approx(7000.0)
+    assert d.en_plan == pytest.approx(6000.0)
+    assert d.lineas[0].peso_real == pytest.approx(1.0)
+    assert d.lineas[0].desviacion == pytest.approx(0.0)
+    assert not d.lineas[0].fuera_de_banda
+    assert d.fuera_del_objetivo[0].peso_real == pytest.approx(1000.0 / 7000.0)
+
+
 def test_un_activo_sin_precio_se_aparta_y_se_nombra():
     # Valorarlo a cero rebajaria el total y falsearia la deriva de TODOS los
     # demas, no solo la suya. Se aparta del calculo y vuelve nombrado, para que
@@ -448,6 +467,14 @@ class Deriva:
     """La cartera entera frente a su objetivo, más lo que no encaja en él."""
 
     invertido: float
+    # Sólo lo que el objetivo contempla. Es el denominador de los pesos del
+    # plan y la base de los valores objetivo: aplicar unos pesos que suman uno
+    # sobre un total que incluye activos que nadie va a vender pediria que el
+    # plan ocupase el cien por cien de un dinero del que otra cosa ya se lleva
+    # una parte. Medido en la app antes de separarlo: una posicion fuera del
+    # plan de 879,48 dejaba la propuesta de ventas y compras descuadrada en
+    # exactamente esos 879,48, o sea no ejecutable.
+    en_plan: float
     lineas: tuple[Desvio, ...]
     fuera_del_objetivo: tuple[Desvio, ...]
     sin_precio: tuple[str, ...]
@@ -484,12 +511,20 @@ def calcular(
     if invertido <= 0:
         # Sin valor no hay mezcla que medir, y eso no es lo mismo que una
         # deriva de cero. Se devuelve vacio para que la pantalla lo diga.
-        return Deriva(0.0, (), (), sin_precio, normalizados, pesos)
+        return Deriva(0.0, 0.0, (), (), sin_precio, normalizados, pesos)
+
+    en_plan = sum(v for t, v in con_precio.items() if pesos.get(t, 0.0) > 0)
 
     lineas, ajenos = [], []
     for ticker in sorted(set(con_precio) | set(pesos)):
         valor = con_precio.get(ticker, 0.0)
-        peso_real = valor / invertido
+        del_plan = pesos.get(ticker, 0.0) > 0
+        # Dos denominadores, y cada uno responde una pregunta distinta. Los del
+        # plan se comparan entre ellos, porque la banda mide la MEZCLA. Los de
+        # fuera se miden sobre el total, porque ahi la pregunta es "cuanto de
+        # mi dinero esta fuera del plan".
+        base = en_plan if del_plan else invertido
+        peso_real = valor / base if base > 0 else 0.0
         peso_objetivo = pesos.get(ticker, 0.0)
         desviacion = peso_real - peso_objetivo
         desvio = Desvio(
@@ -500,14 +535,14 @@ def calcular(
             desviacion=desviacion,
             fuera_de_banda=criterio.fuera_de_banda(desviacion, peso_objetivo),
         )
-        (ajenos if peso_objetivo <= 0 else lineas).append(desvio)
+        (lineas if del_plan else ajenos).append(desvio)
 
     # De mayor a menor urgencia: el tamaño de la desviacion (en valor
     # absoluto) es lo que importa, no su signo — un activo un 30% por debajo
     # de su objetivo pide tanta atencion como uno un 30% por encima. Asi la
     # pantalla pinta arriba lo mas urgente sin ordenar nada por su cuenta.
     lineas.sort(key=lambda d: abs(d.desviacion), reverse=True)
-    return Deriva(invertido, tuple(lineas), tuple(ajenos), sin_precio,
+    return Deriva(invertido, en_plan, tuple(lineas), tuple(ajenos), sin_precio,
                   normalizados, pesos)
 ```
 
@@ -517,7 +552,7 @@ def calcular(
 UV_LINK_MODE=copy uv run pytest tests/test_rebalanceo_deriva.py -q
 ```
 
-Esperado: `11 passed`.
+Esperado: `12 passed`.
 
 - [ ] **Step 5: Commit, y después sabotea**
 
@@ -641,12 +676,13 @@ extranjero, una corrección— no debe mover la estimación de todas las demás.
 import statistics
 
 from seguimiento import posiciones
+from seguimiento.libro import Asiento
 
 OPERACIONES = frozenset({"compra", "venta"})
 
 
 def por_operacion(
-    asientos: "list", declarado: float
+    asientos: list[Asiento], declarado: float
 ) -> tuple[float, bool]:
     """Estimated cost per trade, and whether it came from the book.
 
@@ -795,15 +831,16 @@ def test_los_deficits_nunca_suman_menos_que_el_efectivo(semilla):
 
 
 def test_una_asignacion_que_no_compensa_se_retira_y_se_reparte():
-    # 100 de efectivo entre dos deficits muy desiguales: la parte pequena no
-    # llega al minimo economico, asi que se retira y su importe va a la otra.
-    # El dinero tiene que ir a alguna parte -- descartar sin mas dejaria un
-    # sobrante que nadie coloca.
+    # 1.000 de efectivo entre dos deficits muy desiguales (950 y 50): la parte
+    # pequena no llega al minimo economico (su reparto inicial de 50 no cubre
+    # el coste de 1 sobre el 1%), asi que se retira y su importe va a la otra,
+    # que pasa de 950 a los 1.000 completos. El dinero tiene que ir a alguna
+    # parte -- descartar sin mas dejaria un sobrante que nadie coloca.
     r = reparto.repartir({"AAPL": 5100.0, "MSFT": 4900.0},
                          {"AAPL": 0.55, "MSFT": 0.45},
                          efectivo=1000.0, coste=1.0)
     assert set(r.asignaciones) == {"AAPL"}
-    assert r.asignaciones["AAPL"] == pytest.approx(100.0)
+    assert r.asignaciones["AAPL"] == pytest.approx(1000.0)
     assert set(r.descartadas) == {"MSFT"}
 
 
@@ -1010,6 +1047,38 @@ def test_las_ventas_y_compras_se_autofinancian():
     assert sum(o.importe for o in p.y_ademas) == pytest.approx(0.0, abs=1e-6)
 
 
+def test_un_activo_fuera_del_plan_no_descuadra_la_propuesta():
+    # El defecto que aparecio al recorrer la pantalla: con TSLA en cartera y
+    # fuera del objetivo, la propuesta pedia vender 2.138 y comprar 3.017 --
+    # 879 mas de los que hay, y exactamente el valor de TSLA. Los pesos suman
+    # uno y se aplicaban sobre un total que incluia un activo que nadie propone
+    # vender, asi que el plan tenia que ocupar el 100% de un dinero del que
+    # TSLA ya se llevaba una parte. No era ejecutable.
+    p = propuesta.construir({"AAPL": 8000.0, "MSFT": 2000.0, "TSLA": 3000.0},
+                            OBJETIVO, efectivo=0.0, asientos=[],
+                            coste_declarado=1.0)
+    assert sum(o.importe for o in p.y_ademas) == pytest.approx(0.0, abs=1e-6)
+    assert [x.ticker for x in p.deriva.fuera_del_objetivo] == ["TSLA"]
+    # Y TSLA no aparece en ninguna operacion: no se propone liquidarlo.
+    assert "TSLA" not in {o.ticker for o in p.y_ademas + p.con_efectivo}
+
+
+def test_se_rebalancea_el_plan_entero_no_solo_lo_fuera_de_banda():
+    # AAPL se pasa 6 puntos y rompe la banda del 5%; MSFT (-2) y NVDA (-4) se
+    # quedan dentro. Aun asi se mueven los tres, porque moviendo solo a AAPL la
+    # venta no tendria adonde ir y la propuesta dejaria efectivo suelto en vez
+    # de volver al objetivo. La banda decide CUANDO tocar; una vez que se toca,
+    # se vuelve al objetivo entero.
+    objetivo = {"AAPL": 0.34, "MSFT": 0.33, "NVDA": 0.33}
+    p = propuesta.construir({"AAPL": 4000.0, "MSFT": 3100.0, "NVDA": 2900.0},
+                            objetivo, efectivo=0.0, asientos=[],
+                            coste_declarado=1.0)
+    fuera = {l.ticker for l in p.deriva.lineas if l.fuera_de_banda}
+    assert fuera == {"AAPL"}
+    assert {o.ticker for o in p.y_ademas} == {"AAPL", "MSFT", "NVDA"}
+    assert sum(o.importe for o in p.y_ademas) == pytest.approx(0.0, abs=1e-6)
+
+
 def test_una_operacion_que_no_compensa_se_muestra_descartada():
     # No desaparece. Una propuesta omitida en silencio es indistinguible de una
     # que nadie calculo, y el usuario no puede saber cual de las dos fue.
@@ -1072,6 +1141,36 @@ def test_la_deriva_viaja_dentro_de_la_propuesta():
                             efectivo=0.0, asientos=[], coste_declarado=1.0)
     assert p.deriva.invertido == pytest.approx(10_000.0)
     assert [l.ticker for l in p.deriva.lineas] == ["AAPL", "MSFT"]
+```
+
+- [ ] **Step 2: Corre los tests y comprueba que fallan**
+
+```bash
+UV_LINK_MODE=copy uv run pytest tests/test_rebalanceo_propuesta.py -q
+```
+
+Esperado: `ImportError: cannot import name 'propuesta' from 'rebalanceo'`.
+
+- [ ] **Step 3: Escribe el módulo**
+
+Crea `rebalanceo/propuesta.py`:
+
+```python
+"""Qué hacer, en dos bloques separados porque uno es barato y el otro no.
+
+Primero el reparto del efectivo, que corrige deriva sin vender nada. Y sólo si
+con eso no basta, las ventas y compras que faltan — cada una con su coste al
+lado, y las que no compensan mostradas igualmente en vez de omitidas.
+
+Este módulo **no escribe nada en el libro**. Propone; el usuario registra en la
+pantalla de seguimiento lo que de verdad ejecutó en el bróker. Si escribiera,
+el libro mezclaría hechos con intenciones sin forma de separarlos después.
+"""
+
+from dataclasses import dataclass
+
+from rebalanceo import coste as coste_mod
+from rebalanceo import criterio, deriva as deriva_mod, reparto as reparto_mod
 
 
 @dataclass(frozen=True)
@@ -1124,7 +1223,12 @@ def construir(
     # hay todo el efectivo por asignar.
     pesos = antes.pesos
 
-    reparto = reparto_mod.repartir(con_precio, pesos, efectivo, por_operacion)
+    # Solo lo que el objetivo contempla. Los pesos suman uno, asi que aplicarlos
+    # sobre un total que incluye activos que nadie va a vender pediria que el
+    # plan ocupase el cien por cien de un dinero del que otra cosa ya se lleva
+    # una parte.
+    en_plan = {t: v for t, v in con_precio.items() if pesos.get(t, 0.0) > 0}
+    reparto = reparto_mod.repartir(en_plan, pesos, efectivo, por_operacion)
     con_efectivo = tuple(
         Operacion(t, "comprar", importe, por_operacion, True)
         for t, importe in sorted(reparto.asignaciones.items())
@@ -1133,24 +1237,33 @@ def construir(
     # La cartera tal como quedaria tras invertir el efectivo, que es contra lo
     # que se decide si ademas hace falta vender.
     despues_valores = {
-        t: con_precio.get(t, 0.0) + reparto.asignaciones.get(t, 0.0)
-        for t in set(con_precio) | set(reparto.asignaciones)
+        t: en_plan.get(t, 0.0) + reparto.asignaciones.get(t, 0.0)
+        for t in set(en_plan) | set(reparto.asignaciones)
     }
     despues = deriva_mod.calcular(despues_valores, pesos)
     pendientes = [l for l in despues.lineas if l.fuera_de_banda]
 
     y_ademas, descartadas = [], []
-    for linea in pendientes:
-        objetivo_valor = despues.invertido * linea.peso_objetivo
-        importe = objetivo_valor - linea.valor
-        operacion = Operacion(
-            ticker=linea.ticker,
-            accion="comprar" if importe > 0 else "vender",
-            importe=importe,
-            coste=por_operacion,
-            viable=criterio.merece_la_pena(importe, por_operacion),
-        )
-        (y_ademas if operacion.viable else descartadas).append(operacion)
+    if pendientes:
+        # **Se rebalancea el plan entero, no solo lo que rompio la banda.** La
+        # banda decide CUANDO tocar la cartera; una vez que se toca, se vuelve al
+        # objetivo completo. Y no es una preferencia de estilo: moviendo solo los
+        # activos fuera de banda, las ventas no tienen por que cubrir las
+        # compras, y la propuesta pide dinero que no hay. Con el plan entero,
+        # `Σ(objetivo_i − valor_i) = en_plan − en_plan = 0` por construccion.
+        for linea in despues.lineas:
+            objetivo_valor = despues.en_plan * linea.peso_objetivo
+            importe = objetivo_valor - linea.valor
+            if importe == 0:
+                continue
+            operacion = Operacion(
+                ticker=linea.ticker,
+                accion="comprar" if importe > 0 else "vender",
+                importe=importe,
+                coste=por_operacion,
+                viable=criterio.merece_la_pena(importe, por_operacion),
+            )
+            (y_ademas if operacion.viable else descartadas).append(operacion)
 
     return Propuesta(
         deriva=antes,
@@ -1170,7 +1283,7 @@ def construir(
 UV_LINK_MODE=copy uv run pytest tests/test_rebalanceo_propuesta.py -q
 ```
 
-Esperado: `10 passed`.
+Esperado: `13 passed`.
 
 - [ ] **Step 5: Corre la suite entera**
 
@@ -1178,8 +1291,8 @@ Esperado: `10 passed`.
 UV_LINK_MODE=copy uv run pytest tests/ -q -m "not red"
 ```
 
-Esperado: `997 passed, 4 skipped, 6 deselected` — los 911 de base más 86
-nuevos (12 + 11 + 6 + 47 + 10).
+Esperado: `1000 passed, 4 skipped, 6 deselected` — los 911 de base más 89
+nuevos (12 + 12 + 6 + 47 + 13).
 
 - [ ] **Step 6: Commit, y después sabotea**
 
@@ -1362,7 +1475,11 @@ if plan.y_ademas:
         ]),
         use_container_width=True, hide_index=True,
     )
-    st.caption("Estas operaciones se autofinancian: lo que sale de unas entra en otras.")
+    st.caption(
+        "Se mueve el plan entero, no sólo lo que rompió la banda: así lo que "
+        "sale de unas entra en otras y el conjunto suma cero. Si alguna quedó "
+        "descartada por coste, la diferencia se queda como efectivo."
+    )
 
 if plan.descartadas_por_coste:
     st.subheader("Descartadas porque el coste se las come")

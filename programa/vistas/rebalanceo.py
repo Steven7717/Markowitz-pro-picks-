@@ -196,7 +196,11 @@ if plan.y_ademas:
         ]),
         use_container_width=True, hide_index=True,
     )
-    st.caption("Estas operaciones se autofinancian: lo que sale de unas entra en otras.")
+    st.caption(
+        "Se mueve el plan entero, no sólo lo que rompió la banda: así lo que "
+        "sale de unas entra en otras y el conjunto suma cero. Si alguna quedó "
+        "descartada por coste, la diferencia se queda como efectivo."
+    )
 
 if plan.descartadas_por_coste:
     st.subheader("Descartadas porque el coste se las come")
