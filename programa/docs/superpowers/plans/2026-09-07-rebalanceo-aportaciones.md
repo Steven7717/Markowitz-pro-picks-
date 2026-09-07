@@ -978,12 +978,17 @@ def test_una_cartera_en_su_objetivo_no_propone_nada():
 
 
 def test_la_aportacion_sola_puede_bastar():
-    # 6.000 y 4.000 con 4.000 de efectivo: repartiendo se llega justo al
-    # objetivo, asi que NO se propone vender nada. Decirlo importa: es el
-    # resultado bueno, y deducirlo de una lista vacia no es lo mismo.
+    # 6.000 y 4.000 con 4.000 de efectivo: el reparto mide el deficit de cada
+    # activo contra el total YA CON el efectivo dentro (14.000), asi que AAPL
+    # tambien recibe algo aunque hoy este sobreponderado sobre los 10.000
+    # actuales -- reparto.repartir ya lo prueba con estos mismos numeros en
+    # test_con_efectivo_suficiente_los_pesos_quedan_exactos. Lo que importa
+    # aqui es que, sea cual sea el reparto, se llega justo al objetivo y no
+    # hace falta vender nada.
     p = propuesta.construir({"AAPL": 6000.0, "MSFT": 4000.0}, OBJETIVO,
                             efectivo=4000.0, asientos=[], coste_declarado=1.0)
-    assert [o.ticker for o in p.con_efectivo] == ["MSFT"]
+    importes = {o.ticker: o.importe for o in p.con_efectivo}
+    assert importes == {"AAPL": pytest.approx(1000.0), "MSFT": pytest.approx(3000.0)}
     assert p.basta_con_la_aportacion
     assert p.y_ademas == ()
 
@@ -1008,12 +1013,21 @@ def test_las_ventas_y_compras_se_autofinancian():
 def test_una_operacion_que_no_compensa_se_muestra_descartada():
     # No desaparece. Una propuesta omitida en silencio es indistinguible de una
     # que nadie calculo, y el usuario no puede saber cual de las dos fue.
-    p = propuesta.construir({"AAPL": 5030.0, "MSFT": 4970.0}, OBJETIVO,
-                            efectivo=0.0, asientos=[compra(5.0)],
-                            coste_declarado=1.0)
+    # 600/400 sobre un total de 1.000 es una desviacion del 10%: supera la
+    # banda absoluta del 5% y dispara la deriva, pero el importe a mover -- 100
+    # dolares -- es pequeno de verdad, y una comision de 2 dolares (el 2% del
+    # importe) ya supera el tope del 1% que fija el criterio.
+    p = propuesta.construir({"AAPL": 600.0, "MSFT": 400.0}, OBJETIVO,
+                            efectivo=0.0, asientos=[compra(2.0)],
+                            coste_declarado=99.0)
     assert p.y_ademas == ()
     assert {o.ticker for o in p.descartadas_por_coste} == {"AAPL", "MSFT"}
     assert all(not o.viable for o in p.descartadas_por_coste)
+    # Aqui es donde importa que `basta_con_la_aportacion` sea un hecho propio:
+    # `y_ademas` esta vacia, pero la cartera SIGUE fuera de banda -- lo unico
+    # que paso es que arreglarlo no compensa el coste. Deducirlo de `not
+    # y_ademas` diria "no hace falta nada" cuando hace falta y no compensa.
+    assert not p.basta_con_la_aportacion
 
 
 def test_el_coste_del_libro_manda_sobre_el_declarado():
@@ -1050,40 +1064,14 @@ def test_una_cartera_de_solo_efectivo_propone_la_compra_inicial():
 
 def test_la_deriva_viaja_dentro_de_la_propuesta():
     # La pantalla pinta los medidores desde aqui, sin volver a calcular nada.
+    # AAPL y MSFT se desvian la misma magnitud (0.3 en valor absoluto), asi que
+    # el orden que fija deriva.calcular es el de desempate: insercion
+    # alfabetica preservada por un sort estable, no la magnitud de la
+    # desviacion -- aqui no hay nada que la distinga.
     p = propuesta.construir({"AAPL": 8000.0, "MSFT": 2000.0}, OBJETIVO,
                             efectivo=0.0, asientos=[], coste_declarado=1.0)
     assert p.deriva.invertido == pytest.approx(10_000.0)
-    assert [l.ticker for l in p.deriva.lineas] == ["MSFT", "AAPL"]
-```
-
-- [ ] **Step 2: Corre los tests y comprueba que fallan**
-
-```bash
-UV_LINK_MODE=copy uv run pytest tests/test_rebalanceo_propuesta.py -q
-```
-
-Esperado: `ImportError: cannot import name 'propuesta' from 'rebalanceo'`.
-
-- [ ] **Step 3: Escribe el módulo**
-
-Crea `rebalanceo/propuesta.py`:
-
-```python
-"""Qué hacer, en dos bloques separados porque uno es barato y el otro no.
-
-Primero el reparto del efectivo, que corrige deriva sin vender nada. Y sólo si
-con eso no basta, las ventas y compras que faltan — cada una con su coste al
-lado, y las que no compensan mostradas igualmente en vez de omitidas.
-
-Este módulo **no escribe nada en el libro**. Propone; el usuario registra en la
-pantalla de seguimiento lo que de verdad ejecutó en el bróker. Si escribiera,
-el libro mezclaría hechos con intenciones sin forma de separarlos después.
-"""
-
-from dataclasses import dataclass
-
-from rebalanceo import coste as coste_mod
-from rebalanceo import criterio, deriva as deriva_mod, reparto as reparto_mod
+    assert [l.ticker for l in p.deriva.lineas] == ["AAPL", "MSFT"]
 
 
 @dataclass(frozen=True)
