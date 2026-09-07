@@ -739,15 +739,38 @@ def test_con_efectivo_suficiente_los_pesos_quedan_exactos():
         assert finales[ticker] / total == pytest.approx(peso)
 
 
-def test_el_reparto_no_aleja_a_nadie_de_su_objetivo():
-    valores = {"AAPL": 6000.0, "MSFT": 3000.0, "NVDA": 1000.0}
-    objetivo = {"AAPL": 0.34, "MSFT": 0.33, "NVDA": 0.33}
-    antes = {t: v / sum(valores.values()) for t, v in valores.items()}
-    r = reparto.repartir(valores, objetivo, efectivo=3000.0, coste=1.0)
-    despues_v = {t: valores[t] + r.asignaciones.get(t, 0.0) for t in valores}
-    total = sum(despues_v.values())
-    for t, w in objetivo.items():
-        assert abs(despues_v[t] / total - w) <= abs(antes[t] - w) + 1e-9
+@pytest.mark.parametrize("semilla", range(20))
+def test_el_reparto_acerca_la_cartera_a_su_objetivo(semilla):
+    # **La propiedad verdadera es agregada, no por activo.** Una version
+    # anterior de este test afirmaba que el reparto no aleja a NINGUN activo de
+    # su objetivo, y eso es falso: el reparto proporcional al deficit da mas a
+    # quien mas le falta, el total crece, y un activo que casi estaba en su
+    # sitio ve bajar su peso. Medido con los numeros que tenia este test:
+    # MSFT pasaba de 0,0300 a 0,0342 de desviacion.
+    #
+    # Lo que si se cumple --y es lo que hace util al reparto-- es que la SUMA
+    # de las desviaciones nunca sube. Se comprueba sobre casos generados y no
+    # sobre uno elegido a mano, que es exactamente como se colo la afirmacion
+    # falsa: un solo caso bien elegido la sostenia.
+    #
+    # Con coste cero para aislar la propiedad del reparto del tope economico,
+    # que tiene sus propios tests.
+    rnd = random.Random(semilla)
+    n = rnd.randint(2, 6)
+    tickers = [f"T{i}" for i in range(n)]
+    crudos = [rnd.random() + 0.01 for _ in tickers]
+    total_w = sum(crudos)
+    objetivo = {t: w / total_w for t, w in zip(tickers, crudos)}
+    valores = {t: rnd.random() * 10_000 + 1.0 for t in tickers}
+    efectivo = rnd.random() * 8_000 + 1.0
+
+    r = reparto.repartir(valores, objetivo, efectivo, coste=0.0)
+    despues = {t: valores[t] + r.asignaciones.get(t, 0.0) for t in tickers}
+
+    v_antes, v_despues = sum(valores.values()), sum(despues.values())
+    antes = sum(abs(valores[t] / v_antes - objetivo[t]) for t in tickers)
+    ahora = sum(abs(despues[t] / v_despues - objetivo[t]) for t in tickers)
+    assert ahora <= antes + 1e-9
 
 
 @pytest.mark.parametrize("semilla", range(20))
@@ -776,9 +799,9 @@ def test_una_asignacion_que_no_compensa_se_retira_y_se_reparte():
     # llega al minimo economico, asi que se retira y su importe va a la otra.
     # El dinero tiene que ir a alguna parte -- descartar sin mas dejaria un
     # sobrante que nadie coloca.
-    r = reparto.repartir({"AAPL": 9900.0, "MSFT": 100.0},
-                         {"AAPL": 0.98, "MSFT": 0.02},
-                         efectivo=100.0, coste=1.0)
+    r = reparto.repartir({"AAPL": 5100.0, "MSFT": 4900.0},
+                         {"AAPL": 0.55, "MSFT": 0.45},
+                         efectivo=1000.0, coste=1.0)
     assert set(r.asignaciones) == {"AAPL"}
     assert r.asignaciones["AAPL"] == pytest.approx(100.0)
     assert set(r.descartadas) == {"MSFT"}
@@ -902,8 +925,8 @@ def repartir(
 UV_LINK_MODE=copy uv run pytest tests/test_rebalanceo_reparto.py -q
 ```
 
-Esperado: `28 passed` — 8 tests sueltos más 20 del parametrizado de la
-identidad de los déficits.
+Esperado: `47 passed` — 7 tests sueltos más 40 de los dos parametrizados,
+el de la identidad de los déficits y el de que el reparto acerca la cartera.
 
 - [ ] **Step 5: Commit, y después sabotea**
 
@@ -1167,8 +1190,8 @@ Esperado: `10 passed`.
 UV_LINK_MODE=copy uv run pytest tests/ -q -m "not red"
 ```
 
-Esperado: `978 passed, 4 skipped, 6 deselected` — los 911 de base más 67
-nuevos (12 + 11 + 6 + 28 + 10).
+Esperado: `997 passed, 4 skipped, 6 deselected` — los 911 de base más 86
+nuevos (12 + 11 + 6 + 47 + 10).
 
 - [ ] **Step 6: Commit, y después sabotea**
 

@@ -34,21 +34,38 @@ def test_con_efectivo_suficiente_los_pesos_quedan_exactos():
         assert finales[ticker] / total == pytest.approx(peso)
 
 
-def test_el_reparto_no_aleja_a_nadie_de_su_objetivo():
-    # Cuando el efectivo no alcanza para todos los deficits (aqui sobran 600
-    # de deficit sin cubrir), el reparto favorece al mas infraponderado -- eso
-    # es lo que se espera. Con deficits MUY desiguales entre si eso puede, en
-    # teoria, dejar al menos favorecido mas lejos de su objetivo que antes (el
-    # bote crece para todos pero su parte crece menos que el bote); estos
-    # numeros se eligen fuera de esa zona para comprobar el caso comun.
-    valores = {"AAPL": 5000.0, "MSFT": 3000.0, "NVDA": 2000.0}
-    objetivo = {"AAPL": 0.40, "MSFT": 0.35, "NVDA": 0.25}
-    antes = {t: v / sum(valores.values()) for t, v in valores.items()}
-    r = reparto.repartir(valores, objetivo, efectivo=1000.0, coste=1.0)
-    despues_v = {t: valores[t] + r.asignaciones.get(t, 0.0) for t in valores}
-    total = sum(despues_v.values())
-    for t, w in objetivo.items():
-        assert abs(despues_v[t] / total - w) <= abs(antes[t] - w) + 1e-9
+@pytest.mark.parametrize("semilla", range(20))
+def test_el_reparto_acerca_la_cartera_a_su_objetivo(semilla):
+    # **La propiedad verdadera es agregada, no por activo.** Una version
+    # anterior de este test afirmaba que el reparto no aleja a NINGUN activo de
+    # su objetivo, y eso es falso: el reparto proporcional al deficit da mas a
+    # quien mas le falta, el total crece, y un activo que casi estaba en su
+    # sitio ve bajar su peso. Medido con los numeros que tenia este test:
+    # MSFT pasaba de 0,0300 a 0,0342 de desviacion.
+    #
+    # Lo que si se cumple --y es lo que hace util al reparto-- es que la SUMA
+    # de las desviaciones nunca sube. Se comprueba sobre casos generados y no
+    # sobre uno elegido a mano, que es exactamente como se colo la afirmacion
+    # falsa: un solo caso bien elegido la sostenia.
+    #
+    # Con coste cero para aislar la propiedad del reparto del tope economico,
+    # que tiene sus propios tests.
+    rnd = random.Random(semilla)
+    n = rnd.randint(2, 6)
+    tickers = [f"T{i}" for i in range(n)]
+    crudos = [rnd.random() + 0.01 for _ in tickers]
+    total_w = sum(crudos)
+    objetivo = {t: w / total_w for t, w in zip(tickers, crudos)}
+    valores = {t: rnd.random() * 10_000 + 1.0 for t in tickers}
+    efectivo = rnd.random() * 8_000 + 1.0
+
+    r = reparto.repartir(valores, objetivo, efectivo, coste=0.0)
+    despues = {t: valores[t] + r.asignaciones.get(t, 0.0) for t in tickers}
+
+    v_antes, v_despues = sum(valores.values()), sum(despues.values())
+    antes = sum(abs(valores[t] / v_antes - objetivo[t]) for t in tickers)
+    ahora = sum(abs(despues[t] / v_despues - objetivo[t]) for t in tickers)
+    assert ahora <= antes + 1e-9
 
 
 @pytest.mark.parametrize("semilla", range(20))
