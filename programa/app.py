@@ -117,6 +117,10 @@ navegacion = st.navigation(
                 icon=":material/monitoring:",
             ),
             st.Page(
+                "vistas/rebalanceo.py", title="Rebalanceo",
+                icon=":material/balance:",
+            ),
+            st.Page(
                 "vistas/comparar.py", title="Comparar",
                 icon=":material/compare_arrows:",
             ),
