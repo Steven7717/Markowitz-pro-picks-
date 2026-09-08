@@ -1,7 +1,7 @@
 # Contexto del proyecto — para retomar en una sesión nueva
 
 **Última actualización:** 2026-09-08
-**Rama:** `master` · **Tests:** 1.000 pasando (`uv run pytest tests/ -q -m "not red"`), 4 omitidos —dos por permisos POSIX en Windows y dos sin `numpy_financial`— más 6 marcados `red`
+**Rama:** `noticias-calendario` — **sin fusionar** · **Tests:** 1.079 pasando (`uv run pytest tests/ -q -m "not red"`), 4 omitidos —dos por permisos POSIX en Windows y dos sin `numpy_financial`— más 6 marcados `red`
 **Remoto:** `https://github.com/Steven7717/Markowitz-pro-picks-.git` — `master` es lo publicado
 **Estructura:** el programa vive en `programa/`; en la raíz sólo están los dos
 lanzadores y el `README.md`. Los comandos (`uv run pytest`, `uv run streamlit`)
@@ -30,7 +30,7 @@ El objetivo mayor es construir, **aguas arriba de esa app**, un sistema donde un
 | E | Módulo de timing de entrada | — | ❌ **descartado por D** |
 | F | Libro de posiciones y seguimiento | Valoración, rendimiento y referencias | ✅ **terminado** |
 | G | Rebalanceo y aportaciones | Medidores de deriva, reparto de la aportación | ✅ **terminado** |
-| H | Noticias y calendario | Feed de EDGAR, prensa, eventos | ⬜ pendiente |
+| H | Noticias y calendario | Feed de EDGAR, prensa, eventos | ✅ **terminado** |
 | I | Capa de IA sobre F, G y H | Interpretación y propuestas de ajuste | ⬜ pendiente |
 
 ## Resultado del sub-proyecto D
@@ -729,16 +729,142 @@ calendario, y no necesita ni la deriva ni el reparto. Lo único que hereda es la
 - **No guarda las propuestas.** Cada apertura recalcula desde el libro; no hay
   histórico de qué se propuso ni de qué se hizo con ello.
 
+## Resultado del sub-proyecto H
+
+Paquete `noticias/` (lógica, sin Streamlit) y `vistas/noticias.py` (widgets, sin
+lógica), con **81 tests nuevos** —79 normales y 2 marcados `red`—. Fuera del
+paquete cambian tres cosas: `app.py` registra la pantalla, `.gitignore` añade
+`noticias/.cache/`, y `vistas/rebalanceo.py` recibe un arreglo que se explica
+más abajo. **Ninguna dependencia nueva:** yfinance y edgartools ya estaban.
+
+Ocho módulos: `criterio` (congelado) dice qué 8-K se destacan, `prensa` y
+`hechos` normalizan las dos fuentes, `agenda` saca lo que viene, `macro` guarda
+los punteros oficiales, `cache` la frescura, `fuentes` es lo único que toca la
+red, y `plano` traduce estructuras a diccionarios y vuelta.
+
+### Decisiones que no hay que relitigar
+
+- **Del calendario macro se dan punteros, no fechas.** Ni yfinance ni EDGAR lo
+  publican, y copiarlo al repo crearía algo que caduca en silencio: un
+  calendario viejo se lee exactamente igual que uno vigente. **Un enlace roto se
+  ve roto.** Por eso `Evento.cuando` admite `None`, y hay un test que protege esa
+  ausencia: es lo único que impide que alguien «mejore» el módulo metiendo las
+  fechas que aquí se decidió no tener.
+- **Hechos y prensa van separados y etiquetados, nunca fundidos.** Un 8-K es un
+  documento que la empresa está obligada a presentar, firmado y con
+  consecuencias si miente. Un titular es lo que alguien decidió escribir.
+  Ordenarlos juntos en una lista cronológica —lo que hace cualquier agregador—
+  borra esa diferencia justo donde más cara sale: el aviso de que las cuentas
+  anteriores no son fiables quedaría entre dos artículos de opinión.
+- **No se descarta ningún expediente.** Los materiales salen desplegados y el
+  resto plegado. Ordenar no es excluir: lo que H tirase, I no lo vería nunca.
+- **Un 8-K lleva varios items**, y el índice los sirve en una sola cadena con
+  comas: `"2.02,9.01"`. Modelarlo como un tipo único dejaría **cada anuncio de
+  resultados clasificado como no material**, porque el 2.02 llega con el 9.01
+  casi siempre. La materialidad es «alguno de sus tipos está en la lista».
+- **Los items vienen en el índice**, así que basta una llamada por activo.
+  `filing.obj().items` existe pero descarga el documento entero de cada
+  expediente, y con quince activos eso convierte una pantalla en una espera.
+- **El resumen sale sólo de `summary`.** `description` trae el mismo texto en
+  **HTML crudo**, y volcarlo pintaría etiquetas. Sin resumen se enseña el
+  titular solo, que ya dice algo.
+- **`contentType` no se traduce contra una lista cerrada.** El primer sondeo vio
+  un `VIDEO` y se supuso que el resto serían `ARTICLE`. Medido de verdad sobre
+  diez noticias: **ocho `STORY`, dos `VIDEO`, ningún `ARTICLE`.** Un diccionario
+  de traducción habría dejado el ochenta por ciento sin etiqueta.
+- **El camino de la descarga recién hecha también da la vuelta por disco.**
+  `cache.guardar` usa `default=str`, así que pasarle una dataclase no revienta:
+  la guarda como su `repr` y vuelve convertida en cadena. Falla sólo en la
+  **segunda** visita. Si el camino corto no diera la vuelta, existiría un tipo
+  que sólo aparece en la primera pasada.
+- **`Hecho.material` se recalcula al leer**, no se lee del fichero. No es un
+  segundo criterio: es el mismo, aplicado tarde. Un fichero escrito por un
+  formato anterior daría `bool(None) → False` y plegaría los resultados a partir
+  de la segunda visita.
+- **La hora de descarga se enseña siempre**, no sólo cuando el dato está viejo.
+  Misma regla que `coste_del_libro` en G.
+- **H no interpreta ni filtra la prensa.** No hay criterio defendible para
+  decidir qué titular importa, y fingir uno sería peor. Lo que sí se hace es
+  enseñar el medio y el formato, para que el usuario descarte de un vistazo.
+
+### Trece defectos, y una lección nueva sobre el método
+
+Tres se cazaron **sondeando las fuentes vivas antes de escribir el spec**, uno
+en la auto-revisión del plan, y nueve durante la ejecución. Como en F y G,
+prácticamente todos estaban en el plan o el diseño, no en quien implementó.
+
+**Sondear la fuente antes de diseñar** — caza suposiciones que se leen bien:
+
+| Defecto | Qué pasaba |
+|---|---|
+| El spec modelaba `tipo: str` para el 8-K | El índice sirve `"2.02,9.01"`. Comparado entero contra la lista congelada no coincide con nada, y **todos los anuncios de resultados** habrían salido plegados entre la rutina |
+| `description` viene en HTML crudo | La regla del spec era «resumen de `summary`, y si falta de `description`». Habría metido `<p><a href=...>` en la pantalla |
+| `provider` y `canonicalUrl` son diccionarios | Tratarlos como cadenas da un medio ilegible y una url rota, y ninguna de las dos cosas lanza |
+| El CIK **no está** en el índice | Cazado revisando el plan contra el spec. Las trece columnas de `to_pandas()` se comprobaron una a una. Habría dado `cik=0` y urls a `/data/0/`: el texto del enlace se ve perfecto y sólo falla al pulsarlo |
+
+**Sabotear una guarda** — y aquí está la lección nueva:
+
+| Defecto | Qué pasaba |
+|---|---|
+| La ruta como docstring mataba el docstring real | Los bloques del plan empezaban con `"""ruta.py"""` y el docstring de verdad debajo. Python toma el primer literal como `__doc__` y **descarta el segundo en silencio**: los ocho módulos habrían perdido su documentación entera |
+| El sabotaje de `JSONDecodeError` era **inerte** | Quitarlo del `except` no tumbaba nada, porque **es subclase de `ValueError`**, que seguía en la tupla |
+| El sabotaje de `EDGAR_IDENTITY` era inerte, y el test **decorativo** | Sin la guarda, el `IdentityNotSetError` que lanza el propio edgartools ya trae la cadena `EDGAR_IDENTITY` en su mensaje, así que la comparación por subcadena se satisfacía igual. **El test pasaba con guarda y sin ella.** Se sustituyó por uno que intercepta la descarga y afirma que no se llega a preguntar |
+
+**La lección: el paso de sabotaje también puede ser decorativo.** Dos veces
+seguidas el sabotaje no tumbó nada, y las dos veces la causa era una relación
+invisible leyendo —una jerarquía de excepciones, el texto de un error ajeno—.
+Un «saboteé y no cayó nada» aceptado sin más habría dejado creer que esas
+guardas estaban protegidas. **La regla que funciona es: si el sabotaje no tumba
+nada, el trabajo no es repetirlo, es averiguar qué otra cosa está devolviendo
+la respuesta correcta.**
+
+**Arrancar la app y recorrerla** — lo que ninguna prueba unitaria ve:
+
+| Defecto | Qué pasaba |
+|---|---|
+| Un libro **ilegible** se contaba como que no hay ninguno | `[e for e in listar() if e.libro is not None]` y después «Todavía no llevas ningún libro». Son cosas opuestas, y la segunda deja al usuario sin nada que buscar. `vistas/seguimiento.py` ya lo hacía bien; el defecto se introdujo en `rebalanceo.py` y **se copió a `noticias.py` al pedir que siguiera a la pantalla hermana**. Arreglado en las dos |
+| Streamlit interpreta `$…$` como LaTeX | Un titular financiero va lleno de dólares, y el segundo se come la línea hasta el siguiente. Todo lo que llega de la red se escapa antes de pintarlo |
+| La caché devolvía diccionarios donde la pantalla esperaba dataclases | Y sólo a partir de la **segunda** visita, porque `default=str` no revienta al guardar |
+| «Reuniones del FOMC — ocho al **ano**» | Los literales del plan iban sin acentos y se quedaron en cadenas visibles. Ésta no era un descuido tipográfico: *ano* y *año* no son la misma palabra |
+| Tres casos de la Task 4 mal calculados | Pasaban `hoy=2026-09-08` con un ex-dividendo del 9 de agosto: el filtro de «lo que viene» los descartaba, y el test exigía tres clases teniendo una. Habrían fallado nada más escribirse |
+
+### Qué hereda I
+
+Las tres estructuras, y nada más: `Noticia`, `Hecho` y `Evento`. H las deja
+normalizadas y **sin ningún juicio aplicado** — ni filtrado, ni resumen, ni
+orden por importancia más allá de destacar los tipos de la lista congelada. Esa
+abstinencia es deliberada: cualquier cosa que H descartase, I no la vería.
+
+`plano.reconstruir` es además el camino por el que I puede leer lo ya cacheado
+sin volver a descargar.
+
+### Lo que H no resuelve
+
+- **No da fechas macro**, sólo quién las publica. Es la decisión, no una carencia.
+- **No guarda histórico.** La caché caduca y se pisa; no hay forma de mirar qué
+  se publicó hace tres meses si ya no está en la ventana de las fuentes.
+- **No interpreta ni recomienda.** Eso es I, y H existe para darle de comer.
+- **Un 8-K sólo existe para emisores registrados en la SEC.** Un ticker de otro
+  mercado tendrá prensa y calendario, pero no hechos, y la pantalla lo dice en
+  vez de dejar el bloque vacío.
+- **Yahoo devuelve el mismo artículo bajo varios tickers**, y la pantalla lo
+  enseña una vez por cada uno. Es honesto —cada asociación es real— pero se ve
+  como duplicado. Deduplicar por url y listar los tickers juntos está sin hacer.
+- **La prensa incluye el relleno de Yahoo.** En el sondeo, la primera «noticia»
+  de MSFT era un vídeo sobre los resultados de Oracle. H no filtra porque no
+  tiene criterio defendible, y fingir uno sería peor.
+
 ## Lo siguiente
 
 El sistema está completo de punta a punta: A ingiere, B ordena y razona, C
 decide, el optimizador reparte pesos, **F sigue lo que se compró de verdad**
 y **G dice cuándo hace falta corregir el rumbo y qué cuesta**.
 
-Lo que queda del encargo original son **H — noticias y calendario** e
-**I — la capa de IA** sobre F, G y H. Ninguno de los dos tiene diseño
-escrito, y H no hereda nada de G: sólo la lista de tickers del libro, que
-ya venía de F.
+Lo que queda del encargo original es **I — la capa de IA** sobre F, G y H:
+interpretación de las noticias y propuestas de ajuste, con la clave de
+Anthropic que el sub-proyecto B ya usa. No tiene diseño escrito. Hereda de
+H las tres estructuras `Noticia`, `Hecho` y `Evento`, deliberadamente sin
+ningún juicio aplicado.
 
 El rediseño de la interfaz, que era el punto 1 de esta lista, se hizo el
 2026-09-01 — ver la sección anterior. El arranque en Mac, que fue el punto 1
@@ -771,7 +897,7 @@ Sigue sin responder: **¿cuántas acciones debería tener el portafolio final?**
 
 ```bash
 # Todos estos se ejecutan desde programa/, no desde la raiz del repo.
-pytest tests/ -q -m "not red"       # 1.000 tests, sin red
+pytest tests/ -q -m "not red"       # 1.079 tests, sin red
 python -m research.run              # correr el estudio (~5 min, luego caché)
 streamlit run app.py                # la app: optimizador + pagina de revision
 python scripts/bootstrap_universe.py   # regenerar el snapshot del universo
