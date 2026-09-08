@@ -115,7 +115,22 @@ Misma separación que F y G.
 | `noticias/macro.py` | Punteros a las fuentes oficiales | nada, son datos estáticos |
 | `noticias/cache.py` | Frescura por fuente | nada |
 | `noticias/fuentes.py` | **Lo único que toca la red** | yfinance, edgartools |
+| `noticias/plano.py` | Estructuras ↔ diccionarios, para la caché | las tres estructuras |
 | `vistas/noticias.py` | La pantalla | todo lo anterior |
+
+`plano.py` existe porque la caché guarda JSON y las estructuras son dataclases,
+y **la trampa está en el camino corto**: `cache.guardar` usa `default=str`, así
+que pasarle una dataclase no revienta — la guarda como su `repr` y vuelve
+convertida en una cadena. Falla sólo en la **segunda** visita. Por eso el camino
+de la descarga recién hecha **también da la vuelta entera** por disco: si no,
+existiría un tipo que sólo aparece en la primera pasada, y la pantalla
+funcionaría hoy y no mañana.
+
+Al reconstruir, `Hecho.material` **se recalcula** con `criterio.material(tipos)`
+en vez de leerse del fichero. No es un segundo criterio: es el mismo, aplicado
+tarde. Un fichero escrito por un formato anterior, sin esa clave, daría
+`bool(None) → False` y plegaría los anuncios de resultados a partir de la
+segunda visita.
 
 `fuentes.py` existe para que los otros cinco módulos no necesiten conexión: el
 que descarga y el que interpreta lo descargado se prueban por separado, y la
@@ -142,8 +157,14 @@ class Noticia:
     medio: str           # provider["displayName"]
     url: str             # canonicalUrl["url"] -- es un dict, no una cadena
     cuando: datetime     # de `pubDate` (ISO con Z). `displayTime` puede venir ""
-    # `contentType` distingue ARTICLE de VIDEO. Se muestra, porque un video de
-    # tres minutos y una nota escrita no se leen igual ni cuestan lo mismo.
+    # `contentType`. Se muestra, porque un video de tres minutos y una nota
+    # escrita no se leen igual ni cuestan lo mismo.
+    #
+    # **No se traduce contra una lista cerrada.** El primer sondeo vio un
+    # "VIDEO" y se supuso que el resto serian "ARTICLE"; midiendolo de verdad
+    # sobre diez noticias salieron **ocho "STORY" y dos "VIDEO"**, y ni un solo
+    # "ARTICLE". Un diccionario de traduccion habria dejado el ochenta por
+    # ciento de las noticias sin etiqueta. Se pinta lo que venga.
     clase: str
 
 @dataclass(frozen=True)
