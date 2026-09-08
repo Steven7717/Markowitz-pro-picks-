@@ -35,7 +35,20 @@ Contra las fuentes vivas, el 2026-09-08, y no contra la documentación:
 | `Ticker.news` | 10 elementos | `title`, `summary`, `description`, `pubDate`, `provider`, `canonicalUrl`. El más reciente era **del mismo día del sondeo**, con sello `15:29Z` |
 | `Ticker.calendar` | dict | ex-dividendo, fecha de pago, próximos resultados, **y estimaciones de EPS e ingresos** |
 | `Ticker.earnings_dates` | DataFrame | resultados pasados con EPS estimado, real y **la sorpresa en %** |
-| `edgar.Company.get_filings` | firma con `form=` y `filing_date=` | filtrado por tipo y rango de fechas en origen |
+| `edgar.Company.get_filings` | 17 expedientes de AAPL en 20 meses | `to_pandas()` trae `form`, `filing_date`, `accession_number`, `primaryDocument` **y `items`** |
+
+**El hallazgo que decide el coste del módulo: los items vienen en el índice.**
+Una llamada por activo basta; no hay que abrir cada expediente para saber de qué
+trata. `filing.obj().items` existe, pero descargaría el documento entero de cada
+uno, y con quince activos eso convierte una pantalla en una espera.
+
+Dos cosas más que el sondeo enseñó y que había que ver antes de codificar:
+
+- **Un expediente lleva varios items**, en una cadena separada por comas:
+  `"2.02,9.01"`. El 2.02 (resultados) viene con el 9.01 casi siempre.
+- **`get_filings(form="8-K")` devuelve también los `8-K/A`**, las enmiendas.
+  Entran —no se descarta nada— pero se marcan, porque enmendar un hecho no es
+  lo mismo que comunicarlo.
 
 Y el hueco, que es lo que forzó una decisión: **ninguna de las dos librerías da
 el calendario macro.** Fed, IPC y empleo no están en yfinance ni en EDGAR.
@@ -125,11 +138,19 @@ class Noticia:
 @dataclass(frozen=True)
 class Hecho:
     ticker: str
-    tipo: str            # "4.02"
-    descripcion: str     # "Cuentas anteriores no fiables"
+    # Plural, y esto NO es un detalle de estilo. El indice de la SEC devuelve
+    # los items en una sola cadena separada por comas -- "2.02,9.01" -- porque
+    # un expediente puede comunicar varias cosas a la vez. Modelarlo como un
+    # str y compararlo contra la lista congelada haria que "2.02,9.01" no
+    # coincidiese con "2.02", y **todos los anuncios de resultados quedarian
+    # clasificados como no materiales**, que es el caso mas frecuente que hay.
+    # El 2.02 llega acompanado del 9.01 practicamente siempre.
+    tipos: tuple[str, ...]
+    descripciones: tuple[str, ...]   # una por tipo conocido, de criterio.py
     url: str
     cuando: date
-    material: bool       # sale de criterio.py, no del expediente
+    enmienda: bool       # el formulario venia como "8-K/A" y no como "8-K"
+    material: bool       # True si ALGUNO de sus tipos esta en la lista
 
 @dataclass(frozen=True)
 class Evento:
@@ -212,6 +233,12 @@ cambio del proveedor.
 
 Casos que deben existir sí o sí:
 
+- **Un expediente con varios items, `"2.02,9.01"`, tiene que salir material.**
+  Es el caso más frecuente que existe y el que un modelo de un solo tipo
+  clasificaría mal, dejando cada anuncio de resultados plegado entre la rutina.
+- Uno con `"7.01,9.01"`, ningún tipo material, tiene que quedar plegado — para
+  que el test anterior no pase por «todo lo que tenga dos items es material».
+- Un `8-K/A` marcado como enmienda, y presente igual.
 - Un 8-K de un tipo material y otro de uno plegado, y que **ninguno de los dos
   desaparece**.
 - `Evento.cuando is None` para lo macro, y que la pantalla no lo ordena junto a
