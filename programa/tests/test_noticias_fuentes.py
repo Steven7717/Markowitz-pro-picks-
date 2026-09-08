@@ -14,6 +14,35 @@ def test_sin_edgar_identity_los_hechos_dicen_que_falta(monkeypatch):
     assert "EDGAR_IDENTITY" in resultado.problema
 
 
+def test_sin_edgar_identity_no_se_llega_a_llamar_a_la_sec(monkeypatch):
+    """Lo unico que prueba que la guarda existe, y por que hace falta.
+
+    El test de arriba pasa **con guarda y sin ella**: quitandola, el error que
+    lanza el propio edgartools (`IdentityNotSetError`) ya trae la cadena
+    "EDGAR_IDENTITY" en su mensaje, asi que el `except` generico produce un
+    `problema` que satisface la comparacion por subcadena. Se descubrio
+    saboteando la guarda y viendo que no caia nada.
+
+    Lo que solo la guarda garantiza es que **no se llegue a preguntar**: sin
+    ella habria una construccion de Company y, en otras versiones de la
+    libreria, podria haber una llamada de red antes del fallo.
+    """
+    llamadas = []
+
+    def no_deberia_llamarse(ticker):
+        llamadas.append(ticker)
+        raise AssertionError("se llamo a la SEC sin identidad")
+
+    monkeypatch.delenv("EDGAR_IDENTITY", raising=False)
+    monkeypatch.setattr(fuentes, "_descargar_hechos", no_deberia_llamarse)
+    resultado = fuentes.hechos_de("AAPL")
+
+    assert llamadas == [], "la guarda no corto antes de la descarga"
+    assert "prensa" in resultado.problema.lower(), (
+        "el mensaje debe decir que prensa y calendario siguen funcionando"
+    )
+
+
 def test_un_fallo_de_red_se_nombra_y_no_se_propaga(monkeypatch):
     def revienta(*a, **k):
         raise ConnectionError("sin ruta al host")
