@@ -1,14 +1,15 @@
 # Contexto del proyecto — para retomar en una sesión nueva
 
-**Última actualización:** 2026-08-26
-**Rama:** `master` · **Tests:** 688 pasando (`uv run pytest tests/ -q -m "not red"`), 2 omitidos en Windows (permisos POSIX), más 6 marcados `red`
+**Última actualización:** 2026-09-08
+**Rama:** `seguimiento-cartera` — **no fusionada ni publicada** · **Tests:** 1.000 pasando (`uv run pytest tests/ -q -m "not red"`), 4 omitidos —dos por permisos POSIX en Windows y dos sin `numpy_financial`— más 6 marcados `red`
 **Remoto:** `https://github.com/Steven7717/Markowitz-pro-picks-.git` — `master` es lo publicado
 **Estructura:** el programa vive en `programa/`; en la raíz sólo están los dos
 lanzadores y el `README.md`. Los comandos (`uv run pytest`, `uv run streamlit`)
 se ejecutan desde `programa/`, no desde la raíz.
 
-> **Al retomar:** la copia local puede estar todavía en `compartir-el-programa`,
-> que ya está contenida en `master`. Lo actual y lo publicado es `master`.
+> **Al retomar:** F y G viven en `seguimiento-cartera`, que **no está
+> fusionada ni publicada**; `master` es lo último publicado y no los
+> contiene. Fusionar o abrir un PR sigue siendo decisión del usuario.
 
 ---
 
@@ -28,7 +29,7 @@ El objetivo mayor es construir, **aguas arriba de esa app**, un sistema donde un
 | D | ¿El análisis técnico aporta ventaja? | Veredicto reproducible | ✅ **terminado** |
 | E | Módulo de timing de entrada | — | ❌ **descartado por D** |
 | F | Libro de posiciones y seguimiento | Valoración, rendimiento y referencias | ✅ **terminado** |
-| G | Rebalanceo y aportaciones | Medidores de deriva, reparto de la aportación | ⬜ pendiente |
+| G | Rebalanceo y aportaciones | Medidores de deriva, reparto de la aportación | ✅ **terminado** |
 | H | Noticias y calendario | Feed de EDGAR, prensa, eventos | ⬜ pendiente |
 | I | Capa de IA sobre F, G y H | Interpretación y propuestas de ajuste | ⬜ pendiente |
 
@@ -608,18 +609,136 @@ F deja exactamente tres cosas, y ninguna más:
 - **PDF no.** `exporter.to_pdf` pasa por `kpi_rows`, que indexa claves de una
   corrida del optimizador que un libro no tiene. Sólo Excel.
 
+## Resultado del sub-proyecto G
+
+Paquete `rebalanceo/` (lógica, sin Streamlit) y `vistas/rebalanceo.py` (widgets,
+sin lógica), con **89 tests nuevos**. Fuera del paquete cambia **una sola cosa**:
+`app.py` registra la pantalla. G lee el libro de F y no lo toca.
+
+Cinco módulos, y el orden importa: `criterio` dice cuándo actuar, `deriva` mide
+la distancia, `coste` estima lo que cuesta cerrarla, `reparto` la cierra con
+dinero nuevo, y `propuesta` los junta.
+
+### Decisiones que no hay que relitigar
+
+- **La banda 5/25 está congelada en su propio commit** (`5300f3a`, «congelar el
+  criterio de rebalanceo antes de medir nada»), y ese fichero no tiene ningún
+  otro commit. La fecha es la prueba de que los umbrales no se movieron al ver
+  la deriva de ninguna cartera real. Cambiarlos exige una **enmienda fechada** en
+  el diseño, no una edición — el mismo estándar que hizo creíble el veredicto de
+  D. Una banda elegida después de mirar tu propia deriva no es un criterio, es
+  una racionalización.
+- **Los dos umbrales existen porque ninguno funciona solo.** Con sólo la banda
+  absoluta de 5 puntos, un activo cuyo objetivo es el 3% tendría que llegar al
+  8% —casi triplicarse— para disparar: en la práctica no se rebalancearía nunca.
+  Con sólo la relativa del 25%, un activo del 40% dispara al llegar al 50%, que
+  en una cartera concentrada es la oscilación de dos semanas. Y **la relativa no
+  se aplica con objetivo cero**: el 25% de cero es cero, y `abs(desviacion) >= 0`
+  es cierto incluso para una desviación nula, así que sin la guarda dispararía
+  siempre, y hasta para un activo que no se tiene.
+- **El tope de coste del 1% es lo que hace el criterio económico y no sólo
+  geométrico,** y viene directamente del veredicto de D: sin ventaja demostrada
+  en ninguna de las siete señales evaluadas, **operar de más es el único
+  destructor de valor garantizado** que queda en esta pantalla. Sin el tope, un
+  activo fuera de banda por veinte dólares generaría una propuesta que cuesta
+  cinco.
+- **El efectivo no entra en el denominador del peso real.** Si entrara, meter
+  10.000 en una cartera de 10.000 pondría todos los activos al 50% de su peso
+  objetivo y el medidor entero se volvería rojo — por una aportación que aún no
+  se ha invertido, no porque nada se hubiera desviado. La deriva mide la
+  **mezcla**; el efectivo es otra cosa y se reparte aparte.
+- **Hay dos denominadores, y confundirlos rompe la propuesta.** Los activos que
+  el objetivo contempla se miden entre ellos (`en_plan`); los que se tienen pero
+  el plan no incluye, sobre el total invertido. Unos pesos que suman uno
+  aplicados sobre un total que incluye algo que nadie va a vender piden que el
+  plan ocupe el cien por cien de un dinero del que otra cosa ya se lleva parte.
+- **Las comisiones de cero cuentan** al estimar el coste. Si el bróker no cobra
+  y así se registró, la estimación correcta es cero; filtrarlas «para quedarse
+  con datos reales» convierte un dato en la ausencia de un dato, y le bloquea
+  operaciones a quien no paga por ellas. Mediana y no media, para que una
+  comisión rara no mueva la estimación de todas las demás. Y la pantalla dice
+  siempre si el número está medido o supuesto: un supuesto que se lee como
+  medido es peor que no tener número. Por eso tampoco se usan los 5/10/25 puntos
+  básicos de `research/costs.py`: son supuestos de backtest institucional, y hoy
+  muchos brókers minoristas cobran cero por acciones de EE.UU.
+- **G no escribe en el libro.** Propone; el usuario registra en Seguimiento lo
+  que de verdad ejecutó en el bróker. Si escribiera, el libro mezclaría hechos
+  con intenciones sin forma de separarlos después — y todo F se apoya en que el
+  libro sea sólo hechos.
+- **La aportación va antes que las ventas.** Repartir dinero nuevo corrige
+  deriva sin vender nada, así que las ventas se deciden sobre la cartera *ya con
+  el efectivo dentro*. Decidirlas antes vendería lo que la aportación iba a
+  arreglar sola y gratis.
+- **Cuando algo rompe la banda se rebalancea el plan entero**, no sólo lo que la
+  rompió. La banda decide **cuándo** tocar la cartera; una vez que se toca, se
+  vuelve al objetivo completo. No es preferencia de estilo: moviendo sólo los
+  activos fuera de banda, las ventas no tienen por qué cubrir las compras y la
+  propuesta pide dinero que no hay.
+- **`basta_con_la_aportacion` se devuelve como un hecho propio**, no se deduce de
+  que la lista de ventas esté vacía: esa lista también sale vacía cuando todo se
+  descartó por coste, y las dos situaciones le dicen al usuario cosas opuestas.
+- **Una posición sin precio no vale cero.** Se aparta y vuelve nombrada.
+  Contarla como cero falsearía la deriva de todos los demás, no sólo la suya.
+
+### Seis defectos, y los seis eran míos
+
+Misma disciplina que F —plan por adelantado, un subagente por tarea, revisión
+por sabotaje— y el mismo reparto en tres métodos. **Ninguno de los seis venía de
+quien implementó: todos estaban en el plan o en el diseño.**
+
+**Sabotear una guarda y ver si algún test se entera:**
+
+| Defecto | Qué pasaba |
+|---|---|
+| El sabotaje más importante no tumbaba nada | Romper `basta_con_la_aportacion` dejaba la suite entera en verde, porque ningún test lo aseveraba: se comprobaba la lista de operaciones, que es justo lo que no lo distingue. La aserción entró en su propio commit (`e35cdd3`) |
+
+**Sondear una hipótesis con un script:**
+
+| Defecto | Qué pasaba |
+|---|---|
+| El código ordenaba la deriva de una forma y mi propio test afirmaba otra | Y los dos pasaban, porque el caso elegido no distinguía entre las dos ordenaciones |
+| «El reparto no aleja a nadie de su objetivo» era falsa | Medido: MSFT pasaba de 0,0300 a 0,0342 de desviación **recibiendo** dinero. La propiedad verdadera es agregada, no por activo — la sustituta se verificó sobre 2.000 carteras aleatorias |
+| Tres casos mal calculados a mano | El mejor: con 6.000/4.000 y 4.000 de aportación, AAPL está sobreponderada al 60% de 10.000 y **infraponderada al 42,9% de 14.000**. Recibe dinero, y mi plan decía que no |
+
+**Arrancar la app y recorrerla:**
+
+| Defecto | Qué pasaba |
+|---|---|
+| Los medidores se habrían pintado como texto plano | `medidores.CSS` no se inyectaba en ninguna parte, y la clase que mi plan mandaba usar (`mpp-marca`) no existe — la real es `mpp-tope` |
+| La propuesta pedía dinero que no había | Con TSLA en cartera y fuera del objetivo: «vender 2.138 y comprar 3.017». El descuadre de 879,48 era, a la centésima, **el valor de TSLA**. No ejecutable, y en pantalla los pesos del plan sumaban 91,5%, así que cada activo parecía menos desviado de lo que estaba |
+
+El último cambió el diseño y no sólo el código: el spec afirmaba que las ventas
+y las compras «suman cero por construcción», y eso sólo es cierto rebalanceando
+el plan entero. Corregido, la suma con signo pasó de 879,48 a 0,00.
+
+### Qué hereda H
+
+**Nada de G.** Los dos sub-proyectos son independientes: H trae noticias y
+calendario, y no necesita ni la deriva ni el reparto. Lo único que hereda es la
+**lista de tickers del libro**, que ya venía de F.
+
+### Lo que G no resuelve
+
+- **Propone importes, no acciones.** No redondea a títulos enteros ni sabe si el
+  bróker admite fracciones; el usuario traduce al ejecutar.
+- **El coste es plano y por operación.** No modela la horquilla de compraventa
+  —que no está registrada en ninguna parte, y la pantalla lo dice— ni el impacto
+  de mercado.
+- **No hay impuestos.** Vender realiza ganancias, y eso puede costar bastante más
+  que la comisión. El tope del 1% mide comisión contra importe, nada más.
+- **No guarda las propuestas.** Cada apertura recalcula desde el libro; no hay
+  histórico de qué se propuso ni de qué se hizo con ello.
+
 ## Lo siguiente
 
 El sistema está completo de punta a punta: A ingiere, B ordena y razona, C
-decide, el optimizador reparte pesos, y **F sigue lo que se compró de verdad**.
+decide, el optimizador reparte pesos, **F sigue lo que se compró de verdad**
+y **G dice cuándo hace falta corregir el rumbo y qué cuesta**.
 
-Lo natural es continuar por **G — rebalanceo y aportaciones**, que es lo que F
-deja servido: los pesos objetivo, los pesos reales y el efectivo sin asignar.
-Su diseño no está escrito; lo que sí está decidido es que el medidor no debe
-mostrar sólo la deriva sino **lo que cuesta corregirla** — el sub-proyecto D
-concluyó que ninguna señal técnica aporta ventaja, así que el mayor destructor
-de valor disponible aquí es operar de más. `research/costs.py` ya tiene los
-escenarios de coste.
+Lo que queda del encargo original son **H — noticias y calendario** e
+**I — la capa de IA** sobre F, G y H. Ninguno de los dos tiene diseño
+escrito, y H no hereda nada de G: sólo la lista de tickers del libro, que
+ya venía de F.
 
 El rediseño de la interfaz, que era el punto 1 de esta lista, se hizo el
 2026-09-01 — ver la sección anterior. El arranque en Mac, que fue el punto 1
@@ -652,7 +771,7 @@ Sigue sin responder: **¿cuántas acciones debería tener el portafolio final?**
 
 ```bash
 # Todos estos se ejecutan desde programa/, no desde la raiz del repo.
-pytest tests/ -q -m "not red"       # 911 tests, sin red
+pytest tests/ -q -m "not red"       # 1.000 tests, sin red
 python -m research.run              # correr el estudio (~5 min, luego caché)
 streamlit run app.py                # la app: optimizador + pagina de revision
 python scripts/bootstrap_universe.py   # regenerar el snapshot del universo
