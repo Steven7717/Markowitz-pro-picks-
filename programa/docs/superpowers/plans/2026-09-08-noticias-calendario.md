@@ -63,6 +63,12 @@ df = edgar.Company("AAPL").get_filings(
 fixtures. Los que llaman a las fuentes vivas van marcados `red` y quedan fuera
 de `-m "not red"`.
 
+**3. La primera línea de cada bloque es un comentario con la ruta, no un
+docstring.** Escribirla como `"""ruta.py"""` encima del docstring real dejaría
+dos literales seguidos: Python toma el primero como `__doc__` y **descarta el
+segundo en silencio**, así que el módulo perdería toda su documentación sin que
+nada falle. El repo tampoco usa esa convención en ningún fichero.
+
 ---
 
 ## Task 1: El criterio, congelado
@@ -79,7 +85,7 @@ había salido. Mismo estándar que `rebalanceo/criterio.py` y `ranking/criterio.
 - [ ] **Step 1: Escribe los tests que fallan**
 
 ```python
-"""tests/test_noticias_criterio.py"""
+# tests/test_noticias_criterio.py
 import pytest
 
 from noticias import criterio
@@ -142,7 +148,7 @@ Expected: FAIL con `ModuleNotFoundError: No module named 'noticias'`
 - [ ] **Step 3: Escribe el módulo**
 
 ```python
-"""noticias/criterio.py"""
+# noticias/criterio.py
 """Que tipos de 8-K salen destacados, y por que esos.
 
 **Este fichero esta congelado.** Vive aparte del codigo que lo usa por la misma
@@ -233,7 +239,7 @@ git commit -m "docs: congelar los tipos de 8-K materiales antes de mirar ninguno
 - [ ] **Step 1: Escribe los tests que fallan**
 
 ```python
-"""tests/test_noticias_prensa.py"""
+# tests/test_noticias_prensa.py
 from datetime import datetime, timezone
 
 from noticias import prensa
@@ -325,7 +331,7 @@ Expected: FAIL con `ImportError: cannot import name 'prensa'`
 - [ ] **Step 3: Escribe el módulo**
 
 ```python
-"""noticias/prensa.py"""
+# noticias/prensa.py
 """La prensa que Yahoo asocia a cada activo, normalizada y sin juzgar.
 
 H no filtra la prensa: no hay criterio defendible para decidir que titular
@@ -427,7 +433,7 @@ git commit -m "feat: la prensa de yfinance, sin el HTML de description"
 - [ ] **Step 1: Escribe los tests que fallan**
 
 ```python
-"""tests/test_noticias_hechos.py"""
+# tests/test_noticias_hechos.py
 from datetime import date
 
 import pandas as pd
@@ -543,7 +549,7 @@ Expected: FAIL con `ImportError: cannot import name 'hechos'`
 - [ ] **Step 3: Escribe el módulo**
 
 ```python
-"""noticias/hechos.py"""
+# noticias/hechos.py
 """Los 8-K del libro, desde el indice de la SEC y sin abrir ni uno.
 
 **Los items vienen en el indice.** `EntityFilings.to_pandas()` trae una columna
@@ -657,7 +663,7 @@ git commit -m "feat: los 8-K desde el indice, con sus varios items por expedient
 - [ ] **Step 1: Escribe los tests que fallan**
 
 ```python
-"""tests/test_noticias_agenda.py"""
+# tests/test_noticias_agenda.py
 from datetime import date
 
 from noticias import agenda
@@ -728,7 +734,7 @@ Expected: FAIL con `ImportError: cannot import name 'agenda'`
 - [ ] **Step 3: Escribe el módulo**
 
 ```python
-"""noticias/agenda.py"""
+# noticias/agenda.py
 """Lo que viene: resultados, ex-dividendo y pago.
 
 El orden es ascendente, al reves que el de las noticias. No es un capricho: en
@@ -824,7 +830,7 @@ git commit -m "feat: la agenda del activo, con Earnings Date que es una lista"
 - [ ] **Step 1: Escribe los tests que fallan**
 
 ```python
-"""tests/test_noticias_macro.py"""
+# tests/test_noticias_macro.py
 from noticias import macro
 from noticias.agenda import Evento
 
@@ -877,7 +883,7 @@ Expected: FAIL con `ImportError: cannot import name 'macro'`
 - [ ] **Step 3: Escribe el módulo**
 
 ```python
-"""noticias/macro.py"""
+# noticias/macro.py
 """Quien publica los datos de mercado, no cuando los publica.
 
 **Punteros y no fechas, y es la decision central del sub-proyecto.** Ni
@@ -956,7 +962,7 @@ git commit -m "feat: punteros a las fuentes macro oficiales, sin fechas copiadas
 - [ ] **Step 1: Escribe los tests que fallan**
 
 ```python
-"""tests/test_noticias_cache.py"""
+# tests/test_noticias_cache.py
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -1034,7 +1040,7 @@ Expected: FAIL con `ImportError: cannot import name 'cache'`
 - [ ] **Step 3: Escribe el módulo**
 
 ```python
-"""noticias/cache.py"""
+# noticias/cache.py
 """Frescura por fuente, y la hora de descarga siempre a la vista.
 
 Quince activos por tres fuentes son cuarenta y cinco llamadas de red, y
@@ -1161,7 +1167,7 @@ se prueban sin conexión porque no la necesitan.
 - [ ] **Step 1: Escribe los tests que fallan**
 
 ```python
-"""tests/test_noticias_fuentes.py"""
+# tests/test_noticias_fuentes.py
 from datetime import date
 
 import pytest
@@ -1260,7 +1266,7 @@ Expected: FAIL con `ImportError: cannot import name 'fuentes'`
 - [ ] **Step 3: Escribe el módulo**
 
 ```python
-"""noticias/fuentes.py"""
+# noticias/fuentes.py
 """Lo unico que toca la red, aislado para que el resto no la necesite.
 
 Cada descarga devuelve `Traida`, con los datos y **el problema como texto**. No
