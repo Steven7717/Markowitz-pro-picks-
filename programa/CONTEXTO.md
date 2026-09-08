@@ -1,15 +1,15 @@
 # Contexto del proyecto — para retomar en una sesión nueva
 
 **Última actualización:** 2026-09-08
-**Rama:** `seguimiento-cartera` — **no fusionada ni publicada** · **Tests:** 1.000 pasando (`uv run pytest tests/ -q -m "not red"`), 4 omitidos —dos por permisos POSIX en Windows y dos sin `numpy_financial`— más 6 marcados `red`
+**Rama:** `master` · **Tests:** 1.000 pasando (`uv run pytest tests/ -q -m "not red"`), 4 omitidos —dos por permisos POSIX en Windows y dos sin `numpy_financial`— más 6 marcados `red`
 **Remoto:** `https://github.com/Steven7717/Markowitz-pro-picks-.git` — `master` es lo publicado
 **Estructura:** el programa vive en `programa/`; en la raíz sólo están los dos
 lanzadores y el `README.md`. Los comandos (`uv run pytest`, `uv run streamlit`)
 se ejecutan desde `programa/`, no desde la raíz.
 
-> **Al retomar:** F y G viven en `seguimiento-cartera`, que **no está
-> fusionada ni publicada**; `master` es lo último publicado y no los
-> contiene. Fusionar o abrir un PR sigue siendo decisión del usuario.
+> **Al retomar:** todo está en `master`, incluidos F y G, fusionados el
+> 2026-09-08 en avance rápido desde `seguimiento-cartera` — que quedó en
+> el mismo commit y ya no hace falta.
 
 ---
 
