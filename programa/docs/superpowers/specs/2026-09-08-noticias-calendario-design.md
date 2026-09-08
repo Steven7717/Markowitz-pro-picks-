@@ -127,13 +127,17 @@ leerse solos.
 class Noticia:
     ticker: str
     titular: str
-    # De `summary`, y si viene vacío de `description`: el sondeo vio los dos
-    # campos y no son sinónimos garantizados. Si faltan ambos, cadena vacía y
-    # la pantalla enseña sólo el titular -- que ya dice algo.
+    # SOLO de `summary`. `description` existe y NO sirve: viene en HTML crudo
+    # ('<p>Oracle (<a target="_blank"...'), y volcarlo en la pantalla pintaria
+    # etiquetas o, peor, las interpretaria. Si `summary` esta vacio, el resumen
+    # queda vacio y se ensena solo el titular, que ya dice algo.
     resumen: str
-    medio: str
-    url: str
-    cuando: datetime
+    medio: str           # provider["displayName"]
+    url: str             # canonicalUrl["url"] -- es un dict, no una cadena
+    cuando: datetime     # de `pubDate` (ISO con Z). `displayTime` puede venir ""
+    # `contentType` distingue ARTICLE de VIDEO. Se muestra, porque un video de
+    # tres minutos y una nota escrita no se leen igual ni cuestan lo mismo.
+    clase: str
 
 @dataclass(frozen=True)
 class Hecho:
@@ -255,5 +259,9 @@ Casos que deben existir sí o sí:
 - **Una divisa y un mercado, US.** Un 8-K sólo existe para emisores registrados
   en la SEC; un ticker de otro mercado tendrá prensa y calendario, pero no
   hechos, y la pantalla lo dirá en vez de dejar el bloque vacío.
-- **La prensa es la que Yahoo agrega**, con su relleno incluido. H no la filtra
-  porque no tiene criterio defendible para hacerlo, y fingir uno sería peor.
+- **La prensa es la que Yahoo agrega**, con su relleno incluido, y el relleno es
+  peor de lo que parece: en el sondeo, la primera «noticia» de MSFT era un
+  **vídeo sobre los resultados de Oracle**. Yahoo asocia al ticker cosas que
+  sólo lo rozan. H no filtra porque no tiene criterio defendible para hacerlo
+  —y fingir uno sería peor—, pero la pantalla muestra el medio y si es vídeo o
+  texto, que es lo que permite descartarlo de un vistazo.
