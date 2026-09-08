@@ -114,7 +114,14 @@ Misma separación que F y G.
 | `noticias/agenda.py` | `.calendar` y `.earnings_dates` → `Evento` | yfinance |
 | `noticias/macro.py` | Punteros a las fuentes oficiales | nada, son datos estáticos |
 | `noticias/cache.py` | Frescura por fuente | nada |
+| `noticias/fuentes.py` | **Lo único que toca la red** | yfinance, edgartools |
 | `vistas/noticias.py` | La pantalla | todo lo anterior |
+
+`fuentes.py` existe para que los otros cinco módulos no necesiten conexión: el
+que descarga y el que interpreta lo descargado se prueban por separado, y la
+suite normal no sale a la red. Devuelve los datos **y el problema como texto**,
+sin lanzar: si una fuente cae, la pantalla pinta las otras y dice cuál falló.
+Que se caiga la pantalla entera por una de tres es peor que enseñar dos.
 
 `macro.py` y `criterio.py` no tienen dependencias a propósito: son los dos
 ficheros que alguien va a querer leer para discutir el contenido, y deben poder
