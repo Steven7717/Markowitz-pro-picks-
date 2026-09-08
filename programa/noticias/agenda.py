@@ -52,7 +52,7 @@ def desde_calendario(
     if ex:
         salida.append(
             Evento(ticker, "ex-dividendo", ex,
-                   "Ultimo dia para tener las acciones y cobrar")
+                   "Último día para tener las acciones y cobrar")
         )
 
     pago = _primera_fecha(calendario.get("Dividend Date"))

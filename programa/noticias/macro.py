@@ -18,28 +18,28 @@ PUNTEROS = (
         ticker=None,
         clase="macro",
         cuando=None,
-        detalle="Reuniones del FOMC — ocho al ano. Deciden el tipo de interes.",
+        detalle="Reuniones del FOMC — ocho al año. Deciden el tipo de interés.",
         url="https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm",
     ),
     Evento(
         ticker=None,
         clase="macro",
         cuando=None,
-        detalle="IPC — mensual. La inflacion que la Fed dice mirar.",
+        detalle="IPC — mensual. La inflación que la Fed dice mirar.",
         url="https://www.bls.gov/schedule/news_release/",
     ),
     Evento(
         ticker=None,
         clase="macro",
         cuando=None,
-        detalle="Situacion del empleo — mensual, normalmente el primer viernes.",
+        detalle="Situación del empleo — mensual, normalmente el primer viernes.",
         url="https://www.bls.gov/schedule/news_release/",
     ),
     Evento(
         ticker=None,
         clase="macro",
         cuando=None,
-        detalle="PIB trimestral y PCE mensual — la medida de inflacion preferida "
+        detalle="PIB trimestral y PCE mensual — la medida de inflación preferida "
                 "por la Fed.",
         url="https://www.bea.gov/news/schedule",
     ),

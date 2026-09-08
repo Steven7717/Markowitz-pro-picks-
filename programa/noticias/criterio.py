@@ -20,22 +20,22 @@ DESCRIPCIONES = {
     "4.02": "Cuentas anteriores no fiables",
     "4.01": "Cambio de auditor",
     "1.03": "Concurso o quiebra",
-    "3.01": "Aviso de exclusion de cotizacion",
+    "3.01": "Aviso de exclusión de cotización",
     "2.06": "Deterioros materiales",
     "2.02": "Resultados",
-    "2.01": "Adquisicion o venta de activos",
+    "2.01": "Adquisición o venta de activos",
     "5.01": "Cambio de control",
     "5.02": "Salidas o nombramientos en la directiva",
     "1.01": "Acuerdo material",
     "1.05": "Incidente material de ciberseguridad",
     # Los de rutina tambien llevan texto: se pliegan, pero se muestran, y un
     # codigo desnudo no le dice nada a nadie.
-    "7.01": "Divulgacion Regulation FD",
+    "7.01": "Divulgación Regulation FD",
     "8.01": "Otros eventos",
     "9.01": "Estados financieros y anexos",
-    "5.07": "Votacion de accionistas",
+    "5.07": "Votación de accionistas",
     "5.03": "Cambio de estatutos",
-    "2.03": "Nueva obligacion financiera",
+    "2.03": "Nueva obligación financiera",
     "3.02": "Venta de acciones no registrada",
 }
 

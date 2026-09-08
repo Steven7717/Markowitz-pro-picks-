@@ -71,7 +71,17 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-entradas = [e for e in mod.listar() if e.libro is not None]
+todas = mod.listar()
+# **Un fichero ilegible se nombra.** Filtrarlo en silencio y decir despues que
+# no llevas ningun libro convierte «no puedo leer el tuyo» en «no tienes
+# ninguno»: son cosas opuestas, y la segunda deja al usuario sin nada que
+# buscar. Es la misma regla que `vistas/seguimiento.py` ya aplicaba, y que
+# `seguimiento/libro.py` explica: una cache se regenera, un libro no.
+for _entrada in todas:
+    if _entrada.libro is None:
+        st.error(f"`{_entrada.ruta.name}` no se puede leer: {_entrada.error}")
+
+entradas = [e for e in todas if e.libro is not None]
 if not entradas:
     st.info("Todavía no llevas ningún libro. Empieza uno desde **Seguimiento**.")
     if st.button("Ir a seguimiento", icon=":material/monitoring:"):
