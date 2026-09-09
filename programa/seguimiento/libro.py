@@ -86,6 +86,40 @@ class Objetivo:
     veredicto: dict = field(default_factory=dict)
 
 
+CADENCIAS = frozenset({"mensual", "trimestral", "anual"})
+
+
+@dataclass(frozen=True)
+class AportacionPrevista:
+    """El plan de aportar, que NO es un asiento de aportacion.
+
+    El nombre lleva «prevista» a proposito: `Asiento.tipo == "aportacion"` ya
+    existe y es un hecho ocurrido. Llamar igual a las dos cosas invita justo a
+    la confusion que todo este paquete evita -- una es dinero que entro, la
+    otra es dinero que el usuario dice que entrara. Fusionarlas inflaria el
+    capital aportado con dinero que nunca llego, y hundiria el rendimiento sin
+    causa visible.
+
+    No se aporta cero: eso es no aportar, y se representa con None.
+    """
+
+    importe: float
+    cadencia: str
+
+    def __post_init__(self):
+        _finito(self.importe, "el importe previsto")
+        if self.importe <= 0:
+            raise ValueError(
+                "el importe previsto tiene que ser mayor que cero; para no "
+                "aportar, deja la aportacion prevista en None"
+            )
+        if self.cadencia not in CADENCIAS:
+            raise ValueError(
+                f"cadencia desconocida: {self.cadencia!r}; "
+                f"las validas son {sorted(CADENCIAS)}"
+            )
+
+
 @dataclass(frozen=True)
 class Libro:
     """Un libro entero: el nombre, los objetivos apilados y los asientos.
@@ -99,6 +133,12 @@ class Libro:
     nombre: str
     creado: str
     moneda: str = "USD"
+    # Si el broker admite fracciones de accion. Decide si el reparto del
+    # capital redondea hacia abajo y deja sobrante, o si cuadra al centimo.
+    fracciones: bool = False
+    # El plan, no un hecho. Rebalanceo lo usa para no volver a preguntarlo.
+    # None cuando el usuario dice que no hara aportaciones.
+    aportacion_prevista: "AportacionPrevista | None" = None
     objetivos: tuple[Objetivo, ...] = ()
     asientos: tuple[Asiento, ...] = ()
 
@@ -515,6 +555,13 @@ def cargar(ruta: Path) -> Libro:
             nombre=cartera.normalizar_nombre(crudo["nombre"]),
             creado=str(crudo["creado"]),
             moneda=str(crudo.get("moneda", "USD")),
+            fracciones=bool(crudo.get("fracciones", False)),
+            # `or None` y no un ternario: un diccionario vacio en disco
+            # significa «sin plan», igual que la clave ausente.
+            aportacion_prevista=(
+                AportacionPrevista(**crudo["aportacion_prevista"])
+                if crudo.get("aportacion_prevista") else None
+            ),
             objetivos=tuple(Objetivo(**o) for o in crudo.get("objetivos", [])),
             asientos=asientos,
         )
