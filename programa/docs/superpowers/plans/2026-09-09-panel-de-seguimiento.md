@@ -374,15 +374,36 @@ recortadas (`51,…`); a cuatro caben nueve caracteres enteros.
 `sin_precio` se nombran debajo. Si no hay objetivo, una nota lo dice y no hay
 marcas.
 
-### Paso 4 — comprobar a 1024px
+### Paso 4 — el aviso de la brecha TWR/TIR afirma una causa que no comprueba
+
+Encontrado por el agente de la tarea 1, y **hay que arreglarlo aquí** porque es
+texto de pantalla. Hoy dice:
+
+> **TWR y TIR se separan X%.** Esa diferencia es el efecto de *cuándo*
+> aportaste, no de qué compraste.
+
+Con **una sola aportación no hay ningún «cuándo»** que pueda explicar nada, y el
+mensaje sale igual. En el libro de pruebas se separan 329 puntos con un único
+flujo: la causa real era que el precio de compra registrado no coincidía con el
+cierre de mercado de ese día, así que la serie arranca en 49.911 mientras la TIR
+parte de los 40.000 que entraron. Es una diferencia de **coste contra mercado**,
+no de calendario.
+
+El arreglo: **contar los flujos externos antes de atribuir la causa.** Con dos o
+más, el mensaje de hoy vale. Con uno solo, decir que se separan y **no decir por
+qué** — o nombrar la otra causa posible. Afirmar un porqué que no se ha
+comprobado es la misma falta que «Aportado neto 0,00» en J: una frase plausible
+sobre algo que el programa no sabe.
+
+### Paso 5 — comprobar a 1024px
 
 Arrancar la app, poner la ventana a 1024px de ancho, y **comprobar que las
 cuatro cifras se leen enteras**. Es el síntoma que abre el diseño; si sigue ahí,
 la tarea no está hecha.
 
-### Paso 5 — suite
+### Paso 6 — suite
 
-Sin tests nuevos: es disposición. `1.130`.
+Un test nuevo: con un solo flujo el aviso no atribuye la causa. `1.130 + 1 = 1.131`.
 
 ---
 
@@ -408,7 +429,7 @@ pestañas en cada pasada, estén visibles o no. Nada de esto ahorra trabajo; lo
 que ahorra es scroll. No escribir en el código que "se calcula sólo lo visible",
 porque no es verdad.
 
-Suite: `1.130`.
+Suite: `1.131`.
 
 ---
 
@@ -450,7 +471,7 @@ Pulsar el botón, esperar, y ver que aparecen. Volver a abrir: instantáneo.
 
 ### Paso 6 — suite
 
-`1.130 + 2 = 1.132` (dos tests sobre qué estado corresponde a cada caso).
+`1.131 + 2 = 1.133` (dos tests sobre qué estado corresponde a cada caso).
 
 ---
 
