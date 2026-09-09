@@ -445,112 +445,145 @@ if abs(comp.efectivo) >= 0.005:
          "recogen.")
     )
 
-# --- Valor en el tiempo, contra las tres referencias -------------------------
-
-st.subheader("Valor en el tiempo")
-
-lineas = {"Tu cartera": marcha.valor}
-if objetivo is not None:
-    pesos = mod.pesos_objetivo(objetivo)
-    if pesos:
-        lineas["Si hubieras seguido el plan"] = comparacion.referencia(
-            marcha.flujos, pesos, historia.cierres
-        )
-lineas["Repartir por igual (1/N)"] = comparacion.referencia(
-    marcha.flujos,
-    comparacion.equal_weight(list(historia.cierres.columns)),
-    historia.cierres,
-)
-
-st.line_chart(pd.DataFrame(lineas))
-st.caption(
-    "Las tres referencias reciben **el mismo dinero en las mismas fechas** que "
-    "metiste tú. Así la comparación aísla qué compraste de cuándo lo compraste. "
-    "Ninguna rebalancea: rebalancear es una decisión con coste."
-)
-
-# --- Por activo --------------------------------------------------------------
-
-st.subheader("Por activo")
-
-# TIR y Dividendos bajan aqui desde la cabecera: a seis columnas arriba no se
-# leia entera ninguna de las seis cifras. Este es ademas su sitio, porque el
-# detalle que las explica --lo que aporto cada activo, lo que pago cada uno--
-# esta en la tabla de debajo.
+# --- El detalle, en pestanas -------------------------------------------------
 #
-# Provisional en cuanto a la CAJA, no en cuanto al sitio: la tarea 6 del
-# sub-proyecto K mete esta seccion entera en la pestaña «Por activo», y este
-# bloque se va dentro con ella tal cual.
-d1, d2, _ = st.columns(3)
-d1.metric(
-    "TIR", cartera.formato_porcentaje(cab.tir),
-    help="Ponderada por dinero: lo que ganaste tú, con tu timing dentro. "
-         "Aparece «—» cuando no hay una respuesta defendible.",
-)
-d2.metric("Dividendos", f"{cab.dividendos:,.2f}")
-
-# El denominador de los pesos sale de `composicion`, no de `cab.valor`: aquel
-# es la suma de los activos y este incluye el efectivo sin invertir. Con el
-# segundo la columna sumaba 71,9% al lado de un objetivo que suma 100%.
-filas = panel.filas_por_activo(actual.asientos, precios_hoy, comp.invertido, objetivo)
-
-st.dataframe(pd.DataFrame(filas), use_container_width=True, hide_index=True)
-# El metodo de coste se decia arriba, en la linea de identidad del libro. Baja
-# aqui porque es de aqui: «Coste medio», «Realizada» y «Latente» son las tres
-# columnas a las que afecta, y arriba competia por el sitio con el nombre de la
-# cartera sin explicar ninguna de las cuatro cifras de cabecera.
-st.caption(
-    "Coste calculado por **media ponderada**, no por lotes: cambia el reparto "
-    "entre ganancia realizada y latente, nunca el total. Esto no es un cálculo "
-    "fiscal."
-)
-st.caption(
-    "La contribución va en dólares y suma. Un porcentaje de contribución con "
-    "aportaciones de por medio compararía cada activo contra un capital que no "
-    "fue el suyo durante todo el periodo."
-)
-
-_registrar_operacion()
-
-# --- Historial ---------------------------------------------------------------
-
-st.subheader("Historial")
-
-historial = panel.filas_de_historial(actual.asientos)
-st.dataframe(pd.DataFrame(historial), use_container_width=True, hide_index=True)
-
-# --- Exportar ----------------------------------------------------------------
+# Arriba se queda el resumen --la identidad del libro, las cuatro cifras, la
+# composicion-- porque es lo que se mira a diario y **tiene que seguir a la
+# vista al cambiar de pestana**: esa permanencia es la razon de ser del reparto,
+# no un efecto secundario. Lo que entra aqui es el detalle, que hasta ahora
+# obligaba a bajar cuatro pantallas para llegar al historial.
 #
-# Solo Excel. `exporter.to_pdf` pasa por `kpi_rows`, que indexa directamente
-# `sharpe`, `annual_return`, `annual_vol` y `rf_rate` -- claves de una corrida
-# del optimizador que un libro de seguimiento no tiene, y que reventarian con
-# KeyError. `to_excel` si es generico: acepta cualquier DataFrame y cualquier
-# dict. Hacer que kpi_rows tolere dos formas distintas de metricas es un cambio
-# a un modulo compartido, y se hace cuando se decida, no de refilon.
+# **Streamlit ejecuta el contenido de las cuatro pestanas en cada pasada**,
+# esten visibles o no: las filas del historial se construyen igual mientras
+# miras el grafico. Asi que esto **no ahorra ni un calculo**, y conviene dejarlo
+# escrito porque lo contrario es facil de suponer y muy facil de creer. Lo que
+# ahorra es scroll, que es todo lo que promete.
 #
-# Las mismas cifras que la pantalla, `_visible` incluido: un None sale como
-# celda vacia y un 0,00 saldria como un numero. Fuera del programa la
-# diferencia importa mas todavia, porque en una hoja de calculo ya no queda
-# ningun aviso al lado que explique de donde vino el cero.
-st.download_button(
-    "Descargar Excel",
-    data=to_excel(
-        pd.DataFrame(filas),
-        {
-            "Libro": actual.nombre,
-            "Moneda": actual.moneda,
-            "Valorado a": "—" if sin_valorar else (ultimo_cierre or "—"),
-            "Valor": cab.valor,
-            "Aportado neto": cab.aportado,
-            "Ganancia": cab.ganancia,
-            "TWR del periodo": cab.twr_periodo,
-            "TWR anual": cab.twr_anual,
-            "TIR": cab.tir,
-            "Dividendos": cab.dividendos,
-            "Metodo de coste": "media ponderada",
-        },
-    ),
-    file_name=f"seguimiento_{elegida.ruta.stem}.xlsx",
-    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    icon=":material/table_view:",
+# No hay que estilarlas: `tema.py` ya lo hace para toda la aplicacion, con el
+# gancho `data-testid="stTab"` y la explicacion de por que no es `data-baseweb`.
+#
+# Los subtitulos de dentro se van, salvo uno. «Por activo» e «Historial» decian
+# lo mismo que la pestana que ahora los contiene, y las otras dos pantallas con
+# pestanas --`vistas/optimizador.py` y `vistas/perfil.py`-- no ponen ninguno:
+# la etiqueta es el titulo. «Valor en el tiempo» se queda porque dice algo que
+# «Evolución» no dice, que lo que evoluciona es dinero.
+evolucion, por_activo, movimientos, noticias = st.tabs(
+    ["Evolución", "Por activo", "Movimientos", "Noticias"]
 )
+
+# ── Evolución ────────────────────────────────────────────────────────────────
+with evolucion:
+    st.subheader("Valor en el tiempo")
+
+    lineas = {"Tu cartera": marcha.valor}
+    if objetivo is not None:
+        pesos = mod.pesos_objetivo(objetivo)
+        if pesos:
+            lineas["Si hubieras seguido el plan"] = comparacion.referencia(
+                marcha.flujos, pesos, historia.cierres
+            )
+    lineas["Repartir por igual (1/N)"] = comparacion.referencia(
+        marcha.flujos,
+        comparacion.equal_weight(list(historia.cierres.columns)),
+        historia.cierres,
+    )
+
+    st.line_chart(pd.DataFrame(lineas))
+    st.caption(
+        "Las tres referencias reciben **el mismo dinero en las mismas fechas** que "
+        "metiste tú. Así la comparación aísla qué compraste de cuándo lo compraste. "
+        "Ninguna rebalancea: rebalancear es una decisión con coste."
+    )
+
+# ── Por activo ───────────────────────────────────────────────────────────────
+with por_activo:
+    # TIR y Dividendos viven aqui y no arriba: a seis columnas no se leia entera
+    # ninguna de las seis cifras de cabecera. Y este es ademas su sitio, porque
+    # el detalle que las explica --lo que aporto cada activo, lo que pago cada
+    # uno-- es la tabla de debajo.
+    d1, d2, _ = st.columns(3)
+    d1.metric(
+        "TIR", cartera.formato_porcentaje(cab.tir),
+        help="Ponderada por dinero: lo que ganaste tú, con tu timing dentro. "
+             "Aparece «—» cuando no hay una respuesta defendible.",
+    )
+    d2.metric("Dividendos", f"{cab.dividendos:,.2f}")
+
+    # El denominador de los pesos sale de `composicion`, no de `cab.valor`: aquel
+    # es la suma de los activos y este incluye el efectivo sin invertir. Con el
+    # segundo la columna sumaba 71,9% al lado de un objetivo que suma 100%.
+    filas = panel.filas_por_activo(
+        actual.asientos, precios_hoy, comp.invertido, objetivo
+    )
+
+    st.dataframe(pd.DataFrame(filas), use_container_width=True, hide_index=True)
+    # El metodo de coste se decia arriba, en la linea de identidad del libro. Baja
+    # aqui porque es de aqui: «Coste medio», «Realizada» y «Latente» son las tres
+    # columnas a las que afecta, y arriba competia por el sitio con el nombre de la
+    # cartera sin explicar ninguna de las cuatro cifras de cabecera.
+    st.caption(
+        "Coste calculado por **media ponderada**, no por lotes: cambia el reparto "
+        "entre ganancia realizada y latente, nunca el total. Esto no es un cálculo "
+        "fiscal."
+    )
+    st.caption(
+        "La contribución va en dólares y suma. Un porcentaje de contribución con "
+        "aportaciones de por medio compararía cada activo contra un capital que no "
+        "fue el suyo durante todo el periodo."
+    )
+
+    _registrar_operacion()
+
+    # Exportar. Solo Excel: `exporter.to_pdf` pasa por `kpi_rows`, que indexa
+    # directamente `sharpe`, `annual_return`, `annual_vol` y `rf_rate` --claves de
+    # una corrida del optimizador que un libro de seguimiento no tiene, y que
+    # reventarian con KeyError--. `to_excel` si es generico: acepta cualquier
+    # DataFrame y cualquier dict. Hacer que `kpi_rows` tolere dos formas distintas
+    # de metricas es un cambio a un modulo compartido, y se hace cuando se decida,
+    # no de refilon.
+    #
+    # Esta aqui, y no al final de la pagina, porque lo que descarga es esta tabla:
+    # `filas` es el mismo DataFrame que se acaba de pintar. El boton se movio de
+    # sitio y nada mas; `exporter.py` no se toco.
+    #
+    # Las mismas cifras que la pantalla, `_visible` incluido: un None sale como
+    # celda vacia y un 0,00 saldria como un numero. Fuera del programa la
+    # diferencia importa mas todavia, porque en una hoja de calculo ya no queda
+    # ningun aviso al lado que explique de donde vino el cero.
+    st.download_button(
+        "Descargar Excel",
+        data=to_excel(
+            pd.DataFrame(filas),
+            {
+                "Libro": actual.nombre,
+                "Moneda": actual.moneda,
+                "Valorado a": "—" if sin_valorar else (ultimo_cierre or "—"),
+                "Valor": cab.valor,
+                "Aportado neto": cab.aportado,
+                "Ganancia": cab.ganancia,
+                "TWR del periodo": cab.twr_periodo,
+                "TWR anual": cab.twr_anual,
+                "TIR": cab.tir,
+                "Dividendos": cab.dividendos,
+                "Metodo de coste": "media ponderada",
+            },
+        ),
+        file_name=f"seguimiento_{elegida.ruta.stem}.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        icon=":material/table_view:",
+    )
+
+# ── Movimientos ──────────────────────────────────────────────────────────────
+with movimientos:
+    historial = panel.filas_de_historial(actual.asientos)
+    st.dataframe(pd.DataFrame(historial), use_container_width=True, hide_index=True)
+
+# ── Noticias ─────────────────────────────────────────────────────────────────
+with noticias:
+    # Vacia a proposito: la llena la tarea 7 del sub-proyecto K, leyendo de
+    # `noticias/traer.cacheado` --solo cache, ninguna descarga al abrir la
+    # pantalla--. La pestana existe ya para que el reparto se vea entero.
+    st.caption(
+        "Aquí irán las noticias de los activos de este libro. Todavía no están "
+        "conectadas."
+    )
