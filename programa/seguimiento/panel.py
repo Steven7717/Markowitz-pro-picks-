@@ -10,7 +10,8 @@ fallase, porque los numeros que saldrian serian plausibles.
 
 from dataclasses import dataclass
 
-from seguimiento import libro as mod, rendimiento
+import cartera
+from seguimiento import libro as mod, posiciones, rendimiento
 
 
 @dataclass(frozen=True)
@@ -119,3 +120,124 @@ def cabecera(marcha, vivos, sin_valorar: bool) -> Cabecera:
         sin_valorar=sin_valorar,
         dias=dias,
     )
+
+
+@dataclass(frozen=True)
+class Linea:
+    """Un activo dentro de la composicion: donde esta su peso y donde deberia."""
+
+    ticker: str
+    peso: float  # sobre el total CON precio
+    objetivo: "float | None"  # None cuando el libro no tiene objetivo
+    valor: float
+
+
+@dataclass(frozen=True)
+class Composicion:
+    """Como esta repartida la cartera, y que se quedo fuera del reparto."""
+
+    lineas: "tuple[Linea, ...]"
+    sin_precio: "tuple[str, ...]"
+    hay_objetivo: bool
+
+
+def composicion(asientos, precios_hoy, objetivo) -> Composicion:
+    """El reparto de la cartera, sobre el total de lo que TIENE precio.
+
+    Un activo sin precio no entra en el denominador. Meterlo valorado a cero
+    encogeria el peso de todos los demas, y meterlo valorado a lo que costo
+    mezclaria coste con mercado dentro de la misma suma: en los dos casos las
+    barras dirian una proporcion que nadie ha medido. Lo que se hace es
+    **dejarlo fuera y nombrarlo** en `sin_precio`, que es la misma regla que la
+    tabla por activo ya aplica cuando escribe «—» en vez de 0,00.
+
+    `objetivo` puede ser `None`. En ese caso `hay_objetivo` es `False` y todas
+    las lineas traen `objetivo=None`. **No se rellena con el peso real**: una
+    marca encima de la barra, justo donde esta la barra, diria que ya estas
+    donde querias estar, que es una afirmacion sobre un plan que no existe.
+    """
+    pesos_obj = mod.pesos_objetivo(objetivo)
+    lineas_activo = rendimiento.por_activo(asientos, precios_hoy)
+
+    sin_precio = tuple(
+        t for t, linea in lineas_activo.items() if linea.valor is None
+    )
+    con_precio = [
+        linea for linea in lineas_activo.values() if linea.valor is not None
+    ]
+    total = sum(linea.valor for linea in con_precio)
+
+    lineas = tuple(
+        Linea(
+            ticker=linea.ticker,
+            peso=(linea.valor / total) if total else 0.0,
+            # `.get`, no `[...]`: un activo que esta en el libro pero no en el
+            # objetivo no tiene un objetivo de cero --nadie dijo que sobrara--
+            # sino ninguno, y `None` es lo que hace que no se le pinte marca.
+            objetivo=pesos_obj.get(linea.ticker),
+            valor=linea.valor,
+        )
+        for linea in con_precio
+    )
+    return Composicion(
+        lineas=lineas,
+        sin_precio=sin_precio,
+        hay_objetivo=bool(pesos_obj),
+    )
+
+
+def filas_por_activo(asientos, precios_hoy, valor_total, objetivo) -> "list[dict]":
+    """La tabla por activo, tal cual la pinta la pantalla y la exporta Excel.
+
+    Devuelve una lista de diccionarios ya formateados, y no dataclases, porque
+    `exporter.to_excel` los consume asi y esta tarea mueve la tabla de sitio sin
+    tocar la exportacion.
+
+    `valor_total` es el valor de cabecera --el de la serie, que incluye el
+    efectivo sin invertir--, no la suma de esta tabla, y por eso se pasa desde
+    fuera en vez de calcularse aqui: es la misma cifra que se enseña arriba, y
+    calcularla otra vez seria un segundo sitio donde se puede desviar.
+    """
+    pesos_obj = mod.pesos_objetivo(objetivo)
+    filas = []
+    for ticker, linea in rendimiento.por_activo(asientos, precios_hoy).items():
+        peso_real = (linea.valor / valor_total) if (linea.valor and valor_total) else None
+        filas.append({
+            "Ticker": ticker,
+            "Acciones": f"{linea.acciones:,.4f}".rstrip("0").rstrip("."),
+            "Coste medio": f"{linea.coste_medio:,.2f}",
+            "Precio": cartera.formato_cifra(linea.precio),
+            "Valor": cartera.formato_cifra(linea.valor),
+            "Peso real": cartera.formato_porcentaje(peso_real),
+            "Peso objetivo": cartera.formato_porcentaje(pesos_obj.get(ticker)),
+            "Latente": cartera.formato_cifra(linea.latente),
+            "Realizada": f"{linea.realizada:,.2f}",
+            "Dividendos": f"{linea.dividendos:,.2f}",
+            "Contribución": cartera.formato_cifra(linea.contribucion),
+        })
+    return filas
+
+
+def filas_de_historial(asientos) -> "list[dict]":
+    """El historial, del mas reciente al mas viejo, con los anulados marcados.
+
+    Recorre TODOS los asientos y no solo los vigentes: un asiento anulado sigue
+    siendo algo que paso, y borrarlo de la lista dejaria la anulacion sin nada
+    que anular a la vista. Por eso el estado se escribe en una columna en vez de
+    filtrarse.
+    """
+    anulados = {a.anula for a in asientos if a.tipo == "anulacion" and a.anula}
+    historial = []
+    for a in reversed(posiciones.ordenados(asientos)):
+        historial.append({
+            "Fecha": a.fecha,
+            "Tipo": a.tipo,
+            "Ticker": a.ticker or "—",
+            "Acciones": cartera.formato_cifra(a.acciones, 4),
+            "Precio": cartera.formato_cifra(a.precio) + (" (est.)" if a.precio_estimado else ""),
+            "Importe": f"{a.importe:,.2f}",
+            "Comisión": f"{a.comision:,.2f}",
+            "Estado": "Anulado" if a.id in anulados else "",
+            "Nota": a.nota,
+        })
+    return historial

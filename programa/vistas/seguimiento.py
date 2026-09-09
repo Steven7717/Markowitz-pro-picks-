@@ -8,9 +8,7 @@ import streamlit as st
 import cartera
 import tema
 from exporter import to_excel
-from seguimiento import (
-    comparacion, libro as mod, panel, posiciones, precios, rendimiento,
-)
+from seguimiento import comparacion, libro as mod, panel, posiciones, precios
 
 st.markdown(
     tema.cabecera(
@@ -343,23 +341,7 @@ st.caption(
 
 st.subheader("Por activo")
 
-pesos_obj = mod.pesos_objetivo(objetivo)
-filas = []
-for ticker, linea in rendimiento.por_activo(actual.asientos, precios_hoy).items():
-    peso_real = (linea.valor / cab.valor) if (linea.valor and cab.valor) else None
-    filas.append({
-        "Ticker": ticker,
-        "Acciones": f"{linea.acciones:,.4f}".rstrip("0").rstrip("."),
-        "Coste medio": f"{linea.coste_medio:,.2f}",
-        "Precio": cartera.formato_cifra(linea.precio),
-        "Valor": cartera.formato_cifra(linea.valor),
-        "Peso real": cartera.formato_porcentaje(peso_real),
-        "Peso objetivo": cartera.formato_porcentaje(pesos_obj.get(ticker)),
-        "Latente": cartera.formato_cifra(linea.latente),
-        "Realizada": f"{linea.realizada:,.2f}",
-        "Dividendos": f"{linea.dividendos:,.2f}",
-        "Contribución": cartera.formato_cifra(linea.contribucion),
-    })
+filas = panel.filas_por_activo(actual.asientos, precios_hoy, cab.valor, objetivo)
 
 st.dataframe(pd.DataFrame(filas), use_container_width=True, hide_index=True)
 st.caption(
@@ -374,20 +356,7 @@ _registrar_operacion()
 
 st.subheader("Historial")
 
-anulados = {a.anula for a in actual.asientos if a.tipo == "anulacion" and a.anula}
-historial = []
-for a in reversed(posiciones.ordenados(actual.asientos)):
-    historial.append({
-        "Fecha": a.fecha,
-        "Tipo": a.tipo,
-        "Ticker": a.ticker or "—",
-        "Acciones": cartera.formato_cifra(a.acciones, 4),
-        "Precio": cartera.formato_cifra(a.precio) + (" (est.)" if a.precio_estimado else ""),
-        "Importe": f"{a.importe:,.2f}",
-        "Comisión": f"{a.comision:,.2f}",
-        "Estado": "Anulado" if a.id in anulados else "",
-        "Nota": a.nota,
-    })
+historial = panel.filas_de_historial(actual.asientos)
 st.dataframe(pd.DataFrame(historial), use_container_width=True, hide_index=True)
 
 # --- Exportar ----------------------------------------------------------------
