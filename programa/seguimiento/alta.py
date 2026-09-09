@@ -9,7 +9,10 @@ salir de lo que el usuario confirme, no de esta division.
 """
 
 import math
+import uuid
 from dataclasses import dataclass
+
+from seguimiento.libro import Asiento
 
 
 @dataclass(frozen=True)
@@ -96,3 +99,67 @@ def repartir(
         sobrante=capital - gastado,
         sin_precio=tuple(sin_precio),
     )
+
+
+class AltaInvalida(ValueError):
+    """Lo que el usuario confirmo no se puede escribir como esta."""
+
+
+def asientos_de(
+    filas: "list[dict]", capital: "float | None", fecha: str
+) -> "tuple[Asiento, ...]":
+    """The confirmed table, turned into the entries that open the book.
+
+    `capital` es el que el usuario declaro cuando viene del optimizador, y
+    **None en la carga manual**, donde no hay capital declarado y se deriva de
+    lo comprado. Son casos distintos y mezclarlos deja efectivo fantasma: si en
+    la carga manual se supusiera un capital redondo, la diferencia quedaria
+    como dinero parado que nadie tiene, y falsearia la TIR desde el primer dia.
+
+    La aportacion va **primero**. Si las compras se aplicasen antes, el efectivo
+    pasaria por negativo y `posiciones.primer_descubierto` lo rechazaria.
+    """
+    compras = []
+    for fila in filas:
+        ticker = str(fila.get("ticker") or "").strip().upper()
+        acciones = float(fila.get("acciones") or 0)
+        precio = float(fila.get("precio") or 0)
+        # Una fila sin ticker o sin acciones es una linea que el usuario dejo
+        # en blanco, o el activo que no cabia. No se escribe media compra.
+        if not ticker or acciones <= 0:
+            continue
+        if precio <= 0:
+            raise AltaInvalida(
+                f"{ticker}: el precio tiene que ser mayor que cero"
+            )
+        compras.append((ticker, acciones, precio,
+                        float(fila.get("comision") or 0)))
+
+    if not compras:
+        raise AltaInvalida(
+            "No hay ninguna compra que registrar. Un libro sin asientos no "
+            "tiene nada que seguir."
+        )
+
+    coste = sum(a * p + c for _, a, p, c in compras)
+    if capital is None:
+        capital = coste
+    elif coste > capital:
+        raise AltaInvalida(
+            f"Las compras suman {coste:,.2f}, mas que los {capital:,.2f} "
+            f"aportados. Faltan {coste - capital:,.2f}."
+        )
+
+    asientos = [Asiento(
+        id=uuid.uuid4().hex[:12], fecha=fecha, tipo="aportacion",
+        importe=capital,
+    )]
+    asientos += [
+        Asiento(
+            id=uuid.uuid4().hex[:12], fecha=fecha, tipo="compra",
+            ticker=ticker, acciones=acciones, precio=precio,
+            importe=acciones * precio, comision=comision,
+        )
+        for ticker, acciones, precio, comision in compras
+    ]
+    return tuple(asientos)
