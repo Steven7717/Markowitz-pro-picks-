@@ -8,7 +8,9 @@ import streamlit as st
 import cartera
 import tema
 from exporter import to_excel
-from seguimiento import comparacion, libro as mod, posiciones, precios, rendimiento
+from seguimiento import (
+    comparacion, libro as mod, panel, posiciones, precios, rendimiento,
+)
 
 st.markdown(
     tema.cabecera(
@@ -273,95 +275,36 @@ elif marcha.posteriores:
     )
 
 # --- Los numeros de cabecera -------------------------------------------------
-
-# De `marcha.flujos`, no de los asientos. Los dos numeros de arriba se restan
-# entre si, asi que tienen que salir del MISMO corte temporal: `valor` viene de
-# la serie, que acaba en el ultimo cierre disponible, y sumar aqui los asientos
-# de hoy --que la serie todavia no puede valorar-- producia una ganancia
-# inventada. Medido en la app: una aportacion de 10.000 registrada hoy dejaba
-# VALOR 10.299, APORTADO 20.000 y GANANCIA -9.700 sin que nadie hubiera perdido
-# un dolar. `flujos` son ya las aportaciones menos los retiros dentro del
-# calendario de la serie, asi que la coincidencia es por construccion.
-aportado = float(marcha.flujos.sum())
-if sin_valorar:
-    # `flujos` vive en el calendario de la serie, y eso es DELIBERADO:
-    # `aportado` y `valor` se restan para dar la ganancia, y si vinieran
-    # de cortes temporales distintos daria una ganancia inventada -- en
-    # el sub-proyecto F salio GANANCIA -9.700 sin que nadie hubiera
-    # perdido un dolar.
-    #
-    # Cuando NO hay ningun dia valorado esa razon desaparece, porque
-    # `ganancia` ya es «—» y no hay dos numeros que restar. Y decir
-    # «Aportado neto 0,00» a quien acaba de meter su dinero no es una
-    # medida que falte: es una **afirmacion falsa sobre un hecho
-    # registrado**, que es peor que un «—». El dinero entro; lo que aun
-    # no se puede es valorarlo.
-    aportado = sum(
-        a.importe if a.tipo == "aportacion" else -a.importe
-        for a in vivos
-        if a.tipo in mod.FLUJOS_EXTERNOS
-    )
-valor_hoy = float(marcha.valor.iloc[-1]) if len(marcha.valor) else 0.0
-dias = (marcha.valor.index[-1] - marcha.valor.index[0]).days if len(marcha.valor) > 1 else 0
-
-twr_periodo = rendimiento.twr(marcha.valor, marcha.flujos)
-twr_anual = rendimiento.anualizar(twr_periodo, dias=dias)
-
-# Otra vez desde `marcha.flujos`, y por lo mismo que `aportado`: el valor final
-# de la serie se fecha en el ultimo cierre, asi que meter aqui un flujo
-# POSTERIOR a esa fecha construye una ecuacion que mezcla dos momentos. El
-# signo se invierte porque en `flujos` una aportacion es positiva y para la TIR
-# el dinero que entra es una salida del bolsillo.
-flujos_tir = [
-    (dia.date(), -float(importe)) for dia, importe in marcha.flujos.items() if importe
-]
-if flujos_tir and len(marcha.valor) and not sin_valorar:
-    flujos_tir.append((marcha.valor.index[-1].date(), valor_hoy))
-tasa_interna = rendimiento.tir(flujos_tir)
-
-
-def _cifra(valor) -> str:
-    """El «—» de `cartera.formato_cifra`, con el separador de miles de aqui.
-
-    No se llama a `formato_cifra` directamente porque escribe `10299.00` donde
-    esta pantalla lleva `10,299.00` desde siempre, y cambiar el formato del caso
-    normal para arreglar el caso vacio seria pagar el arreglo con una regresion.
-    Lo que se copia es la regla, que es lo que importa: `None` no es cero.
-    """
-    return "—" if valor is None else f"{valor:,.2f}"
-
-
-# Nada que valorar: las cifras que dependen del precio no existen todavia. Se
-# ponen a None y salen «—»; inventarlas con el precio al que se compro daria un
-# numero plausible, sin marca y sin unidades raras, que nadie distinguiria de
-# uno medido de verdad.
-valor_visible = None if sin_valorar else valor_hoy
-ganancia_visible = None if sin_valorar else valor_hoy - aportado
-twr_visible = None if sin_valorar else twr_anual
-tir_visible = None if sin_valorar else tasa_interna
+#
+# La aritmetica vive en `seguimiento/panel.py`, fuera de este guion. Un guion de
+# Streamlit no se puede importar desde un test, y lo que hay dentro de esas
+# cuentas --el corte temporal comun de `aportado` y `valor`, el «—» que no es un
+# cero-- estaba protegido solo por un comentario. Ahora esta protegido por
+# `tests/test_panel_cabecera.py`.
+cab = panel.cabecera(marcha, vivos, sin_valorar)
 
 k1, k2, k3, k4, k5, k6 = st.columns(6)
-k1.metric("Valor", _cifra(valor_visible))
-k2.metric("Aportado neto", f"{aportado:,.2f}",
+k1.metric("Valor", panel._cifra(cab.valor))
+k2.metric("Aportado neto", f"{cab.aportado:,.2f}",
           help="Aportaciones menos retiros: el dinero tuyo que hay dentro ahora "
                "mismo, no la suma de todo lo que pasó por la cartera.")
-k3.metric("Ganancia", _cifra(ganancia_visible))
+k3.metric("Ganancia", panel._cifra(cab.ganancia))
 k4.metric(
-    "TWR anual", cartera.formato_porcentaje(twr_visible),
+    "TWR anual", cartera.formato_porcentaje(cab.twr_anual),
     help="Ponderado por tiempo: neutraliza cuándo metiste el dinero, así que "
          "mide la cartera y no tu timing. Es el único comparable con un índice."
          + ("" if sin_valorar else
-            f" Sin anualizar, el periodo entero rindió {twr_periodo:.2%}."),
+            f" Sin anualizar, el periodo entero rindió {cab.twr_periodo:.2%}."),
 )
 k5.metric(
-    "TIR", cartera.formato_porcentaje(tir_visible),
+    "TIR", cartera.formato_porcentaje(cab.tir),
     help="Ponderada por dinero: lo que ganaste tú, con tu timing dentro. "
          "Aparece «—» cuando no hay una respuesta defendible.",
 )
-k6.metric("Dividendos", f"{float(marcha.dividendos.sum().sum()):,.2f}")
+k6.metric("Dividendos", f"{cab.dividendos:,.2f}")
 
-if twr_visible is not None and tir_visible is not None:
-    brecha = tir_visible - twr_visible
+if cab.twr_anual is not None and cab.tir is not None:
+    brecha = cab.tir - cab.twr_anual
     if abs(brecha) > 0.02:
         st.info(
             f"**TWR y TIR se separan {abs(brecha):.1%}.** Esa diferencia es el "
@@ -403,7 +346,7 @@ st.subheader("Por activo")
 pesos_obj = mod.pesos_objetivo(objetivo)
 filas = []
 for ticker, linea in rendimiento.por_activo(actual.asientos, precios_hoy).items():
-    peso_real = (linea.valor / valor_hoy) if (linea.valor and valor_hoy) else None
+    peso_real = (linea.valor / cab.valor) if (linea.valor and cab.valor) else None
     filas.append({
         "Ticker": ticker,
         "Acciones": f"{linea.acciones:,.4f}".rstrip("0").rstrip("."),
@@ -468,13 +411,13 @@ st.download_button(
             "Libro": actual.nombre,
             "Moneda": actual.moneda,
             "Valorado a": "—" if sin_valorar else (ultimo_cierre or "—"),
-            "Valor": valor_visible,
-            "Aportado neto": aportado,
-            "Ganancia": ganancia_visible,
-            "TWR del periodo": None if sin_valorar else twr_periodo,
-            "TWR anual": twr_visible,
-            "TIR": tir_visible,
-            "Dividendos": float(marcha.dividendos.sum().sum()),
+            "Valor": cab.valor,
+            "Aportado neto": cab.aportado,
+            "Ganancia": cab.ganancia,
+            "TWR del periodo": cab.twr_periodo,
+            "TWR anual": cab.twr_anual,
+            "TIR": cab.tir,
+            "Dividendos": cab.dividendos,
             "Metodo de coste": "media ponderada",
         },
     ),
