@@ -61,6 +61,24 @@ def _medidores(deriva) -> str:
     return "".join(filas)
 
 
+def _titulo_del_dinero(efectivo: float, nuevo: float, moneda: str) -> str:
+    """El encabezado nombra las dos mitades cuando hay dos.
+
+    Un total solo escondería el único riesgo que esta pantalla añade:
+    quien ya ingresó su aportación del mes la tiene registrada como
+    efectivo, y si además la escribe arriba se la reparte dos veces.
+    Con las dos cifras a la vista ese error se ve; con la suma sola, no.
+    """
+    if nuevo <= 0:
+        return f"Con tu efectivo ({efectivo:,.2f} {moneda})"
+    if efectivo <= 0:
+        return f"Con tu aportación ({nuevo:,.2f} {moneda})"
+    return (
+        f"Con {efectivo + nuevo:,.2f} {moneda} — {efectivo:,.2f} "
+        f"registrados y {nuevo:,.2f} que vas a aportar"
+    )
+
+
 st.markdown(
     tema.cabecera(
         "Rebalanceo",
@@ -132,7 +150,40 @@ lineas = rendimiento.por_activo(actual.asientos, {t: p for t, p in ultimos.items
 valores = {t: l.valor for t, l in lineas.items()}
 efectivo = posiciones.estado(actual.asientos).efectivo
 
-plan = prop.construir(valores, pesos, efectivo, actual.asientos, COSTE_SUPUESTO)
+# --- Lo que hay y lo que vas a poner -----------------------------------------
+
+# Dos cifras separadas a proposito. `efectivo` es un **hecho**: sale de los
+# asientos del libro. `nuevo` es un **plan**: dinero que el usuario dice que va
+# a aportar y que todavia no ha entrado en ninguna parte. Repartir la suma esta
+# bien —esta pantalla propone y no escribe nunca— pero enseñarlas como un solo
+# numero no lo estaria: quien ya ingreso su aportacion la tiene contada como
+# efectivo, y la veria dos veces sin nada que se lo advierta.
+#
+# La `key` lleva el nombre del fichero porque Streamlit **ignora `value=` en
+# cuanto esa key existe en `session_state`**. Con una key fija, cambiar de libro
+# en el selector dejaria en pantalla la cifra del libro anterior: un numero
+# plausible que pertenece a otra cartera.
+previsto = mod.importe_previsto(actual.aportacion_prevista)
+nuevo = st.number_input(
+    "Dinero nuevo que vas a aportar",
+    min_value=0.0,
+    value=previsto,
+    step=100.0,
+    key=f"aportacion_nueva_{elegida.ruta.name}",
+    help="Se reparte junto con el efectivo que ya tiene el libro. Aquí no se "
+         "registra nada: cuando lo ingreses de verdad, anótalo en Seguimiento.",
+)
+if actual.aportacion_prevista is not None:
+    st.caption(
+        f"Precargado con tu plan: {previsto:,.2f} {actual.moneda} "
+        f"{actual.aportacion_prevista.cadencia}. **Si ya lo ingresaste**, está "
+        "contado abajo como efectivo — ponlo a cero para no repartirlo dos veces."
+    )
+
+titulo_dinero = _titulo_del_dinero(efectivo, nuevo, actual.moneda)
+plan = prop.construir(
+    valores, pesos, efectivo + nuevo, actual.asientos, COSTE_SUPUESTO
+)
 
 if plan.deriva.sin_precio:
     st.warning(
@@ -155,8 +206,9 @@ if not fuera:
         "objetivo como para que operar compense."
     )
 elif plan.basta_con_la_aportacion:
+    _quien = "el dinero que vas a repartir" if nuevo else "tu efectivo"
     st.info(
-        f"**{len(fuera)} activo(s) fuera de banda, y tu efectivo basta para "
+        f"**{len(fuera)} activo(s) fuera de banda, y {_quien} basta para "
         "corregirlo.** No hace falta vender nada."
     )
 else:
@@ -177,7 +229,7 @@ st.markdown(_medidores(plan.deriva), unsafe_allow_html=True)
 # --- Qué hacer ---------------------------------------------------------------
 
 if plan.con_efectivo:
-    st.subheader(f"Con tu efectivo ({efectivo:,.2f} {actual.moneda})")
+    st.subheader(titulo_dinero)
     st.caption(
         "Comprar con dinero nuevo corrige deriva **sin vender nada**: no paga "
         "coste de venta y no realiza ninguna plusvalía. Por eso va primero."
@@ -189,8 +241,8 @@ if plan.con_efectivo:
         ]),
         use_container_width=True, hide_index=True,
     )
-elif efectivo > 0:
-    st.subheader(f"Con tu efectivo ({efectivo:,.2f} {actual.moneda})")
+elif efectivo + nuevo > 0:
+    st.subheader(titulo_dinero)
     st.info(
         "La aportación es demasiado pequeña para que compense invertirla ahora: "
         f"con un coste de {plan.coste_por_operacion:,.2f} por operación, "

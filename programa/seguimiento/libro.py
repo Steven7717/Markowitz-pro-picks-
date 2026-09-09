@@ -480,6 +480,18 @@ def pesos_objetivo(objetivo: Objetivo | None) -> dict[str, float]:
     return {p["ticker"]: float(p["peso"]) for p in posiciones_}
 
 
+def importe_previsto(aportacion: "AportacionPrevista | None") -> float:
+    """Con qué cifra arranca el campo de aportación de Rebalanceo.
+
+    Misma forma que `pesos_objetivo`: recibe el campo opcional y
+    devuelve el valor neutro cuando no está. Cero y no otra cosa —un
+    libro sin plan es uno cuyo dueño dijo que no iba a aportar, o que
+    nunca contestó, y cualquier cifra por defecto repartiría dinero que
+    nadie ha dicho que exista.
+    """
+    return aportacion.importe if aportacion is not None else 0.0
+
+
 def guardar(libro: Libro, directorio: Path | None = None) -> Path:
     """Write the book atomically and return where it landed.
 
