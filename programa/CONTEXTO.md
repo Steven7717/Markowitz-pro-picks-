@@ -1,7 +1,7 @@
 # Contexto del proyecto — para retomar en una sesión nueva
 
 **Última actualización:** 2026-09-09
-**Rama:** `master` · **Tests:** 1.115 pasando (`uv run pytest tests/ -q -m "not red"`), 4 omitidos —dos por permisos POSIX en Windows y dos sin `numpy_financial`— más 8 marcados `red`
+**Rama:** `panel-de-seguimiento` — **sin fusionar** · **Tests:** 1.136 pasando (`uv run pytest tests/ -q -m "not red"`), 4 omitidos —dos por permisos POSIX en Windows y dos sin `numpy_financial`— más 8 marcados `red`
 **Remoto:** `https://github.com/Steven7717/Markowitz-pro-picks-.git` — `master` es lo publicado
 **Estructura:** el programa vive en `programa/`; en la raíz sólo están los dos
 lanzadores y el `README.md`. Los comandos (`uv run pytest`, `uv run streamlit`)
@@ -11,7 +11,8 @@ se ejecutan desde `programa/`, no desde la raíz.
 > `seguimiento-cartera`, H desde `noticias-calendario` y J desde
 > `entrada-al-seguimiento`, las tres en avance rápido —las dos primeras el
 > 2026-09-08 y J el 2026-09-09—. Las tres ramas quedaron en el mismo commit
-> que `master` y ya no hacen falta.
+> que `master` y ya no hacen falta. **K está en `panel-de-seguimiento`, sin
+> fusionar**, y su último commit es el que cierra el sub-proyecto.
 
 ---
 
@@ -35,7 +36,7 @@ El objetivo mayor es construir, **aguas arriba de esa app**, un sistema donde un
 | H | Noticias y calendario | Feed de EDGAR, prensa, eventos | ✅ **terminado** |
 | I | Capa de IA sobre F, G y H | Interpretación y propuestas de ajuste | ⬜ pendiente |
 | J | La entrada al seguimiento | Recorrido encadenado y alta del libro | ✅ **terminado** |
-| K | El panel de seguimiento | Monitor real de la cartera | ⬜ pendiente |
+| K | El panel de seguimiento | Monitor real de la cartera | ✅ **terminado** |
 
 ## Resultado del sub-proyecto D
 
@@ -991,6 +992,135 @@ invertido, un panel de noticias y elementos visuales.
   Compara un tiempo medido contra un umbral fijo de 0,2 s y ha fallado con
   0,187 s. No se tocó dentro de J a propósito: es anterior y no tiene que ver.
 
+## Resultado del sub-proyecto K
+
+«Seguimiento» pasa de ser un informe de 484 líneas en un solo scroll a un panel:
+identidad del libro, cuatro cifras, la composición en barras, y el detalle en
+cuatro pestañas —Evolución, Por activo, Movimientos y Noticias—. **21 tests
+nuevos.**
+
+Cuatro módulos nuevos, ninguno con Streamlit dentro:
+
+| Módulo | Qué decide |
+|---|---|
+| `seguimiento/panel.py` | La aritmética que vivía dentro de la vista: cifras de cabecera, composición, filas por activo e historial |
+| `noticias/traer.py` | Caché-o-descarga, y `cacheado()`, que lee sin tocar la red |
+| `noticias/texto.py` | El escapado y el formato que las dos pantallas de noticias comparten |
+| `noticias/resumen.py` | Qué se enseña del libro y **de cuándo es**, con el estado como dato |
+
+Más `medidores.barra_de_peso`, y `tema.py`, que cambia el escalón tipográfico de
+las métricas por una razón medida.
+
+### La razón de ser: la aritmética no tenía tests
+
+`vistas/seguimiento.py` guardaba correcciones que costaron caro y **no se ven**:
+el corte temporal común de `aportado` y `valor` —el que en F dio `GANANCIA
+−9.700` sin que nadie perdiera un dólar—, el «—» que nunca es un cero, el bloque
+`sin_valorar`. Ninguna estaba protegida por un test, porque vivían dentro de un
+guion de Streamlit que no se puede importar.
+
+Por eso el orden fue **primero sacar la aritmética con tests, después rehacer la
+vista encima**. Al revés se habría sacado lo que quedara, no lo que había. El
+defecto de F es hoy `tests/test_panel_cabecera.py::test_una_aportacion_de_hoy_no_inventa_una_perdida`.
+
+### Decisiones que no hay que relitigar
+
+- **Resumen fijo arriba, pestañas debajo.** Lo que se mira a diario cabe en una
+  pantalla y **no se mueve al cambiar de pestaña**. Es lo que separa un panel de
+  un informe.
+- **Las pestañas no ahorran cálculo.** Streamlit ejecuta las cuatro en cada
+  pasada. Ahorran scroll, y en el código está escrito así a propósito para que
+  nadie escriba lo contrario.
+- **Sin veredicto en la composición.** La barra enseña dónde está el peso y
+  dónde debería estar, y **no escribe «sobreponderado»**. Esa palabra es un
+  juicio y vive en Rebalanceo. Un test lo fija: la salida no puede contener
+  ninguna palabra de veredicto.
+- **El peso es sobre los activos**, no sobre el valor de la serie. Ver el
+  defecto 2.
+- **El efectivo sin invertir se nombra**, y **nunca se resta de `valor`**: uno
+  vive en el calendario de los asientos y el otro en el de la serie.
+- **El panel no descarga al abrir.** Lee la caché de H y ofrece un botón.
+  Comprobado sustituyendo `socket.socket` por algo que revienta al construirse:
+  **doce activos en 6 ms con la red inutilizada**. No es que no descargue en la
+  práctica; es que no puede.
+- **Los tres estados vacíos se distinguen con un dato, no deduciéndolos.** «No
+  lo hemos mirado», «lo miramos hace rato» y «lo miramos y no hay nada» salen
+  todos como listas vacías; deducir el estado de la lista los haría iguales, y
+  dos de los tres mensajes serían mentira.
+- **Lo que se enseña lleva la marca MÁS ANTIGUA de todo lo que hay en pantalla**,
+  no la más nueva: la antigüedad de lo peor que estás mirando.
+
+### Ocho defectos, y una lección nueva sobre el método
+
+1. **Medí que cuatro cifras caben, y no cabían.** Simulé cuatro columnas
+   escondiendo dos de las seis y leí `scrollWidth`. Streamlit recorta con CSS,
+   así que `scrollWidth == clientWidth` y la medida dice «cabe» mientras la
+   pantalla enseña `51,405…`. **Ese aviso lo había escrito yo mismo dos párrafos
+   más arriba en ese documento**, para el caso de seis columnas, donde lo cacé
+   mirando la captura. La segunda vez me fié del número.
+2. **«Peso real» dividía por un total que incluye el efectivo.** El mismo libro
+   daba AAPL al 7,32% en Seguimiento y al 10,17% en Rebalanceo, y la columna
+   sumaba 71,9% al lado de un «Peso objetivo» que suma 100%. Invitaba a leer
+   «voy tres puntos por debajo» cuando el activo estaba clavado y lo que pasaba
+   era que **el 28% del dinero no estaba invertido** — cifra que no aparecía en
+   ninguna parte, sólo encogía todos los pesos.
+3. **El aviso de la brecha TWR/TIR afirmaba una causa que no comprobaba.** Decía
+   que la separación «es el efecto de cuándo aportaste», y salía igual con **una
+   sola aportación**, donde no hay ningún «cuándo» posible.
+4. **La escala de las barras perdía la marca que existe para salvar.** Aun
+   contando los objetivos, `.mpp-tope` son 3px anclados por su borde izquierdo:
+   una marca en `left:100%` empieza donde la pista acaba y `overflow:hidden` se
+   la come. Hace falta holgura, y **no un recorte al 100%** — aparcarla en el
+   borde afirmaría que el objetivo es el peso mayor.
+5. **«Están enteros en Noticias» era falso.** Aquella pantalla también recorta a
+   40, y con doce activos deja fuera casi noventa de los 128 hechos. El enlace
+   mandaba a un sitio donde tampoco estaban.
+6. **Una rama muerta**: un caso escrito para «faltan todos los tickers» dentro
+   de la rama que sólo corre cuando hay caché. Código que afirma algo que no
+   puede pasar.
+7. **Los números de línea del plan caducaron** en cuanto la tarea 1 movió
+   bloques. El agente de la tarea 2 lo dijo en vez de seguir a ciegas.
+8. **El plan mandaba mover `VALIDEZ`** a `noticias/traer.py`, y ya vivía en
+   `noticias/cache.py`. Habría dejado dos sitios donde mirar cuánto dura una
+   caché.
+
+**La lección nueva:** en H, *un sabotaje puede ser decorativo*. En J, *la premisa
+puede serlo*. En K, **la medición**. Un número medido con la herramienta
+equivocada miente con más autoridad que una suposición, porque viene con cifras.
+La regla que queda: **cuando lo que se mide es lo que se ve, la captura es la
+medida** — y un `scrollWidth` sobre algo que se recorta con CSS no lo es.
+
+### Qué hereda I
+
+`noticias/resumen.py` le da los hechos **ya filtrados por el criterio congelado**
+y con la marca de cuándo se miraron, sin bajar nada. `seguimiento/panel.py` le da
+todas las cifras del libro como dataclases importables y probadas, que hasta K
+sólo existían dentro de un guion de Streamlit.
+
+La pestaña «Noticias» del panel es además el hueco natural donde I pondrá su
+interpretación: el sitio ya existe, ya sabe de cuándo son sus datos, y ya
+distingue «no hay» de «no lo hemos mirado».
+
+### Lo que K no resuelve
+
+- **No interpreta las noticias.** Las enseña. Interpretarlas es I.
+- **No añade métricas nuevas** —ni volatilidad, ni drawdown, ni comparación
+  contra un índice—. No estaba en el encargo.
+- **No deduplica la prensa.** Se ve el mismo titular bajo dos activos, y ahora se
+  ve más porque están juntos. Es deuda declarada de H.
+- **No descarga en segundo plano.** Streamlit no tiene dónde hacerlo sin
+  complicar el ciclo, y el botón resuelve el caso real.
+- **`st.dataframe` dentro de una pestaña oculta nace sin medir sus columnas** y
+  se recompone sola en dos o tres segundos. Es cosmético y nuevo: antes ninguna
+  tabla nacía oculta.
+- **`vistas/rebalanceo.py:52` interpola el ticker en HTML con
+  `unsafe_allow_html=True`.** **No es explotable:** `_FORMA_TICKER` sólo admite
+  `[A-Z]+(-[A-Z]+)*` y `libro.cargar` valida cada asiento al leerlo, así que un
+  libro con un ticker que lleve HTML se rechaza —comprobado—. El escapado es
+  defensa en profundidad y merece su propio commit.
+- **`tests/test_apagado.py::test_detener_espera_antes_de_forzar` sigue
+  inestable.** Compara un tiempo medido contra un umbral fijo de 0,2 s.
+
 ## Lo siguiente
 
 El sistema está completo de punta a punta: A ingiere, B ordena y razona, C
@@ -1034,7 +1164,7 @@ Sigue sin responder: **¿cuántas acciones debería tener el portafolio final?**
 
 ```bash
 # Todos estos se ejecutan desde programa/, no desde la raiz del repo.
-pytest tests/ -q -m "not red"       # 1.115 tests, sin red
+pytest tests/ -q -m "not red"       # 1.136 tests, sin red
 python -m research.run              # correr el estudio (~5 min, luego caché)
 streamlit run app.py                # la app: optimizador + pagina de revision
 python scripts/bootstrap_universe.py   # regenerar el snapshot del universo
