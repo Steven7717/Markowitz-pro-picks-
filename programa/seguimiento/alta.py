@@ -39,7 +39,7 @@ def repartir(
     precios: "dict[str, float | None]",
     fracciones: bool,
 ) -> Reparto:
-    """Que comprar de cada activo con este capital.
+    """What to buy of each asset with this much money.
 
     **El sobrante no se redistribuye.** Con acciones enteras casi siempre sobra
     algo, y repartirlo entre los demas romperia los pesos que el usuario acaba
