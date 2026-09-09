@@ -156,15 +156,36 @@ duplicado que no falla al escribirlo y falla seis meses después.
 **Cuatro cifras arriba, no seis.** TIR y Dividendos bajan a la pestaña «Por
 activo», donde están sus detalles.
 
-Medido en la misma pantalla, ensanchando las columnas sobre el layout real: a
-79px de columna la cifra sale `51,…`; a 126px sale `51,434.74` entera. Cuatro
-columnas sobre 724px dan bastante más de 126px, así que caben.
+> **Corrección del 2026-09-09, al implementar la tarea 5.** Aquí decía que
+> cuatro columnas «dan bastante más de 126px, así que caben», y era **falso**.
+> Lo medí ensanchando columnas simuladas —escondiendo dos de las seis— y leyendo
+> `scrollWidth`, y Streamlit recorta con CSS: `scrollWidth == clientWidth` y la
+> comprobación dice «cabe» mientras la pantalla enseña `51,405…`. **Es la misma
+> trampa que este mismo documento describe dos párrafos más arriba para el caso
+> de seis columnas**, y volví a caer en ella por no mirar la captura. Se deja
+> escrito en vez de borrado: el error no fue la aritmética, fue fiarme de una
+> medida que ya sabía que miente.
 
-**Con un límite que conviene dejar escrito:** lo que cabe son nueve caracteres.
-Una cartera de siete cifras —`1,234,567.89`, doce caracteres— volvería a
-recortarse aun con cuatro columnas, y entonces el arreglo no es quitar otra
-cifra sino el tamaño de letra del valor. K no lo toca porque no es el caso de
-hoy, pero quien lo vea recortado que sepa que es esto y no un descuido.
+Medido de verdad, con cuatro columnas reales: los 724px de `stMain` incluyen los
+160px de relleno lateral del contenedor, así que quedan **554 utilizables**; a
+cuatro columnas son **126px**, de los que la tarjeta del medidor gasta 27 en su
+propio relleno. Con el escalón tipográfico original —valor a 1,5rem, etiqueta en
+mayúsculas con espaciado— **no cabían ni las cifras ni las etiquetas**.
+
+**Y el arreglo no era de esta pantalla.** La app pone métricas en
+`st.columns(4)` en **tres** sitios: aquí y dos veces en `vistas/optimizador.py`
+(líneas 420 y 510). El escalón no cabe en la disposición que la propia app usa,
+así que se corrige en `tema.py`, que es la fuente única:
+
+- el valor baja de 1,5rem a **1,4rem**;
+- las etiquetas pierden las mayúsculas y el `letter-spacing`. «APORTADO NETO»
+  pedía 91,4px y «Aportado neto» son 71,1px, así que entra **sin acortar la
+  palabra**. Las mayúsculas costaban un 28% de ancho y no decían nada que el
+  texto no dijera.
+
+El límite que la medida enseña sigue en pie: una cartera de siete cifras
+—`1,234,567.89`— volvería a apretar, y entonces el remedio es otra vez el tamaño
+de letra, no quitar una cifra.
 
 **La marca del objetivo (`¦`) no se pinta cuando el libro no tiene objetivo.**
 Un libro cargado a mano puede no tenerlo —J lo permite— y una marca en el cero
