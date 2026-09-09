@@ -1,18 +1,17 @@
 # Contexto del proyecto — para retomar en una sesión nueva
 
 **Última actualización:** 2026-09-09
-**Rama:** `panel-de-seguimiento` — **sin fusionar** · **Tests:** 1.136 pasando (`uv run pytest tests/ -q -m "not red"`), 4 omitidos —dos por permisos POSIX en Windows y dos sin `numpy_financial`— más 8 marcados `red`
+**Rama:** `master` · **Tests:** 1.136 pasando (`uv run pytest tests/ -q -m "not red"`), 4 omitidos —dos por permisos POSIX en Windows y dos sin `numpy_financial`— más 8 marcados `red`
 **Remoto:** `https://github.com/Steven7717/Markowitz-pro-picks-.git` — `master` es lo publicado
 **Estructura:** el programa vive en `programa/`; en la raíz sólo están los dos
 lanzadores y el `README.md`. Los comandos (`uv run pytest`, `uv run streamlit`)
 se ejecutan desde `programa/`, no desde la raíz.
 
-> **Al retomar:** todo está en `master`, incluido J. F y G entraron desde
-> `seguimiento-cartera`, H desde `noticias-calendario` y J desde
-> `entrada-al-seguimiento`, las tres en avance rápido —las dos primeras el
-> 2026-09-08 y J el 2026-09-09—. Las tres ramas quedaron en el mismo commit
-> que `master` y ya no hacen falta. **K está en `panel-de-seguimiento`, sin
-> fusionar**, y su último commit es el que cierra el sub-proyecto.
+> **Al retomar:** todo está en `master`, incluido K. F y G entraron desde
+> `seguimiento-cartera`, H desde `noticias-calendario`, J desde
+> `entrada-al-seguimiento` y K desde `panel-de-seguimiento`, todas en avance
+> rápido —F, G y H el 2026-09-08; J y K el 2026-09-09—. Las cuatro ramas
+> quedaron en el mismo commit que `master` y ya no hacen falta.
 
 ---
 
