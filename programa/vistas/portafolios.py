@@ -81,7 +81,7 @@ for entrada in entradas:
                 use_container_width=True, icon=":material/monitoring:",
             ):
                 st.session_state.portafolio_a_seguir = p
-                st.switch_page("vistas/seguimiento.py")
+                st.switch_page("vistas/estrenar.py")
 
             confirmando = st.session_state.get("borrando") == str(entrada.ruta)
             if not confirmando:

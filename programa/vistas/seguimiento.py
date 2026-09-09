@@ -20,48 +20,13 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+# `portafolios.py` y el optimizador fijan esto y saltan. El estreno ya no vive
+# aqui, asi que se reenvia en vez de dejar la pantalla sin explicar por que no
+# pasa nada.
+if st.session_state.get("portafolio_a_seguir") is not None:
+    st.switch_page("vistas/estrenar.py")
+
 entradas = mod.listar()
-
-pendiente = st.session_state.get("portafolio_a_seguir")
-if pendiente is not None:
-    st.markdown(f"### Empezar a seguir «{pendiente.nombre}»")
-    v = mod.veredicto_de(pendiente.metricas or {})
-    if v["beats_equal_weight"] is True:
-        st.success(
-            f"Fuera de muestra, la optimización superó a repartir por igual: "
-            f"{v['oos_sharpe']:.2f} frente a {v['oos_equal_weight_sharpe']:.2f}."
-        )
-    elif v["beats_equal_weight"] is False:
-        st.warning(
-            f"Fuera de muestra, la optimización quedó **por debajo** de repartir "
-            f"por igual: {v['oos_sharpe']:.2f} frente a "
-            f"{v['oos_equal_weight_sharpe']:.2f}."
-        )
-    else:
-        st.info(
-            "Con estos datos no se pudo distinguir la optimización de repartir "
-            "por igual. La diferencia cabía dentro del error de medición."
-        )
-
-    # Sin indice por defecto: el veredicto de arriba es la unica evidencia que
-    # el programa produjo sobre si la optimizacion aportaba algo, y un valor
-    # preseleccionado la convertiria en un clic que nadie mira.
-    base = st.radio(
-        "¿Contra qué pesos quieres medir la deriva?",
-        options=["estrategia", "equal_weight"],
-        format_func=lambda b: (
-            "Los pesos de la estrategia" if b == "estrategia"
-            else "Repartir por igual (1/N)"
-        ),
-        index=None,
-    )
-    nombre = st.text_input("Nombre del libro", value=pendiente.nombre, max_chars=60)
-    if st.button("Crear libro", type="primary", disabled=base is None):
-        ruta = mod.guardar(mod.desde_portafolio(nombre, pendiente, base=base))
-        st.session_state.pop("portafolio_a_seguir")
-        st.success(f"Creado en {ruta}.")
-        st.rerun()
-    st.stop()
 
 if not entradas:
     st.info(
@@ -255,14 +220,47 @@ marcha = posiciones.serie(actual.asientos, historia)
 ultimos = {t: precios.ultimo(historia, t) for t in historia.cierres.columns}
 precios_hoy = {t: p for t, (p, _) in ultimos.items() if p is not None}
 
-fechas = [f for _, f in ultimos.values() if f]
-if fechas and max(fechas) < date.today().isoformat():
+# Un libro estrenado hoy tiene todos sus asientos fechados hoy, y el ultimo
+# cierre publicado es el de ayer: la serie no puede valorar ni uno solo, y el
+# valor sale 0,00. Pero la cartera no vale cero --nadie ha medido eso-- es que
+# todavia no se puede valorar, y en un 0,00 las dos cosas se leen igual. Es la
+# regla de `cartera.formato_cifra`: un cero es una afirmacion, y aqui no la ha
+# hecho nadie.
+#
+# La condicion es TODOS posteriores, no algunos. Con una compra de hoy encima de
+# una cartera vieja si hay valor que ensenar, y para eso ya esta el aviso de
+# abajo; taparlo con un «—» borraria cifras que si estan medidas.
+sin_valorar = bool(marcha.posteriores) and marcha.posteriores == len(vivos)
+
+cierres_vistos = [f for _, f in ultimos.values() if f]
+ultimo_cierre = max(cierres_vistos) if cierres_vistos else None
+
+# Sin nada valorado este pie diria que «todo lo de abajo» esta valorado a una
+# fecha en la que la cartera todavia no existia, que es justo lo contrario de lo
+# que pasa. El aviso de abajo da la misma fecha y la explica.
+if ultimo_cierre and ultimo_cierre < date.today().isoformat() and not sin_valorar:
     st.caption(
-        f"Último cierre disponible: **{max(fechas)}**. Todo lo de abajo está "
+        f"Último cierre disponible: **{ultimo_cierre}**. Todo lo de abajo está "
         "valorado a esa fecha, no a hoy."
     )
 
-if marcha.posteriores:
+if sin_valorar:
+    # Antes de las metricas, no despues: quien acaba de estrenar mira las cifras
+    # primero, y un aviso debajo llega cuando ya ha leido el cero. Y en tono de
+    # normalidad, porque lo es: no hay nada roto ni nada que el usuario tenga
+    # que hacer.
+    st.info(
+        "**Todavía no hay nada que valorar, y es lo normal.** Este libro es de "
+        "hoy y el último cierre publicado es el del "
+        f"**{ultimo_cierre or 'día anterior'}**, así que ninguno de sus "
+        "asientos entra aún en la serie de precios. Por eso el valor, la "
+        "ganancia y los rendimientos salen como «—» en vez de como 0,00 —la "
+        "cartera no vale cero, es que todavía no se puede medir— y el gráfico "
+        "sale plano. La tabla por activo sí los enseña, valorados a ese último "
+        "cierre, porque sale de los asientos y no de la serie. Arriba cuadrará "
+        "solo cuando cierre la sesión, sin que tengas que hacer nada."
+    )
+elif marcha.posteriores:
     # La tabla por activo si los ve, porque sale de los asientos; el valor de
     # cabecera no, porque sale de la serie y la serie no tiene precio con que
     # valorarlos. Sin decirlo, las dos cifras se contradicen sin explicacion.
@@ -298,31 +296,53 @@ twr_anual = rendimiento.anualizar(twr_periodo, dias=dias)
 flujos_tir = [
     (dia.date(), -float(importe)) for dia, importe in marcha.flujos.items() if importe
 ]
-if flujos_tir and len(marcha.valor):
+if flujos_tir and len(marcha.valor) and not sin_valorar:
     flujos_tir.append((marcha.valor.index[-1].date(), valor_hoy))
 tasa_interna = rendimiento.tir(flujos_tir)
 
+
+def _cifra(valor) -> str:
+    """El «—» de `cartera.formato_cifra`, con el separador de miles de aqui.
+
+    No se llama a `formato_cifra` directamente porque escribe `10299.00` donde
+    esta pantalla lleva `10,299.00` desde siempre, y cambiar el formato del caso
+    normal para arreglar el caso vacio seria pagar el arreglo con una regresion.
+    Lo que se copia es la regla, que es lo que importa: `None` no es cero.
+    """
+    return "—" if valor is None else f"{valor:,.2f}"
+
+
+# Nada que valorar: las cifras que dependen del precio no existen todavia. Se
+# ponen a None y salen «—»; inventarlas con el precio al que se compro daria un
+# numero plausible, sin marca y sin unidades raras, que nadie distinguiria de
+# uno medido de verdad.
+valor_visible = None if sin_valorar else valor_hoy
+ganancia_visible = None if sin_valorar else valor_hoy - aportado
+twr_visible = None if sin_valorar else twr_anual
+tir_visible = None if sin_valorar else tasa_interna
+
 k1, k2, k3, k4, k5, k6 = st.columns(6)
-k1.metric("Valor", f"{valor_hoy:,.2f}")
+k1.metric("Valor", _cifra(valor_visible))
 k2.metric("Aportado neto", f"{aportado:,.2f}",
           help="Aportaciones menos retiros: el dinero tuyo que hay dentro ahora "
                "mismo, no la suma de todo lo que pasó por la cartera.")
-k3.metric("Ganancia", f"{valor_hoy - aportado:,.2f}")
+k3.metric("Ganancia", _cifra(ganancia_visible))
 k4.metric(
-    "TWR anual", cartera.formato_porcentaje(twr_anual),
+    "TWR anual", cartera.formato_porcentaje(twr_visible),
     help="Ponderado por tiempo: neutraliza cuándo metiste el dinero, así que "
-         "mide la cartera y no tu timing. Es el único comparable con un índice. "
-         f"Sin anualizar, el periodo entero rindió {twr_periodo:.2%}.",
+         "mide la cartera y no tu timing. Es el único comparable con un índice."
+         + ("" if sin_valorar else
+            f" Sin anualizar, el periodo entero rindió {twr_periodo:.2%}."),
 )
 k5.metric(
-    "TIR", cartera.formato_porcentaje(tasa_interna),
+    "TIR", cartera.formato_porcentaje(tir_visible),
     help="Ponderada por dinero: lo que ganaste tú, con tu timing dentro. "
          "Aparece «—» cuando no hay una respuesta defendible.",
 )
 k6.metric("Dividendos", f"{float(marcha.dividendos.sum().sum()):,.2f}")
 
-if twr_anual is not None and tasa_interna is not None:
-    brecha = tasa_interna - twr_anual
+if twr_visible is not None and tir_visible is not None:
+    brecha = tir_visible - twr_visible
     if abs(brecha) > 0.02:
         st.info(
             f"**TWR y TIR se separan {abs(brecha):.1%}.** Esa diferencia es el "
@@ -416,6 +436,11 @@ st.dataframe(pd.DataFrame(historial), use_container_width=True, hide_index=True)
 # KeyError. `to_excel` si es generico: acepta cualquier DataFrame y cualquier
 # dict. Hacer que kpi_rows tolere dos formas distintas de metricas es un cambio
 # a un modulo compartido, y se hace cuando se decida, no de refilon.
+#
+# Las mismas cifras que la pantalla, `_visible` incluido: un None sale como
+# celda vacia y un 0,00 saldria como un numero. Fuera del programa la
+# diferencia importa mas todavia, porque en una hoja de calculo ya no queda
+# ningun aviso al lado que explique de donde vino el cero.
 st.download_button(
     "Descargar Excel",
     data=to_excel(
@@ -423,13 +448,13 @@ st.download_button(
         {
             "Libro": actual.nombre,
             "Moneda": actual.moneda,
-            "Valorado a": max(fechas) if fechas else "—",
-            "Valor": valor_hoy,
+            "Valorado a": "—" if sin_valorar else (ultimo_cierre or "—"),
+            "Valor": valor_visible,
             "Aportado neto": aportado,
-            "Ganancia": valor_hoy - aportado,
-            "TWR del periodo": twr_periodo,
-            "TWR anual": twr_anual,
-            "TIR": tasa_interna,
+            "Ganancia": ganancia_visible,
+            "TWR del periodo": None if sin_valorar else twr_periodo,
+            "TWR anual": twr_visible,
+            "TIR": tir_visible,
             "Dividendos": float(marcha.dividendos.sum().sum()),
             "Metodo de coste": "media ponderada",
         },
