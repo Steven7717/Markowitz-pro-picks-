@@ -351,9 +351,10 @@ if st.button(f"Aprobar {total} empresas y pasar al optimizador", disabled=total 
         # aprobo -- aunque eso significa que un segundo clic con casillas
         # marcadas si vuelve a escribir esos tickers en una acta nueva.
         st.session_state.anadidos = []
-        st.success(
-            f"Acta escrita en {destino}. Para pasar al optimizador usa el "
-            "enlace **Markowitz Pro Picks** de la barra lateral: recargar "
-            "esta pagina abre una sesion nueva de Streamlit y pierde la "
-            "seleccion aprobada."
-        )
+        # `switch_page` navega DENTRO de la sesion: `tickers_aprobados` sigue
+        # en `session_state` al llegar. El aviso que habia aqui --usa el menu,
+        # recargar pierde la seleccion-- describia el problema de recargar la
+        # pagina, que es otra cosa, y este fichero ya usa `switch_page` en las
+        # lineas 110 y 145.
+        st.session_state.acta_recien_escrita = str(destino)
+        st.switch_page("vistas/optimizador.py")

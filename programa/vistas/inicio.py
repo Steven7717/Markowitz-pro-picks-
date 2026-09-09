@@ -21,7 +21,7 @@ st.markdown(
 
 actuales, _ = preferencias_mod.cargar()
 
-st.markdown("### El recorrido completo")
+st.markdown("### Elegir qué comprar")
 
 uno, dos, tres = st.columns(3)
 with uno:
@@ -65,6 +65,55 @@ with tres:
         if st.button("Ir al optimizador", use_container_width=True,
                      type="primary", icon=":material/insights:"):
             st.switch_page("vistas/optimizador.py")
+
+# La mitad que faltaba. Optimizar reparte el capital, pero ahí no se acaba
+# nada: lo que se compra hay que seguirlo, y estas tres pantallas existían sin
+# que la portada las nombrara ni una vez.
+st.markdown("### Seguir lo que compraste")
+
+cuatro, cinco, seis = st.columns(3)
+with cuatro:
+    with st.container(border=True):
+        st.markdown("#### 4 · Seguimiento")
+        st.markdown(
+            "Un portafolio guardado es una fotografía; el libro es lo que "
+            "pasó después. Qué tienes, cuánto vale hoy y cómo ha rendido, "
+            "medido contra el objetivo que dio el optimizador.\n\n"
+            "El valor se dibuja junto a **tres referencias** que reciben el "
+            "mismo dinero en las mismas fechas que metiste tú, para que la "
+            "comparación aísle qué compraste de cuándo lo compraste."
+        )
+        if st.button("Ver el seguimiento", use_container_width=True,
+                     icon=":material/monitoring:"):
+            st.switch_page("vistas/seguimiento.py")
+
+with cinco:
+    with st.container(border=True):
+        st.markdown("#### 5 · Rebalanceo")
+        st.markdown(
+            "Cuánto se ha separado cada activo de su objetivo, dónde poner el "
+            "dinero nuevo —comprar corrige deriva sin vender nada ni realizar "
+            "plusvalías— y qué costaría corregir el resto.\n\n"
+            "Aquí no se registra nada: son **propuestas**. Las que el coste se "
+            "come salen igualmente, con el motivo escrito."
+        )
+        if st.button("Ver el rebalanceo", use_container_width=True,
+                     icon=":material/balance:"):
+            st.switch_page("vistas/rebalanceo.py")
+
+with seis:
+    with st.container(border=True):
+        st.markdown("#### 6 · Noticias")
+        st.markdown(
+            "Lo que las empresas de tu libro han comunicado a la SEC, lo que "
+            "ha escrito la prensa, y las fechas que vienen.\n\n"
+            "Los **8-K** —lo que la empresa está obligada a presentar, con "
+            "fecha y firma— van separados de los titulares, de los que nadie "
+            "responde y que el programa no filtra. Aquí no se recomienda nada."
+        )
+        if st.button("Ver noticias", use_container_width=True,
+                     icon=":material/newspaper:"):
+            st.switch_page("vistas/noticias.py")
 
 st.markdown("### Tres cosas que conviene saber antes de usarlo")
 

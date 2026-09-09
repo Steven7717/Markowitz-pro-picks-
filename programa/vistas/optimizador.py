@@ -56,6 +56,15 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+# El acuse del acta que acaba de escribir el gate, que ahora salta aqui en vez
+# de pedir que uses el menu.
+#
+# `pop` y no `get`: el acuse pertenece al salto que acaba de ocurrir. Con `get`
+# reaparecería en cada re-ejecución de Streamlit, que son muchas.
+destino_acta = st.session_state.pop("acta_recien_escrita", None)
+if destino_acta:
+    st.success(f"Acta escrita en {destino_acta}.")
+
 guardadas, avisos_preferencias = preferencias_mod.cargar()
 for aviso in avisos_preferencias:
     st.warning(aviso)
@@ -571,40 +580,70 @@ with exportar:
         "su fecha. No se recalcula al abrirlo — los precios de mañana ya no son "
         "los de hoy, y un portafolio que cambiara solo no sería el que guardaste."
     )
-    col_nombre, col_nota, col_guardar = st.columns([2, 3, 1])
+    # Cuatro columnas donde antes habia tres, y la del boton largo es la mas
+    # ancha: "Guardar y empezar a seguirlo" son 28 caracteres, y con menos de
+    # 4/12 del ancho la etiqueta se parte en dos lineas en cuanto la ventana
+    # baja de 1100 px.
+    col_nombre, col_nota, col_seguir, col_guardar = st.columns([3, 3, 4, 2])
     nombre = col_nombre.text_input("Nombre", key="nombre_portafolio", max_chars=60)
     nota = col_nota.text_input(
         "Nota (opcional)", key="nota_portafolio",
         placeholder="Por qué guardas esta corrida",
     )
-    col_guardar.write("")
-    col_guardar.write("")
-    if col_guardar.button(
-        "Guardar", use_container_width=True, icon=":material/save:",
-        disabled=not nombre.strip(),
-    ):
+    for _columna in (col_seguir, col_guardar):
+        _columna.write("")
+        _columna.write("")
+
+    def _guardar(nombre: str, nota: str):
+        """El portafolio guardado, o None si no se pudo, ya avisando en pantalla.
+
+        Devuelve el objeto y no solo la ruta porque el boton de seguir necesita
+        metersela a `portafolio_a_seguir`, que es lo que la pantalla de estreno
+        lee. Volver a cargarlo del disco seria leer lo que acabamos de escribir.
+        """
+        # `desde_corrida` va DENTRO del try: es quien llama a
+        # `normalizar_nombre`, o sea quien lanza `NombreInvalido`. `guardar` no
+        # lo lanza nunca. Dejarlo fuera cambiaria el error en pantalla por un
+        # traceback de Streamlit.
         try:
-            destino = cartera.guardar(
-                cartera.desde_corrida(
-                    nombre=nombre,
-                    tickers=valid_tickers,
-                    pesos=optimal["weights"],
-                    horizonte=corrida["horizonte"],
-                    estrategia=corrida["estrategia"],
-                    peso_min=corrida["peso_min"],
-                    peso_max=corrida["peso_max"],
-                    permitir_cortos=corrida["cortos"],
-                    shrinkage=corrida["shrinkage"],
-                    metricas=metrics,
-                    nota=nota,
-                )
+            portafolio = cartera.desde_corrida(
+                nombre=nombre,
+                tickers=valid_tickers,
+                pesos=optimal["weights"],
+                horizonte=corrida["horizonte"],
+                estrategia=corrida["estrategia"],
+                peso_min=corrida["peso_min"],
+                peso_max=corrida["peso_max"],
+                permitir_cortos=corrida["cortos"],
+                shrinkage=corrida["shrinkage"],
+                metricas=metrics,
+                nota=nota,
             )
+            destino = cartera.guardar(portafolio)
         except cartera.NombreInvalido as error:
             st.error(str(error))
+            return None
         except OSError as error:
             st.error(f"No se pudo guardar: {error}")
-        else:
-            st.success(f"Guardado en {destino}. Está en «Portafolios guardados».")
+            return None
+        st.success(f"Guardado en {destino}.")
+        return portafolio
+
+    # Guardar y seguir son actos distintos: se pueden archivar tres corridas y
+    # seguir una sola. Por eso hay dos botones y no un salto automatico.
+    if col_seguir.button("Guardar y empezar a seguirlo", type="primary",
+                         use_container_width=True,
+                         disabled=not nombre.strip()):
+        guardado = _guardar(nombre, nota)
+        # Solo se salta si de verdad se guardo: saltar tras un fallo dejaria al
+        # usuario en la pantalla de estreno de un portafolio que no existe.
+        if guardado is not None:
+            st.session_state.portafolio_a_seguir = guardado
+            st.switch_page("vistas/estrenar.py")
+
+    if col_guardar.button("Guardar", use_container_width=True,
+                          icon=":material/save:", disabled=not nombre.strip()):
+        _guardar(nombre, nota)
 
     st.divider()
     st.markdown("**Descargar el informe**")
