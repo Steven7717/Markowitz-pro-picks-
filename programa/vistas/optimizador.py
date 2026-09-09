@@ -626,7 +626,13 @@ with exportar:
         except OSError as error:
             st.error(f"No se pudo guardar: {error}")
             return None
-        st.success(f"Guardado en {destino}.")
+        # El «esta en Portafolios guardados» no es adorno: en el camino que NO
+        # salta, es la unica senal de adonde fue a parar, y la queja que abrio
+        # este sub-proyecto era precisamente que la ruta no se veia. (Desde el
+        # boton principal este mensaje no llega a leerse, porque `switch_page`
+        # se lleva la pantalla en la misma re-ejecucion; alli el acuse es
+        # aterrizar en el estreno con el nombre en el encabezado.)
+        st.success(f"Guardado en {destino}. Está en **Portafolios guardados**.")
         return portafolio
 
     # Guardar y seguir son actos distintos: se pueden archivar tres corridas y
