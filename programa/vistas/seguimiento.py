@@ -30,8 +30,9 @@ entradas = mod.listar()
 
 if not entradas:
     st.info(
-        "Todavía no llevas ningún libro. Empieza uno desde **Portafolios "
-        "guardados**, o crea uno a mano si ya tenías acciones compradas."
+        "Todavía no llevas ningún libro. Empiézalo en **Empezar un libro**: "
+        "desde un portafolio guardado, o cargando a mano una cartera que "
+        "ya tenías."
     )
     if st.button("Ir a portafolios guardados", icon=":material/folder_open:"):
         st.switch_page("vistas/portafolios.py")
@@ -282,6 +283,24 @@ elif marcha.posteriores:
 # un dolar. `flujos` son ya las aportaciones menos los retiros dentro del
 # calendario de la serie, asi que la coincidencia es por construccion.
 aportado = float(marcha.flujos.sum())
+if sin_valorar:
+    # `flujos` vive en el calendario de la serie, y eso es DELIBERADO:
+    # `aportado` y `valor` se restan para dar la ganancia, y si vinieran
+    # de cortes temporales distintos daria una ganancia inventada -- en
+    # el sub-proyecto F salio GANANCIA -9.700 sin que nadie hubiera
+    # perdido un dolar.
+    #
+    # Cuando NO hay ningun dia valorado esa razon desaparece, porque
+    # `ganancia` ya es «—» y no hay dos numeros que restar. Y decir
+    # «Aportado neto 0,00» a quien acaba de meter su dinero no es una
+    # medida que falte: es una **afirmacion falsa sobre un hecho
+    # registrado**, que es peor que un «—». El dinero entro; lo que aun
+    # no se puede es valorarlo.
+    aportado = sum(
+        a.importe if a.tipo == "aportacion" else -a.importe
+        for a in vivos
+        if a.tipo in mod.FLUJOS_EXTERNOS
+    )
 valor_hoy = float(marcha.valor.iloc[-1]) if len(marcha.valor) else 0.0
 dias = (marcha.valor.index[-1] - marcha.valor.index[0]).days if len(marcha.valor) > 1 else 0
 

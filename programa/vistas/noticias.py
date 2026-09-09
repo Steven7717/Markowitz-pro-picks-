@@ -232,7 +232,9 @@ for _entrada in todas:
 
 entradas = [e for e in todas if e.libro is not None]
 if not entradas:
-    st.info("Todavía no llevas ningún libro. Empieza uno desde **Seguimiento**.")
+    st.info(
+        "Todavía no llevas ningún libro. Empiézalo en **Empezar un libro**."
+    )
     if st.button("Ir a seguimiento", icon=":material/monitoring:"):
         st.switch_page("vistas/seguimiento.py")
     st.stop()
