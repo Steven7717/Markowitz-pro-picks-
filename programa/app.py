@@ -113,6 +113,10 @@ navegacion = st.navigation(
                 icon=":material/folder_open:",
             ),
             st.Page(
+                "vistas/estrenar.py", title="Empezar un libro",
+                icon=":material/add_shopping_cart:",
+            ),
+            st.Page(
                 "vistas/seguimiento.py", title="Seguimiento",
                 icon=":material/monitoring:",
             ),
