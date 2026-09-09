@@ -1,15 +1,16 @@
 # Contexto del proyecto — para retomar en una sesión nueva
 
 **Última actualización:** 2026-09-08
-**Rama:** `noticias-calendario` — **sin fusionar** · **Tests:** 1.079 pasando (`uv run pytest tests/ -q -m "not red"`), 4 omitidos —dos por permisos POSIX en Windows y dos sin `numpy_financial`— más 6 marcados `red`
+**Rama:** `master` · **Tests:** 1.079 pasando (`uv run pytest tests/ -q -m "not red"`), 4 omitidos —dos por permisos POSIX en Windows y dos sin `numpy_financial`— más 8 marcados `red`
 **Remoto:** `https://github.com/Steven7717/Markowitz-pro-picks-.git` — `master` es lo publicado
 **Estructura:** el programa vive en `programa/`; en la raíz sólo están los dos
 lanzadores y el `README.md`. Los comandos (`uv run pytest`, `uv run streamlit`)
 se ejecutan desde `programa/`, no desde la raíz.
 
-> **Al retomar:** todo está en `master`, incluidos F y G, fusionados el
-> 2026-09-08 en avance rápido desde `seguimiento-cartera` — que quedó en
-> el mismo commit y ya no hace falta.
+> **Al retomar:** todo está en `master`. F y G entraron desde
+> `seguimiento-cartera` y H desde `noticias-calendario`, las dos en avance
+> rápido el 2026-09-08; ambas ramas quedaron en el mismo commit que
+> `master` y ya no hacen falta.
 
 ---
 
