@@ -11,7 +11,7 @@ se ejecutan desde `programa/`, no desde la raíz.
 > `seguimiento-cartera` y H desde `noticias-calendario`, las dos en avance
 > rápido el 2026-09-08; ambas ramas quedaron en el mismo commit que
 > `master` y ya no hacen falta. **J está en `entrada-al-seguimiento`, sin
-> fusionar** — trece commits, y el último es el que cierra el sub-proyecto.
+> fusionar**, y su último commit es el que cierra el sub-proyecto.
 
 ---
 
