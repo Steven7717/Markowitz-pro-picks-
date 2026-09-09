@@ -64,9 +64,16 @@ colaría el número inventado.
 - **Guardar un portafolio y empezar a seguirlo son actos distintos.** La acción
   principal pasa a ser «Guardar y empezar a seguirlo», pero se mantiene un
   «Guardar» a secas: se pueden archivar tres corridas y seguir una.
-- **La aportación prevista se guarda como importe y cadencia.** Rebalanceo deja
-  de preguntar cuánto vas a aportar. Sigue siendo un plan: el libro sólo
-  registra la aportación cuando ocurre de verdad.
+- **La aportación prevista se guarda como importe y cadencia.** Sigue siendo un
+  plan: el libro sólo registra la aportación cuando ocurre de verdad.
+
+  > **Corrección del 2026-09-09, al implementarlo.** Aquí decía «Rebalanceo
+  > deja de preguntar cuánto vas a aportar», y era **falso**: Rebalanceo nunca
+  > lo preguntó. Repartía `posiciones.estado(...).efectivo`, el dinero ya
+  > registrado en el libro. Lo que se hizo en su lugar fue **añadir** un campo
+  > que se precarga con el plan y se suma al efectivo, con las dos cifras a la
+  > vista. Se deja escrito en vez de borrado: la frase pasó al plan sin que
+  > nada chirriase, y ese es el defecto que hay que recordar.
 - **Una cartera cargada a mano elige su objetivo, sin opción marcada:**
   mantener la mezcla de hoy, repartir por igual, o ninguno por ahora. Misma
   regla que la pregunta de pesos que ya existe — el programa no elige por ti
