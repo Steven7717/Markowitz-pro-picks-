@@ -27,6 +27,15 @@ class Cabecera:
     dividendos: float
     sin_valorar: bool
     dias: int
+    # Cuantos DIAS del calendario de la serie tienen flujo externo. Se cuenta
+    # aqui porque de este numero depende si la brecha entre TWR y TIR se puede
+    # atribuir a algo --ver `aviso_de_brecha`-- y contarlo en la pantalla lo
+    # dejaria otra vez fuera del alcance de un test.
+    #
+    # Dias y no asientos, a proposito: dos aportaciones del mismo dia no son dos
+    # momentos distintos, y lo que la explicacion por calendario necesita son
+    # momentos.
+    flujos: int
 
 
 def _cifra(valor) -> str:
@@ -91,6 +100,10 @@ def cabecera(marcha, vivos, sin_valorar: bool) -> Cabecera:
     flujos_tir = [
         (dia.date(), -float(importe)) for dia, importe in marcha.flujos.items() if importe
     ]
+    # Antes de añadirle el valor final, que no es un flujo externo sino el cierre
+    # de la ecuacion. Contarlo aqui haria que un libro con una sola aportacion
+    # pareciera tener dos momentos.
+    dias_con_flujo = len(flujos_tir)
     if flujos_tir and len(marcha.valor) and not sin_valorar:
         flujos_tir.append((marcha.valor.index[-1].date(), valor_hoy))
     tasa_interna = rendimiento.tir(flujos_tir)
@@ -119,6 +132,60 @@ def cabecera(marcha, vivos, sin_valorar: bool) -> Cabecera:
         dividendos=float(marcha.dividendos.sum().sum()),
         sin_valorar=sin_valorar,
         dias=dias,
+        flujos=dias_con_flujo,
+    )
+
+
+# Por debajo de esto la separacion entre las dos medidas es ruido de redondeo y
+# de calendario, y nombrarla haria mirar donde no hay nada.
+BRECHA_MINIMA = 0.02
+
+
+def aviso_de_brecha(cab: Cabecera) -> "str | None":
+    """Lo que se puede decir de la separacion entre TWR y TIR. `None` si nada.
+
+    Las dos miden lo mismo de dos maneras, y cuando se separan la explicacion de
+    manual es el calendario: la TIR pondera por dinero, asi que meter mas capital
+    justo antes de una subida la levanta por encima de la TWR. Esa explicacion
+    **exige al menos dos momentos** en los que entrara o saliera dinero. Con uno
+    solo no hay ningun «cuando» que pueda favorecer a nada.
+
+    Hasta el sub-proyecto K la pantalla afirmaba la causa del calendario siempre,
+    dijeran lo que dijeran los flujos. En el libro de pruebas --una unica
+    aportacion-- las dos se separaban 329 puntos y el aviso salia igual. La causa
+    real era otra: el precio de compra registrado no coincidia con el cierre de
+    mercado de ese dia, asi que la serie de valor arranca en 49.911 mientras la
+    TIR parte de los 40.000 que entraron. Es una diferencia de **coste contra
+    mercado**, no de calendario.
+
+    Asi que la causa se atribuye solo cuando hay con que atribuirla. Con un flujo
+    se dice **que** se separan y no **por que**, que es lo unico que el programa
+    sabe. Afirmar un porque sin comprobarlo es la misma falta que «Aportado neto
+    0,00»: una frase plausible sobre algo que aqui dentro nadie ha medido.
+    """
+    if cab.twr_anual is None or cab.tir is None:
+        return None
+    brecha = cab.tir - cab.twr_anual
+    if abs(brecha) <= BRECHA_MINIMA:
+        return None
+
+    encabezado = f"**TWR y TIR se separan {abs(brecha):.1%}.**"
+    if cab.flujos >= 2:
+        return (
+            f"{encabezado} Esa diferencia es el efecto de *cuándo* aportaste, "
+            "no de qué compraste: "
+            + ("tus aportaciones cayeron en buenos momentos."
+               if brecha > 0 else
+               "tus aportaciones cayeron en momentos peores que la media.")
+        )
+    return (
+        f"{encabezado} No es el efecto de *cuándo* aportaste: para eso harían "
+        "falta al menos dos entradas de dinero en fechas distintas, y este libro "
+        "tiene una. **Por qué se separan no se puede decir desde aquí.** Una "
+        "causa posible —no comprobada— es que el precio al que registraste las "
+        "compras no fuera el cierre de mercado de ese día: entonces la serie de "
+        "valor arranca en una cifra y la TIR parte de otra, y las dos se separan "
+        "sin que el calendario tenga nada que ver."
     )
 
 

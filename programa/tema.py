@@ -102,11 +102,18 @@ html, body {{ font-family: {FUENTE}; }}
   background: {TARJETA}; border: 1px solid {BORDE}; border-radius: 10px;
   padding: .7rem .85rem .55rem;
 }}
+/* Sin mayusculas ni espaciado, y el valor un punto mas pequeno. **No es
+   cosmetica: es que no cabia.** La app pone metricas en `st.columns(4)` en tres
+   sitios --Seguimiento y dos veces el optimizador-- y a 1024px eso son 126px por
+   columna, de los que la tarjeta gasta 27 en su propio relleno. Medido ahi:
+   «APORTADO NETO» pedia 91,4px y salia «APORTADO ...»; las tres cifras de dinero
+   salian «51,405...», «40,000...», «11,405...». En minusculas y sin espaciado la
+   misma etiqueta son 71,1px y entra entera, sin tener que acortar la palabra: las
+   mayusculas costaban un 28% de ancho y no decian nada que el texto no dijera. */
 [data-testid="stMetricLabel"] p {{
   font-size: .74rem !important; color: {TEXTO_SUAVE} !important;
-  text-transform: uppercase; letter-spacing: .04em;
 }}
-[data-testid="stMetricValue"] {{ font-size: 1.5rem; color: {TEXTO}; }}
+[data-testid="stMetricValue"] {{ font-size: 1.4rem; color: {TEXTO}; }}
 
 /* --- Pestanas ------------------------------------------------------------- */
 /* role="tablist" y data-testid="stTab", no data-baseweb: Streamlit dejo de
