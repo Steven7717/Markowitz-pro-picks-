@@ -272,6 +272,8 @@ Tests: que los pesos de la tabla suman 1 sobre los activos con precio, y que
 coinciden con los de `composicion` para el mismo libro — que es la contradicción
 que esta tarea existe para cerrar.
 
+**Hecha.** Commit `bdd699b`, 3 tests, suite en 1.126.
+
 ---
 
 ## Tarea 3 — `noticias/traer.py`
@@ -323,7 +325,7 @@ pantalla que refactoriza no es un refactor.
 
 ### Paso 5 — suite
 
-`1.123 + 3 = 1.126`.
+`1.126 + 3 = 1.129`.
 
 ---
 
@@ -368,7 +370,7 @@ Usa `.mpp-fila`, `.mpp-pista` y `.mpp-tope`, que ya existen (`medidores.py:222`,
 
 ### Paso 3 — suite
 
-`1.126 + 4 = 1.130`.
+`1.129 + 4 = 1.133`.
 
 ---
 
@@ -425,7 +427,7 @@ la tarea no está hecha.
 
 ### Paso 6 — suite
 
-Un test nuevo: con un solo flujo el aviso no atribuye la causa. `1.130 + 1 = 1.131`.
+Un test nuevo: con un solo flujo el aviso no atribuye la causa. `1.133 + 1 = 1.134`.
 
 ---
 
@@ -451,7 +453,7 @@ pestañas en cada pasada, estén visibles o no. Nada de esto ahorra trabajo; lo
 que ahorra es scroll. No escribir en el código que "se calcula sólo lo visible",
 porque no es verdad.
 
-Suite: `1.131`.
+Suite: `1.134`.
 
 ---
 
@@ -493,7 +495,7 @@ Pulsar el botón, esperar, y ver que aparecen. Volver a abrir: instantáneo.
 
 ### Paso 6 — suite
 
-`1.131 + 2 = 1.133` (dos tests sobre qué estado corresponde a cada caso).
+`1.134 + 2 = 1.136` (dos tests sobre qué estado corresponde a cada caso).
 
 ---
 
