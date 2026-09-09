@@ -341,7 +341,11 @@ st.caption(
 
 st.subheader("Por activo")
 
-filas = panel.filas_por_activo(actual.asientos, precios_hoy, cab.valor, objetivo)
+# El denominador de los pesos sale de `composicion`, no de `cab.valor`: aquel
+# es la suma de los activos y este incluye el efectivo sin invertir. Con el
+# segundo la columna sumaba 71,9% al lado de un objetivo que suma 100%.
+comp = panel.composicion(actual.asientos, precios_hoy, objetivo)
+filas = panel.filas_por_activo(actual.asientos, precios_hoy, comp.invertido, objetivo)
 
 st.dataframe(pd.DataFrame(filas), use_container_width=True, hide_index=True)
 st.caption(

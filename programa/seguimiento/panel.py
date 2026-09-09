@@ -139,6 +139,15 @@ class Composicion:
     lineas: "tuple[Linea, ...]"
     sin_precio: "tuple[str, ...]"
     hay_objetivo: bool
+    # El denominador que se uso: la suma de los activos CON precio. Se
+    # devuelve en vez de dejar que quien pinte lo recalcule, que seria un
+    # segundo sitio donde puede desviarse.
+    invertido: float
+    # El efectivo del libro. **Es un hecho registrado, no una valoracion**, y
+    # por eso nunca se resta de `valor`: aquel vive en el calendario de la
+    # serie y este en el de los asientos. Restar dos cortes distintos es el
+    # defecto que en F dio GANANCIA -9.700. Aqui solo se enseña al lado.
+    efectivo: float
 
 
 def composicion(asientos, precios_hoy, objetivo) -> Composicion:
@@ -183,25 +192,34 @@ def composicion(asientos, precios_hoy, objetivo) -> Composicion:
         lineas=lineas,
         sin_precio=sin_precio,
         hay_objetivo=bool(pesos_obj),
+        invertido=total,
+        efectivo=posiciones.estado(asientos).efectivo,
     )
 
 
-def filas_por_activo(asientos, precios_hoy, valor_total, objetivo) -> "list[dict]":
+def filas_por_activo(asientos, precios_hoy, invertido, objetivo) -> "list[dict]":
     """La tabla por activo, tal cual la pinta la pantalla y la exporta Excel.
 
     Devuelve una lista de diccionarios ya formateados, y no dataclases, porque
     `exporter.to_excel` los consume asi y esta tarea mueve la tabla de sitio sin
     tocar la exportacion.
 
-    `valor_total` es el valor de cabecera --el de la serie, que incluye el
-    efectivo sin invertir--, no la suma de esta tabla, y por eso se pasa desde
-    fuera en vez de calcularse aqui: es la misma cifra que se enseña arriba, y
-    calcularla otra vez seria un segundo sitio donde se puede desviar.
+    `invertido` es la suma de los activos CON precio --`Composicion.invertido`--
+    y **no** el valor de cabecera. Hasta K se dividia por aquel, que incluye el
+    efectivo sin invertir, y la columna quedaba sumando 71,9% al lado de un «Peso
+    objetivo» que suma 100%: AAPL salia al 7,32% contra un objetivo del 10,31%
+    cuando en realidad estaba al 10,17%, clavado. Se leia como «voy tres puntos
+    por debajo» y lo cierto era otra cosa --que el 28% del dinero no estaba
+    invertido--, que ademas no se decia en ninguna parte.
+
+    El objetivo reparte sobre los activos y `rebalanceo/deriva.py` mide sobre los
+    activos. Esta tabla ahora tambien, que es lo que hace que las dos pantallas
+    digan lo mismo del mismo libro.
     """
     pesos_obj = mod.pesos_objetivo(objetivo)
     filas = []
     for ticker, linea in rendimiento.por_activo(asientos, precios_hoy).items():
-        peso_real = (linea.valor / valor_total) if (linea.valor and valor_total) else None
+        peso_real = (linea.valor / invertido) if (linea.valor and invertido) else None
         filas.append({
             "Ticker": ticker,
             "Acciones": f"{linea.acciones:,.4f}".rstrip("0").rstrip("."),
