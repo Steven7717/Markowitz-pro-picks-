@@ -127,8 +127,17 @@ duplicado que no falla al escribirlo y falla seis meses después.
 ```
 
 **Cuatro cifras arriba, no seis.** TIR y Dividendos bajan a la pestaña «Por
-activo», donde están sus detalles. Cuatro caben con holgura a 1024px y se leen
-sin partir palabras; seis no.
+activo», donde están sus detalles.
+
+Medido en la misma pantalla, ensanchando las columnas sobre el layout real: a
+79px de columna la cifra sale `51,…`; a 126px sale `51,434.74` entera. Cuatro
+columnas sobre 724px dan bastante más de 126px, así que caben.
+
+**Con un límite que conviene dejar escrito:** lo que cabe son nueve caracteres.
+Una cartera de siete cifras —`1,234,567.89`, doce caracteres— volvería a
+recortarse aun con cuatro columnas, y entonces el arreglo no es quitar otra
+cifra sino el tamaño de letra del valor. K no lo toca porque no es el caso de
+hoy, pero quien lo vea recortado que sepa que es esto y no un descuido.
 
 **La marca del objetivo (`¦`) no se pinta cuando el libro no tiene objetivo.**
 Un libro cargado a mano puede no tenerlo —J lo permite— y una marca en el cero
