@@ -18,12 +18,12 @@ enseña lo que se publicó y quién lo publicó, y la decisión se queda entera 
 lado del usuario.
 """
 
-from datetime import date, datetime, timezone
+from datetime import date
 
 import streamlit as st
 
 import tema
-from noticias import cache, macro, traer
+from noticias import cache, macro, texto, traer
 from seguimiento import libro as mod, posiciones
 
 # El orden en que se pintan y se consultan. Es el orden de la pantalla —lo que
@@ -42,50 +42,14 @@ ETIQUETA = {
 # indistinguible de que no hubiera más.
 TOPE = 40
 
-# Streamlit interpreta markdown, y además LaTeX entre dólares. Un titular
-# financiero va lleno de dólares —"Apple pasa de $4T"— y el segundo se comería
-# la línea entera hasta el siguiente. Nada de lo que llega de la red es marcado:
-# es texto ajeno, y se escapa antes de pintarlo.
-_ESPECIALES = str.maketrans({c: "\\" + c for c in "\\`*_[]$"})
-
-
-def _plano(texto: object) -> str:
-    return str(texto).translate(_ESPECIALES)
-
-
-def _enlace(texto: str, url: str) -> str:
-    """El texto enlazado, o el texto solo si no hay adónde ir.
-
-    Una `Noticia` puede traer la url vacía: yfinance sirve elementos sin
-    `canonicalUrl`. Un `[titular]()` se pinta como enlace, invita a pulsarlo y
-    no lleva a ninguna parte. El destino va entre `<>` porque las urls de
-    prensa traen paréntesis y sin ellos el enlace se corta a la mitad.
-    """
-    if not url:
-        return texto
-    return f"[{texto}](<{url}>)"
-
-
-def _hace(cuando: datetime) -> str:
-    minutos = int((datetime.now(timezone.utc) - cuando).total_seconds() // 60)
-    if minutos < 1:
-        return "hace menos de un minuto"
-    if minutos < 60:
-        return f"hace {minutos} min"
-    horas = minutos // 60
-    if horas < 24:
-        return f"hace {horas} h"
-    return f"hace {horas // 24} d"
-
-
-def _cada(validez) -> str:
-    """La ventana de frescura en palabras. `str(timedelta)` diría "1:00:00"."""
-    total = validez.total_seconds() / 3600
-    if total >= 24:
-        dias = int(total // 24)
-        return "día" if dias == 1 else f"{dias} días"
-    enteras = int(total)
-    return "hora" if enteras == 1 else f"{enteras} horas"
+# El escapado de `$`, el enlace, «hace X» y la linea de un hecho viven en
+# `noticias/texto.py`. Salieron de aqui en el sub-proyecto K, cuando el panel
+# de seguimiento empezo a pintar los mismos hechos y los mismos titulares:
+# desde un guion de Streamlit --que no se puede importar-- la unica
+# alternativa era copiarlos, y lo que se copiaria es el escapado. Dos copias
+# de una decision de seguridad se separan igual que dos de cualquier otra, y
+# la que se quede atras no da un numero raro: sigue pintando titulares hasta
+# el dia en que uno lleve un dolar.
 
 
 def _cuanto_falta(cuando: date) -> str:
@@ -110,21 +74,6 @@ def _sobrantes(cuantos: int, que: str) -> None:
         )
 
 
-def _linea_hecho(hecho) -> str:
-    """Un expediente en una línea: qué comunicó, cuándo, y adónde ir a leerlo.
-
-    El mismo formato para los destacados y para los plegados. Si el trámite se
-    pintara más pequeño o sin enlace, plegar acabaría pareciendo descartar.
-    """
-    etiqueta = " · ".join(_plano(d) for d in hecho.descripciones) or "Sin detalle"
-    if hecho.enmienda:
-        etiqueta += " (enmienda)"
-    return (
-        f"**{_plano(hecho.ticker)}** — {etiqueta}  \n"
-        f"{hecho.cuando:%d/%m/%Y} · " + _enlace("ver el expediente", hecho.url)
-    )
-
-
 def _macro() -> None:
     """Los punteros macro, en su propio bloque y sin ninguna fecha."""
     st.markdown("##### Datos de mercado")
@@ -137,8 +86,8 @@ def _macro() -> None:
     )
     for evento in macro.PUNTEROS:
         st.markdown(
-            f"- {_plano(evento.detalle)} — "
-            + _enlace("ver el calendario", evento.url or "")
+            f"- {texto.plano(evento.detalle)} — "
+            + texto.enlace("ver el calendario", evento.url or "")
         )
 
 
@@ -257,7 +206,7 @@ proximos = sorted(
 if proximos:
     for evento in proximos:
         st.markdown(
-            f"**{_plano(evento.ticker)}** — {_plano(evento.detalle)}  \n"
+            f"**{texto.plano(evento.ticker)}** — {texto.plano(evento.detalle)}  \n"
             f"{evento.cuando:%d/%m/%Y} · {_cuanto_falta(evento.cuando)}"
         )
 else:
@@ -290,7 +239,7 @@ plegados.sort(key=lambda h: h.cuando, reverse=True)
 
 visibles, fuera = _recorte(destacados)
 for hecho in visibles:
-    st.markdown(_linea_hecho(hecho))
+    st.markdown(texto.linea_de_hecho(hecho))
 _sobrantes(fuera, "hechos destacados")
 
 if plegados:
@@ -301,7 +250,7 @@ if plegados:
             "es descartar."
         )
         for hecho in plegados[:TOPE]:
-            st.markdown(_linea_hecho(hecho))
+            st.markdown(texto.linea_de_hecho(hecho))
         if len(plegados) > TOPE:
             st.caption(
                 f"Y {len(plegados) - TOPE} más. Quita activos del selector de "
@@ -348,15 +297,15 @@ for noticia in visibles:
         else noticia.clase.capitalize()
     )
     firma = " · ".join(
-        p for p in (_plano(noticia.medio), formato) if p
+        p for p in (texto.plano(noticia.medio), formato) if p
     )
     st.markdown(
-        f"**{_plano(noticia.ticker)}** — "
-        + _enlace(_plano(noticia.titular), noticia.url)
+        f"**{texto.plano(noticia.ticker)}** — "
+        + texto.enlace(texto.plano(noticia.titular), noticia.url)
         + f"  \n{firma} · {noticia.cuando.astimezone():%d/%m/%Y %H:%M}"
     )
     if noticia.resumen:
-        st.caption(_plano(noticia.resumen[:240]))
+        st.caption(texto.plano(noticia.resumen[:240]))
 _sobrantes(fuera, "noticias")
 
 # --- Cuándo se trajo cada cosa -----------------------------------------------
@@ -373,8 +322,8 @@ for fuente in ORDEN:
     caducados = sorted(t for t, (_, vigente) in marcas.items() if not vigente)
     linea = (
         f"**{ETIQUETA[fuente]}**: lo más antiguo que estás viendo se descargó "
-        f"el {vieja.astimezone():%d/%m/%Y a las %H:%M} ({_hace(vieja)}). "
-        f"Se vuelve a pedir cada {_cada(cache.VALIDEZ[fuente])}."
+        f"el {vieja.astimezone():%d/%m/%Y a las %H:%M} ({texto.hace(vieja)}). "
+        f"Se vuelve a pedir cada {texto.cada(cache.VALIDEZ[fuente])}."
     )
     if caducados:
         linea += (

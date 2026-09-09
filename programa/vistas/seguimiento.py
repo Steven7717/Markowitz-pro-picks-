@@ -17,6 +17,7 @@ import cartera
 import medidores
 import tema
 from exporter import to_excel
+from noticias import resumen, texto, traer
 from seguimiento import comparacion, libro as mod, panel, posiciones, precios
 
 st.markdown(
@@ -579,11 +580,163 @@ with movimientos:
     st.dataframe(pd.DataFrame(historial), use_container_width=True, hide_index=True)
 
 # ── Noticias ─────────────────────────────────────────────────────────────────
+#
+# **No se descarga nada al abrir.** `resumen.resumir` lee la cache por defecto
+# con `traer.cacheado`, que no toca la red: con doce activos, descargar al abrir
+# serian veinticuatro llamadas y un fallo de red dejaria esta cartera arrancando
+# con errores encima de las cifras. Lo que trae la red lo pide el boton, cuando
+# el usuario lo pide.
+#
+# El escapado y la forma de pintar un hecho salen de `noticias/texto.py`, los
+# mismos que usa `vistas/noticias.py`. No se reescriben aqui: un titular
+# financiero va lleno de dolares y Streamlit lee `$...$` como LaTeX.
 with noticias:
-    # Vacia a proposito: la llena la tarea 7 del sub-proyecto K, leyendo de
-    # `noticias/traer.cacheado` --solo cache, ninguna descarga al abrir la
-    # pantalla--. La pestana existe ya para que el reparto se vea entero.
-    st.caption(
-        "Aquí irán las noticias de los activos de este libro. Todavía no están "
-        "conectadas."
+    # Un problema de descarga se guarda en la sesion porque el boton termina en
+    # `st.rerun()` y la pasada que lo vio no llega a pintar nada. Se saca con
+    # `pop` para que se enseñe una vez y no se quede pegado a la pantalla
+    # afirmando un fallo que ya no esta pasando.
+    for _fuente, _problema in st.session_state.pop("noticias_problemas", {}).items():
+        st.warning(f"**{_fuente}** — {_problema}")
+
+    resumen_noticias = resumen.resumir(tickers)
+
+    # [2, 1] y no [3, 1]: a un cuarto de ancho la etiqueta del boton se partia
+    # a mitad de palabra --«Actualiza / r noticias»-- en cuanto la ventana
+    # bajaba de 1024px con la barra lateral abierta. Un corte a mitad de palabra
+    # se lee como un fallo de la pantalla, no como un boton.
+    izq_n, der_n = st.columns([2, 1], vertical_alignment="center")
+    izq_n.caption(
+        "Los 8-K que la SEC obliga a presentar, y detrás unos titulares. Aquí "
+        "no se recomienda nada."
     )
+    if der_n.button(
+        "Actualizar noticias",
+        icon=":material/refresh:",
+        use_container_width=True,
+        help="Pide a la SEC y a Yahoo lo que falte o haya caducado. Lo que ya "
+             "esté fresco no se vuelve a pedir.",
+    ):
+        # `forzar=False`: `traer.traer` devuelve la cache sin tocar la red
+        # cuando esta vigente, asi que este bucle baja **solo lo que falta**.
+        # Forzar aqui volveria a pedir veinticuatro veces algo que ya se tiene.
+        problemas: dict = {}
+        for numero, ticker_n in enumerate(tickers, start=1):
+            with st.spinner(
+                f"Trayendo {ticker_n} ({numero} de {len(tickers)})..."
+            ):
+                for fuente_n in resumen.FUENTES:
+                    _, problema, _, _ = traer.traer(
+                        fuente_n, ticker_n, traer.DESCARGA[fuente_n], False
+                    )
+                    if problema:
+                        # Agrupado por mensaje y no por ticker: la falta de
+                        # EDGAR_IDENTITY da el mismo texto para los doce, y doce
+                        # avisos identicos tapan la pantalla sin decir nada que
+                        # uno no dijera ya. Es la regla de `vistas/noticias.py`.
+                        problemas[fuente_n] = problema
+        st.session_state["noticias_problemas"] = problemas
+        st.rerun()
+
+    if resumen_noticias.estado == resumen.SIN_CACHE:
+        # **Este mensaje no es el de «sin hechos recientes»**, y la diferencia
+        # es todo lo que hay aqui: aquel afirma que se miro y no habia nada;
+        # este dice que no se ha mirado. Se pintan igual de vacios y significan
+        # cosas opuestas. Ver `noticias/resumen.py`.
+        st.info(
+            "**No hay noticias descargadas todavía.** Este panel no descarga "
+            "al abrirse —con "
+            f"{len(tickers)} activos serían {len(tickers) * len(resumen.FUENTES)} "
+            "llamadas, y abrir tu cartera no puede depender de que la red "
+            "responda—. Pulsa **Actualizar noticias** para pedirlas."
+        )
+    else:
+        procedencia = (
+            "Lo más antiguo que estás viendo se descargó el "
+            f"{resumen_noticias.cuando.astimezone():%d/%m/%Y a las %H:%M} "
+            f"({texto.hace(resumen_noticias.cuando)})."
+        )
+        # Cuando han caducado TODOS se dice «todo» y no la lista de los doce.
+        # Nombrarlos uno a uno sirve para saber cuáles de los que ves son
+        # viejos; si lo son todos, la lista no separa nada y sólo tapa la fecha
+        # que va justo delante, que es el dato.
+        if resumen_noticias.caducados:
+            procedencia += (
+                " **Todo esto ya pasó su ventana de frescura**"
+                if len(resumen_noticias.caducados) == len(tickers)
+                else f" Lo de {', '.join(resumen_noticias.caducados)} ya pasó "
+                     "su ventana de frescura"
+            ) + ": es lo que había guardado, no lo de ahora mismo."
+        # Aqui NO se contempla el caso de que falten todos: si a ninguno le
+        # queda nada en cache, `resumir` devuelve `SIN_CACHE` y esta rama no se
+        # ejecuta. Escribirlo igualmente seria codigo que afirma algo que no
+        # puede pasar, y el dia que alguien lo leyera se creeria que si.
+        #
+        # Y la frase no lleva plural: con un solo activo, «de esos» chirria.
+        if resumen_noticias.sin_cachear:
+            procedencia += (
+                f" De {', '.join(resumen_noticias.sin_cachear)} no hay nada "
+                "descargado: nada de lo de abajo viene de ahí."
+            )
+        st.caption(procedencia)
+
+        # --- Los hechos, primero -------------------------------------------
+        #
+        # Van arriba porque son la unica parte donde el programa tiene un
+        # criterio congelado y defendible (`noticias/criterio.py`): un 8-K es un
+        # documento firmado ante la SEC con consecuencias legales si miente. Un
+        # titular es lo que alguien decidio escribir. Ordenarlos juntos borraria
+        # esa diferencia justo donde mas cara sale.
+        st.markdown("##### Hechos (8-K)")
+        if resumen_noticias.hechos:
+            for hecho in resumen_noticias.hechos[:resumen.TOPE_HECHOS]:
+                st.markdown(texto.linea_de_hecho(hecho))
+            sobran = len(resumen_noticias.hechos) - resumen.TOPE_HECHOS
+            if sobran > 0:
+                # No dice «están enteros en Noticias», porque no es verdad:
+                # aquella pantalla tambien recorta a cuarenta (`TOPE`) y con
+                # los doce activos marcados deja fuera casi noventa. Mandar
+                # alli prometiendo la lista completa seria mandar a un sitio
+                # donde tampoco esta, y encima sin decir que hay que filtrar.
+                st.caption(
+                    f"Y {sobran} más, más antiguos. En **Noticias** caben "
+                    "cuarenta: filtra por activo allí para llegar al resto."
+                )
+        else:
+            st.caption(
+                "**Sin hechos recientes.** Se preguntó a la SEC y ninguno de "
+                "estos activos ha presentado un 8-K material en la ventana "
+                "consultada, que fuera de la temporada de resultados es lo "
+                "normal. No es lo mismo que no haberlo mirado: arriba está "
+                "cuándo se miró."
+            )
+
+        # --- Y detras la prensa, corta --------------------------------------
+        st.markdown("##### Titulares")
+        if resumen_noticias.titulares:
+            for noticia in resumen_noticias.titulares[:resumen.TOPE_TITULARES]:
+                st.markdown(
+                    f"**{texto.plano(noticia.ticker)}** — "
+                    + texto.enlace(texto.plano(noticia.titular), noticia.url)
+                    + f"  \n{texto.plano(noticia.medio)} · "
+                    f"{noticia.cuando.astimezone():%d/%m/%Y %H:%M}"
+                )
+            sobran = len(resumen_noticias.titulares) - resumen.TOPE_TITULARES
+            if sobran > 0:
+                st.caption(
+                    f"Y {sobran} titulares más. En **Noticias** van con su "
+                    "medio y su formato, también de cuarenta en cuarenta."
+                )
+        else:
+            st.caption(
+                "Ningún titular guardado de estos activos. Aquí no se filtra "
+                "nada: si no hay, es que la fuente no devolvió ninguno."
+            )
+
+    st.divider()
+    st.caption(
+        "Esto es un resumen. El calendario de resultados y dividendos, los "
+        "expedientes de trámite y el resto de la prensa están en la pantalla "
+        "de **Noticias**."
+    )
+    if st.button("Ver todas las noticias", icon=":material/newspaper:"):
+        st.switch_page("vistas/noticias.py")
