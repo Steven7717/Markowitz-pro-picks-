@@ -398,6 +398,23 @@ recortadas (`51,…`); a cuatro caben nueve caracteres enteros.
 `sin_precio` se nombran debajo. Si no hay objetivo, una nota lo dice y no hay
 marcas.
 
+**`escala` es el máximo sobre los pesos Y los objetivos**, no sólo sobre los
+pesos. Lo levantó el agente de la tarea 4 y está comprobado: `.mpp-pista` lleva
+`overflow:hidden` (`medidores.py:239`), así que un objetivo por encima del peso
+real mayor cae fuera de la pista y **la marca desaparece**. Con `peso=0,10`,
+`objetivo=0,35` y `escala=0,20` la marca sale en `left:175%`. Una marca
+invisible se lee igual que «este activo no tiene objetivo», que es justo la
+confusión que la guarda de `None` existe para evitar.
+
+**No se recorta a 100%.** Aparcar la marca en el borde derecho afirmaría que el
+objetivo es el peso mayor de la cartera, que es otra mentira distinta. Lo que se
+arregla es el denominador.
+
+**Y el efectivo sin invertir se nombra aquí.** `Composicion` trae `invertido` y
+`efectivo` desde la tarea 2b justo para esto. Sin esa línea, una cartera con el
+28% en caja enseña doce barras que suman el 100% de *lo invertido* sin decir en
+ninguna parte que hay una cuarta parte del dinero fuera.
+
 ### Paso 4 — el aviso de la brecha TWR/TIR afirma una causa que no comprueba
 
 Encontrado por el agente de la tarea 1, y **hay que arreglarlo aquí** porque es
