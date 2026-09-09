@@ -451,3 +451,42 @@ def medidor_cobertura(con_dato: int, total: int = len(TODOS_LOS_KPIS)) -> str:
         '<span class="mpp-z"></span>'
         "</div>"
     )
+
+
+def barra_de_peso(
+    ticker: str, peso: float, objetivo: "float | None", escala: float
+) -> str:
+    """Una fila de composicion: la barra es el peso, la marca es el objetivo.
+
+    **Sin veredicto.** `vistas/rebalanceo.py` escribe «Sobreponderado» al lado
+    de su barra y hace bien: es la pantalla de propuestas. Esta es la de hechos,
+    y la misma barra con una palabra de juicio al lado convierte un dato en un
+    consejo. La diferencia entre las dos pantallas es el motivo por el que son
+    dos.
+
+    `escala` es el peso mayor de la cartera, no 1.0: con doce activos ninguna
+    barra pasaria del 25% del ancho y todas se verian igual de cortas.
+
+    **La marca no se pinta cuando `objetivo is None`.** Un libro cargado a mano
+    puede no tener ninguno, y una marca en el cero no diria «no hay objetivo»:
+    diria que el objetivo es cero, que es una afirmacion distinta y falsa.
+    """
+    ancho = max(0.0, min(100.0, peso / escala * 100)) if escala else 0.0
+    marca, nota, dicho = "", "", "sin objetivo declarado"
+    if objetivo is not None:
+        izquierda = objetivo / escala * 100 if escala else 0.0
+        marca = f'<i class="mpp-tope" style="left:{izquierda:.2f}%"></i>'
+        nota = f' <span class="mpp-nota">de {objetivo:.1%}</span>'
+        dicho = f"objetivo {objetivo:.1%}"
+    return (
+        f'<div class="mpp-fila" title="{_esc(ticker)}: {peso:.1%} '
+        f'de lo invertido, {dicho}">'
+        f'<span class="mpp-nombre">{_esc(ticker)}</span>'
+        f'<span class="mpp-valor">{peso:.1%}{nota}</span>'
+        '<span class="mpp-pista">'
+        f'<i class="mpp-barra" style="left:0;width:{ancho:.2f}%;'
+        f'background:{_ACENTO}"></i>'
+        f"{marca}"
+        "</span>"
+        "</div>"
+    )
