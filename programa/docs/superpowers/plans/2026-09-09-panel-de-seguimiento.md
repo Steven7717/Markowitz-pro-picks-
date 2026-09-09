@@ -536,5 +536,12 @@ encabezado y la cuenta de tests, y dejar escrito qué hereda I.
 - **No tocar `exporter.py`.** El botón de Excel se mueve de sitio y nada más; la
   nota de `vistas/seguimiento.py:452-462` explica por qué `to_pdf` no vale aquí
   y sigue vigente.
+- **No escapar el ticker en `vistas/rebalanceo.py`.** Su `_medidores` (línea 52)
+  interpola `{linea.ticker}` en HTML que se pinta con `unsafe_allow_html=True`.
+  Lo levantó el agente de la tarea 4. **No es explotable hoy:** `_FORMA_TICKER`
+  sólo admite `[A-Z]+(-[A-Z]+)*` y `libro.cargar` valida cada asiento al leerlo,
+  así que un libro con un ticker que lleve HTML se rechaza como `LibroIlegible`
+  —comprobado—. El escapado es defensa en profundidad y merece su propio commit
+  fuera de K, no colarse en una tarea de panel.
 - **No arreglar `tests/test_apagado.py`.** Es inestable, es anterior a K y tiene
   su propia tarea de fondo.
