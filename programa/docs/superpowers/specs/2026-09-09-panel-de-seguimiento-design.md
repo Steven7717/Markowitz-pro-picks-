@@ -79,8 +79,35 @@ y que F, G y H aplican en todo el proyecto. El orden importa — sacar la lógic
   cuándo es, y ofrece un botón para traer lo que falte. **Abrir tu cartera no
   puede depender de que la red responda**: con doce activos son doce llamadas, y
   un fallo dejaría la pantalla arrancando con errores encima de las cifras.
-- **Ninguna cifra cambia.** K mueve dónde se calculan y cómo se pintan. Si una
-  cifra sale distinta después de K, es un defecto de K, no una mejora.
+- **Ninguna cifra cambia, con una excepción declarada.** K mueve dónde se
+  calculan y cómo se pintan. Si una cifra sale distinta después de K es un
+  defecto de K — salvo la de abajo, que se cambia a propósito y por escrito.
+
+### La excepción: «Peso real» divide por el denominador equivocado
+
+Encontrado al implementar la tarea 2, y **medido** sobre el libro de doce
+activos con los mismos precios para los dos caminos:
+
+| | Seguimiento | Rebalanceo | Objetivo |
+|---|---|---|---|
+| AAPL | **7,32%** | 10,17% | 10,31% |
+| GOOGL | **8,99%** | 12,50% | 9,02% |
+| suma | **71,9%** | 100% | 100% |
+
+La columna divide entre el valor de la serie, y ese valor **incluye el efectivo
+sin invertir** (`posiciones.py:266`: `valor = (acciones * cierres).sum(axis=1) +
+efectivo`). Sentada al lado de «Peso objetivo», que suma 100%, invita a leer
+«AAPL está tres puntos por debajo de su objetivo». **Es falso:** AAPL está en
+10,17% de los activos, prácticamente clavado. Lo que ocurre es que el 27,9% del
+dinero no está invertido — y ese número no aparece hoy en ninguna parte.
+
+Es un defecto **anterior a K**. Lo que K hace es volverlo imposible de ignorar:
+la barra de composición diría 10,17% justo encima de una tabla que dice 7,32%,
+con la misma palabra para las dos.
+
+**La decisión: el peso es sobre los activos**, que es lo que ya hacen el
+objetivo y `rebalanceo/deriva.py`, y **el efectivo sin invertir se nombra**. Un
+28% que no sale por ningún lado es peor que un 28% que se ve.
 
 ## Arquitectura
 

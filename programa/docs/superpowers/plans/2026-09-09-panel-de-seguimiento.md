@@ -252,6 +252,28 @@ exactamente lo que estas dos tareas existen para impedir.
 
 ---
 
+## Tarea 2b — «Peso real» cambia de denominador
+
+**Commit:** `fix: el peso real se medía contra un total que incluye el efectivo`
+
+Ver «La excepción» en el diseño. Es la única cifra que K cambia a propósito.
+
+- `Composicion` gana `invertido` (la suma de los activos con precio, o sea el
+  denominador que ya usa) y `efectivo` (el del libro, un hecho registrado).
+- `filas_por_activo` recibe `invertido` en vez de `valor_total`, y su docstring
+  cambia: el motivo por el que hoy recibe el valor de cabecera desde fuera dejó
+  de aplicar.
+- **El efectivo no se resta de nada valorado.** Se lee de
+  `posiciones.estado(asientos).efectivo`, que es lo que dicen los asientos, y se
+  enseña al lado — nunca dentro de una resta con `valor`, que vive en el
+  calendario de la serie. Mezclar los dos cortes es el defecto de F.
+
+Tests: que los pesos de la tabla suman 1 sobre los activos con precio, y que
+coinciden con los de `composicion` para el mismo libro — que es la contradicción
+que esta tarea existe para cerrar.
+
+---
+
 ## Tarea 3 — `noticias/traer.py`
 
 **Commit:** `refactor: el traer de noticias sale de la vista, para no copiarlo`
