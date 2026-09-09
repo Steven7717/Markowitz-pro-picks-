@@ -1,16 +1,17 @@
 # Contexto del proyecto — para retomar en una sesión nueva
 
-**Última actualización:** 2026-09-08
-**Rama:** `master` · **Tests:** 1.079 pasando (`uv run pytest tests/ -q -m "not red"`), 4 omitidos —dos por permisos POSIX en Windows y dos sin `numpy_financial`— más 8 marcados `red`
+**Última actualización:** 2026-09-09
+**Rama:** `entrada-al-seguimiento` — **sin fusionar** · **Tests:** 1.115 pasando (`uv run pytest tests/ -q -m "not red"`), 4 omitidos —dos por permisos POSIX en Windows y dos sin `numpy_financial`— más 8 marcados `red`
 **Remoto:** `https://github.com/Steven7717/Markowitz-pro-picks-.git` — `master` es lo publicado
 **Estructura:** el programa vive en `programa/`; en la raíz sólo están los dos
 lanzadores y el `README.md`. Los comandos (`uv run pytest`, `uv run streamlit`)
 se ejecutan desde `programa/`, no desde la raíz.
 
-> **Al retomar:** todo está en `master`. F y G entraron desde
+> **Al retomar:** A–H están en `master`. F y G entraron desde
 > `seguimiento-cartera` y H desde `noticias-calendario`, las dos en avance
 > rápido el 2026-09-08; ambas ramas quedaron en el mismo commit que
-> `master` y ya no hacen falta.
+> `master` y ya no hacen falta. **J está en `entrada-al-seguimiento`, sin
+> fusionar** — trece commits, y el último es el que cierra el sub-proyecto.
 
 ---
 
@@ -33,6 +34,8 @@ El objetivo mayor es construir, **aguas arriba de esa app**, un sistema donde un
 | G | Rebalanceo y aportaciones | Medidores de deriva, reparto de la aportación | ✅ **terminado** |
 | H | Noticias y calendario | Feed de EDGAR, prensa, eventos | ✅ **terminado** |
 | I | Capa de IA sobre F, G y H | Interpretación y propuestas de ajuste | ⬜ pendiente |
+| J | La entrada al seguimiento | Recorrido encadenado y alta del libro | ✅ **terminado** |
+| K | El panel de seguimiento | Monitor real de la cartera | ⬜ pendiente |
 
 ## Resultado del sub-proyecto D
 
@@ -855,6 +858,139 @@ sin volver a descargar.
   de MSFT era un vídeo sobre los resultados de Oracle. H no filtra porque no
   tiene criterio defendible, y fingir uno sería peor.
 
+## Resultado del sub-proyecto J
+
+`seguimiento/alta.py` (lógica, sin Streamlit) y `vistas/estrenar.py` (widgets,
+sin lógica), con **36 tests nuevos**. Fuera de esos dos ficheros cambian
+`app.py`, que registra la pantalla, y siete pantallas que ya existían:
+`candidatos`, `inicio`, `noticias`, `optimizador`, `portafolios`, `rebalanceo` y
+`seguimiento` —esta última **pierde** el alta, que se va entera a `estrenar.py`.
+**Ninguna dependencia nueva.**
+
+J no añade capacidades: **hace utilizables las que ya había.** Antes se podía
+elegir qué comprar (A–D), seguirlo (F), decidir cuándo tocarlo (G) y traer sus
+noticias (H), pero el camino de una cosa a la siguiente estaba sin construir. La
+portada no mencionaba la segunda mitad del programa, los dos botones que debían
+encadenar pantallas escribían un aviso pidiendo que usaras el menú lateral, y un
+libro recién creado nacía **vacío**, con el formulario de la primera compra
+plegado dentro de un desplegable, debajo de los gráficos.
+
+### Decisiones que no hay que relitigar
+
+- **El programa propone y el usuario confirma.** «Que sólo pregunte el capital a
+  invertir» choca de frente con la regla sobre la que se construyó F: el libro
+  guarda **sólo hechos**. Con 15.000 y un peso del 40%, escribir «compraste
+  27,27 acciones de AAPL a 220» *no es un hecho: es una división*. La compra real
+  fue de otro número de acciones, a otro precio, con comisión, y puede que otro
+  día. Dentro del libro esa cifra es indistinguible de una medida y contamina el
+  coste de adquisición, la TIR y el rendimiento, sin que nadie lo note porque el
+  número es plausible. Por eso lo que entra es lo que el usuario **afirma que
+  ejecutó**, en una tabla editable. **La fricción de esa tabla es la
+  característica**, no un descuido: entre mirar la propuesta y ejecutarla el
+  precio se mueve, y ese hueco es exactamente donde se colaría el número
+  inventado.
+- **El sobrante no se redistribuye.** Con acciones enteras siempre sobra algo, y
+  repartirlo entre los demás rompería los pesos que el usuario acaba de elegir.
+  Queda como efectivo sin asignar, que es lo que es, y Rebalanceo ya sabe
+  proponer dónde ponerlo.
+- **Un activo que no cabe sale nombrado, con cero.** Un peso pequeño y un precio
+  alto dan cero acciones. Ese activo aparece en la tabla con un cero y el motivo
+  escrito, en vez de desaparecer. Un activo que se cae del plan sin avisar es el
+  defecto que ya costó una corrección en G.
+- **`AportacionPrevista` no es `Asiento.tipo == "aportacion"`.** El nombre lleva
+  «prevista» a propósito: una es dinero que **entró**, la otra es dinero que el
+  usuario **dice que entrará**. Llamarlas igual invita justo a la confusión que
+  todo F evita.
+- **La aportación prevista se SUMA al efectivo registrado, nunca lo sustituye.**
+  Sustituirlo haría que un libro con efectivo parado y sin plan no propusiera
+  nada, y que el encabezado nombrase un dinero que el usuario no tiene. Las dos
+  cifras se enseñan **separadas** —«3.998,00 registrados y 500,00 que vas a
+  aportar»— porque el único riesgo que esto añade es contarlas dos veces.
+- **En la carga manual el importe de la aportación se deriva**, no se pregunta:
+  es la suma de las compras confirmadas más sus comisiones, así que el libro nace
+  con cero efectivo sin asignar. Es lo honesto — nadie ha dicho que tenga dinero
+  parado. Quien además lo tenga lo registra después como una aportación más.
+- **Los libros viejos siguen abriéndose.** `cargar` lee campo a campo con
+  `crudo.get(...)` —así entraron `moneda` y `objetivos`—, así que un fichero sin
+  las claves nuevas toma los valores por defecto.
+- **El alta vive en su propio fichero** porque K va a rehacer
+  `vistas/seguimiento.py` entero. Meterla dentro habría sido construir encima de
+  lo que está a punto de moverse.
+
+### Ocho defectos, y una lección nueva sobre el método
+
+Los seis primeros salieron de mis propios documentos, no de quien los
+implementó. Es el mismo reparto que en G y en H.
+
+1. **El spec afirmaba algo falso sobre el código.** Escribí «Rebalanceo deja de
+   preguntar cuánto vas a aportar», y Rebalanceo **nunca lo preguntó**: repartía
+   `posiciones.estado(...).efectivo`, el dinero ya registrado. No había ninguna
+   pregunta que quitar. El plan heredó la frase entera y la tarea 7 se construyó
+   sobre ella. El agente se paró en vez de adaptar los nombres hasta que
+   encajaran, que es lo que la habría dejado plausible y rota.
+2. **`desde_corrida` estaba fuera del `try`** que capturaba `NombreInvalido` —y
+   es justo la llamada que la lanza—, así que el `except` era código muerto.
+3. **Un libro recién estrenado decía valer 0,00**, contradiciendo la regla que
+   `cartera.formato_cifra` aplica en todas partes: lo que no se puede medir se
+   escribe «—». No le faltaba valor, le faltaba **precio**, que es otra cosa.
+4. **«Aportado neto 0,00» era una afirmación falsa sobre un hecho registrado.**
+   El dinero había entrado. Se arregló *sólo* dentro de la rama sin valorar,
+   para que no pudiera repetirse el defecto de F donde restar dos cortes
+   temporales distintos dio una `GANANCIA −9.700` sin que nadie hubiera perdido
+   un dólar.
+5. **Los estados vacíos apuntaban al sitio viejo** («Empieza uno desde
+   Portafolios guardados») después de que el alta se mudara a su propia pantalla.
+6. **Una aserción buscaba `"1.000"` dentro de un `"1,000.00"`**, y la aritmética
+   con la que la sustituí también estaba mal. Misma clase que los tres fixtures
+   mal calculados de G y los tres de H: cuentas mías, escritas a mano, dentro de
+   un plan.
+7. **Faltaba `mod.validar(asiento)` antes de escribir.** `alta.asientos_de` no
+   comprueba la forma del ticker y `libro.cargar` sí, así que un libro podía
+   nacer y no volver a abrirse. Lo encontró el agente de la tarea 4.
+8. **Dos tests decorativos.** Construían una `AportacionPrevista` con 500 y
+   afirmaban que valía 500: probaban la dataclass de la tarea 1, no la decisión
+   de la tarea 7. Ningún sabotaje de la tarea 7 podía tumbarlos. Se sustituyeron
+   por dos que sí caen, uno en cada dirección.
+
+**La lección nueva:** en H aprendimos que *un sabotaje puede ser decorativo*. En
+J, que **la premisa puede serlo también** — un spec puede afirmar un hecho sobre
+el código que sencillamente no es cierto, y el plan lo hereda entero sin que
+nada chirríe, porque la frase es plausible. La regla que queda: **antes de
+escribir «X deja de hacer Y», comprobar que X hacía Y.** Un `grep` habría bastado.
+
+### Qué hereda K
+
+El camino ya encadena y el alta ya está fuera. `vistas/seguimiento.py` puede
+rehacerse entero sin tocar el estreno, que es exactamente para lo que se separó.
+El libro sabe además dos cosas nuevas que K puede mostrar: `fracciones` y
+`aportacion_prevista`.
+
+Lo que K tiene que construir: el panel de verdad —nombre del portafolio con
+desplegable para cambiarlo, los activos, su peso en porcentaje, el capital
+invertido, un panel de noticias y elementos visuales.
+
+### Lo que J no resuelve
+
+- **No rediseña el panel de seguimiento.** Eso es K.
+- **No ejecuta órdenes.** La lista de la compra es papel; comprar se compra en el
+  bróker.
+- **No sabe si tu bróker admite fracciones**: lo pregunta y te cree.
+- **No detecta la doble cuenta de la aportación.** Si ya ingresaste la del mes y
+  la registraste, el campo de Rebalanceo sigue precargándose con el plan y queda
+  en tu mano ponerlo a cero. La pantalla lo dice y enseña las dos cifras por
+  separado para que se vea, pero **el programa no lo comprueba**. Comprobarlo
+  pediría una ventana por cadencia —¿cuántos días son «este mes»?—, y eso es un
+  criterio, que en este proyecto se congela en su propio commit antes de ver
+  ningún número. J no lo tomó.
+- **La aportación prevista no genera avisos ni fechas.** Es un importe y una
+  cadencia que Rebalanceo usa para no volver a preguntar.
+- **Los precios de la propuesta son los del último cierre disponible**, no los de
+  tiempo real. Entre mirarlos y ejecutar hay un hueco, y por eso la tabla de
+  confirmación es editable.
+- **`tests/test_apagado.py::test_detener_espera_antes_de_forzar` es inestable.**
+  Compara un tiempo medido contra un umbral fijo de 0,2 s y ha fallado con
+  0,187 s. No se tocó dentro de J a propósito: es anterior y no tiene que ver.
+
 ## Lo siguiente
 
 El sistema está completo de punta a punta: A ingiere, B ordena y razona, C
@@ -898,7 +1034,7 @@ Sigue sin responder: **¿cuántas acciones debería tener el portafolio final?**
 
 ```bash
 # Todos estos se ejecutan desde programa/, no desde la raiz del repo.
-pytest tests/ -q -m "not red"       # 1.079 tests, sin red
+pytest tests/ -q -m "not red"       # 1.115 tests, sin red
 python -m research.run              # correr el estudio (~5 min, luego caché)
 streamlit run app.py                # la app: optimizador + pagina de revision
 python scripts/bootstrap_universe.py   # regenerar el snapshot del universo
