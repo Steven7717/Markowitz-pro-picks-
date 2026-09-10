@@ -670,8 +670,70 @@ with por_activo:
 
 # ── Movimientos ──────────────────────────────────────────────────────────────
 with movimientos:
+    # El aviso de la anulacion se lee AQUI y no donde el alta lee el suyo: se
+    # anula desde esta pestaña, y una confirmacion que aparece en otra es una
+    # confirmacion que nadie ve.
+    for _clase, _texto in st.session_state.pop("anulacion_avisos", []):
+        getattr(st, _clase)(_texto)
+
     historial = panel.filas_de_historial(actual.asientos)
     st.dataframe(pd.DataFrame(historial), use_container_width=True, hide_index=True)
+
+    # --- Anular ---------------------------------------------------------------
+    #
+    # **No se edita: se anula y se vuelve a registrar.** El libro guarda hechos,
+    # y reescribir uno cambiaria el coste de adquisicion, la ganancia realizada
+    # y la TIR sin dejar rastro de que cambio. Anulando, las dos lineas siguen
+    # ahi y la tabla de arriba enseña cual quedo tachada.
+    #
+    # Va aqui y no en «Registrar» porque para elegir cual anular hay que verlos,
+    # y la lista esta justo encima.
+    _anulados = {a.anula for a in actual.asientos if a.tipo == "anulacion" and a.anula}
+    _anulables = [
+        a for a in actual.asientos
+        if a.tipo != "anulacion" and a.id not in _anulados
+    ]
+    if _anulables:
+        with st.expander("Anular un asiento"):
+            st.caption(
+                "Para corregir algo mal registrado: se anula y se vuelve a "
+                "registrar bien. **Las dos líneas se quedan en esta tabla** — una "
+                "tachada — porque el libro guarda lo que pasó, incluido el error."
+            )
+            _cual = st.selectbox(
+                "Cuál", options=list(reversed(_anulables)),
+                format_func=lambda a: f"{a.fecha} · {_resumen(a)}",
+                index=None, placeholder="Elige el asiento a anular",
+            )
+            _motivo = st.text_input("Motivo (opcional)", key="motivo_anulacion")
+            if _cual is not None:
+                _confirmar, _ = st.columns([2, 3])
+                if _confirmar.button(
+                    "Anular este asiento", type="primary",
+                    icon=":material/backspace:",
+                ):
+                    _anulacion = mod.Asiento(
+                        id=f"{date.today().isoformat()}-{len(actual.asientos) + 1}",
+                        fecha=date.today().isoformat(),
+                        tipo="anulacion",
+                        anula=_cual.id,
+                        nota=_motivo,
+                    )
+                    try:
+                        _nuevo_libro, _ = mod.anadir(actual, _anulacion)
+                    except mod.AsientoInvalido as _error:
+                        st.error(str(_error))
+                    else:
+                        mod.actualizar(_nuevo_libro, elegida.ruta)
+                        # Como en el alta: `st.rerun()` se llevaria el mensaje por
+                        # delante, asi que viaja por `session_state`.
+                        st.session_state["anulacion_avisos"] = [(
+                            "success",
+                            f"Anulado: {_resumen(_cual)} del {_cual.fecha}. "
+                            "Sigue en la tabla, marcado como anulado, y ya no "
+                            "cuenta para el valor ni para el coste.",
+                        )]
+                        st.rerun()
 
 # ── Registrar ────────────────────────────────────────────────────────────────
 with registrar:
