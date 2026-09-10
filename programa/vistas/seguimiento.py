@@ -330,13 +330,35 @@ if historia.sin_datos:
     # del efectivo, así que el valor de abajo está rebajado por su importe
     # entero y el gráfico enseña una caída que no ocurrió. Inventarles un valor
     # sería peor; nombrarlo es lo único honesto.
+    #
+    # **El orden de las causas importa.** Antes esto terminaba en «comprueba que
+    # el ticker es correcto y que la empresa sigue cotizando», que son las dos
+    # causas PERMANENTES, y se callaba la mas comun con diferencia: que la
+    # descarga fallara sin mas. Mandaba a buscar un error de tecleo que
+    # normalmente no existe -- comprobado con un libro real donde faltaban MSFT y
+    # MU, dos tickers perfectamente validos que bajaban bien al reintentar.
+    #
+    # Y sin boton no habia forma de reintentar: `_historia` esta cacheada una
+    # hora, asi que el fallo se quedaba congelado con la pantalla. Esperar o
+    # reiniciar la app eran las dos unicas salidas, y ninguna estaba escrita.
     st.warning(
         "Sin precios para: " + ", ".join(historia.sin_datos) + ". No valen "
         "cero: es que no se pudieron descargar. **El valor y el gráfico de "
         "abajo no las incluyen**, así que la cifra que ves es un mínimo, no el "
-        "total. Comprueba que el ticker es correcto y que la empresa sigue "
-        "cotizando."
+        "total.\n\n"
+        "Lo más probable es que la descarga fallara sin más: pasa, y se arregla "
+        "reintentando. **Los precios se guardan una hora**, así que sin pulsar "
+        "el botón esto seguiría igual hasta que caduquen. Si al reintentar "
+        "siguen faltando, entonces sí: comprueba que el ticker sea correcto y "
+        "que la empresa siga cotizando."
     )
+    if st.button("Reintentar la descarga", icon=":material/refresh:"):
+        # `.clear()` tira la cache de esta funcion entera. Es mas de lo que hace
+        # falta --se rebajan tambien los tickers que si vinieron-- pero
+        # `st.cache_data` no sabe invalidar una parte de un resultado, y bajar de
+        # mas es preferible a dejar dentro el fallo que se venia a quitar.
+        _historia.clear()
+        st.rerun()
 
 marcha = posiciones.serie(actual.asientos, historia)
 ultimos = {t: precios.ultimo(historia, t) for t in historia.cierres.columns}
