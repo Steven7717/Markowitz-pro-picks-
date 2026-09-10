@@ -14,7 +14,7 @@ mismo nombre.
 
 import json
 import re
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime
 from pathlib import Path
 
@@ -213,6 +213,52 @@ _CAMPOS = frozenset(
         "nota",
     }
 )
+
+
+def reetiquetar(portafolio: Portafolio, ruta: Path,
+                nombre: str, nota: str) -> Portafolio:
+    """Cambiar el nombre y la nota de un portafolio ya guardado, en su sitio.
+
+    **Solo el nombre y la nota, y eso no es una limitacion tecnica.** Un
+    portafolio guardado mezcla lo que pediste --horizonte, estrategia, limites
+    de peso-- con lo que salio --las posiciones, sus pesos y las metricas--, y
+    lo segundo lo calculo el optimizador PARA esa lista de tickers y esos
+    limites exactos. Cambiar un ticker aqui dejaria un peso y un Sharpe que
+    pertenecen a otra cartera, con pinta de recien calculados. Para eso esta
+    «Cargar en el optimizador», que devuelve la corrida entera con sus ajustes
+    puestos y la vuelve a correr.
+
+    El nombre y la nota, en cambio, son etiquetas: no entran en ningun calculo.
+
+    **El fichero no se renombra.** Su nombre lleva la fecha y hora de la corrida
+    delante, y eso es lo que ordena la carpeta y distingue dos corridas del
+    mismo dia. Renombrarlo obligaria a borrar y escribir --dos pasos donde hoy
+    hay un `replace()` atomico-- para ganar solo que el nombre del fichero se
+    parezca mas al de dentro. El nombre de verdad viaja dentro del JSON, que es
+    lo que `rebanada` ya explica.
+    """
+    nuevo = replace(portafolio, nombre=normalizar_nombre(nombre), nota=nota)
+    ruta = Path(ruta)
+    texto = json.dumps(asdict(nuevo), ensure_ascii=False, indent=2, allow_nan=False)
+    tmp = ruta.with_suffix(".tmp")
+    tmp.write_text(texto, encoding="utf-8")
+    tmp.replace(ruta)
+    return nuevo
+
+
+def nombres_usados(directorio: "Path | None" = None) -> "set[str]":
+    """Los nombres que ya tiene algun portafolio guardado, normalizados.
+
+    Sirve para avisar ANTES de guardar. `guardar` nunca sobrescribe --y hace
+    bien: una fotografia que quiza ya estas siguiendo en un libro no se pisa--
+    pero hasta ahora tampoco lo decia, y guardar dos veces con el mismo nombre
+    dejaba dos entradas indistinguibles en la lista sin que nadie avisara.
+    """
+    return {
+        e.portafolio.nombre
+        for e in listar(directorio)
+        if e.portafolio is not None
+    }
 
 
 def cargar(ruta: Path) -> Portafolio:

@@ -17,6 +17,12 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+# El renombrado termina en `st.rerun()`, que tira la pasada antes de
+# dibujarla, asi que su confirmacion viaja por `session_state`. Mismo remedio
+# que el alta y la anulacion en `vistas/seguimiento.py`.
+if _aviso := st.session_state.pop("portafolios_aviso", ""):
+    st.success(_aviso)
+
 entradas = cartera.listar()
 
 if not entradas:
@@ -67,6 +73,40 @@ for entrada in entradas:
             )
             if p.nota:
                 st.caption(p.nota)
+
+            # Renombrar. **Solo el nombre y la nota**: lo demas lo calculo el
+            # optimizador para esta lista exacta de tickers, y cambiarlo aqui
+            # dejaria numeros que pertenecen a otra cartera. Ver
+            # `cartera.reetiquetar`.
+            with st.expander("Cambiar nombre o nota"):
+                nuevo_nombre = st.text_input(
+                    "Nombre", value=p.nombre, key=f"nom_{entrada.ruta.name}"
+                )
+                nueva_nota = st.text_input(
+                    "Nota", value=p.nota, key=f"nota_{entrada.ruta.name}"
+                )
+                st.caption(
+                    "Los activos, los pesos y las métricas no se tocan aquí: los "
+                    "calculó el optimizador para esta lista exacta. Para cambiarlos, "
+                    "**Cargar en el optimizador** y volver a correr."
+                )
+                if st.button(
+                    "Guardar cambios", key=f"reet_{entrada.ruta.name}",
+                    icon=":material/save:",
+                ):
+                    try:
+                        cartera.reetiquetar(
+                            p, entrada.ruta, nuevo_nombre, nueva_nota
+                        )
+                    except cartera.NombreInvalido as error:
+                        st.error(str(error))
+                    else:
+                        # Por `session_state` y no aqui: `st.rerun()` se lleva
+                        # por delante la pasada que lo escribiria.
+                        st.session_state["portafolios_aviso"] = (
+                            f"Renombrado a «{nuevo_nombre.strip()}»."
+                        )
+                        st.rerun()
 
         with acciones:
             if st.button(

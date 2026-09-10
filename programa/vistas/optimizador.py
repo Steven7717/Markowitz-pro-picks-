@@ -586,6 +586,24 @@ with exportar:
     # baja de 1100 px.
     col_nombre, col_nota, col_seguir, col_guardar = st.columns([3, 3, 4, 2])
     nombre = col_nombre.text_input("Nombre", key="nombre_portafolio", max_chars=60)
+
+    # **Guardar no sobrescribe, y eso es deliberado** --una fotografia que
+    # quiza ya estas siguiendo en un libro no se pisa-- pero hasta ahora
+    # tampoco lo decia: guardar dos veces con el mismo nombre dejaba dos
+    # entradas indistinguibles en la lista y nadie avisaba. Se dice ANTES, que
+    # es cuando el usuario todavia puede elegir otro.
+    # La misma normalizacion que `cartera.normalizar_nombre` --recortar y juntar
+    # espacios-- pero sin su excepcion: aqui solo se compara, y un nombre
+    # todavia vacio o demasiado largo no es un error que toque gritar mientras
+    # se escribe. `guardar` ya lo rechazara si llega asi.
+    _comparable = " ".join(nombre.split())
+    if _comparable and _comparable in cartera.nombres_usados():
+        st.warning(
+            f"Ya tienes un portafolio llamado **{nombre.strip()}**. Guardar no "
+            "lo sobrescribe: se quedan los dos, y en la lista se verán con el "
+            "mismo nombre. Cambia el nombre aquí, o renombra el viejo desde "
+            "**Portafolios guardados**."
+        )
     nota = col_nota.text_input(
         "Nota (opcional)", key="nota_portafolio",
         placeholder="Por qué guardas esta corrida",
