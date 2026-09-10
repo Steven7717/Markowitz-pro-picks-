@@ -308,3 +308,23 @@ st.caption(
     + f" Total de la propuesta: **{plan.coste_total:,.2f}**. No incluye la "
     "horquilla de compraventa, que no está registrada en ninguna parte."
 )
+
+# --- Y la puerta a donde esto se convierte en un hecho -----------------------
+#
+# La cabecera lleva desde siempre «lo que ejecutes lo anotas en Seguimiento», y
+# hasta aqui esa frase era una instruccion sin puerta: habia que ir al menu,
+# entrar en Seguimiento y encontrar el formulario. Es el mismo defecto que J
+# arreglo en los otros dos saltos del recorrido --decir adonde ir en vez de
+# llevar-- y este se habia quedado sin arreglar.
+#
+# `st.switch_page` y no un aviso: conserva `st.session_state`, asi que el libro
+# elegido arriba sigue elegido al llegar.
+st.divider()
+izq, der = st.columns([3, 2])
+izq.markdown(
+    "**¿Ya ejecutaste algo de esto?** Nada de lo de arriba está registrado: "
+    "son propuestas hasta que las anotes."
+)
+if der.button("Anotar lo que ejecuté", icon=":material/edit_note:",
+              use_container_width=True):
+    st.switch_page("vistas/seguimiento.py")

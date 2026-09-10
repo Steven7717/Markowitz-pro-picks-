@@ -7,6 +7,7 @@ está escrito en el encabezado de `panel.py`: lo que se calculaba dentro de un
 guion de Streamlit no lo podía mirar ningún test.
 """
 
+import contextlib
 import html
 from datetime import date
 
@@ -125,7 +126,7 @@ def _cierre_del_dia(ticker: str, fecha: str):
 
 # --- Alta de asiento ---------------------------------------------------------
 
-def _registrar_operacion():
+def _registrar_operacion(plegado: bool = True):
     """El formulario de alta. Es una funcion porque hacen falta dos llamadas.
 
     Un libro recien creado no tiene asientos, y la pantalla corta ahi para no
@@ -133,8 +134,15 @@ def _registrar_operacion():
     corte se lleva por delante el formulario, ese libro es un callejon sin
     salida: dice «anade el primero» y no hay donde anadirlo. Asi que se llama
     antes de cortar, y otra vez en su sitio cuando si hay asientos.
+
+    `plegado` decide si se envuelve en un desplegable. **Dentro de su propia
+    pestaña no se envuelve**: la pestaña ya es la puerta, y un desplegable
+    detras de otra puerta es la razon por la que este formulario no se
+    encontraba. En los caminos del libro vacio si va plegado, porque alli
+    comparte sitio con el aviso que explica por que no hay nada mas.
     """
-    with st.expander("Registrar una operación"):
+    marco = st.expander("Registrar una operación") if plegado else contextlib.nullcontext()
+    with marco:
         tipo = st.selectbox("Tipo", options=sorted(mod.TIPOS - {"anulacion"}))
         cuando = st.date_input("Fecha", value=date.today(), max_value=date.today())
         ticker = st.text_input("Ticker").strip().upper() if tipo in mod.CON_TICKER else None
@@ -468,8 +476,14 @@ if abs(comp.efectivo) >= 0.005:
 # pestanas --`vistas/optimizador.py` y `vistas/perfil.py`-- no ponen ninguno:
 # la etiqueta es el titulo. «Valor en el tiempo» se queda porque dice algo que
 # «Evolución» no dice, que lo que evoluciona es dinero.
-evolucion, por_activo, movimientos, noticias = st.tabs(
-    ["Evolución", "Por activo", "Movimientos", "Noticias"]
+# «Registrar» va pegada a «Movimientos» a proposito: alli esta la lista de lo
+# que ya se registro, y esto añade a esa lista. Y va en la barra, y no dentro
+# de otra pestaña, porque el defecto que arregla era justo ese -- Rebalanceo
+# manda a anotar aqui lo que ejecutaste, y el formulario estaba debajo de una
+# tabla de once columnas dentro de un desplegable, en una pestaña que no se
+# llama como lo que ibas a hacer.
+evolucion, por_activo, movimientos, registrar, noticias = st.tabs(
+    ["Evolución", "Por activo", "Movimientos", "Registrar", "Noticias"]
 )
 
 # ── Evolución ────────────────────────────────────────────────────────────────
@@ -533,8 +547,6 @@ with por_activo:
         "fue el suyo durante todo el periodo."
     )
 
-    _registrar_operacion()
-
     # Exportar. Solo Excel: `exporter.to_pdf` pasa por `kpi_rows`, que indexa
     # directamente `sharpe`, `annual_return`, `annual_vol` y `rf_rate` --claves de
     # una corrida del optimizador que un libro de seguimiento no tiene, y que
@@ -578,6 +590,14 @@ with por_activo:
 with movimientos:
     historial = panel.filas_de_historial(actual.asientos)
     st.dataframe(pd.DataFrame(historial), use_container_width=True, hide_index=True)
+
+# ── Registrar ────────────────────────────────────────────────────────────────
+with registrar:
+    st.caption(
+        "Lo que de verdad ejecutaste en el bróker. **Aquí entra sólo lo que ya ocurrió**: "
+        "las propuestas de Rebalanceo son papel hasta que las anotes."
+    )
+    _registrar_operacion(plegado=False)
 
 # ── Noticias ─────────────────────────────────────────────────────────────────
 #
