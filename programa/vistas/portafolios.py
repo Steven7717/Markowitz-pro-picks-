@@ -78,13 +78,24 @@ for entrada in entradas:
             # optimizador para esta lista exacta de tickers, y cambiarlo aqui
             # dejaria numeros que pertenecen a otra cartera. Ver
             # `cartera.reetiquetar`.
-            with st.expander("Cambiar nombre o nota"):
-                nuevo_nombre = st.text_input(
-                    "Nombre", value=p.nombre, key=f"nom_{entrada.ruta.name}"
-                )
-                nueva_nota = st.text_input(
-                    "Nota", value=p.nota, key=f"nota_{entrada.ruta.name}"
-                )
+            # **Abierto mientras haya cambios sin guardar.** Un `st.text_input`
+            # relanza el guion al pulsar Enter o al salir del campo, y en esa
+            # pasada el desplegable vuelve a nacer cerrado: escribias el nombre,
+            # pulsabas Enter --que es lo natural-- y el formulario se cerraba con
+            # el cambio sin guardar y el boton fuera de alcance. Visto en la app;
+            # no se ve de otra forma.
+            #
+            # Se compara el estado del widget contra lo que hay en el fichero, asi
+            # que despues de guardar los dos coinciden y se cierra solo.
+            clave_nom = f"nom_{entrada.ruta.name}"
+            clave_nota = f"nota_{entrada.ruta.name}"
+            editando = (
+                st.session_state.get(clave_nom, p.nombre) != p.nombre
+                or st.session_state.get(clave_nota, p.nota) != p.nota
+            )
+            with st.expander("Cambiar nombre o nota", expanded=editando):
+                nuevo_nombre = st.text_input("Nombre", value=p.nombre, key=clave_nom)
+                nueva_nota = st.text_input("Nota", value=p.nota, key=clave_nota)
                 st.caption(
                     "Los activos, los pesos y las métricas no se tocan aquí: los "
                     "calculó el optimizador para esta lista exacta. Para cambiarlos, "
