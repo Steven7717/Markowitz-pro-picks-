@@ -126,6 +126,24 @@ def _cierre_del_dia(ticker: str, fecha: str):
 
 # --- Alta de asiento ---------------------------------------------------------
 
+def _resumen(asiento) -> str:
+    """Lo que se acaba de registrar, en una linea.
+
+    Un «Registrado.» a secas no se puede comprobar: si pulsaste dos veces, dos
+    «Registrado.» se leen igual que uno. Con el importe y el ticker dentro, el
+    segundo mensaje se distingue del primero y el usuario ve QUE entro.
+    """
+    partes = [asiento.tipo]
+    if asiento.ticker:
+        partes.append(asiento.ticker)
+    if asiento.acciones:
+        partes.append(f"{asiento.acciones:g} acc.")
+    if asiento.importe:
+        partes.append(f"{asiento.importe:,.2f}")
+    partes.append(f"el {asiento.fecha}")
+    return " · ".join(partes)
+
+
 def _registrar_operacion(plegado: bool = True):
     """El formulario de alta. Es una funcion porque hacen falta dos llamadas.
 
@@ -141,11 +159,46 @@ def _registrar_operacion(plegado: bool = True):
     encontraba. En los caminos del libro vacio si va plegado, porque alli
     comparte sitio con el aviso que explica por que no hay nada mas.
     """
+    # **Lo que se registro en la pasada anterior se cuenta AQUI.** El boton
+    # termina en `st.rerun()`, y un `st.rerun()` tira la pasada entera antes de
+    # dibujarla: un `st.success` escrito justo antes no llega nunca a la
+    # pantalla. Asi se perdian los dos avisos que mas importan --que hizo falta
+    # crear una aportacion para financiar la compra, y que el precio es del
+    # cierre y queda marcado como estimado--, y registrar parecia no hacer nada.
+    # Que parezca no hacer nada es lo que lleva a pulsar otra vez.
+    #
+    # Es el mismo remedio que el bloque de noticias de mas abajo, y por la misma
+    # razon. `pop` y no `get`: se enseña una vez y no se queda pegado afirmando
+    # algo que ya paso.
+    for _clase, _texto in st.session_state.pop("registro_avisos", []):
+        getattr(st, _clase)(_texto)
+
     marco = st.expander("Registrar una operación") if plegado else contextlib.nullcontext()
     with marco:
         tipo = st.selectbox("Tipo", options=sorted(mod.TIPOS - {"anulacion"}))
         cuando = st.date_input("Fecha", value=date.today(), max_value=date.today())
-        ticker = st.text_input("Ticker").strip().upper() if tipo in mod.CON_TICKER else None
+        # Los del libro primero, y `accept_new_options` para el que compras hoy
+        # por primera vez. Escribirlo a pelo era la puerta por la que entraba un
+        # ticker mal tecleado, que despues sale en «Sin precios para: ...» y ya
+        # no hay forma de corregirlo.
+        #
+        # La lista junta lo comprado y lo que el objetivo contempla: se puede
+        # comprar algo que esta en el plan y todavia no se tiene, y ese es
+        # justamente el caso que Rebalanceo propone.
+        conocidos = sorted(
+            {a.ticker for a in actual.asientos if a.ticker}
+            | set(mod.pesos_objetivo(actual.objetivo))
+        )
+        ticker = None
+        if tipo in mod.CON_TICKER:
+            elegido = st.selectbox(
+                "Ticker", options=conocidos, index=None,
+                accept_new_options=True,
+                placeholder="Elige uno del libro o escribe otro",
+                help="Los de tu cartera salen en la lista. Si compras algo "
+                     "nuevo, escríbelo y pulsa Enter.",
+            )
+            ticker = (elegido or "").strip().upper() or None
 
         importe = acciones = precio = None
         del_cierre = False
@@ -211,18 +264,25 @@ def _registrar_operacion(plegado: bool = True):
                 st.error(str(error))
             else:
                 mod.actualizar(actualizado, elegida.ruta)
+
+                # Se guardan para la pasada siguiente en vez de escribirse aqui:
+                # `st.rerun()` esta a dos lineas y se los llevaria por delante.
+                avisos = [("success", f"Registrado: {_resumen(nuevo)}.")]
                 if len(escritos) > 1:
-                    st.info(
-                        f"No había efectivo suficiente, así que se registró también "
-                        f"una aportación de {escritos[0].importe:,.2f} que financia "
-                        "la compra."
-                    )
+                    avisos.append((
+                        "warning",
+                        f"**Se registró además una aportación de "
+                        f"{escritos[0].importe:,.2f}**, porque no había efectivo "
+                        "suficiente para pagar la compra. Son dos asientos, y los "
+                        "dos salen en **Movimientos**.",
+                    ))
                 if estimado:
-                    st.info(
+                    avisos.append((
+                        "info",
                         f"Precio tomado del cierre del {cuando.isoformat()}: "
-                        f"{precio:,.2f}. Queda marcado como estimado en el historial."
-                    )
-                st.success("Registrado.")
+                        f"{precio:,.2f}. Queda marcado como estimado en el historial.",
+                    ))
+                st.session_state["registro_avisos"] = avisos
                 st.rerun()
 
 
