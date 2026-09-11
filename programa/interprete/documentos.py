@@ -27,6 +27,14 @@ from dataclasses import dataclass
 # que el tope muerde justo en los `2.02` grandes y no toca a los `5.02`.
 TOPE_CARACTERES = 30_000
 
+# Cuanto se acepta perder por cortar limpio. El corte a mitad de palabra hace
+# que una cita legitima que lo cruce se rechace, asi que vale la pena retroceder
+# --pero solo un poco--. Sin este limite, `rfind` retrocedia al ultimo salto de
+# parrafo estuviera donde estuviera: con el EX-99.1 de MSFT, cuyo unico `\n\n`
+# bajo el tope esta en la posicion 4.839, eso tiraba veinticinco mil caracteres
+# buenos para no partir una palabra.
+_RETROCESO = 500
+
 # `\s+` y no un espacio literal: MSFT separa el «Item» de su numero con un
 # espacio fino U+2009 --escrito «Item\u20095.02»-- y no con uno normal. Se
 # nombra el punto de codigo en vez de ponerlo aqui: un caracter invisible
@@ -108,24 +116,29 @@ def aplicar_tope(texto: str, tope: int = TOPE_CARACTERES) -> "tuple[str, bool]":
     Por el final y no por el principio: una nota de prensa pone el titular y las
     cifras arriba, asi que la cola es lo prescindible. Y se **dice**, porque un
     recorte silencioso es indistinguible de que no hubiera mas.
+
+    El corte retrocede hasta un limite limpio --parrafo, linea o palabra, en ese
+    orden-- porque lo que sale de aqui es contra lo que despues se verifica una
+    cita caracter a caracter: partir una palabra hace que una cita legitima que
+    cruce el corte se rechace por el corte y no por invencion. Medido con el
+    EX-99.1 de MSFT, el corte duro dejaba «...any forward» y perdia «-looking».
+
+    **Pero solo se retrocede dentro de `_RETROCESO`.** Un separador que quede
+    mas atras no se acepta: en ese mismo documento el unico salto de parrafo
+    bajo el tope esta en la posicion 4.839, y retroceder hasta alli tiraba
+    veinticinco mil caracteres para salvar una palabra.
+
+    Si no hay ningun separador en la ventana se deja el corte duro. Treinta mil
+    caracteres sin un espacio no son prosa, y devolver menos texto por eso seria
+    peor que devolver un trozo partido.
     """
     if len(texto) <= tope:
         return texto, False
     cortado = texto[:tope]
-    # Retroceder hasta un limite limpio. Lo que sale de aqui es contra lo que
-    # despues se verifica una cita caracter a caracter, y un corte a mitad de
-    # palabra hace que una cita legitima que cruce el corte se rechace --por el
-    # corte, no por invencion--. Medido con el EX-99.1 de MSFT: a 30.000
-    # caracteres el texto acababa en «...any forward» y lo que se perdia
-    # empezaba por «-looking».
-    #
-    # Se prueba primero el salto de parrafo y despues el espacio, y si no hay
-    # ninguno de los dos se deja el corte duro: un texto de treinta mil
-    # caracteres sin un solo espacio no es prosa, y devolver cadena vacia seria
-    # peor que devolver un trozo.
-    for separador in ("\n\n", " "):
+    minimo = max(1, tope - _RETROCESO)
+    for separador in ("\n\n", "\n", " "):
         limite = cortado.rfind(separador)
-        if limite > 0:
+        if limite >= minimo:
             return cortado[:limite], True
     return cortado, True
 

@@ -113,6 +113,22 @@ def test_lo_que_cabe_no_se_marca_como_recortado():
     assert documentos.aplicar_tope("abc", tope=3) == ("abc", False)
 
 
+def test_el_retroceso_no_se_come_el_documento():
+    """El primer intento de este arreglo retrocedia al ultimo salto de parrafo
+    estuviera donde estuviera.
+
+    Con el EX-99.1 real de MSFT --cuyo unico `\\n\\n` bajo el tope esta en la
+    posicion 4.839, porque el resto del comunicado separa sus puntos con `\\n`
+    simple-- eso tiraba veinticinco mil caracteres buenos para no partir una
+    palabra. Lo cazo el test `red`, no este fichero: aqui queda la version
+    barata del mismo caso.
+    """
+    texto = "titular\n\n" + "palabra " * 5000
+    cortado, recortado = documentos.aplicar_tope(texto, tope=10_000)
+    assert recortado is True
+    assert len(cortado) > 9_000
+
+
 def test_los_identificadores_salen_de_la_url_que_escribe_hechos():
     """**Este test es el que ata los dos modulos.** `documentos` reconstruye el
     numero de acceso parseando la url que `hechos._url` escribe. Si alguien
