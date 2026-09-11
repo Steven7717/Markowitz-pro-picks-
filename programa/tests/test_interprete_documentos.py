@@ -82,8 +82,31 @@ def test_varios_anexos_se_juntan():
 
 def test_el_tope_corta_por_el_final_y_lo_dice():
     """Por el final: una nota de prensa pone las cifras y el titular arriba."""
-    texto, recortado = documentos.aplicar_tope("abcdef", tope=3)
-    assert (texto, recortado) == ("abc", True)
+    texto, recortado = documentos.aplicar_tope("uno dos tres cuatro", tope=12)
+    assert recortado is True
+    assert texto.startswith("uno dos")
+    assert "cuatro" not in texto
+
+
+def test_el_corte_respeta_el_limite_de_palabra():
+    """Una cita que cruce un corte a mitad de palabra se rechazaria por el
+    corte y no por invencion. Medido con el EX-99.1 de MSFT: a 30.000 el texto
+    acababa en «...any forward» y lo perdido empezaba por «-looking»."""
+    texto, _ = documentos.aplicar_tope("forward looking statement", tope=12)
+    assert texto == "forward"
+
+
+def test_el_corte_prefiere_el_salto_de_parrafo():
+    texto, _ = documentos.aplicar_tope("uno\n\ndos tres cuatro", tope=12)
+    assert texto == "uno"
+
+
+def test_sin_separadores_el_corte_es_duro():
+    """Treinta mil caracteres sin un espacio no son prosa, y devolver cadena
+    vacia seria peor que devolver un trozo."""
+    texto, recortado = documentos.aplicar_tope("a" * 20, tope=5)
+    assert texto == "aaaaa"
+    assert recortado is True
 
 
 def test_lo_que_cabe_no_se_marca_como_recortado():

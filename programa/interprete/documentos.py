@@ -111,7 +111,23 @@ def aplicar_tope(texto: str, tope: int = TOPE_CARACTERES) -> "tuple[str, bool]":
     """
     if len(texto) <= tope:
         return texto, False
-    return texto[:tope], True
+    cortado = texto[:tope]
+    # Retroceder hasta un limite limpio. Lo que sale de aqui es contra lo que
+    # despues se verifica una cita caracter a caracter, y un corte a mitad de
+    # palabra hace que una cita legitima que cruce el corte se rechace --por el
+    # corte, no por invencion--. Medido con el EX-99.1 de MSFT: a 30.000
+    # caracteres el texto acababa en «...any forward» y lo que se perdia
+    # empezaba por «-looking».
+    #
+    # Se prueba primero el salto de parrafo y despues el espacio, y si no hay
+    # ninguno de los dos se deja el corte duro: un texto de treinta mil
+    # caracteres sin un solo espacio no es prosa, y devolver cadena vacia seria
+    # peor que devolver un trozo.
+    for separador in ("\n\n", " "):
+        limite = cortado.rfind(separador)
+        if limite > 0:
+            return cortado[:limite], True
+    return cortado, True
 
 
 def texto_de(url: str, buscar=None, tope: int = TOPE_CARACTERES) -> Documento:
