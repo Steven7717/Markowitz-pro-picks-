@@ -41,8 +41,13 @@ def test_recorta_entre_el_item_y_la_firma():
 
 
 def test_el_espacio_fino_tambien_cuenta():
-    """MSFT escribe «Item 5.02». Un literal " " se lo salta y devuelve el
-    documento entero: no revienta, solo encarece y ensucia el prompt."""
+    """MSFT separa el «Item» de su numero con un espacio fino U+2009, o sea
+    «Item\u20095.02». Un literal " " se lo salta y devuelve el documento
+    entero: no revienta, solo encarece y ensucia el prompt con caratula.
+
+    El punto de codigo va nombrado y no puesto: el caracter es invisible, y
+    un comentario que lo lleve dentro no lo ensena ni sobrevive a un
+    copia-pega. La linea de abajo si lo lleva de verdad, y ahi importa."""
     con_fino = CUERPO.replace("Item 5.02", "Item 5.02")
     trozo = documentos.recortar(con_fino)
     assert "caratula" not in trozo

@@ -27,7 +27,11 @@ from dataclasses import dataclass
 # que el tope muerde justo en los `2.02` grandes y no toca a los `5.02`.
 TOPE_CARACTERES = 30_000
 
-# `\s+` y no un espacio literal: MSFT escribe «Item 5.02» con espacio fino.
+# `\s+` y no un espacio literal: MSFT separa el «Item» de su numero con un
+# espacio fino U+2009 --escrito «Item\u20095.02»-- y no con uno normal. Se
+# nombra el punto de codigo en vez de ponerlo aqui: un caracter invisible
+# dentro del comentario que existe para senalarlo no lo ensena, y se pierde
+# en cualquier copia-pega. Eso ultimo ya paso al transcribir esta tarea.
 # Un literal " " se lo salta y devuelve el documento entero -- un fallo que no
 # revienta, solo encarece y llena el prompt de caratula.
 _ITEM = re.compile(r"\bItem\s+\d\.\d\d", re.IGNORECASE)
