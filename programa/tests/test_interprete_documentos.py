@@ -143,17 +143,32 @@ def test_un_fallo_de_red_vuelve_como_texto_y_no_lanza():
 
 
 def test_sin_edgar_identity_no_se_toca_la_red(monkeypatch):
-    """La guarda tiene que comprobarse interceptando la descarga y no por el
-    texto del error: `edgartools` lanza `IdentityNotSetError` con la cadena
-    EDGAR_IDENTITY dentro, asi que un test por subcadena pasa con guarda y sin
-    ella. Eso ya paso en H y el test era decorativo."""
+    """La guarda se comprueba **interceptando la descarga**, nunca por el texto
+    del error.
+
+    La primera version de este test afirmaba `"EDGAR_IDENTITY" in doc.problema`
+    con un `buscar` que lanzaba `AssertionError("no se debe tocar la red sin
+    EDGAR_IDENTITY")`. Sin la guarda, `texto_de` llamaba a `buscar`, el
+    `except Exception` atrapaba esa excepcion y metia su mensaje --que contenia
+    la cadena buscada-- dentro de `problema`: **el test pasaba con guarda y sin
+    ella**. Esta vez la coincidencia no venia de una libreria ajena sino del
+    mensaje del propio doble de prueba, escrito para ser descriptivo.
+
+    Lo que se afirma ahora es lo unico que separa las dos situaciones: que
+    `buscar` no llega a llamarse.
+    """
     monkeypatch.delenv("EDGAR_IDENTITY", raising=False)
 
-    def _explota(_accession):
-        raise AssertionError("no se debe tocar la red sin EDGAR_IDENTITY")
+    llamadas = []
+
+    def _registra(accession):
+        llamadas.append(accession)
+        return _Expediente(CUERPO)
 
     url = hechos._url(789019, "0001193125-26-323632", "d.htm")
-    doc = documentos.texto_de(url, buscar=_explota)
+    doc = documentos.texto_de(url, buscar=_registra)
+    assert llamadas == []
+    assert doc.texto == ""
     assert "EDGAR_IDENTITY" in doc.problema
 
 
