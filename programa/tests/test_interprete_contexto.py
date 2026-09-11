@@ -49,6 +49,13 @@ def test_las_operaciones_dicen_si_compensan():
     assert "no compensa" in texto.lower()
 
 
+def test_las_operaciones_dicen_tambien_cuando_si_compensan():
+    """La otra mitad de la rama: sin esto, invertir el ternario no tumba nada."""
+    texto, _ = contexto.operaciones((("MSFT", "vender", 0.03, True),))
+    assert "compensa su coste" in texto
+    assert "no compensa" not in texto
+
+
 def test_dos_pesos_distintos_no_se_leen_iguales():
     """Redondeando a entero, 4,3% y 4,4% salian los dos como «4%» y el modelo
     concluia que pesan igual."""
