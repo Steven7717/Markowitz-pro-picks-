@@ -8,6 +8,7 @@ research/.cache/
 fundamentals/.cache/
 ranking/.cache/
 noticias/.cache/
+interprete/.cache/
 actas/*.tmp
 portafolios/*.tmp
 .venv/
