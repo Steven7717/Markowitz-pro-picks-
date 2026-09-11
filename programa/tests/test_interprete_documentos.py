@@ -135,6 +135,34 @@ def test_texto_de_ignora_los_anexos_que_no_son_ex99():
     assert doc.texto.startswith("Item 5.02")
 
 
+def test_un_anexo_sin_texto_no_tira_el_anexo_bueno():
+    """Un expediente puede traer el mismo material en dos formatos, y
+    `adjunto.text()` devuelve `None` para lo que no es texto.
+
+    Reproducido en EDGAR: Axos Financial (0001299709-26-000056) publica su
+    presentacion como EX-99.1 en htm **y** EX-99.2 en pdf. El `None` del pdf
+    reventaba el `join`, el `except Exception` lo convertia en `problema`, y los
+    15.210 caracteres buenos del htm se tiraban con un mensaje que echaba la
+    culpa a la SEC.
+    """
+    expediente = _Expediente(
+        CUERPO,
+        [_Anexo("EX-99.1", "la nota de prensa entera"), _Anexo("EX-99.2", None)],
+    )
+    url = hechos._url(789019, "0001193125-26-323632", "d.htm")
+    doc = documentos.texto_de(url, buscar=lambda _a: expediente)
+    assert doc.texto == "la nota de prensa entera"
+    assert doc.problema == ""
+
+
+def test_si_ningun_anexo_tiene_texto_se_usa_el_cuerpo():
+    expediente = _Expediente(CUERPO, [_Anexo("EX-99.2", None)])
+    url = hechos._url(789019, "0001193125-26-323632", "d.htm")
+    doc = documentos.texto_de(url, buscar=lambda _a: expediente)
+    assert doc.texto.startswith("Item 5.02")
+    assert doc.problema == ""
+
+
 def test_un_fallo_de_red_vuelve_como_texto_y_no_lanza():
     """Misma regla que `noticias/fuentes.py`: que se caiga la pantalla entera
     por un expediente es peor que ensenar los otros cinco."""

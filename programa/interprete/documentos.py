@@ -142,11 +142,20 @@ def texto_de(url: str, buscar=None, tope: int = TOPE_CARACTERES) -> Documento:
 
     try:
         expediente = buscar(ids[1])
-        anexos = [
-            adjunto.text()
-            for adjunto in expediente.attachments
-            if str(getattr(adjunto, "document_type", "")).startswith("EX-99")
-        ]
+        # `adjunto.text()` devuelve `None` para lo que no es texto --un `.pdf`,
+        # por ejemplo--, y un expediente puede traer el mismo material en dos
+        # formatos: Axos Financial (2026-08-06, 0001299709-26-000056) publica su
+        # presentacion como `EX-99.1` en htm **y** `EX-99.2` en pdf. Sin este
+        # filtro, el `None` del pdf reventaba el `join` de `elegir`, el
+        # `except Exception` lo convertia en `problema`, y los 15.210 caracteres
+        # buenos del htm se tiraban con un mensaje que echaba la culpa a la SEC.
+        anexos = []
+        for adjunto in expediente.attachments:
+            if not str(getattr(adjunto, "document_type", "")).startswith("EX-99"):
+                continue
+            cuerpo_anexo = adjunto.text()
+            if cuerpo_anexo:
+                anexos.append(cuerpo_anexo)
         crudo = elegir(expediente.text(), anexos)
     except Exception as error:  # la red falla de mil formas y ninguna es del programa
         return Documento("", False, f"{ids[1]}: {error}")
