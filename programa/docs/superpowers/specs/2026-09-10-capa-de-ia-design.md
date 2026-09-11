@@ -1,13 +1,15 @@
 # Sub-proyecto I — La capa de IA sobre F, G y H
 
-Fecha: 2026-09-10
+Fecha: 2026-09-10 (archivo añadido el 2026-09-11, tras revisión del usuario)
 Estado: diseño aprobado, sin implementar
 
 ## Qué entrega
 
-Dos botones. Uno lee los hechos que ya tienes en pantalla y dice qué significan
-para **tu** cartera; otro mira la propuesta de rebalanceo y dice lo que la
-aritmética no ve. Nada se llama solo, nada se llama al abrir una pantalla.
+Dos botones y un archivo. Uno lee los hechos que ya tienes en pantalla y dice
+qué significan para **tu** cartera; otro mira la propuesta de rebalanceo y dice
+lo que la aritmética no ve. Nada se llama solo, nada se llama al abrir una
+pantalla. **Y nada de lo interpretado se tira**: se guarda fechado, se vuelve a
+leer sin pagar, y lo que ya se leyó deja de mandarse.
 
 Es lo último del encargo original: F sigue lo comprado, G dice cuándo corregir,
 H trae las noticias, e **I las interpreta**.
@@ -139,6 +141,13 @@ no es un detalle de implementación sino una decisión de diseño.
   la cita que falle sale marcada. Ver «Fallos previstos».
 - **Sin clave, `None`.** La pantalla dice que falta y dónde ponerla. El panel
   no deja de funcionar por esto en ningún camino.
+- **Lo interpretado se guarda, y se guarda añadiendo.** Un juicio es una opinión
+  fechada, de un modelo y una versión concretos; volver a interpretar añade una
+  sesión y no pisa la anterior. Misma forma que `Libro.objetivos`. Ver «El
+  archivo».
+- **Los comentarios de rebalanceo se guardan con su foto.** Sin el estado al que
+  apuntaban son texto huérfano, y releerlos junto a la propuesta de hoy sería
+  mezclar dos cortes temporales — el defecto que en F dio una `GANANCIA −9.700`.
 
 ## Arquitectura
 
@@ -150,6 +159,7 @@ interprete/
   noticias.py     prompt congelado + esquema + verificación de citas
   ajuste.py       prompt congelado + esquema + verificación de operaciones
   cache.py        memoización por hash de contenido
+  archivo.py      lo interpretado, guardado para siempre
 ```
 
 Sin `import streamlit` en ninguno. Los widgets van en `vistas/`, como en H y K.
@@ -285,6 +295,124 @@ La asimetría con B se hereda entera: una cita fallida se conserva marcada
 porque un humano todavía puede juzgarla; un dígito inventado se lee exactamente
 igual que uno real y es fatal.
 
+## El archivo: lo interpretado no se tira
+
+### Por qué, y por qué no basta la caché
+
+La caché por hash conserva interpretaciones, pero es una **optimización de
+coste**, no un registro: clave opaca, dentro de un `.cache/`, borrable sin
+avisar y sin forma de hojearla. El archivo es otra cosa y resuelve algo que la
+caché no puede.
+
+**Repara la ceguera del tope de seis.** Un `4.02` —«las cuentas anteriores no
+son fiables», lo más grave de la lista congelada— de hace ocho meses hoy no lo
+ve nadie: hay seis hechos más nuevos por encima. Pero si se guardó cuando *era*
+reciente, se queda leído para siempre. El archivo **acumula cobertura con el
+tiempo**, y el tope deja de ser una ceguera permanente para ser una ventana.
+
+### Dónde vive, y una trampa que casi se cuela
+
+```
+libros/interpretaciones/<mismo basename que el libro>.json
+```
+
+**No en `libros/` a secas.** `libro.listar()` hace `glob("*.json")` sobre esa
+carpeta y `libro.cargar` valida lo que encuentre: un fichero de interpretaciones
+ahí dentro aparecería como **un libro ilegible**, que es exactamente el defecto
+que H pagó —un libro que no se puede leer contándose como que no hay ninguno—.
+`Path.glob` no recorre subcarpetas, así que la subcarpeta basta. Hay un test que
+mete un archivo de interpretaciones y afirma que `listar()` sigue devolviendo
+los mismos libros.
+
+Queda bajo `libros/`, que ya está en `.gitignore`: es dato personal y no entra
+en el repo sin que nadie tenga que acordarse.
+
+### Es append-only, como el libro
+
+Volver a interpretar **añade**, no pisa. Una interpretación es un juicio hecho
+en un momento, por un modelo y una versión de prompt concretos; reescribirla
+borraría que cambió. Es la misma forma que `Libro.objetivos`, que es una tupla
+donde `objetivo` devuelve el último: se conserva todo, se enseña lo último.
+
+Cada entrada lleva estampados `cuando`, `modelo` y `version`, para que dentro de
+un año se sepa quién dijo eso y con qué reglas.
+
+### Las estructuras del archivo
+
+```python
+@dataclass(frozen=True)
+class Sesion:
+    """Una pulsación del botón de hechos. `en_conjunto` es de la sesión, no de
+    un hecho: habla de los seis juntos y no tiene dónde ir si se reparte."""
+    cuando: datetime
+    modelo: str
+    version: str
+    juicios: tuple[Anotada, ...]
+    en_conjunto: str
+
+@dataclass(frozen=True)
+class Anotada:
+    url: str                  # la identidad del hecho: estable, única, ya en `Hecho`
+    ticker: str
+    hecho_cuando: date
+    tipos: tuple[str, ...]
+    juicio: Juicio            # incluye `verificada` tal como quedó ese día
+
+@dataclass(frozen=True)
+class Foto:
+    """El estado que un comentario de rebalanceo comentaba. Sin esto el texto
+    queda huérfano: habla de una deriva que mañana ya es otra."""
+    pesos_reales: tuple[tuple[str, float], ...]
+    pesos_objetivo: tuple[tuple[str, float], ...]
+    operaciones: tuple[tuple[str, str, float], ...]   # ticker, acción, % invertido
+
+@dataclass(frozen=True)
+class Comentada:
+    cuando: datetime
+    modelo: str
+    version: str
+    foto: Foto
+    observaciones: tuple[Observacion, ...]
+    en_conjunto: str
+```
+
+`urls_leidas(archivo) -> set[str]` es lo que deriva «qué es nuevo». La identidad
+de un hecho es su `url` —la del expediente en EDGAR—, que ya viaja en `Hecho` y
+no hay que inventar ninguna.
+
+### El archivo es lo que se pinta, no una segunda fuente
+
+Un solo camino, y esto evita la pregunta de dónde saca su fecha cada juicio:
+
+1. `interprete.noticias.leer(...)` devuelve una `Lectura` fresca.
+2. `archivo.anotar(...)` la añade como una `Sesion`, con su `cuando`.
+3. **La pantalla pinta siempre desde el archivo**, nunca desde la `Lectura`.
+
+Mezclar juicios frescos y recuperados en una misma lista obligaría a que cada
+`Juicio` cargara su propia fecha, y a que dos sitios distintos supieran
+componerla. Así la fecha vive donde pertenece —en la sesión— y hay un único
+orden de lectura.
+
+**La excepción es el archivo ilegible.** Ahí no se puede guardar ni leer, así
+que la pantalla pinta la `Lectura` recién hecha directamente, con el aviso de
+que esa lectura no se ha podido guardar. Es el único camino donde se pinta sin
+pasar por el archivo, y existe para que un fichero roto no se lleve por delante
+la llamada que el usuario acaba de pagar.
+
+### Un archivo ilegible NO se trata como vacío
+
+`ranking/llm.py:_leer_cache` borra el fichero corrupto y devuelve `None`, y hace
+bien: una caché rota es un fallo de caché. **Aquí sería lo contrario.** Un
+archivo ilegible es historial perdido, y tragárselo en silencio significaría
+volver a pagar y además perder lo guardado sin que nadie se entere.
+
+Se levanta `ArchivoIlegible`, la pantalla lo dice, y **el fichero no se toca**:
+mientras esté ahí se puede recuperar a mano. El botón de interpretar sigue
+funcionando, pero avisa de que no va a poder guardar.
+
+Es la misma distinción que `credenciales.ConfigIlegible` frente a «no hay
+fichero»: uno es un usuario nuevo, el otro es un problema.
+
 ## El presupuesto, acotado por construcción
 
 - `TOPE_HECHOS` (= 6) hechos materiales más recientes, importado de
@@ -296,6 +424,25 @@ igual que uno real y es fatal.
 - El coste real varía **unas doce veces** según qué seis toquen: seis `2.02` con
   anexo llegan al tope; seis `5.02` recortados son ~15.000 caracteres (la media
   de los nueve recortados medidos es 2.429).
+
+### El archivo abarata esto, y por eso va aquí
+
+Sólo se manda el **documento** de los hechos cuya `url` no esté en el archivo.
+Los ya leídos entran como su `que_dice` guardado —unos cientos de caracteres en
+lugar de treinta mil—, así que `en_conjunto` sigue viendo los seis y sólo se
+paga por lo nuevo. En régimen, una pulsación sin hechos nuevos cuesta casi nada.
+
+Es la opción «sólo lo nuevo desde la última vez» que se descartó por pedir
+estado propio: con el archivo deja de ser una pieza extra y pasa a ser una
+consecuencia.
+
+**Lo que vuelve al prompt es salida del modelo, y se dice.** Ese `que_dice` ya
+pasó los guardarraíles el día que se escribió —sin dígitos, ticker de la
+cartera—, así que no abre ninguna puerta nueva. Pero su cita **no se vuelve a
+verificar**: el documento ya no se envía, y verificar contra un texto que no
+está delante sería afirmar algo que no se ha comprobado. Un juicio recuperado
+del archivo conserva el `verificada` que tuvo y se pinta con esa misma marca.
+Nunca se re-verifica, nunca se re-marca.
 
 La caché es por hash de contenido de **exactamente lo que se envía**, como
 `ranking/llm.py:clave_cache`: el prompt renderizado, el sistema, el modelo y una
@@ -309,11 +456,21 @@ lo correcto, y conviene tenerlo escrito para que nadie lo «arregle».
 ## La pantalla
 
 - **Pestaña «Noticias» del panel**, bajo el resumen: botón *«Interpretar estos
-  hechos»*. Cada juicio sale con el peso del activo puesto **por el código** al
-  lado, y la cita en `caption` con enlace al documento. Es el hueco que K dejó
-  preparado a propósito.
+  hechos»*, **con cuántos son nuevos en la propia etiqueta** — un botón que no
+  dice si va a costar algo es un botón que se pulsa a ciegas. Cada juicio sale
+  con el peso del activo puesto **por el código** al lado, y la cita en
+  `caption` con enlace al documento. Es el hueco que K dejó preparado.
+- **Lo ya leído se pinta sin pulsar nada.** Es el cambio de carácter que trae el
+  archivo: la pestaña deja de estar vacía hasta que pagas, y se va llenando.
+  Cada juicio recuperado lleva su fecha de lectura, porque un juicio de hace
+  seis meses y uno de esta mañana no valen lo mismo.
 - **Página de Rebalanceo**, tras la propuesta y antes de la puerta a Seguimiento:
   botón *«¿Qué se le escapa a la aritmética?»*.
+- **Los comentarios anteriores de rebalanceo van plegados y fechados, con su
+  foto.** Nunca junto a la propuesta de hoy: hablan de una deriva que ya no es
+  la que tienes delante, y pintarlos como si aplicaran sería la misma mentira
+  que sumar dos cortes temporales distintos —el defecto que en F dio una
+  `GANANCIA −9.700`.
 - Todo lo que venga del modelo pasa por `noticias/texto.py` antes de pintarse.
   En Streamlit `$…$` es LaTeX, y un texto financiero va lleno de dólares: es un
   defecto ya pagado en H.
@@ -329,6 +486,10 @@ lo correcto, y conviene tenerlo escrito para que nadie lo «arregle».
 | El modelo inventa una operación | Es lo que hacen los modelos | La letra no existe en el mapa: se cae y se cuenta |
 | Streamlit no reimporta `interprete/` | Paquete nuevo en un servidor ya arrancado | Hay que reiniciar. Es la trampa que ya costó un `AttributeError` en J |
 | Sin `ANTHROPIC_API_KEY` | El usuario no la ha puesto | `estado = SIN_CLAVE`, la pantalla dice dónde ponerla |
+| El archivo se lee como un libro roto | `libro.listar()` globea `*.json` sobre `libros/` | Va en `libros/interpretaciones/`, y hay un test que lo afirma |
+| Archivo corrupto tragado en silencio | Copiar el `_leer_cache` de B, que borra y sigue | `ArchivoIlegible`, se dice, y **el fichero no se toca** |
+| Dos pestañas escribiendo a la vez | Streamlit permite dos ventanas del mismo libro | Releer justo antes de escribir, como `libro.actualizar`. Riesgo residual aceptado: un usuario, una app |
+| Un juicio viejo pintado como fresco | El archivo devuelve texto sin fecha visible | Cada juicio recuperado lleva su fecha de lectura al lado |
 
 ## Pruebas
 
@@ -346,17 +507,29 @@ Sin red, con cliente falso:
 - **`en_conjunto`:** con dígito o con ticker ajeno se vacía **entero**, y el
   resto de la `Lectura` sobrevive intacta.
 - **Caché:** mismo contenido no llama; contenido distinto sí; fallo no se guarda.
+- **Archivo:** escribir dos veces **añade** y no pisa; `urls_leidas` encuentra lo
+  de sesiones viejas; un hecho ya leído no manda su documento pero sí su
+  `que_dice`; un juicio recuperado **conserva su `verificada`** y no se
+  re-verifica; un archivo corrupto levanta `ArchivoIlegible` y **el fichero
+  sigue en disco**; y `libro.listar()` devuelve los mismos libros con un archivo
+  de interpretaciones dentro de `libros/interpretaciones/`.
 
 Dos tests marcados `red` que llaman de verdad a Sonnet 5, como los de B.
 
 ## Lo que I no resuelve
 
 - **No propone operaciones propias.** Es la decisión, no una carencia.
-- **No lee más de lo que ves.** Un 4.02 de hace ocho meses no entra si hay seis
-  hechos más recientes. La alternativa medida —los últimos 90 días— eran ~165k
-  tokens por pulsación.
-- **No guarda qué interpretó ya**, así que no puede decir «esto es nuevo desde
-  la última vez». Requeriría estado en el libro.
+- **No lee más de lo que ves, y el archivo sólo cubre hacia delante.** Un `4.02`
+  de hace ocho meses no entra hoy, y tampoco está guardado: el archivo empieza
+  vacío el día que se estrena. Acumula cobertura desde ahí, no hacia atrás.
+  Rellenarlo pediría una pasada histórica —los ~134 materiales de la ventana de
+  H, cerca de un millón de tokens—, que es justo lo que el tope evita.
+- **No hay botón de «vuelve a leer éste».** Volver a interpretar añade una
+  sesión entera; no se puede pedir una segunda lectura de un solo hecho. El
+  modelo de datos lo admite —es append-only— y la pantalla no lo ofrece.
+- **El archivo no se respalda.** Vive bajo `libros/`, que está en `.gitignore`
+  por ser dato personal. Quien borre esa carpeta pierde el historial, igual que
+  perdería sus libros.
 - **No deduplica la prensa.** Sigue siendo deuda declarada de H.
 - **No interpreta el calendario.** `Evento` no entra: H da punteros, no fechas.
 - **No toca los 8-K de emisores fuera de la SEC**, que no existen.
