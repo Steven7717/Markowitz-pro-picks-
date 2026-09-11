@@ -47,10 +47,22 @@ def etiquetas(cuantos: int) -> "tuple[str, ...]":
 
 
 def _pct(parte: float) -> str:
-    """Un tanto por uno como porcentaje entero. Sin decimales: la precision que
-    el modelo necesita para decir «pesa mucho» no llega al punto decimal, y
-    menos cifras es menos superficie donde copiar un numero."""
-    return f"{round(parte * 100)}%"
+    """Un tanto por uno como porcentaje, con un decimal.
+
+    Un decimal y no cero: redondeando a entero, un 4,3% y un 4,4% salen los dos
+    como «4%» y el modelo concluye que pesan igual; con doce activos eso pasa a
+    menudo. Y tampoco muchos mas: los decimales que el modelo no necesita para
+    decir «pesa mucho» son superficie donde copiar una cifra.
+
+    Lo que no llega al decimal se dice con palabras en vez de con un cero. Una
+    posicion del 0,04% escrita «0,0%» se lee como que no la tienes, y no es lo
+    mismo tener poco que no tener nada -- la misma regla que `panel._cifra`,
+    que escribe «—» donde no hay medida en vez de escribir cero.
+    """
+    porcentaje = parte * 100
+    if 0 < porcentaje < 0.05:
+        return "menos de 0,1%"
+    return f"{porcentaje:.1f}%".replace(".", ",")
 
 
 def cartera(pesos: "tuple[tuple[str, float, float | None], ...]") -> str:

@@ -49,6 +49,21 @@ def test_las_operaciones_dicen_si_compensan():
     assert "no compensa" in texto.lower()
 
 
+def test_dos_pesos_distintos_no_se_leen_iguales():
+    """Redondeando a entero, 4,3% y 4,4% salian los dos como «4%» y el modelo
+    concluia que pesan igual."""
+    assert contexto._pct(0.043) != contexto._pct(0.044)
+
+
+def test_una_posicion_diminuta_no_se_lee_como_cero():
+    """«0,0%» se lee como que no la tienes. Tener poco no es no tener nada."""
+    assert contexto._pct(0.0004) == "menos de 0,1%"
+
+
+def test_el_cero_de_verdad_si_es_cero():
+    assert contexto._pct(0.0) == "0,0%"
+
+
 def test_los_hechos_vuelven_con_su_mapa():
     from datetime import date
 
