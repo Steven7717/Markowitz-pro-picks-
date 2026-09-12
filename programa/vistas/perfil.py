@@ -104,7 +104,9 @@ with credenciales_tab:
             "Clave de Anthropic",
             type="password",
             key="entrada_clave",
-            help="Se saca de console.anthropic.com. Empieza por sk-ant-.",
+            help="Se saca de platform.claude.com, en Settings > API Keys. Empieza "
+                 "por sk-ant-. Hace falta comprar saldo antes de que funcione: "
+                 "Settings > Billing > Buy credits.",
         )
         nuevo_correo = st.text_input(
             "Correo para EDGAR",

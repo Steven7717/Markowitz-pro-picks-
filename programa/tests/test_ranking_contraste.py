@@ -77,7 +77,7 @@ def con_clave():
         if _es_falta_de_saldo(error):
             pytest.skip(
                 "la clave es válida pero la cuenta no tiene saldo: compra "
-                "crédito en console.anthropic.com → Plans & Billing"
+                "crédito en platform.claude.com → Settings > Billing"
             )
         raise
 

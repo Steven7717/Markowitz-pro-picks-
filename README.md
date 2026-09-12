@@ -23,7 +23,7 @@ Son tres clics y una espera. Lo que sí necesitas:
 | **Unos minutos la primera vez** | Se bajan Python y las librerías, varios cientos de MB. Después arranca en segundos |
 | **Espacio en disco** | Poco menos de 1 GB una vez instalado (medido: 843 MB, de los que 625 son el Python que se descarga) |
 
-**Opcional:** una clave de [Anthropic](https://console.anthropic.com) si quieres
+**Opcional:** una clave de [Anthropic](https://platform.claude.com) si quieres
 la mitad con IA. Cuesta dinero tuyo — alrededor de **1,25 $** por cada análisis
 completo del S&P 500. Sin ella el programa funciona igual, sólo que sin las
 fichas redactadas.
@@ -316,7 +316,72 @@ al final de la barra lateral:
 | Qué | De dónde sale | Hace falta para |
 |---|---|---|
 | Un correo electrónico | El tuyo. No es un registro y no se envía a nadie más | **Las dos mitades** — sin él no se genera nada |
-| Clave de Anthropic | [console.anthropic.com](https://console.anthropic.com) — es tuya y tú pagas su uso | Sólo la mitad con IA |
+| Clave de Anthropic | [platform.claude.com](https://platform.claude.com) — es tuya y tú pagas su uso. **Hay que comprar saldo**, ver abajo | Sólo la mitad con IA |
+
+### Cómo conseguir la clave de Anthropic, paso a paso
+
+Sáltate esto si no quieres la mitad con IA: **el programa funciona sin clave**.
+
+La clave es como una llave de tu cuenta: el programa la usa para pedirle cosas a
+la IA, y **tú pagas lo que se gaste**. No es una suscripción — se paga por uso,
+y aquí se gastan céntimos por pulsación.
+
+#### 1. Crea una cuenta
+
+Entra en **[platform.claude.com](https://platform.claude.com)** y regístrate con
+tu correo. *(Si tienes una suscripción a Claude, **no sirve aquí**: la API se
+paga aparte.)*
+
+#### 2. Compra saldo — esto no te lo puedes saltar
+
+**La clave no funciona con el saldo a cero.** Es lo que más despista: se crea la
+clave, se prueba, y falla sin que se entienda por qué.
+
+1. En la consola, arriba a la derecha, entra en **Settings** (Ajustes).
+2. En el menú de la izquierda, **Billing** (Facturación).
+3. Pulsa **Buy credits** (Comprar créditos).
+4. Escribe la cantidad y confirma.
+
+El saldo **está disponible al momento**. Con 5 $ tienes de sobra para probar:
+el análisis completo cuesta alrededor de 1,25 $ y las pulsaciones de la parte de
+seguimiento, céntimos.
+
+> **Ojo a dos cosas:** los créditos **caducan al año** de comprarlos y **no se
+> devuelven**. Compra poco y ve recargando.
+
+#### 3. Ponte un límite de gasto
+
+Opcional pero muy recomendable, sobre todo si te preocupa que se dispare. En la
+misma página de **Billing**, busca **Spend limits** (Límites de gasto) y pulsa
+**Set limit**. Pon la cifra que estés dispuesto a gastar al mes y no se pasará
+de ahí.
+
+#### 4. Crea la clave
+
+1. Sigues en **Settings**. En el menú de la izquierda, **API Keys**.
+   *(Atajo directo: [platform.claude.com/settings/keys](https://platform.claude.com/settings/keys))*
+2. Pulsa **Create Key** (Crear clave).
+3. Ponle un nombre para acordarte — por ejemplo `markowitz`.
+4. **Cópiala en cuanto aparezca**, con el botón de copiar. Es un texto largo que
+   empieza por `sk-ant-`.
+
+Si la pierdes no pasa nada grave: vuelves aquí, borras esa y creas otra.
+
+#### 5. Pégala en el programa
+
+En el programa: **barra lateral → Perfil y ajustes → Clave de Anthropic →
+Guardar credenciales**.
+
+Pégala **de una sola vez y sin espacios**. El sitio más común de fallo es
+copiarla desde un correo o un chat, que a veces mete un salto de línea en medio;
+el programa lo detecta y te avisa.
+
+#### ¿Cuánto voy a gastar de verdad?
+
+Puedes verlo en cualquier momento en
+**[platform.claude.com/usage](https://platform.claude.com/usage)**, con el
+desglose por día. Y el programa te dice lo que costó cada pulsación justo
+después de hacerla.
 
 Se guardan en tu carpeta personal (`~/.markowitz-pro-picks/credenciales.json`),
 **no dentro de la carpeta del programa**. Si comprimes el programa y se lo pasas
