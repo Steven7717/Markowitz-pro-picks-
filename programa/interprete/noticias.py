@@ -1,0 +1,244 @@
+# programa/interprete/noticias.py
+"""Que significan los hechos de tu cartera, con cita literal y sin una cifra.
+
+Esta es la mitad que **si tiene verdad contrastable**: un juicio sobre un 8-K se
+ancla a una frase que existe o no existe en el documento, y eso lo comprueba el
+codigo carácter a caracter. La mitad de rebalanceo (`ajuste.py`) no tiene texto
+que citar y por eso lleva otros guardarrailes.
+
+Reutiliza `ranking/verificacion.py` tal cual. **No se amplia**: su tabla
+tipografica no cubre `…` ni `•`, que los anexos si traen, pero tocarla cambiaria
+tambien el comportamiento de B, que esta en produccion. El reintento absorbe el
+caso y lo que falle sale marcado.
+"""
+
+from dataclasses import dataclass
+
+from pydantic import BaseModel
+
+from interprete import cliente as cliente_mod
+from interprete import contexto
+from ranking.verificacion import sin_digitos, verificar_cita
+
+SIN_CLAVE = "sin_clave"
+SIN_HECHOS = "sin_hechos"
+FALLO = "fallo"
+HECHA = "hecha"
+
+VERSION_PROMPT = "i1"
+
+SISTEMA = """Eres un analista que lee expedientes de la SEC para alguien que ya \
+tiene una cartera montada. Tu trabajo es decir que dice cada documento y a que \
+expone a esta cartera en concreto. No valoras la empresa ni recomiendas nada.
+
+Reglas, todas obligatorias:
+- No escribas ningun digito. Los pesos y las fechas los pone el codigo.
+- Refierete a cada hecho por su letra entre corchetes, nunca por un numero.
+- Cada juicio lleva una cita literal y contigua del documento que se te \
+entrega, copiada caracter a caracter, de al menos veinticinco caracteres y de \
+menos de doscientos.
+- Si el documento no respalda lo que ibas a decir, no lo digas.
+- Solo puedes nombrar los activos que aparecen en la cartera de abajo.
+- En «en_conjunto» escribe unicamente lo que se ve mirando todos los hechos a \
+la vez: dos activos con el mismo problema, un patron que se repite. Si no hay \
+nada asi, dejalo vacio. Vacio es una respuesta.
+- Escribe en espanol, en prosa llana, sin vinetas."""
+
+
+class JuicioCrudo(BaseModel):
+    hecho: str
+    que_dice: str
+    por_que_te_toca: str
+    cita: str
+
+
+class Salida(BaseModel):
+    juicios: list[JuicioCrudo]
+    en_conjunto: str = ""
+
+
+@dataclass(frozen=True)
+class Juicio:
+    ticker: str
+    que_dice: str
+    por_que_te_toca: str
+    cita: str
+    verificada: bool
+
+
+@dataclass(frozen=True)
+class Lectura:
+    """Lo leido, y de que estado sale.
+
+    Los estados son **datos explicitos** y no se deducen de que `juicios` venga
+    vacia. Es la leccion de `noticias/resumen.py`: «no ha presentado ningun
+    8-K» y «no lo hemos mirado» se pintan igual de vacios y son cosas opuestas.
+    Aqui hay ademas un quinto caso que no es un estado --`HECHA` con cero
+    juicios, o sea «se miro, se pago, y no habia nada que decir»--, y la
+    pantalla tiene que decirlo con esas palabras.
+    """
+
+    estado: str
+    juicios: "tuple[Juicio, ...]" = ()
+    en_conjunto: str = ""
+    sin_documento: "tuple[str, ...]" = ()
+    recortados: "tuple[str, ...]" = ()
+    descartados: int = 0
+
+
+_INVISIBLES = str.maketrans("", "", "\u200b\u200c\u200d\ufeff")
+# Escapados y no literales: son invisibles, y un copia-pega que se los
+# coma dejaria la funcion sin hacer nada sin que nada lo dijera.
+
+
+def _vacio(texto: str) -> bool:
+    """Caracteres que se leen como blanco y que `strip()` no quita, porque la
+    definicion de espacio de Python no los incluye. Mismo criterio que
+    `ranking/llm.py:_vacio`."""
+    return not texto.translate(_INVISIBLES).strip()
+
+
+def _prompt(bloque_hechos: str, bloque_cartera: str) -> str:
+    return (
+        f"Tu cartera:\n{bloque_cartera}\n\n"
+        f"Hechos a interpretar:\n{bloque_hechos}\n\n"
+        "Escribe un juicio por hecho que lo merezca, y el parrafo de conjunto "
+        "si lo hay."
+    )
+
+
+def _limpiar_conjunto(texto: str, tickers: "set[str]") -> str:
+    """Vaciar entero si lleva un digito o nombra un activo que no es tuyo.
+
+    Entero y no a trozos: un parrafo al que se le quita una frase queda
+    diciendo algo que nadie escribio. Un juicio suelto si se puede tirar,
+    porque los demas siguen siendo verdad por su cuenta.
+    """
+    if _vacio(texto):
+        return ""
+    if not sin_digitos(texto):
+        return ""
+    ajenos = {
+        palabra.strip(".,;:()").upper()
+        for palabra in texto.split()
+        if palabra.strip(".,;:()").isupper() and len(palabra.strip(".,;:()")) >= 2
+    }
+    if ajenos - tickers:
+        return ""
+    return texto
+
+
+def leer(
+    entradas: "tuple[tuple[str, object, tuple, tuple, str], ...]",
+    tickers: "set[str]",
+    cliente=None,
+    modelo: str = cliente_mod.MODELO,
+    sin_documento: "tuple[str, ...]" = (),
+    recortados: "tuple[str, ...]" = (),
+    pesos: "tuple[tuple[str, float, float | None], ...]" = (),
+) -> Lectura:
+    """Interpretar estos hechos para esta cartera.
+
+    `entradas` son las tuplas que `contexto.hechos` entiende. `sin_documento` y
+    `recortados` vienen de quien bajo los documentos y se arrastran hasta aqui
+    para que la `Lectura` cuente la verdad entera de lo que se leyo y lo que no.
+
+    Un digito en `que_dice` o en `por_que_te_toca` es **fatal tras el
+    reintento**; una cita que no verifica se conserva marcada. La asimetria
+    viene de `ranking/llm.py` y es deliberada: una afirmacion sin respaldo
+    visiblemente marcada todavia la puede juzgar un humano, pero una cifra
+    inventada se lee exactamente igual que una real.
+    """
+    if not entradas:
+        return Lectura(SIN_HECHOS, sin_documento=sin_documento)
+    if cliente is None and not cliente_mod.hay_clave():
+        return Lectura(SIN_CLAVE, sin_documento=sin_documento)
+
+    bloque, mapa = contexto.hechos(entradas)
+    fuentes = {letra: entrada[4] for letra, entrada in zip(mapa, entradas)}
+    mensajes = [{"role": "user", "content": _prompt(bloque, contexto.cartera(pesos))}]
+
+    for intento in range(2):
+        salida = cliente_mod.preguntar(
+            SISTEMA, mensajes, Salida, cliente=cliente, modelo=modelo
+        )
+        if salida is None:
+            return Lectura(FALLO, sin_documento=sin_documento, recortados=recortados)
+
+        descartados = 0
+        validos = []
+        for crudo in salida.juicios:
+            if crudo.hecho not in mapa or _vacio(crudo.que_dice) or _vacio(
+                crudo.por_que_te_toca
+            ):
+                descartados += 1
+                continue
+            validos.append(crudo)
+
+        con_digitos = any(
+            not sin_digitos(c.que_dice) or not sin_digitos(c.por_que_te_toca)
+            for c in validos
+        )
+        fallidas = [
+            c for c in validos if not verificar_cita(c.cita, fuentes[c.hecho])
+        ]
+
+        if not con_digitos and not fallidas:
+            return _componer(validos, mapa, fuentes, salida.en_conjunto, tickers,
+                             sin_documento, recortados, descartados)
+        if intento == 1:
+            if con_digitos:
+                return Lectura(FALLO, sin_documento=sin_documento,
+                               recortados=recortados)
+            return _componer(validos, mapa, fuentes, salida.en_conjunto, tickers,
+                             sin_documento, recortados, descartados)
+
+        # El eco lleva lo que el modelo escribio, digitos incluidos cuando esa
+        # fue la razon del rechazo: ensenarle su propio turno es justo lo que le
+        # permite corregir. Misma decision que `ranking/llm.py`.
+        mensajes = mensajes + [
+            {"role": "assistant", "content": salida.model_dump_json()},
+            {"role": "user", "content": _reintento(fallidas, con_digitos)},
+        ]
+
+
+def _reintento(fallidas: list, con_digitos: bool) -> str:
+    """Cada parrafo nombra un fallo solo si ese fallo ocurrio de verdad -- nunca
+    una plantilla fija que se queja de algo que estaba bien."""
+    partes = []
+    if fallidas:
+        listado = "\n".join(f"- {c.cita}" for c in fallidas)
+        partes.append(
+            "Estas citas no aparecen literalmente en el documento entregado:\n"
+            f"{listado}\n"
+            "Vuelve a escribir esos juicios usando solo citas que puedas copiar "
+            "del texto. Si un juicio no tiene respaldo literal, quitalo."
+        )
+    if con_digitos:
+        partes.append(
+            "Algun juicio lleva un digito. Los pesos y las fechas los pone el "
+            "codigo: vuelve a escribirlo sin ningun numero."
+        )
+    return "\n\n".join(partes)
+
+
+def _componer(validos, mapa, fuentes, en_conjunto, tickers, sin_documento,
+              recortados, descartados) -> Lectura:
+    juicios = tuple(
+        Juicio(
+            ticker=mapa[c.hecho],
+            que_dice=c.que_dice,
+            por_que_te_toca=c.por_que_te_toca,
+            cita=c.cita,
+            verificada=verificar_cita(c.cita, fuentes[c.hecho]),
+        )
+        for c in validos
+    )
+    return Lectura(
+        estado=HECHA,
+        juicios=juicios,
+        en_conjunto=_limpiar_conjunto(en_conjunto, tickers),
+        sin_documento=sin_documento,
+        recortados=recortados,
+        descartados=descartados,
+    )
