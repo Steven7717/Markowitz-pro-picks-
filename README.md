@@ -186,25 +186,86 @@ personal, y las encuentra solo.
 
 ### La forma automática: con git
 
-Si instalas [git](https://git-scm.com/downloads) y descargas el programa con él
-en vez de con el ZIP, **se actualiza solo cada vez que lo abres** y no tienes
-que copiar nada nunca.
+Si descargas el programa con **git** en vez de con el ZIP, **se actualiza solo
+cada vez que lo abres** y no tienes que copiar nada nunca.
 
-Requiere escribir un comando una sola vez, en la Terminal (Mac) o en el Símbolo
-del sistema (Windows):
+Hay que escribir dos comandos, **una sola vez en la vida**. No hace falta
+entenderlos: se copian y se pegan.
+
+#### 1. Abre una terminal
+
+Es una ventana donde se escriben órdenes en vez de pulsar botones. Ya está
+instalada, no hay que descargar nada.
+
+- **Windows:** pulsa la tecla **Windows**, escribe `cmd` y pulsa **Enter**.
+- **Mac:** pulsa **Cmd + Espacio**, escribe `Terminal` y pulsa **Enter**.
+
+Se abre una ventana con texto y un cursor parpadeando. Ahí se escribe.
+
+> Para **pegar** en la terminal de Windows se usa **clic derecho**, no Ctrl+V.
+> En Mac, Cmd+V funciona con normalidad.
+
+#### 2. Comprueba si ya tienes git
+
+Escribe esto y pulsa Enter:
+
+```
+git --version
+```
+
+- **Si responde algo como `git version 2.43.0`**, ya lo tienes. Salta al paso 4.
+- **Si dice que no se reconoce el comando** (Windows) o **abre una ventana
+  ofreciéndote instalar las herramientas** (Mac), sigue en el paso 3.
+
+#### 3. Instala git
+
+**En Mac** ya lo tienes hecho: el propio `git --version` abre un cuadro de
+diálogo que dice que hacen falta las «herramientas de desarrollo». Pulsa
+**Instalar**, acepta, y espera unos minutos. No hay que descargar nada a mano.
+
+**En Windows**, prueba primero con esto:
+
+```
+winget install --id Git.Git -e
+```
+
+Tarda un par de minutos y no pregunta nada. Si tu Windows no conoce `winget`,
+descarga el instalador de [git-scm.com](https://git-scm.com/download/win) y
+dale a **Siguiente** en todas las pantallas: las opciones por defecto son las
+correctas y no hay que cambiar ninguna.
+
+**Cuando termine, cierra la terminal y abre una nueva.** Es importante: la que
+tenías abierta no se entera de lo que se acaba de instalar, y seguiría diciendo
+que git no existe.
+
+#### 4. Descarga el programa
+
+Copia esta línea, pégala y pulsa Enter:
 
 ```
 git clone https://github.com/Steven7717/Markowitz-pro-picks-.git
 ```
 
-A partir de ahí, cada arranque comprueba si hay versión nueva y se la trae —
-verás una línea de «Buscando actualizaciones…». **Una actualización que falla
-nunca te impide usar el programa**: si no hay internet, te lo dice y abre la
-versión que ya tienes.
+Tarda unos segundos. **La carpeta aparece en tu carpeta de usuario**, la del
+icono de la casita: `Markowitz-pro-picks-`. No la muevas al Escritorio ni a
+Documentos si estás en Mac — ahí es donde macOS bloquea al programa.
 
-> **¿Cuál elijo?** Si la palabra «Terminal» te pone nervioso, el ZIP. Funciona
+Ábrela y sigue como en la instalación normal: doble clic en `Iniciar App.bat`
+(Windows) o clic derecho → **Abrir** en `Iniciar App.command` (Mac).
+
+#### Y ya está, para siempre
+
+Cada arranque comprueba si hay versión nueva y se la trae — verás una línea de
+«Buscando actualizaciones…». **Una actualización que falla nunca te impide usar
+el programa**: si no hay internet, o si tocaste algún archivo a mano, te lo dice
+y abre la versión que ya tienes.
+
+Tus cosas no se tocan nunca: posiciones, actas, portafolios y resultados no
+forman parte de lo que se descarga, así que ninguna actualización los pisa.
+
+> **¿Cuál elijo?** Si esto te ha parecido largo, quédate con el ZIP. Funciona
 > exactamente igual de bien; lo único que cambia es que las actualizaciones las
-> haces tú.
+> haces tú, y son los mismos tres clics de la instalación.
 
 ---
 
@@ -281,7 +342,7 @@ guardan decisiones y pesos, no importes.
 
 ---
 
-## Si algo va mal
+## Si algo va mal al instalar
 
 | Lo que ves | Qué pasa |
 |---|---|
@@ -292,10 +353,66 @@ guardan decisiones y pesos, no importes.
 | Se queda minutos sin decir nada | Es la primera descarga. Es normal. No cierres la ventana |
 | «No se pudo descargar» al generar candidatos | Falta el correo en **Perfil y ajustes** |
 
-Si abriste con el acceso directo y quieres ver el error, abre el programa con
-`Iniciar App.bat` en vez del icono: ese sí muestra la ventana con el detalle.
-
 ---
+
+## Si la app se queda bloqueada
+
+Lo de arriba es de la instalación. Esto es de después, cuando ya la usabas.
+
+### No abre, o se queda cargando para siempre
+
+**En Windows**, si abriste con el icono del Escritorio, el lanzador espera dos
+minutos y, si el programa no responde, **te avisa y vuelve a abrirlo con la
+ventana negra a la vista**. Ahí es donde está escrito el motivo. Léelo o
+cópialo: esa ventana existe precisamente para eso.
+
+**En Mac** la ventana está siempre a la vista, y si algo falla **se queda
+abierta** con un «Pulsa una tecla para cerrar» en vez de desaparecer. El error
+está en las líneas de arriba.
+
+### «El puerto 8501 lo está usando otro programa»
+
+Significa que quedó una copia anterior viva, o que otro programa cogió ese
+número. Por orden:
+
+1. **Espera diez segundos y vuelve a intentarlo.** Si acabas de cerrar el
+   programa, puede que aún esté terminando.
+2. **Cierra la copia anterior.** Si la ves en el navegador, usa el botón
+   **«Salir del programa»** de la barra lateral.
+3. **Si no la encuentras**, ciérrala a lo bruto:
+   - **Windows:** Ctrl+Shift+Esc abre el Administrador de tareas. Busca
+     `python.exe` en la lista, selecciónalo y pulsa **Finalizar tarea**.
+   - **Mac:** en la ventana de Terminal del programa, pulsa **Ctrl + C**. Si no
+     la tienes, cierra Terminal entera con **Cmd + Q**.
+4. **Si sigue igual, reinicia el ordenador.** Resuelve este caso siempre.
+
+### La página del navegador se queda en blanco o «cargando»
+
+Recarga con **F5**. Recargar no apaga el programa ni pierde nada de lo que
+tengas guardado.
+
+Si sigue en blanco, cierra la pestaña, espera dos minutos —el programa se apaga
+solo cuando lleva minuto y medio sin ninguna pestaña abierta— y vuelve a abrirlo.
+
+### Windows pregunta si permitir el acceso a través del Firewall
+
+Sale la primera vez. **Puedes decir que no sin miedo.** El programa sólo lo usas
+desde este mismo ordenador, y eso funciona igual con el cortafuegos cerrado.
+Decir que no es además la opción más discreta: impide que nadie más de tu red
+pueda abrirlo.
+
+### El antivirus borra o bloquea `Iniciar App.bat`
+
+Algunos antivirus desconfían de cualquier archivo `.bat` descargado de internet.
+No hay nada oculto dentro: es texto plano y puedes abrirlo con el Bloc de notas
+para ver exactamente lo que hace. Si tu antivirus lo borra, tendrás que marcarlo
+como excepción o volver a descargar el programa.
+
+### Sigue sin funcionar
+
+Abre el programa con `Iniciar App.bat` (Windows) o `Iniciar App.command` (Mac)
+en vez de con el icono del Escritorio: así la ventana con el error se queda a la
+vista. Copia las últimas líneas — ahí está escrito lo que pasó.
 
 ## Para desarrollar
 
