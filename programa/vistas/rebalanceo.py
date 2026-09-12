@@ -473,4 +473,8 @@ izq.markdown(
 )
 if der.button("Anotar lo que ejecuté", icon=":material/edit_note:",
               use_container_width=True):
+    # Y se deja dicho a que pestana, porque `switch_page` aterriza en la
+    # primera y el formulario esta tres mas alla. Llevar a la pantalla y
+    # dejar al usuario buscando es el mismo defecto a medias.
+    st.session_state["seguimiento_pestana"] = "Registrar"
     st.switch_page("vistas/seguimiento.py")

@@ -568,8 +568,20 @@ if abs(comp.efectivo) >= 0.005:
 # manda a anotar aqui lo que ejecutaste, y el formulario estaba debajo de una
 # tabla de once columnas dentro de un desplegable, en una pestaña que no se
 # llama como lo que ibas a hacer.
+#
+# `key` explicita y no la automatica: sin ella Streamlit genera la clave a
+# partir de los demas parametros, asi que cambiar `default` de una pasada a
+# la siguiente crearia un widget distinto y la seleccion se reiniciaria --el
+# usuario volveria a Evolucion en cuanto tocara cualquier cosa--. Con clave
+# estable, `default` es solo el valor inicial y lo que el usuario elija
+# despues manda.
+#
+# `pop` y no `get`: quien llega desde Rebalanceo aterriza una vez en
+# «Registrar»; volver por el menu no tiene por que traerte aqui.
 evolucion, por_activo, movimientos, registrar, noticias = st.tabs(
-    ["Evolución", "Por activo", "Movimientos", "Registrar", "Noticias"]
+    ["Evolución", "Por activo", "Movimientos", "Registrar", "Noticias"],
+    default=st.session_state.pop("seguimiento_pestana", None),
+    key="pestanas_seguimiento",
 )
 
 # ── Evolución ────────────────────────────────────────────────────────────────
