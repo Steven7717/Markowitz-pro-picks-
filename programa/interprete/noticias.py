@@ -167,11 +167,14 @@ def leer(
     documentos y se arrastran hasta aqui para que la `Lectura` cuente la verdad
     entera de lo que se leyo y lo que no.
 
-    Un digito en `que_dice` o en `por_que_te_toca` es **fatal tras el
-    reintento**; una cita que no verifica se conserva marcada. La asimetria
-    viene de `ranking/llm.py` y es deliberada: una afirmacion sin respaldo
+    Un digito en `que_dice` o en `por_que_te_toca` tira **ese juicio**, no la
+    lectura entera; una cita que no verifica se conserva marcada. La asimetria
+    viene de `ranking/llm.py` y sigue en pie --una afirmacion sin respaldo
     visiblemente marcada todavia la puede juzgar un humano, pero una cifra
-    inventada se lee exactamente igual que una real.
+    inventada se lee exactamente igual que una real--, pero **la granularidad
+    no**: alli la narrativa es una unidad y un digito la invalida entera; aqui
+    son seis juicios independientes, y tirar cinco buenos mas la llamada ya
+    pagada por uno malo es peor que tirar el malo.
     """
     if not entradas:
         return Lectura(SIN_HECHOS, sin_documento=sin_documento)
@@ -215,10 +218,14 @@ def leer(
             return _componer(validos, mapa, fuentes, salida.en_conjunto, tickers,
                              sin_documento, recortados, descartados)
         if intento == 1:
+            limpios = validos
             if con_digitos:
-                return Lectura(FALLO, sin_documento=sin_documento,
-                               recortados=recortados)
-            return _componer(validos, mapa, fuentes, salida.en_conjunto, tickers,
+                limpios = [
+                    c for c in validos
+                    if sin_digitos(c.que_dice) and sin_digitos(c.por_que_te_toca)
+                ]
+                descartados += len(validos) - len(limpios)
+            return _componer(limpios, mapa, fuentes, salida.en_conjunto, tickers,
                              sin_documento, recortados, descartados)
 
         # El eco lleva lo que el modelo escribio, digitos incluidos cuando esa

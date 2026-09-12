@@ -72,15 +72,20 @@ def test_el_reintento_puede_arreglarlo():
     assert lectura.juicios[0].verificada is True
 
 
-def test_un_digito_es_fatal_tras_el_reintento():
-    """Una cifra inventada se lee exactamente igual que una real. La asimetria
-    con la cita es deliberada y viene de `ranking/llm.py`."""
+def test_un_digito_tira_ese_juicio_y_no_la_lectura():
+    """Antes tiraba la lectura entera, y con ella los juicios buenos y la
+    llamada ya pagada. Son seis juicios independientes, no una narrativa."""
     con_numero = {"hecho": "A", "que_dice": "Cayeron un 40 por ciento.",
                   "por_que_te_toca": "Te toca.", "cita": CITA}
-    cliente = _falso([_salida([con_numero]), _salida([con_numero])])
+    limpio = {"hecho": "A", "que_dice": "Cayeron con fuerza.",
+              "por_que_te_toca": "Te toca.", "cita": CITA}
+    cliente = _falso([_salida([con_numero, limpio]),
+                      _salida([con_numero, limpio])])
     lectura = noticias.leer((ENTRADA,), {"MSFT"}, cliente=cliente)
-    assert lectura.estado == noticias.FALLO
-    assert lectura.juicios == ()
+    assert lectura.estado == noticias.HECHA
+    assert len(lectura.juicios) == 1
+    assert lectura.juicios[0].que_dice == "Cayeron con fuerza."
+    assert lectura.descartados == 1
 
 
 def test_los_digitos_de_la_cita_no_cuentan():
