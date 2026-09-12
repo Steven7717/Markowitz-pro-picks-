@@ -89,6 +89,9 @@ class Lectura:
     recortados: "tuple[str, ...]" = ()
     descartados: int = 0
     conjunto_descartado: bool = False
+    entrada_tokens: int = 0
+    salida_tokens: int = 0
+    problema: str = ""
 
 
 _INVISIBLES = str.maketrans("", "", "\u200b\u200c\u200d\ufeff")
@@ -189,12 +192,20 @@ def leer(
         "content": _prompt(bloque, contexto.cartera(pesos), bloque_leidos),
     }]
 
+    entrada_tokens = 0
+    salida_tokens = 0
+
     for intento in range(2):
-        salida = cliente_mod.preguntar(
+        respuesta = cliente_mod.preguntar(
             SISTEMA, mensajes, Salida, cliente=cliente, modelo=modelo
         )
-        if salida is None:
-            return Lectura(FALLO, sin_documento=sin_documento, recortados=recortados)
+        entrada_tokens += respuesta.entrada_tokens
+        salida_tokens += respuesta.salida_tokens
+        if respuesta.salida is None:
+            return Lectura(FALLO, sin_documento=sin_documento, recortados=recortados,
+                           entrada_tokens=entrada_tokens, salida_tokens=salida_tokens,
+                           problema=respuesta.problema)
+        salida = respuesta.salida
 
         descartados = 0
         validos = []
@@ -216,7 +227,8 @@ def leer(
 
         if not con_digitos and not fallidas:
             return _componer(validos, mapa, fuentes, salida.en_conjunto, tickers,
-                             sin_documento, recortados, descartados)
+                             sin_documento, recortados, descartados,
+                             entrada_tokens, salida_tokens)
         if intento == 1:
             limpios = validos
             if con_digitos:
@@ -226,7 +238,8 @@ def leer(
                 ]
                 descartados += len(validos) - len(limpios)
             return _componer(limpios, mapa, fuentes, salida.en_conjunto, tickers,
-                             sin_documento, recortados, descartados)
+                             sin_documento, recortados, descartados,
+                             entrada_tokens, salida_tokens)
 
         # El eco lleva lo que el modelo escribio, digitos incluidos cuando esa
         # fue la razon del rechazo: ensenarle su propio turno es justo lo que le
@@ -258,7 +271,7 @@ def _reintento(fallidas: list, con_digitos: bool) -> str:
 
 
 def _componer(validos, mapa, fuentes, en_conjunto, tickers, sin_documento,
-              recortados, descartados) -> Lectura:
+              recortados, descartados, entrada_tokens=0, salida_tokens=0) -> Lectura:
     juicios = tuple(
         Juicio(
             ticker=mapa[c.hecho],
@@ -278,4 +291,6 @@ def _componer(validos, mapa, fuentes, en_conjunto, tickers, sin_documento,
         recortados=recortados,
         descartados=descartados,
         conjunto_descartado=conjunto_descartado,
+        entrada_tokens=entrada_tokens,
+        salida_tokens=salida_tokens,
     )

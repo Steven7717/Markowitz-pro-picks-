@@ -356,52 +356,76 @@ elif not interprete_cliente.hay_clave():
         "Falta la clave de Anthropic. Se pone en **Aprobación**, y la propuesta "
         "de arriba funciona igual sin ella."
     )
-elif st.button("¿Qué se le escapa a la aritmética?", icon=":material/auto_awesome:"):
-    with st.spinner("Mirando la propuesta…"):
-        _com = ajuste.comentar(_ops, _pesos_ia)
-    if _com.estado == ajuste.HECHO and not _roto_ia:
-        archivo.anotar_rebalanceo(
-            _ruta_ia,
-            interprete_cliente.MODELO,
-            ajuste.VERSION_PROMPT,
-            archivo.Foto(
-                pesos_reales=tuple((d.ticker, d.peso_real) for d in plan.deriva.lineas),
-                pesos_objetivo=tuple((d.ticker, d.peso_objetivo) for d in plan.deriva.lineas),
-                operaciones=tuple((t, a, p) for t, a, p, _v in _ops),
-            ),
-            _com.observaciones,
-            _com.en_conjunto,
-        )
-        _avisos_aj = [("success", "Comentado y guardado.")]
-        if not _com.observaciones and not _com.en_conjunto:
-            _avisos_aj = [(
-                "warning",
-                "Se miró la propuesta y **no salió nada que decir**. No es un "
-                "fallo: la llamada fue bien y no había nada que añadir a la "
-                "aritmética.",
-            )]
-        if _com.descartadas:
-            _avisos_aj.append((
-                "warning",
-                f"Se descartaron {_com.descartadas} observaciones que nombraban "
-                "una operación que no estaba en la propuesta.",
-            ))
-        if _com.conjunto_descartado:
-            _avisos_aj.append((
-                "warning",
-                "Se descartó el párrafo de conjunto: nombraba algo en mayúsculas "
-                "que no está en tu cartera, o llevaba una cifra.",
-            ))
-        st.session_state["ajuste_avisos"] = _avisos_aj
-        st.rerun()
-    else:
-        for _sobre, _dice in _com.observaciones:
-            st.markdown(f"**{texto.plano(_sobre)}** — {texto.plano(_dice)}")
-        if _com.estado == ajuste.FALLO:
-            st.error(
-                "No se pudo comentar: o la llamada falló, o lo que volvió traía "
-                "cifras inventadas y se descartó entero. **No se ha guardado nada.**"
+else:
+    st.caption(
+        "Comentar la propuesta cuesta menos de **0,01 $**: aquí no se manda "
+        "ningún documento, sólo los pesos y las operaciones. Lo que costó de "
+        "verdad se dice al terminar."
+    )
+    if st.button("¿Qué se le escapa a la aritmética?", icon=":material/auto_awesome:"):
+        with st.spinner("Mirando la propuesta…"):
+            _com = ajuste.comentar(_ops, _pesos_ia)
+        if _com.estado == ajuste.HECHO and not _roto_ia:
+            archivo.anotar_rebalanceo(
+                _ruta_ia,
+                interprete_cliente.MODELO,
+                ajuste.VERSION_PROMPT,
+                archivo.Foto(
+                    pesos_reales=tuple((d.ticker, d.peso_real) for d in plan.deriva.lineas),
+                    pesos_objetivo=tuple((d.ticker, d.peso_objetivo) for d in plan.deriva.lineas),
+                    operaciones=tuple((t, a, p) for t, a, p, _v in _ops),
+                ),
+                _com.observaciones,
+                _com.en_conjunto,
             )
+            _avisos_aj = [("success", "Comentado y guardado.")]
+            if not _com.observaciones and not _com.en_conjunto:
+                _avisos_aj = [(
+                    "warning",
+                    "Se miró la propuesta y **no salió nada que decir**. No es un "
+                    "fallo: la llamada fue bien y no había nada que añadir a la "
+                    "aritmética.",
+                )]
+            if _com.descartadas:
+                _avisos_aj.append((
+                    "warning",
+                    f"Se descartaron {_com.descartadas} observaciones que nombraban "
+                    "una operación que no estaba en la propuesta.",
+                ))
+            if _com.conjunto_descartado:
+                _avisos_aj.append((
+                    "warning",
+                    "Se descartó el párrafo de conjunto: nombraba algo en mayúsculas "
+                    "que no está en tu cartera, o llevaba una cifra.",
+                ))
+            if _com.entrada_tokens or _com.salida_tokens:
+                _coste_aj = interprete_cliente.coste(_com.entrada_tokens, _com.salida_tokens)
+                _avisos_aj.append((
+                    "info",
+                    f"Este comentario costó **{_coste_aj:.3f} $** "
+                    f"({_com.entrada_tokens:,} tokens de entrada y "
+                    f"{_com.salida_tokens:,} de salida, a la tarifa de "
+                    f"{interprete_cliente.MODELO}).",
+                ))
+            st.session_state["ajuste_avisos"] = _avisos_aj
+            st.rerun()
+        else:
+            for _sobre, _dice in _com.observaciones:
+                st.markdown(f"**{texto.plano(_sobre)}** — {texto.plano(_dice)}")
+            if _com.estado == ajuste.FALLO:
+                st.error(
+                    "No se pudo comentar: "
+                    + (_com.problema or "la llamada no devolvió nada utilizable")
+                    + ". **No se ha guardado nada.**"
+                )
+            if _com.entrada_tokens or _com.salida_tokens:
+                _coste_aj = interprete_cliente.coste(_com.entrada_tokens, _com.salida_tokens)
+                st.info(
+                    f"Este comentario costó **{_coste_aj:.3f} $** "
+                    f"({_com.entrada_tokens:,} tokens de entrada y "
+                    f"{_com.salida_tokens:,} de salida, a la tarifa de "
+                    f"{interprete_cliente.MODELO})."
+                )
 
 # Los anteriores van plegados y fechados, con su foto. **Nunca junto a la
 # propuesta de hoy**: hablan de una deriva que ya no es la que tienes delante, y

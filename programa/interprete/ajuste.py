@@ -62,6 +62,9 @@ class Comentario:
     en_conjunto: str = ""
     descartadas: int = 0
     conjunto_descartado: bool = False
+    entrada_tokens: int = 0
+    salida_tokens: int = 0
+    problema: str = ""
 
 
 _INVISIBLES = str.maketrans("", "", "\u200b\u200c\u200d\ufeff")
@@ -129,12 +132,19 @@ def comentar(
         }
     ]
 
+    entrada_tokens = 0
+    salida_tokens = 0
+
     for intento in range(2):
-        salida = cliente_mod.preguntar(
+        respuesta = cliente_mod.preguntar(
             SISTEMA, mensajes, Salida, cliente=cliente, modelo=modelo
         )
-        if salida is None:
-            return Comentario(FALLO)
+        entrada_tokens += respuesta.entrada_tokens
+        salida_tokens += respuesta.salida_tokens
+        if respuesta.salida is None:
+            return Comentario(FALLO, entrada_tokens=entrada_tokens,
+                              salida_tokens=salida_tokens, problema=respuesta.problema)
+        salida = respuesta.salida
 
         descartadas = 0
         validas = []
@@ -155,9 +165,12 @@ def comentar(
                 en_conjunto=en_conjunto,
                 descartadas=descartadas,
                 conjunto_descartado=conjunto_descartado,
+                entrada_tokens=entrada_tokens,
+                salida_tokens=salida_tokens,
             )
         if intento == 1:
-            return Comentario(FALLO)
+            return Comentario(FALLO, entrada_tokens=entrada_tokens,
+                              salida_tokens=salida_tokens, problema=respuesta.problema)
 
         mensajes = mensajes + [
             {"role": "assistant", "content": salida.model_dump_json()},

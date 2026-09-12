@@ -951,6 +951,12 @@ with noticias:
             f"Interpretar estos hechos ({len(_nuevos)} nuevos)"
             if _nuevos else "Volver a interpretar (ninguno nuevo)"
         )
+        st.caption(
+            f"Leer {len(_nuevos) or len(_a_leer)} documentos cuesta unos "
+            f"**{panel_ia.coste_estimado(len(_nuevos) or len(_a_leer)):.2f} $** "
+            "como mucho. Es una estimación: lo que costó de verdad se dice al "
+            "terminar."
+        )
         if st.button(_etiqueta, icon=":material/auto_awesome:"):
             with st.spinner("Bajando los documentos y leyéndolos…"):
                 if _nuevos:

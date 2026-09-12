@@ -10,8 +10,28 @@ dolares: es un defecto ya pagado en H.
 """
 
 from interprete import archivo as archivo_mod
+from interprete import cliente as cliente_mod
 from interprete import documentos, noticias as interprete_noticias
 from noticias import texto
+
+# Media medida sobre diecisiete expedientes materiales el 2026-09-10: 28.291
+# caracteres, con un tope duro de 30.000 por hecho. Sirve para avisar **antes**
+# de bajar nada; lo que se cobra de verdad se dice despues, con los tokens que
+# la API devuelve.
+_CARACTERES_POR_HECHO = 28_291
+_CARACTERES_POR_TOKEN = 4
+
+
+def coste_estimado(cuantos_hechos: int) -> float:
+    """Lo que costaria leer esos hechos, antes de bajar ninguno.
+
+    Es una estimacion y se dice como tal en pantalla. La media viene de una
+    medida real, no de un calculo: los documentos van de 3.037 a 112.913
+    caracteres, asi que la cifra de una pulsacion concreta puede alejarse.
+    """
+    caracteres = cuantos_hechos * min(_CARACTERES_POR_HECHO, documentos.TOPE_CARACTERES)
+    entrada = caracteres // _CARACTERES_POR_TOKEN
+    return cliente_mod.coste(entrada, cliente_mod.MAX_TOKENS)
 
 
 def preparar(hechos, guardado):
@@ -84,9 +104,9 @@ def avisos(lectura):
     elif lectura.estado == interprete_noticias.FALLO:
         mensajes.append((
             "error",
-            "No se pudo interpretar: o la llamada falló, o lo que volvió traía "
-            "cifras inventadas y se descartó entero. **No se ha guardado nada** "
-            "y no se ha cobrado ninguna lectura como hecha.",
+            "No se pudo interpretar: "
+            + (lectura.problema or "la llamada no devolvió nada utilizable")
+            + ". **No se ha guardado nada.**",
         ))
     elif lectura.estado == interprete_noticias.HECHA and not lectura.juicios:
         mensajes.append((
@@ -121,6 +141,15 @@ def avisos(lectura):
             "Se descartó el párrafo que relacionaba los hechos entre sí: "
             "nombraba algo en mayúsculas que no está en tu cartera, o llevaba "
             "una cifra. **Los juicios de arriba no están afectados.**",
+        ))
+    if lectura.entrada_tokens or lectura.salida_tokens:
+        _coste = cliente_mod.coste(lectura.entrada_tokens, lectura.salida_tokens)
+        mensajes.append((
+            "info",
+            f"Esta lectura costó **{_coste:.3f} $** "
+            f"({lectura.entrada_tokens:,} tokens de entrada y "
+            f"{lectura.salida_tokens:,} de salida, a la tarifa de "
+            f"{cliente_mod.MODELO}).",
         ))
     return mensajes
 
