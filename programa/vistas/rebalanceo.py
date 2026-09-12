@@ -368,7 +368,27 @@ elif st.button("¿Qué se le escapa a la aritmética?", icon=":material/auto_awe
             _com.observaciones,
             _com.en_conjunto,
         )
-        st.session_state["ajuste_avisos"] = [("success", "Comentado y guardado.")]
+        _avisos_aj = [("success", "Comentado y guardado.")]
+        if not _com.observaciones and not _com.en_conjunto:
+            _avisos_aj = [(
+                "warning",
+                "Se miró la propuesta y **no salió nada que decir**. No es un "
+                "fallo: la llamada fue bien y no había nada que añadir a la "
+                "aritmética.",
+            )]
+        if _com.descartadas:
+            _avisos_aj.append((
+                "warning",
+                f"Se descartaron {_com.descartadas} observaciones que nombraban "
+                "una operación que no estaba en la propuesta.",
+            ))
+        if _com.conjunto_descartado:
+            _avisos_aj.append((
+                "warning",
+                "Se descartó el párrafo de conjunto: nombraba algo en mayúsculas "
+                "que no está en tu cartera, o llevaba una cifra.",
+            ))
+        st.session_state["ajuste_avisos"] = _avisos_aj
         st.rerun()
     else:
         for _sobre, _dice in _com.observaciones:
@@ -398,6 +418,12 @@ if _guardado_ia.rebalanceo:
             st.caption(
                 "Pesos de entonces: "
                 + ", ".join(f"{t} {p:.1%}" for t, p in _com_v.foto.pesos_reales)
+                + (" · objetivo: " + ", ".join(
+                    f"{t} {p:.1%}" for t, p in _com_v.foto.pesos_objetivo)
+                   if _com_v.foto.pesos_objetivo else "")
+                + (" · operaciones: " + ", ".join(
+                    f"{a} {t}" for t, a, _p in _com_v.foto.operaciones)
+                   if _com_v.foto.operaciones else "")
             )
             st.divider()
 
