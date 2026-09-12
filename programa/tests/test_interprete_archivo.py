@@ -133,3 +133,55 @@ def test_la_escritura_no_deja_temporales(tmp_path):
     ruta = tmp_path / "x.json"
     archivo.anotar_hechos(ruta, "m", "i1", (_anotada(),), "")
     assert list(tmp_path.glob("*.tmp")) == []
+
+
+def test_juicio_guardado_devuelve_la_ultima_lectura(tmp_path):
+    """Append-only por debajo, lo ultimo por arriba.
+
+    Es la misma forma que `Libro.objetivo` sobre `Libro.objetivos`: el fichero
+    conserva las dos lecturas, y quien pinta recibe la de ahora. Sin este test,
+    cambiar la funcion para devolver la primera no tumba nada -- y la pantalla
+    ensenaria para siempre el juicio viejo de un hecho que se volvio a leer.
+    """
+    ruta = tmp_path / "x.json"
+    primero = archivo.Anotada(
+        URL_A, "MSFT", date(2026, 9, 3), ("4.02",),
+        noticias.Juicio("MSFT", "Lo que se dijo en junio.", "Te toca.", "cita", True),
+    )
+    segundo = archivo.Anotada(
+        URL_A, "MSFT", date(2026, 9, 3), ("4.02",),
+        noticias.Juicio("MSFT", "Lo que se dijo despues.", "Te toca.", "cita", True),
+    )
+    archivo.anotar_hechos(ruta, "m", "i1", (primero,), "")
+    archivo.anotar_hechos(ruta, "m", "i1", (segundo,), "")
+
+    guardado = archivo.cargar(ruta)
+    assert len(guardado.hechos) == 2          # las dos siguen ahi
+    assert archivo.juicio_guardado(guardado, URL_A).juicio.que_dice == (
+        "Lo que se dijo despues."
+    )
+
+
+def test_un_hecho_que_nadie_leyo_no_tiene_juicio_guardado(tmp_path):
+    ruta = tmp_path / "x.json"
+    archivo.anotar_hechos(ruta, "m", "i1", (_anotada(URL_A),), "")
+    assert archivo.juicio_guardado(archivo.cargar(ruta), URL_B) is None
+
+
+def test_una_cita_sin_respaldo_sigue_sin_respaldo_al_releerla(tmp_path):
+    """Una cita que no se pudo verificar se guarda **marcada**, y al releerla
+    tiene que seguir marcada.
+
+    Si el viaje por disco la devolviera como verificada, una afirmacion que
+    nadie pudo respaldar se pintaria como respaldada -- exactamente al reves de
+    lo que el diseno quiere. Y no se puede re-verificar al leer: el documento
+    ya no se tiene delante.
+    """
+    ruta = tmp_path / "x.json"
+    sin_respaldo = archivo.Anotada(
+        URL_A, "MSFT", date(2026, 9, 3), ("4.02",),
+        noticias.Juicio("MSFT", "Dice algo.", "Te toca.", "una cita", False),
+    )
+    archivo.anotar_hechos(ruta, "m", "i1", (sin_respaldo,), "")
+    recuperado = archivo.juicio_guardado(archivo.cargar(ruta), URL_A)
+    assert recuperado.juicio.verificada is False
