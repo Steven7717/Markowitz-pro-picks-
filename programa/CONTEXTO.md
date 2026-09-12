@@ -1123,16 +1123,15 @@ distingue «no hay» de «no lo hemos mirado».
 ## Resultado del sub-proyecto I
 
 Paquete `interprete/` (lógica, sin Streamlit) y `vistas/panel_ia.py` (widgets),
-con **91 tests nuevos** —90 normales y 1 marcado `red`—. Fuera del paquete
-cambian tres cosas: `vistas/seguimiento.py` gana el bloque de interpretación en
-su pestaña «Noticias», `vistas/rebalanceo.py` el botón y el historial, y
-`.gitignore` añade `interprete/.cache/`. **Ninguna dependencia nueva:**
+con **83 tests nuevos** —82 normales y 1 marcado `red`—. Fuera del paquete
+cambian dos cosas: `vistas/seguimiento.py` gana el bloque de interpretación en
+su pestaña «Noticias» y `vistas/rebalanceo.py` el botón y el historial.
+**Ninguna dependencia nueva:**
 `anthropic` y `edgartools` ya estaban.
 
-Siete módulos: `contexto` es la frontera de privacidad, `documentos` lo único
-que toca EDGAR, `cliente` lo único que toca Anthropic, `noticias` y `ajuste` las
-dos mitades con sus guardarraíles, `cache` la memoización y `archivo` el
-registro permanente.
+Seis módulos: `contexto` es la frontera de privacidad, `documentos` lo único que
+toca EDGAR, `cliente` lo único que toca Anthropic, `noticias` y `ajuste` las dos
+mitades con sus guardarraíles, y `archivo` el registro permanente.
 
 ### Las dos mitades no tienen la misma verdad, y por eso no llevan el mismo guardarraíl
 
@@ -1265,9 +1264,12 @@ no haberlo arreglado.**
   por ser dato personal.
 - **No deduplica la prensa.** Sigue siendo deuda declarada de H.
 - **No interpreta el calendario.** `Evento` no entra: H da punteros, no fechas.
-- **`interprete/cache.py` está escrito y probado pero sólo lo usa `ajuste.py`.**
-  En la mitad de hechos el archivo ya evita la llamada, y dos memorias sobre lo
-  mismo es una que se queda atrás.
+- **No hay caché de llamadas.** Se escribió un `interprete/cache.py` y resultó
+  que **no lo importaba nadie** — la autorrevisión del plan llegó a afirmar que
+  «sólo lo usa `ajuste.py`», y `ajuste.py` no lo importaba. Se borró: en la mitad
+  de hechos el archivo ya evita la llamada, y en la de rebalanceo una caché
+  impediría pedir una segunda opinión sobre la misma propuesta. Pulsar dos veces
+  sin nada nuevo cuesta dos veces, y el botón lo avisa en su etiqueta.
 - **Los dos caminos que llaman al modelo no se han recorrido en pantalla.** Se
   verificó todo lo demás con la app arrancada —la cuenta de nuevos, lo guardado
   pintándose sin pulsar, las dos marcas de respaldo, el archivo roto avisando y
@@ -1318,7 +1320,7 @@ Sigue sin responder: **¿cuántas acciones debería tener el portafolio final?**
 
 ```bash
 # Todos estos se ejecutan desde programa/, no desde la raiz del repo.
-pytest tests/ -q -m "not red"       # 1.230 tests, sin red
+pytest tests/ -q -m "not red"       # 1.222 tests, sin red
 python -m research.run              # correr el estudio (~5 min, luego caché)
 streamlit run app.py                # la app: optimizador + pagina de revision
 python scripts/bootstrap_universe.py   # regenerar el snapshot del universo
