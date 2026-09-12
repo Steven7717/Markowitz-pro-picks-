@@ -123,6 +123,7 @@ def test_en_conjunto_con_ticker_ajeno_se_vacia_entero():
     )])
     lectura = noticias.leer((ENTRADA,), {"MSFT"}, cliente=cliente)
     assert lectura.en_conjunto == ""
+    assert lectura.conjunto_descartado is True
     assert len(lectura.juicios) == 1
 
 
@@ -136,6 +137,7 @@ def test_en_conjunto_con_digito_se_vacia_entero():
     )])
     lectura = noticias.leer((ENTRADA,), {"MSFT"}, cliente=cliente)
     assert lectura.en_conjunto == ""
+    assert lectura.conjunto_descartado is True
 
 
 def test_en_conjunto_limpio_sobrevive():
@@ -175,6 +177,17 @@ def test_la_api_caida_es_fallo_y_no_excepcion():
 
     lectura = noticias.leer((ENTRADA,), {"MSFT"}, cliente=_Falso())
     assert lectura.estado == noticias.FALLO
+
+
+def test_un_en_conjunto_vacio_no_es_un_descarte():
+    """Una cadena vacia de entrada significa «el modelo no vio ningun patron».
+    Marcarla como descartada diria que se tiro algo, y no se tiro nada."""
+    cliente = _falso([_salida([{
+        "hecho": "A", "que_dice": "Algo.", "por_que_te_toca": "Te toca.", "cita": CITA,
+    }], en_conjunto="")])
+    lectura = noticias.leer((ENTRADA,), {"MSFT"}, cliente=cliente)
+    assert lectura.en_conjunto == ""
+    assert lectura.conjunto_descartado is False
 
 
 def test_hecha_sin_juicios_no_es_ni_fallo_ni_sin_hechos():

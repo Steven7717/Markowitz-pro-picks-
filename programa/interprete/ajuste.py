@@ -38,6 +38,10 @@ entre corchetes. No propongas ninguna que no este ahi.
 - En «en_conjunto» escribe unicamente lo que se ve mirando la propuesta \
 entera: varias operaciones que apuntan al mismo sitio, un orden que importa. \
 Si no hay nada asi, dejalo vacio.
+- No escribas siglas en mayusculas que no sean tickers de la cartera: escribe \
+«la agencia reguladora» y no «la FDA», «el consejero delegado» y no «el CEO». \
+Una sigla en mayusculas se confunde con un ticker, y el codigo descarta el \
+parrafo entero si aparece una que no es tuya.
 - Escribe en espanol, en prosa llana, sin vinetas."""
 
 
@@ -57,6 +61,7 @@ class Comentario:
     observaciones: "tuple[tuple[str, str], ...]" = ()
     en_conjunto: str = ""
     descartadas: int = 0
+    conjunto_descartado: bool = False
 
 
 _INVISIBLES = str.maketrans("", "", "\u200b\u200c\u200d\ufeff")
@@ -73,20 +78,30 @@ def _vacio(texto: str) -> bool:
     return not texto.translate(_INVISIBLES).strip()
 
 
-def _limpiar_conjunto(texto: str, tickers: "set[str]") -> str:
+def _limpiar_conjunto(texto: str, tickers: "set[str]") -> "tuple[str, bool]":
     """Vaciar entero si lleva un digito o nombra un activo que no es tuyo.
 
     Entero y no a trozos, por la misma razon que en `noticias.py`: un parrafo al
     que se le quita una frase queda diciendo algo que nadie escribio.
+
+    Devuelve tambien **si se descarto**, porque una cadena vacia aqui es
+    ambigua: significa lo mismo que «el modelo no vio ningun patron», y son
+    cosas distintas. Un descarte silencioso es indistinguible de que no hubiera
+    nada que decir, que es justo la confusion que este programa evita en todas
+    partes.
     """
-    if _vacio(texto) or not sin_digitos(texto):
-        return ""
+    if _vacio(texto):
+        return "", False
+    if not sin_digitos(texto):
+        return "", True
     ajenos = {
         palabra.strip(".,;:()").upper()
         for palabra in texto.split()
         if palabra.strip(".,;:()").isupper() and len(palabra.strip(".,;:()")) >= 2
     }
-    return "" if ajenos - tickers else texto
+    if ajenos - tickers:
+        return "", True
+    return texto, False
 
 
 def comentar(
@@ -131,11 +146,15 @@ def comentar(
 
         con_digitos = any(not sin_digitos(o.dice) for o in validas)
         if not con_digitos:
+            en_conjunto, conjunto_descartado = _limpiar_conjunto(
+                salida.en_conjunto, tickers
+            )
             return Comentario(
                 estado=HECHO,
                 observaciones=tuple((mapa[o.sobre], o.dice) for o in validas),
-                en_conjunto=_limpiar_conjunto(salida.en_conjunto, tickers),
+                en_conjunto=en_conjunto,
                 descartadas=descartadas,
+                conjunto_descartado=conjunto_descartado,
             )
         if intento == 1:
             return Comentario(FALLO)

@@ -68,6 +68,7 @@ def test_en_conjunto_con_ticker_ajeno_se_vacia_entero():
     )])
     com = ajuste.comentar(OPERACIONES, PESOS, cliente=cliente)
     assert com.en_conjunto == ""
+    assert com.conjunto_descartado is True
     assert len(com.observaciones) == 1
 
 
@@ -109,4 +110,16 @@ def test_en_conjunto_con_digito_se_vacia_entero():
     )])
     com = ajuste.comentar(OPERACIONES, PESOS, cliente=cliente)
     assert com.en_conjunto == ""
+    assert com.conjunto_descartado is True
     assert len(com.observaciones) == 1
+
+
+def test_un_en_conjunto_vacio_no_es_un_descarte():
+    """Una cadena vacia de entrada significa «el modelo no vio ningun patron».
+    Marcarla como descartada diria que se tiro algo, y no se tiro nada."""
+    cliente = _falso([_salida(
+        [{"sobre": "A", "dice": "Pesa de mas."}], en_conjunto="",
+    )])
+    com = ajuste.comentar(OPERACIONES, PESOS, cliente=cliente)
+    assert com.en_conjunto == ""
+    assert com.conjunto_descartado is False

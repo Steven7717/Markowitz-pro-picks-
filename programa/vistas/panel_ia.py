@@ -107,6 +107,13 @@ def avisos(lectura):
             f"Se descartaron {lectura.descartados} juicios que nombraban un "
             "hecho que no se había enviado.",
         ))
+    if lectura.conjunto_descartado:
+        mensajes.append((
+            "warning",
+            "Se descartó el párrafo que relacionaba los hechos entre sí: "
+            "nombraba algo en mayúsculas que no está en tu cartera, o llevaba "
+            "una cifra. **Los juicios de arriba no están afectados.**",
+        ))
     return mensajes
 
 

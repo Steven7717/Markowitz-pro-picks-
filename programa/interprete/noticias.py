@@ -42,6 +42,10 @@ menos de doscientos.
 - En «en_conjunto» escribe unicamente lo que se ve mirando todos los hechos a \
 la vez: dos activos con el mismo problema, un patron que se repite. Si no hay \
 nada asi, dejalo vacio. Vacio es una respuesta.
+- No escribas siglas en mayusculas que no sean tickers de la cartera: escribe \
+«la agencia reguladora» y no «la FDA», «el consejero delegado» y no «el CEO». \
+Una sigla en mayusculas se confunde con un ticker, y el codigo descarta el \
+parrafo entero si aparece una que no es tuya.
 - Escribe en espanol, en prosa llana, sin vinetas."""
 
 
@@ -84,6 +88,7 @@ class Lectura:
     sin_documento: "tuple[str, ...]" = ()
     recortados: "tuple[str, ...]" = ()
     descartados: int = 0
+    conjunto_descartado: bool = False
 
 
 _INVISIBLES = str.maketrans("", "", "\u200b\u200c\u200d\ufeff")
@@ -107,25 +112,31 @@ def _prompt(bloque_hechos: str, bloque_cartera: str) -> str:
     )
 
 
-def _limpiar_conjunto(texto: str, tickers: "set[str]") -> str:
+def _limpiar_conjunto(texto: str, tickers: "set[str]") -> "tuple[str, bool]":
     """Vaciar entero si lleva un digito o nombra un activo que no es tuyo.
 
     Entero y no a trozos: un parrafo al que se le quita una frase queda
     diciendo algo que nadie escribio. Un juicio suelto si se puede tirar,
     porque los demas siguen siendo verdad por su cuenta.
+
+    Devuelve tambien **si se descarto**, porque una cadena vacia aqui es
+    ambigua: significa lo mismo que «el modelo no vio ningun patron», y son
+    cosas distintas. Un descarte silencioso es indistinguible de que no hubiera
+    nada que decir, que es justo la confusion que este programa evita en todas
+    partes.
     """
     if _vacio(texto):
-        return ""
+        return "", False
     if not sin_digitos(texto):
-        return ""
+        return "", True
     ajenos = {
         palabra.strip(".,;:()").upper()
         for palabra in texto.split()
         if palabra.strip(".,;:()").isupper() and len(palabra.strip(".,;:()")) >= 2
     }
     if ajenos - tickers:
-        return ""
-    return texto
+        return "", True
+    return texto, False
 
 
 def leer(
@@ -234,11 +245,13 @@ def _componer(validos, mapa, fuentes, en_conjunto, tickers, sin_documento,
         )
         for c in validos
     )
+    en_conjunto_limpio, conjunto_descartado = _limpiar_conjunto(en_conjunto, tickers)
     return Lectura(
         estado=HECHA,
         juicios=juicios,
-        en_conjunto=_limpiar_conjunto(en_conjunto, tickers),
+        en_conjunto=en_conjunto_limpio,
         sin_documento=sin_documento,
         recortados=recortados,
         descartados=descartados,
+        conjunto_descartado=conjunto_descartado,
     )
