@@ -321,7 +321,11 @@ st.markdown("**Lo que la aritmética no ve**")
 
 _todas = plan.con_efectivo + plan.y_ademas
 _ops = tuple(
-    (op.ticker, op.accion, (op.importe / plan.deriva.en_plan) if plan.deriva.en_plan else 0.0,
+    # `abs`: el importe de una venta es negativo, y sin esto toda venta llegaba
+    # al modelo como «vender MSFT, -30,0% de la cartera». Las tablas de arriba
+    # ya usaban `abs(o.importe)` por lo mismo; esta linea no lo copio.
+    (op.ticker, op.accion,
+     (abs(op.importe) / plan.deriva.en_plan) if plan.deriva.en_plan > 0 else 0.0,
      op.viable)
     for op in _todas
 )
