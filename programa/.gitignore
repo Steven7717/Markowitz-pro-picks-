@@ -14,3 +14,6 @@ portafolios/*.tmp
 .venv/
 salidas/
 libros/
+
+# La configuracion de arranque del navegador de Claude Code, local.
+.claude/

@@ -912,7 +912,9 @@ with noticias:
     # La excepción es el archivo ilegible: ahí no se puede ni leer ni guardar,
     # así que se pinta la lectura directamente con el aviso. Existe para que un
     # fichero roto no se lleve por delante la llamada que se acaba de pagar.
-    st.divider()
+    #
+    # Sin `st.divider()` propio: el de mas arriba ya cerraba Titulares, y dos
+    # seguidos se ven como una raya doble sin nada en medio.
     st.markdown("**Qué significan estos hechos para tu cartera**")
 
     _ruta_archivo = archivo.ruta_de(elegida.ruta)
