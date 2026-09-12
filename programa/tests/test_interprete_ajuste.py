@@ -47,11 +47,17 @@ def test_una_operacion_que_nadie_propuso_se_cae_y_se_cuenta():
     assert com.descartadas == 1
 
 
-def test_un_digito_es_fatal_tras_el_reintento():
+def test_un_digito_tira_esa_observacion_y_no_el_comentario():
+    """Antes tiraba el comentario entero, y con el las observaciones buenas y
+    la llamada ya pagada. Son observaciones independientes, no una narrativa."""
     con_numero = {"sobre": "A", "dice": "Te sobran 3 puntos."}
-    cliente = _falso([_salida([con_numero]), _salida([con_numero])])
+    limpia = {"sobre": "B", "dice": "Esta apenas corrige."}
+    cliente = _falso([_salida([con_numero, limpia]),
+                      _salida([con_numero, limpia])])
     com = ajuste.comentar(OPERACIONES, PESOS, cliente=cliente)
-    assert com.estado == ajuste.FALLO
+    assert com.estado == ajuste.HECHO
+    assert com.observaciones == (("MU", "Esta apenas corrige."),)
+    assert com.descartadas == 1
 
 
 def test_una_observacion_sin_texto_se_cae():

@@ -155,22 +155,27 @@ def comentar(
             validas.append(cruda)
 
         con_digitos = any(not sin_digitos(o.dice) for o in validas)
-        if not con_digitos:
+        # Tras el reintento, un digito tira **esa observacion**, no el
+        # comentario entero. La regla viene de `ranking/llm.py`, donde la
+        # narrativa es una unidad y un digito la invalida entera; aqui las
+        # observaciones son independientes, y tirar las buenas mas la llamada ya
+        # pagada por una mala es peor que tirar la mala. Es el mismo arreglo que
+        # `noticias.py`, que se hizo en una mitad y no en la otra.
+        if not con_digitos or intento == 1:
+            limpias = [o for o in validas if sin_digitos(o.dice)]
+            descartadas += len(validas) - len(limpias)
             en_conjunto, conjunto_descartado = _limpiar_conjunto(
                 salida.en_conjunto, tickers
             )
             return Comentario(
                 estado=HECHO,
-                observaciones=tuple((mapa[o.sobre], o.dice) for o in validas),
+                observaciones=tuple((mapa[o.sobre], o.dice) for o in limpias),
                 en_conjunto=en_conjunto,
                 descartadas=descartadas,
                 conjunto_descartado=conjunto_descartado,
                 entrada_tokens=entrada_tokens,
                 salida_tokens=salida_tokens,
             )
-        if intento == 1:
-            return Comentario(FALLO, entrada_tokens=entrada_tokens,
-                              salida_tokens=salida_tokens, problema=respuesta.problema)
 
         mensajes = mensajes + [
             {"role": "assistant", "content": salida.model_dump_json()},
