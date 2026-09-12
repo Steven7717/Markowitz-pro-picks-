@@ -13,3 +13,12 @@ portafolios/*.tmp
 .venv/
 salidas/
 libros/
+
+# La configuracion de arranque del navegador de Claude Code, local.
+.claude/
+
+# Datos personales del usuario: actas de aprobacion y portafolios guardados.
+# Se quedaron fuera de git a proposito desde el principio; van aqui para que un
+# `git add -A` despistado no se los lleve dentro.
+actas/
+portafolios/

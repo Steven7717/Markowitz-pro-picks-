@@ -18,8 +18,12 @@ import cartera
 import medidores
 import tema
 from exporter import to_excel
+from interprete import archivo
+from interprete import cliente as interprete_cliente
+from interprete import noticias as interprete_noticias
 from noticias import resumen, texto, traer
 from seguimiento import comparacion, libro as mod, panel, posiciones, precios
+from vistas import panel_ia
 
 st.markdown(
     tema.cabecera(
@@ -564,8 +568,20 @@ if abs(comp.efectivo) >= 0.005:
 # manda a anotar aqui lo que ejecutaste, y el formulario estaba debajo de una
 # tabla de once columnas dentro de un desplegable, en una pestaña que no se
 # llama como lo que ibas a hacer.
+#
+# `key` explicita y no la automatica: sin ella Streamlit genera la clave a
+# partir de los demas parametros, asi que cambiar `default` de una pasada a
+# la siguiente crearia un widget distinto y la seleccion se reiniciaria --el
+# usuario volveria a Evolucion en cuanto tocara cualquier cosa--. Con clave
+# estable, `default` es solo el valor inicial y lo que el usuario elija
+# despues manda.
+#
+# `pop` y no `get`: quien llega desde Rebalanceo aterriza una vez en
+# «Registrar»; volver por el menu no tiene por que traerte aqui.
 evolucion, por_activo, movimientos, registrar, noticias = st.tabs(
-    ["Evolución", "Por activo", "Movimientos", "Registrar", "Noticias"]
+    ["Evolución", "Por activo", "Movimientos", "Registrar", "Noticias"],
+    default=st.session_state.pop("seguimiento_pestana", None),
+    key="pestanas_seguimiento",
 )
 
 # ── Evolución ────────────────────────────────────────────────────────────────
@@ -897,6 +913,111 @@ with noticias:
             )
 
     st.divider()
+
+    # --- La interpretación -------------------------------------------------
+    #
+    # **Se pinta desde el archivo, nunca desde la `Lectura` recién hecha.** Un
+    # solo camino, y así la fecha de cada juicio vive donde pertenece --en la
+    # sesión-- en vez de tener que viajar dentro de cada `Juicio` y que dos
+    # sitios distintos sepan componerla.
+    #
+    # La excepción es el archivo ilegible: ahí no se puede ni leer ni guardar,
+    # así que se pinta la lectura directamente con el aviso. Existe para que un
+    # fichero roto no se lleve por delante la llamada que se acaba de pagar.
+    #
+    # Sin `st.divider()` propio: el de mas arriba ya cerraba Titulares, y dos
+    # seguidos se ven como una raya doble sin nada en medio.
+    st.markdown("**Qué significan estos hechos para tu cartera**")
+
+    _ruta_archivo = archivo.ruta_de(elegida.ruta)
+    try:
+        _guardado = archivo.cargar(_ruta_archivo)
+        _roto = ""
+    except archivo.ArchivoIlegible as _error:
+        _guardado = archivo.Archivo()
+        _roto = str(_error)
+
+    if _roto:
+        st.error(
+            f"{_roto}\n\nEl fichero **no se ha tocado**: sigue ahí por si "
+            "quieres recuperarlo a mano. Se puede interpretar igual, pero lo "
+            "que salga no se va a poder guardar."
+        )
+
+    _a_leer = resumen_noticias.hechos[:resumen.TOPE_HECHOS]
+    _leidas = archivo.urls_leidas(_guardado)
+    _nuevos = [h for h in _a_leer if h.url not in _leidas]
+
+    if not _a_leer:
+        st.caption(
+            "No hay hechos materiales que interpretar. No es que no se haya "
+            "mirado: se miró y no había ninguno."
+        )
+    elif not interprete_cliente.hay_clave():
+        st.info(
+            "Falta la clave de Anthropic. Se pone en **Aprobación**, y hasta "
+            "entonces todo lo demás del panel funciona igual."
+        )
+    else:
+        _etiqueta = (
+            f"Interpretar estos hechos ({len(_nuevos)} nuevos)"
+            if _nuevos else "Volver a interpretar (ninguno nuevo)"
+        )
+        st.caption(
+            f"Leer {len(_nuevos) or len(_a_leer)} documentos cuesta unos "
+            f"**{panel_ia.coste_estimado(len(_nuevos) or len(_a_leer)):.2f} $** "
+            "como mucho. Es una estimación: lo que costó de verdad se dice al "
+            "terminar."
+        )
+        if st.button(_etiqueta, icon=":material/auto_awesome:"):
+            with st.spinner("Bajando los documentos y leyéndolos…"):
+                if _nuevos:
+                    _entradas, _leidas, _sin_doc, _recortados = panel_ia.preparar(
+                        _a_leer, _guardado
+                    )
+                else:
+                    # «Volver a interpretar» con todo ya leido tiene que ser una
+                    # segunda lectura de verdad, no una relectura de resumenes:
+                    # con un Archivo() vacio no hay nada leido, y `preparar`
+                    # baja los seis documentos de nuevo en vez de reenviar lo
+                    # que el propio modelo escribio la vez anterior.
+                    _entradas, _leidas, _sin_doc, _recortados = panel_ia.preparar(
+                        _a_leer, archivo.Archivo()
+                    )
+                _pesos = tuple(
+                    (l.ticker, l.peso, l.objetivo) for l in comp.lineas
+                )
+                _lectura = interprete_noticias.leer(
+                    _entradas,
+                    {l.ticker for l in comp.lineas},
+                    sin_documento=_sin_doc,
+                    recortados=_recortados,
+                    pesos=_pesos,
+                    leidos=_leidas,
+                )
+            if _lectura.estado == interprete_noticias.HECHA and not _roto:
+                archivo.anotar_hechos(
+                    _ruta_archivo,
+                    interprete_cliente.MODELO,
+                    interprete_noticias.VERSION_PROMPT,
+                    panel_ia.anotadas(_lectura, _a_leer),
+                    _lectura.en_conjunto,
+                )
+                st.session_state["ia_avisos"] = panel_ia.avisos(_lectura)
+                st.rerun()
+            else:
+                # No se guarda y no se rerun: si se fue por `FALLO` o el archivo
+                # está roto, el `st.rerun()` se llevaría por delante el único
+                # sitio donde se puede decir qué pasó.
+                for _clase, _texto in panel_ia.avisos(_lectura):
+                    getattr(st, _clase)(_texto)
+                panel_ia.pintar_lectura(st, _lectura)
+
+    for _clase, _texto in st.session_state.pop("ia_avisos", []):
+        getattr(st, _clase)(_texto)
+
+    panel_ia.pintar_archivo(st, _guardado, _a_leer, _leidas)
+
     st.caption(
         "Esto es un resumen. El calendario de resultados y dividendos, los "
         "expedientes de trámite y el resto de la prensa están en la pantalla "

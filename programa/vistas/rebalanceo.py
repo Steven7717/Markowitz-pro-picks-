@@ -13,6 +13,9 @@ import streamlit as st
 
 import medidores
 import tema
+from interprete import ajuste, archivo
+from interprete import cliente as interprete_cliente
+from noticias import texto
 from rebalanceo import criterio, propuesta as prop
 from seguimiento import libro as mod, posiciones, precios, rendimiento
 
@@ -309,6 +312,149 @@ st.caption(
     "horquilla de compraventa, que no está registrada en ninguna parte."
 )
 
+# --- Lo que la aritmética no ve ---------------------------------------------
+#
+# Va antes de la puerta a Seguimiento a propósito: es lo último que se lee sobre
+# la propuesta, y después de leerlo es cuando tiene sentido ir a ejecutarla.
+st.divider()
+st.markdown("**Lo que la aritmética no ve**")
+
+_todas = plan.con_efectivo + plan.y_ademas
+_ops = tuple(
+    # `abs`: el importe de una venta es negativo, y sin esto toda venta llegaba
+    # al modelo como «vender MSFT, -30,0% de la cartera». Las tablas de arriba
+    # ya usaban `abs(o.importe)` por lo mismo; esta linea no lo copio.
+    (op.ticker, op.accion,
+     (abs(op.importe) / plan.deriva.en_plan) if plan.deriva.en_plan > 0 else 0.0,
+     op.viable)
+    for op in _todas
+)
+_pesos_ia = tuple(
+    (d.ticker, d.peso_real, d.peso_objetivo) for d in plan.deriva.lineas
+)
+_ruta_ia = archivo.ruta_de(elegida.ruta)
+try:
+    _guardado_ia = archivo.cargar(_ruta_ia)
+    _roto_ia = ""
+except archivo.ArchivoIlegible as _error_ia:
+    _guardado_ia = archivo.Archivo()
+    _roto_ia = str(_error_ia)
+
+if _roto_ia:
+    st.error(
+        f"{_roto_ia}\n\nEl fichero **no se ha tocado**. Se puede comentar "
+        "igual, pero lo que salga no se va a poder guardar."
+    )
+
+for _clase, _texto in st.session_state.pop("ajuste_avisos", []):
+    getattr(st, _clase)(_texto)
+
+if not _ops:
+    st.caption("No hay ninguna operación que comentar: la propuesta está vacía.")
+elif not interprete_cliente.hay_clave():
+    st.info(
+        "Falta la clave de Anthropic. Se pone en **Aprobación**, y la propuesta "
+        "de arriba funciona igual sin ella."
+    )
+else:
+    st.caption(
+        "Comentar la propuesta cuesta menos de **0,01 $**: aquí no se manda "
+        "ningún documento, sólo los pesos y las operaciones. Lo que costó de "
+        "verdad se dice al terminar."
+    )
+    if st.button("¿Qué se le escapa a la aritmética?", icon=":material/auto_awesome:"):
+        with st.spinner("Mirando la propuesta…"):
+            _com = ajuste.comentar(_ops, _pesos_ia)
+        if _com.estado == ajuste.HECHO and not _roto_ia:
+            archivo.anotar_rebalanceo(
+                _ruta_ia,
+                interprete_cliente.MODELO,
+                ajuste.VERSION_PROMPT,
+                archivo.Foto(
+                    pesos_reales=tuple((d.ticker, d.peso_real) for d in plan.deriva.lineas),
+                    pesos_objetivo=tuple((d.ticker, d.peso_objetivo) for d in plan.deriva.lineas),
+                    operaciones=tuple((t, a, p) for t, a, p, _v in _ops),
+                ),
+                _com.observaciones,
+                _com.en_conjunto,
+            )
+            _avisos_aj = [("success", "Comentado y guardado.")]
+            if not _com.observaciones and not _com.en_conjunto:
+                _avisos_aj = [(
+                    "warning",
+                    "Se miró la propuesta y **no salió nada que decir**. No es un "
+                    "fallo: la llamada fue bien y no había nada que añadir a la "
+                    "aritmética.",
+                )]
+            if _com.descartadas:
+                _avisos_aj.append((
+                    "warning",
+                    f"Se descartaron {_com.descartadas} observaciones que nombraban "
+                    "una operación que no estaba en la propuesta.",
+                ))
+            if _com.conjunto_descartado:
+                _avisos_aj.append((
+                    "warning",
+                    "Se descartó el párrafo de conjunto: nombraba algo en mayúsculas "
+                    "que no está en tu cartera, o llevaba una cifra.",
+                ))
+            if _com.entrada_tokens or _com.salida_tokens:
+                _coste_aj = interprete_cliente.coste(_com.entrada_tokens, _com.salida_tokens)
+                _avisos_aj.append((
+                    "info",
+                    f"Este comentario costó **{_coste_aj:.3f} $** "
+                    f"({_com.entrada_tokens:,} tokens de entrada y "
+                    f"{_com.salida_tokens:,} de salida, a la tarifa de "
+                    f"{interprete_cliente.MODELO}).",
+                ))
+            st.session_state["ajuste_avisos"] = _avisos_aj
+            st.rerun()
+        else:
+            for _sobre, _dice in _com.observaciones:
+                st.markdown(f"**{texto.plano(_sobre)}** — {texto.plano(_dice)}")
+            if _com.estado == ajuste.FALLO:
+                st.error(
+                    "No se pudo comentar: "
+                    + (_com.problema or "la llamada no devolvió nada utilizable")
+                    + ". **No se ha guardado nada.**"
+                )
+            if _com.entrada_tokens or _com.salida_tokens:
+                _coste_aj = interprete_cliente.coste(_com.entrada_tokens, _com.salida_tokens)
+                st.info(
+                    f"Este comentario costó **{_coste_aj:.3f} $** "
+                    f"({_com.entrada_tokens:,} tokens de entrada y "
+                    f"{_com.salida_tokens:,} de salida, a la tarifa de "
+                    f"{interprete_cliente.MODELO})."
+                )
+
+# Los anteriores van plegados y fechados, con su foto. **Nunca junto a la
+# propuesta de hoy**: hablan de una deriva que ya no es la que tienes delante, y
+# pintarlos como si aplicaran sería mezclar dos cortes temporales — el defecto
+# que en F dio una GANANCIA −9.700.
+if _guardado_ia.rebalanceo:
+    with st.expander(f"Comentarios anteriores ({len(_guardado_ia.rebalanceo)})"):
+        st.caption(
+            "Cada uno habla de la deriva que había **ese día**, no de la de "
+            "ahora. Por eso viene con la foto de lo que comentaba."
+        )
+        for _com_v in reversed(_guardado_ia.rebalanceo):
+            st.markdown(f"**{_com_v.cuando:%d/%m/%Y a las %H:%M}**")
+            for _sobre, _dice in _com_v.observaciones:
+                st.markdown(f"- **{texto.plano(_sobre)}** — {texto.plano(_dice)}")
+            if _com_v.en_conjunto:
+                st.markdown(texto.plano(_com_v.en_conjunto))
+            st.caption(
+                "Pesos de entonces: "
+                + ", ".join(f"{t} {p:.1%}" for t, p in _com_v.foto.pesos_reales)
+                + (" · objetivo: " + ", ".join(
+                    f"{t} {p:.1%}" for t, p in _com_v.foto.pesos_objetivo)
+                   if _com_v.foto.pesos_objetivo else "")
+                + (" · operaciones: " + ", ".join(
+                    f"{a} {t}" for t, a, _p in _com_v.foto.operaciones)
+                   if _com_v.foto.operaciones else "")
+            )
+            st.divider()
+
 # --- Y la puerta a donde esto se convierte en un hecho -----------------------
 #
 # La cabecera lleva desde siempre «lo que ejecutes lo anotas en Seguimiento», y
@@ -327,4 +473,8 @@ izq.markdown(
 )
 if der.button("Anotar lo que ejecuté", icon=":material/edit_note:",
               use_container_width=True):
+    # Y se deja dicho a que pestana, porque `switch_page` aterriza en la
+    # primera y el formulario esta tres mas alla. Llevar a la pantalla y
+    # dejar al usuario buscando es el mismo defecto a medias.
+    st.session_state["seguimiento_pestana"] = "Registrar"
     st.switch_page("vistas/seguimiento.py")

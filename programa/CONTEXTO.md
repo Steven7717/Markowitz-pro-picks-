@@ -1,7 +1,7 @@
 # Contexto del proyecto — para retomar en una sesión nueva
 
 **Última actualización:** 2026-09-09
-**Rama:** `master` · **Tests:** 1.136 pasando (`uv run pytest tests/ -q -m "not red"`), 4 omitidos —dos por permisos POSIX en Windows y dos sin `numpy_financial`— más 8 marcados `red`
+**Rama:** `master` · **Tests:** 1.222 pasando (`uv run pytest tests/ -q -m "not red"`), 4 omitidos —dos por permisos POSIX en Windows y dos sin `numpy_financial`— más 9 marcados `red`
 **Remoto:** `https://github.com/Steven7717/Markowitz-pro-picks-.git` — `master` es lo publicado
 **Estructura:** el programa vive en `programa/`; en la raíz sólo están los dos
 lanzadores y el `README.md`. Los comandos (`uv run pytest`, `uv run streamlit`)
@@ -33,7 +33,7 @@ El objetivo mayor es construir, **aguas arriba de esa app**, un sistema donde un
 | F | Libro de posiciones y seguimiento | Valoración, rendimiento y referencias | ✅ **terminado** |
 | G | Rebalanceo y aportaciones | Medidores de deriva, reparto de la aportación | ✅ **terminado** |
 | H | Noticias y calendario | Feed de EDGAR, prensa, eventos | ✅ **terminado** |
-| I | Capa de IA sobre F, G y H | Interpretación y propuestas de ajuste | ⬜ pendiente |
+| I | Capa de IA sobre F, G y H | Interpretación y propuestas de ajuste | ✅ **terminado** |
 | J | La entrada al seguimiento | Recorrido encadenado y alta del libro | ✅ **terminado** |
 | K | El panel de seguimiento | Monitor real de la cartera | ✅ **terminado** |
 
@@ -1120,17 +1120,174 @@ distingue «no hay» de «no lo hemos mirado».
 - **`tests/test_apagado.py::test_detener_espera_antes_de_forzar` sigue
   inestable.** Compara un tiempo medido contra un umbral fijo de 0,2 s.
 
+## Resultado del sub-proyecto I
+
+Paquete `interprete/` (lógica, sin Streamlit) y `vistas/panel_ia.py` (widgets),
+con **83 tests nuevos** —82 normales y 1 marcado `red`—. Fuera del paquete
+cambian dos cosas: `vistas/seguimiento.py` gana el bloque de interpretación en
+su pestaña «Noticias» y `vistas/rebalanceo.py` el botón y el historial.
+**Ninguna dependencia nueva:**
+`anthropic` y `edgartools` ya estaban.
+
+Seis módulos: `contexto` es la frontera de privacidad, `documentos` lo único que
+toca EDGAR, `cliente` lo único que toca Anthropic, `noticias` y `ajuste` las dos
+mitades con sus guardarraíles, y `archivo` el registro permanente.
+
+### Las dos mitades no tienen la misma verdad, y por eso no llevan el mismo guardarraíl
+
+Es la decisión de la que cuelga todo lo demás.
+
+**Un juicio sobre un 8-K tiene verdad contrastable:** se ancla a una frase que
+existe o no existe en el documento, y `ranking/verificacion.py` lo comprueba
+carácter a carácter. Lo que falle sale **marcado**, no escondido.
+
+**Un comentario sobre la deriva no la tiene:** no hay texto que citar, y su
+única materia prima son números que puso el código. Así que el guardarraíl es
+otro: cada observación va dirigida a una **letra**, y las letras son exactamente
+las operaciones que G propuso. Si propuso tres, la `D` no existe. Eso convierte
+«no puede inventarse una operación» en pertenencia a un conjunto — comprobable
+sin criterio.
+
+### Decisiones que no hay que relitigar
+
+- **El modelo explica y señala qué revisar; no propone operaciones propias.** G
+  ya propone operaciones, pero las saca por aritmética de los pesos objetivo que
+  fijó el usuario: es su plan ejecutado, no una opinión sobre qué debería tener.
+- **El modelo no ve un euro, y la garantía es la firma y no un filtro.** Ninguna
+  función de `contexto.py` admite un parámetro que sea un importe, y hay un test
+  que recorre las firmas con `inspect.signature` y lo afirma. Por eso `cartera()`
+  recibe tripletas `(ticker, peso, objetivo)` y **no** `panel.Linea`, que tiene
+  esos tres campos **más `valor`**. Un filtro se rodea añadiendo un campo; una
+  firma que no los admite, no.
+- **Las etiquetas `A`, `B`, `C`… no son un capricho.** Hacen dos cosas a la vez:
+  mantienen la regla de «cero dígitos» de B —si el modelo dijera «el hecho dos»
+  habría que abrirle la puerta a los números justo donde más caro sale— y
+  convierten la pertenencia en comprobable. El código imprime después el ticker,
+  la fecha, los códigos de item y el enlace; el modelo no escribe ninguno.
+- **Nunca se llama sin botón.** Misma regla que K. Un panel que llama a un modelo
+  al abrirse es un panel que cuesta dinero por mirarlo.
+- **Se lee exactamente lo que hay en pantalla**, `TOPE_HECHOS` importado de
+  `noticias/resumen.py` y no recopiado. No es sólo presupuesto: es que la IA lee
+  **lo mismo que el usuario**, así que no puede comentar algo que no tiene
+  delante ni callar sobre algo que sí.
+- **`verificacion.py` no se amplía.** Su tabla tipográfica no cubre `…` ni `•`,
+  que los anexos sí traen, pero tocarla cambiaría el comportamiento de B, que
+  está en producción. El reintento absorbe el caso.
+- **Un archivo ilegible NO se trata como vacío**, al revés que una caché.
+  `cache.leer` borra el fichero roto y sigue —lo perdido es una llamada que se
+  repite—; `archivo.cargar` levanta `ArchivoIlegible` y **no toca el fichero**,
+  porque lo perdido es historial. Los dos módulos hacen algo parecido y su
+  comportamiento ante lo mismo es opuesto, a propósito.
+- **El archivo va en `libros/interpretaciones/`, no en `libros/`.**
+  `libro.listar()` hace `glob("*.json")` sobre esa carpeta y valida lo que
+  encuentre: un archivo ahí dentro aparecería como **un libro ilegible**, que es
+  el defecto que H pagó. `Path.glob` no recorre subcarpetas, y hay un test que lo
+  afirma.
+- **El archivo es append-only**, como el libro. Volver a interpretar añade una
+  sesión; un juicio es una opinión fechada y reescribirla borraría que cambió.
+  Misma forma que `Libro.objetivos`.
+- **`en_conjunto` se vacía entero, nunca a trozos.** Un párrafo al que se le
+  quita una frase queda diciendo algo que nadie escribió. Un juicio suelto sí se
+  tira, porque los demás siguen siendo verdad por su cuenta.
+- **Un juicio recuperado del archivo conserva su `verificada` y no se
+  re-verifica.** El documento ya no se envía, y verificar contra un texto que no
+  está delante sería afirmar algo que no se ha comprobado.
+
+### Lo que se sondeó antes de escribir el spec
+
+Cinco medidas contra EDGAR vivo, y dos tumbaron cosas que el diseño iba a decir
+mal:
+
+| Qué se midió | Qué salió |
+|---|---|
+| Qué trae un `Hecho` | **Ni una palabra de la empresa.** Sus `descripciones` son etiquetas del propio programa. Interpretar eso sólo podía repetir la etiqueta o inventarse el expediente |
+| Dónde está la noticia | **No en el cuerpo.** El 2.02 de MSFT son 3.579 caracteres de carátula y una frase de reenvío; el `EX-99.1` son 52.823 con la nota de prensa entera. 13 de 17 materiales traen anexo; los 4 que no son `5.02` |
+| Si el cuerpo se puede recortar | Sí, entre `Item N.NN` y `SIGNATURE`: de 25% a 80% menos. **MSFT usa espacio fino U+2009**, así que un literal `"Item "` se lo salta |
+| Si el texto trae caracteres rotos | **No hay `U+FFFD`.** Los interrogantes eran la consola de Windows. Sin eso el guardarraíl de la cita no sería viable |
+| Cuántos materiales hay de verdad | `VENTANA` son **550 días**, no treinta: ~134 materiales con doce activos, cerca de un millón de tokens. De ahí que el presupuesto sea una decisión de diseño |
+
+### Dieciséis defectos, y una lección nueva sobre el método
+
+Todos menos uno estaban en el spec o el plan, no en quien implementó. Y el
+detector más productivo no fue ninguno de los tres conocidos:
+
+**El sabotaje inerte, que en H era una advertencia, en I fue la mejor
+herramienta — y nunca encontró lo que se buscaba.** Cuatro veces un sabotaje no
+tumbó nada, y las cuatro la causa fue distinta, y ninguna era «la guarda está
+sin proteger»:
+
+| Sabotaje inerte | Lo que había detrás |
+|---|---|
+| El espacio fino de `_ITEM` | La transcripción se había **comido el carácter invisible**, y el test comparaba una cadena consigo misma |
+| La guarda de `EDGAR_IDENTITY` | El test afirmaba por subcadena sobre el mensaje de **su propio doble**, que contenía la cadena buscada. Pasaba con guarda y sin ella |
+| Los dígitos de `ajuste._limpiar_conjunto` | El sabotaje apuntaba a una guarda y el único test que había dependía de otra. Detrás: **no existía el test de dígitos**, que su gemelo `noticias.py` sí tenía |
+| El bucle de claves de `archivo.cargar` | Sin él, `crudo["hechos"]` lanza `KeyError` y el `except` lo convierte igual. **La guarda no aporta el rechazo, aporta el mensaje** — y los tests sólo miraban el tipo |
+
+**La regla que queda: un sabotaje inerte no es un resultado, es una pregunta. Y
+la respuesta casi nunca es la que se esperaba.**
+
+**Los defectos que sólo aparecieron mirando datos reales:**
+
+| Defecto | Qué pasaba |
+|---|---|
+| Un anexo en **PDF** tiraba el anexo bueno de al lado | `adjunto.text()` devuelve `None` para lo que no es texto, el `join` reventaba y el `except` lo reportaba **como si hubiera fallado la SEC**. Reproducido con Axos Financial: 15.210 caracteres buenos descartados |
+| `aplicar_tope` cortaba a mitad de palabra | Una cita legítima que cruzara el corte se habría rechazado **por el corte y no por invención** |
+| **El arreglo del anterior era peor que el defecto** | Retrocedía al último salto de párrafo estuviera donde estuviera; con el `EX-99.1` de MSFT eso tiraba **veinticinco mil caracteres** para salvar una palabra. Lo cazó el test `red` |
+| `_pct` redondeaba a entero | 4,3% y 4,4% se leían los dos como «4%», y un 0,4% como «0%»: el modelo podía concluir que esa posición no existe |
+| **`bool("false")` es `True`** | Un fichero editado a mano convertía una cita **sin respaldo** en una respaldada — al revés de lo único que ese campo significa, y sin poder re-verificar porque el documento ya no está delante |
+| `tuple("4.02")` daba `('4','.','0','2')` | Cuatro items que nadie presentó |
+| `{}` se aceptaba como archivo vacío | Indistinguible de «nadie ha interpretado este libro», que es la confusión que el módulo existe para evitar |
+
+**Los huecos de cobertura, que no eran defectos pero lo habrían sido:**
+`juicio_guardado` sin ningún test; `anotar_rebalanceo` sin prueba de
+append-only mientras su mitad gemela sí la tenía; la rama `viable=True` de
+`contexto.operaciones` sin cubrir.
+
+**Y una lección que es sobre quien escribió esto, no sobre el método:** tres
+veces se dijo «arreglado» sin medir el resultado. Los caracteres de ancho cero
+se «escaparon» dos veces sin escaparse —una barra invertida donde hacían falta
+dos, con un comentario encima afirmando lo contrario de lo que el código
+hacía— y un comentario que existía para señalar un carácter invisible lo
+llevaba dentro, donde no se ve. **Decir que algo está arreglado sin medirlo es
+no haberlo arreglado.**
+
+### Lo que I no resuelve
+
+- **No propone operaciones propias.** Es la decisión, no una carencia.
+- **No lee más de lo que se ve, y el archivo sólo cubre hacia delante.** Un
+  `4.02` de hace ocho meses no entra hoy y tampoco está guardado: el archivo
+  empieza vacío el día que se estrena y acumula desde ahí. Rellenarlo pediría los
+  ~134 materiales de la ventana de H, cerca de un millón de tokens.
+- **No hay botón de «vuelve a leer éste».** El modelo de datos lo admite —es
+  append-only— y la pantalla no lo ofrece.
+- **El archivo no se respalda.** Vive bajo `libros/`, que está en `.gitignore`
+  por ser dato personal.
+- **No deduplica la prensa.** Sigue siendo deuda declarada de H.
+- **No interpreta el calendario.** `Evento` no entra: H da punteros, no fechas.
+- **No hay caché de llamadas.** Se escribió un `interprete/cache.py` y resultó
+  que **no lo importaba nadie** — la autorrevisión del plan llegó a afirmar que
+  «sólo lo usa `ajuste.py`», y `ajuste.py` no lo importaba. Se borró: en la mitad
+  de hechos el archivo ya evita la llamada, y en la de rebalanceo una caché
+  impediría pedir una segunda opinión sobre la misma propuesta. Pulsar dos veces
+  sin nada nuevo cuesta dos veces, y el botón lo avisa en su etiqueta.
+- **Los dos caminos que llaman al modelo no se han recorrido en pantalla.** Se
+  verificó todo lo demás con la app arrancada —la cuenta de nuevos, lo guardado
+  pintándose sin pulsar, las dos marcas de respaldo, el archivo roto avisando y
+  sobreviviendo—, pero pulsar el botón gasta saldo y se dejó al dueño de la clave.
+
 ## Lo siguiente
 
 El sistema está completo de punta a punta: A ingiere, B ordena y razona, C
-decide, el optimizador reparte pesos, **F sigue lo que se compró de verdad**
-y **G dice cuándo hace falta corregir el rumbo y qué cuesta**.
+decide, el optimizador reparte pesos, **F sigue lo que se compró de verdad**,
+**G dice cuándo hace falta corregir el rumbo y qué cuesta**, H trae las
+noticias e **I las interpreta**.
 
-Lo que queda del encargo original es **I — la capa de IA** sobre F, G y H:
-interpretación de las noticias y propuestas de ajuste, con la clave de
-Anthropic que el sub-proyecto B ya usa. No tiene diseño escrito. Hereda de
-H las tres estructuras `Noticia`, `Hecho` y `Evento`, deliberadamente sin
-ningún juicio aplicado.
+**El encargo original está entregado entero.** Lo que queda son mejoras, no
+piezas que falten.
+
+Lo único de I sin recorrer en pantalla son los dos caminos que llaman al
+modelo: se verificó todo lo demás con la app arrancada, pero pulsar el botón
+gasta saldo y se dejó al dueño de la clave.
 
 El rediseño de la interfaz, que era el punto 1 de esta lista, se hizo el
 2026-09-01 — ver la sección anterior. El arranque en Mac, que fue el punto 1
@@ -1163,7 +1320,7 @@ Sigue sin responder: **¿cuántas acciones debería tener el portafolio final?**
 
 ```bash
 # Todos estos se ejecutan desde programa/, no desde la raiz del repo.
-pytest tests/ -q -m "not red"       # 1.136 tests, sin red
+pytest tests/ -q -m "not red"       # 1.222 tests, sin red
 python -m research.run              # correr el estudio (~5 min, luego caché)
 streamlit run app.py                # la app: optimizador + pagina de revision
 python scripts/bootstrap_universe.py   # regenerar el snapshot del universo
