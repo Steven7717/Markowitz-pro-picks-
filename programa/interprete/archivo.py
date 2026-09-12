@@ -130,13 +130,50 @@ def cargar(ruta: Path) -> Archivo:
         raise ArchivoIlegible(f"No se pudo leer {ruta}: {error}") from error
     if not isinstance(crudo, dict):
         raise ArchivoIlegible(f"{ruta} no contiene un objeto JSON.")
+    # Las dos claves tienen que estar. `_escribir` siempre escribe las dos, asi
+    # que un fichero sin alguna no lo escribio este programa -- y aceptarlo como
+    # archivo vacio seria indistinguible de «nadie ha interpretado este libro»,
+    # que es justo la confusion que este modulo existe para evitar.
+    for clave in ("hechos", "rebalanceo"):
+        if clave not in crudo:
+            raise ArchivoIlegible(f"A {ruta.name} le falta la clave '{clave}'.")
+        if not isinstance(crudo[clave], list):
+            raise ArchivoIlegible(f"{ruta.name}: '{clave}' no es una lista.")
     try:
         return Archivo(
-            hechos=tuple(_sesion(s) for s in crudo.get("hechos", [])),
-            rebalanceo=tuple(_comentada(c) for c in crudo.get("rebalanceo", [])),
+            hechos=tuple(_sesion(s) for s in crudo["hechos"]),
+            rebalanceo=tuple(_comentada(c) for c in crudo["rebalanceo"]),
         )
     except (KeyError, TypeError, ValueError) as error:
         raise ArchivoIlegible(f"{ruta} tiene una forma que no se reconoce: {error}") from error
+
+
+def _booleano(valor: object) -> bool:
+    """Un booleano de verdad, no lo que `bool()` opine de el.
+
+    `bool("false")` es `True`, porque toda cadena no vacia lo es. Con un fichero
+    editado a mano --o escrito por otra version-- eso convierte una cita **sin
+    respaldo** en una cita respaldada, que es exactamente al reves de lo unico
+    que este campo significa. Y no se puede re-verificar al leer: el documento
+    ya no esta delante.
+
+    Asi que no se convierte: se exige. Un `verificada` que no es booleano es un
+    fichero corrupto, y corrupto aqui se dice en vez de arreglarse adivinando.
+    """
+    if not isinstance(valor, bool):
+        raise ValueError(f"'verificada' no es un booleano: {valor!r}")
+    return valor
+
+
+def _lista_de_textos(valor: object, campo: str) -> "tuple[str, ...]":
+    """`tuple("4.02")` da `('4', '.', '0', '2')` y no se queja.
+
+    Un campo que venga como cadena en vez de como lista entra asi en silencio y
+    despues sale en pantalla convertido en cuatro items que nadie presento.
+    """
+    if not isinstance(valor, list) or not all(isinstance(v, str) for v in valor):
+        raise ValueError(f"'{campo}' no es una lista de textos: {valor!r}")
+    return tuple(valor)
 
 
 def _sesion(crudo: dict) -> Sesion:
@@ -150,13 +187,13 @@ def _sesion(crudo: dict) -> Sesion:
                 url=j["url"],
                 ticker=j["ticker"],
                 hecho_cuando=date.fromisoformat(j["hecho_cuando"]),
-                tipos=tuple(j["tipos"]),
+                tipos=_lista_de_textos(j["tipos"], "tipos"),
                 juicio=noticias.Juicio(
                     ticker=j["ticker"],
                     que_dice=j["que_dice"],
                     por_que_te_toca=j["por_que_te_toca"],
                     cita=j["cita"],
-                    verificada=bool(j["verificada"]),
+                    verificada=_booleano(j["verificada"]),
                 ),
             )
             for j in crudo["juicios"]
@@ -267,7 +304,14 @@ def anotar_hechos(
     ruta: Path, modelo: str, version: str, juicios: "tuple[Anotada, ...]",
     en_conjunto: str,
 ) -> None:
-    """Anadir una sesion de lectura. Nunca pisa la anterior."""
+    """Anadir una sesion de lectura. Nunca pisa la anterior.
+
+    **Levanta `ArchivoIlegible` si el fichero existe y no se puede leer**, por
+    la misma razon que `cargar`: escribir encima de un archivo que no se ha
+    podido leer perderia el historial que hay dentro. Quien llame tiene que
+    decidir que hacer -- la pantalla avisa y sigue interpretando, pero dice que
+    lo que salga no se va a poder guardar.
+    """
     guardado = cargar(ruta)
     sesion = Sesion(datetime.now(), modelo, version, tuple(juicios), en_conjunto)
     _escribir(ruta, Archivo(guardado.hechos + (sesion,), guardado.rebalanceo))
@@ -277,7 +321,11 @@ def anotar_rebalanceo(
     ruta: Path, modelo: str, version: str, foto: Foto,
     observaciones: "tuple[tuple[str, str], ...]", en_conjunto: str,
 ) -> None:
-    """Anadir un comentario de rebalanceo, con la foto del estado que comentaba."""
+    """Anadir un comentario de rebalanceo, con la foto del estado que comentaba.
+
+    **Levanta `ArchivoIlegible` en el mismo caso que `anotar_hechos`**, y por la
+    misma razon.
+    """
     guardado = cargar(ruta)
     comentada = Comentada(
         datetime.now(), modelo, version, foto, tuple(observaciones), en_conjunto

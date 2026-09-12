@@ -185,3 +185,82 @@ def test_una_cita_sin_respaldo_sigue_sin_respaldo_al_releerla(tmp_path):
     archivo.anotar_hechos(ruta, "m", "i1", (sin_respaldo,), "")
     recuperado = archivo.juicio_guardado(archivo.cargar(ruta), URL_A)
     assert recuperado.juicio.verificada is False
+
+
+def test_un_objeto_sin_las_claves_no_es_un_archivo_vacio(tmp_path):
+    """Aceptar `{}` como archivo vacio es indistinguible de «nadie ha
+    interpretado este libro», que es la confusion que este modulo evita."""
+    ruta = tmp_path / "x.json"
+    ruta.write_text("{}", encoding="utf-8")
+    # `match` y no solo el tipo: sin el bucle de claves, `crudo["hechos"]`
+    # lanza KeyError y el `except` lo convierte igual en ArchivoIlegible, asi
+    # que comprobar solo el tipo deja la guarda sin proteger -- comprobado.
+    with pytest.raises(archivo.ArchivoIlegible, match="falta la clave"):
+        archivo.cargar(ruta)
+
+
+def test_una_clave_que_no_es_lista_se_rechaza(tmp_path):
+    ruta = tmp_path / "x.json"
+    ruta.write_text('{"hechos": "no soy una lista", "rebalanceo": []}',
+                    encoding="utf-8")
+    with pytest.raises(archivo.ArchivoIlegible, match="no es una lista"):
+        archivo.cargar(ruta)
+
+
+def _crudo_con(juicio: dict) -> str:
+    import json
+    return json.dumps({
+        "hechos": [{
+            "cuando": "2026-09-11T10:00:00", "modelo": "m", "version": "i1",
+            "en_conjunto": "", "juicios": [juicio],
+        }],
+        "rebalanceo": [],
+    })
+
+
+_JUICIO_SANO = {
+    "url": URL_A, "ticker": "MSFT", "hecho_cuando": "2026-09-03",
+    "tipos": ["4.02"], "que_dice": "x", "por_que_te_toca": "y",
+    "cita": "z", "verificada": False,
+}
+
+
+def test_el_juicio_sano_si_se_lee(tmp_path):
+    """La otra mitad: sin esto, rechazar TODO pasaria los tres tests de abajo."""
+    ruta = tmp_path / "x.json"
+    ruta.write_text(_crudo_con(dict(_JUICIO_SANO)), encoding="utf-8")
+    guardado = archivo.cargar(ruta)
+    assert guardado.hechos[0].juicios[0].juicio.verificada is False
+
+
+def test_verificada_que_no_es_booleano_se_rechaza(tmp_path):
+    """`bool("false")` es True: un fichero editado a mano convertiria una cita
+    sin respaldo en una respaldada, y al leer ya no se puede re-verificar."""
+    ruta = tmp_path / "x.json"
+    ruta.write_text(_crudo_con(dict(_JUICIO_SANO, verificada="false")),
+                    encoding="utf-8")
+    with pytest.raises(archivo.ArchivoIlegible):
+        archivo.cargar(ruta)
+
+
+def test_tipos_que_no_es_lista_se_rechaza(tmp_path):
+    """`tuple("4.02")` da cuatro items que nadie presento."""
+    ruta = tmp_path / "x.json"
+    ruta.write_text(_crudo_con(dict(_JUICIO_SANO, tipos="4.02")),
+                    encoding="utf-8")
+    with pytest.raises(archivo.ArchivoIlegible):
+        archivo.cargar(ruta)
+
+
+def test_anotar_rebalanceo_tambien_anade_y_no_pisa(tmp_path):
+    """La mitad de hechos ya tenia esta prueba; la de rebalanceo no, y se podia
+    sabotear para que pisara sin que nada cayera."""
+    ruta = tmp_path / "x.json"
+    foto = archivo.Foto((), (), ())
+    archivo.anotar_rebalanceo(ruta, "m", "i1", foto, (("MSFT", "primera"),), "")
+    archivo.anotar_rebalanceo(ruta, "m", "i1", foto, (("MSFT", "segunda"),), "")
+    guardado = archivo.cargar(ruta)
+    assert len(guardado.rebalanceo) == 2
+    assert [c.observaciones[0][1] for c in guardado.rebalanceo] == [
+        "primera", "segunda"
+    ]
