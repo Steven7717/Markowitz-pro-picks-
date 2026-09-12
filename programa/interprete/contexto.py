@@ -109,6 +109,29 @@ def operaciones(
     return "\n".join(filas), mapa
 
 
+def leidos(entradas: "tuple[tuple[str, object, tuple, tuple, str], ...]") -> str:
+    """Lo ya interpretado en sesiones anteriores, **sin etiqueta**.
+
+    Va al prompt para que el parrafo de conjunto vea el cuadro completo, y no
+    para que se escriba un juicio nuevo sobre ello. Por eso no lleva letra: sin
+    letra no hay a que apuntar, y la guarda que ya existe --una etiqueta que no
+    esta en el mapa tira el juicio-- protege esto sola.
+
+    Importa mas de lo que parece. Lo que se manda de un hecho ya leido es el
+    `que_dice` que escribio el propio modelo, no el documento. Si tuviera letra,
+    un juicio nuevo podria **citar ese resumen** y `verificar_cita` lo daria por
+    bueno, porque la fuente contra la que compara seria ese mismo texto. La
+    pantalla lo rotularia «Cita literal del documento» y no lo seria.
+    """
+    if not entradas:
+        return ""
+    filas = [
+        f"- {ticker} ({', '.join(descripciones) or ', '.join(tipos)}, {cuando}): {texto}"
+        for ticker, cuando, tipos, descripciones, texto in entradas
+    ]
+    return "\n".join(filas)
+
+
 def hechos(
     entradas: "tuple[tuple[str, object, tuple, tuple, str], ...]",
 ) -> "tuple[str, dict[str, str]]":

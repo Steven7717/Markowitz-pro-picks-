@@ -953,9 +953,19 @@ with noticias:
         )
         if st.button(_etiqueta, icon=":material/auto_awesome:"):
             with st.spinner("Bajando los documentos y leyéndolos…"):
-                _entradas, _sin_doc, _recortados = panel_ia.preparar(
-                    _a_leer, _guardado
-                )
+                if _nuevos:
+                    _entradas, _leidas, _sin_doc, _recortados = panel_ia.preparar(
+                        _a_leer, _guardado
+                    )
+                else:
+                    # «Volver a interpretar» con todo ya leido tiene que ser una
+                    # segunda lectura de verdad, no una relectura de resumenes:
+                    # con un Archivo() vacio no hay nada leido, y `preparar`
+                    # baja los seis documentos de nuevo en vez de reenviar lo
+                    # que el propio modelo escribio la vez anterior.
+                    _entradas, _leidas, _sin_doc, _recortados = panel_ia.preparar(
+                        _a_leer, archivo.Archivo()
+                    )
                 _pesos = tuple(
                     (l.ticker, l.peso, l.objetivo) for l in comp.lineas
                 )
@@ -965,6 +975,7 @@ with noticias:
                     sin_documento=_sin_doc,
                     recortados=_recortados,
                     pesos=_pesos,
+                    leidos=_leidas,
                 )
             if _lectura.estado == interprete_noticias.HECHA and not _roto:
                 archivo.anotar_hechos(

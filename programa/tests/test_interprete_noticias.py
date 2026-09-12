@@ -190,6 +190,29 @@ def test_un_en_conjunto_vacio_no_es_un_descarte():
     assert lectura.conjunto_descartado is False
 
 
+def test_un_juicio_sobre_un_hecho_solo_leido_se_cae():
+    """Los ya leidos van sin etiqueta a proposito: lo que se manda de ellos es
+    el resumen que escribio el propio modelo, no el documento. Con etiqueta, un
+    juicio nuevo podria citar ese resumen y `verificar_cita` lo daria por bueno.
+    Sin etiqueta, la guarda que ya existe lo tira."""
+    leido = (
+        "TSLA", date(2026, 8, 1), ("8-K",), ("Resultados",),
+        "Resumen previo del hecho de TSLA.",
+    )
+    cliente = _falso([_salida([
+        {"hecho": "A", "que_dice": "La empresa dice que sus cuentas no valen.",
+         "por_que_te_toca": "Es una de tus posiciones grandes.", "cita": CITA},
+        {"hecho": "B", "que_dice": "Cita el resumen anterior.",
+         "por_que_te_toca": "Te toca.", "cita": "Resumen previo del hecho de TSLA."},
+    ])])
+    lectura = noticias.leer(
+        (ENTRADA,), {"MSFT", "TSLA"}, cliente=cliente, leidos=(leido,)
+    )
+    assert len(lectura.juicios) == 1
+    assert lectura.juicios[0].ticker == "MSFT"
+    assert lectura.descartados == 1
+
+
 def test_hecha_sin_juicios_no_es_ni_fallo_ni_sin_hechos():
     """El quinto caso: se miro, se pago la llamada, y no salio nada que decir.
     La pantalla tiene que poder decirlo con esas palabras."""

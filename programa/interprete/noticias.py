@@ -103,13 +103,21 @@ def _vacio(texto: str) -> bool:
     return not texto.translate(_INVISIBLES).strip()
 
 
-def _prompt(bloque_hechos: str, bloque_cartera: str) -> str:
-    return (
-        f"Tu cartera:\n{bloque_cartera}\n\n"
-        f"Hechos a interpretar:\n{bloque_hechos}\n\n"
+def _prompt(bloque_hechos: str, bloque_cartera: str, bloque_leidos: str) -> str:
+    partes = [f"Tu cartera:\n{bloque_cartera}"]
+    if bloque_leidos:
+        partes.append(
+            "Lo que ya se leyo de esta cartera en sesiones anteriores. **Es un "
+            "resumen tuyo, no el documento**, y no se escribe un juicio nuevo "
+            "sobre ello: esta aqui solo para que el parrafo de conjunto vea el "
+            f"cuadro completo.\n{bloque_leidos}"
+        )
+    partes.append(f"Hechos a interpretar:\n{bloque_hechos}")
+    partes.append(
         "Escribe un juicio por hecho que lo merezca, y el parrafo de conjunto "
         "si lo hay."
     )
+    return "\n\n".join(partes)
 
 
 def _limpiar_conjunto(texto: str, tickers: "set[str]") -> "tuple[str, bool]":
@@ -147,12 +155,17 @@ def leer(
     sin_documento: "tuple[str, ...]" = (),
     recortados: "tuple[str, ...]" = (),
     pesos: "tuple[tuple[str, float, float | None], ...]" = (),
+    leidos: "tuple[tuple[str, object, tuple, tuple, str], ...]" = (),
 ) -> Lectura:
     """Interpretar estos hechos para esta cartera.
 
-    `entradas` son las tuplas que `contexto.hechos` entiende. `sin_documento` y
-    `recortados` vienen de quien bajo los documentos y se arrastran hasta aqui
-    para que la `Lectura` cuente la verdad entera de lo que se leyo y lo que no.
+    `entradas` son las tuplas que `contexto.hechos` entiende, y llevan letra:
+    son lo que se interpreta. `leidos` tiene la misma forma pero **va sin
+    letra** -- ver `interprete.contexto.leidos` -- porque es lo ya interpretado
+    en sesiones anteriores, solo para que el parrafo de conjunto vea el cuadro
+    completo. `sin_documento` y `recortados` vienen de quien bajo los
+    documentos y se arrastran hasta aqui para que la `Lectura` cuente la verdad
+    entera de lo que se leyo y lo que no.
 
     Un digito en `que_dice` o en `por_que_te_toca` es **fatal tras el
     reintento**; una cita que no verifica se conserva marcada. La asimetria
@@ -167,7 +180,11 @@ def leer(
 
     bloque, mapa = contexto.hechos(entradas)
     fuentes = {letra: entrada[4] for letra, entrada in zip(mapa, entradas)}
-    mensajes = [{"role": "user", "content": _prompt(bloque, contexto.cartera(pesos))}]
+    bloque_leidos = contexto.leidos(leidos)
+    mensajes = [{
+        "role": "user",
+        "content": _prompt(bloque, contexto.cartera(pesos), bloque_leidos),
+    }]
 
     for intento in range(2):
         salida = cliente_mod.preguntar(

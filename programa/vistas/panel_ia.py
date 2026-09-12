@@ -17,28 +17,36 @@ from noticias import texto
 def preparar(hechos, guardado):
     """Las entradas para `interprete.noticias.leer`, bajando solo lo no leido.
 
-    Un hecho ya leido entra con su `que_dice` guardado --unos cientos de
-    caracteres en vez de treinta mil-- para que `en_conjunto` siga viendo los
-    seis y solo se pague por lo nuevo.
+    Separadas en dos, y a proposito: `entradas` son los hechos sin leer, con su
+    documento recien bajado, y son lo que se interpreta esta vez. `leidas` son
+    los ya leidos, con su `que_dice` guardado --unos cientos de caracteres en
+    vez de treinta mil-- y van al prompt **sin letra** via
+    `interprete.contexto.leidos`, solo para que `en_conjunto` siga viendo el
+    cuadro completo. Si fueran a la misma lista que `entradas`, `leer` les
+    pondria letra, y un juicio nuevo podria citar ese resumen como si fuera el
+    documento -- el defecto que rotulaba «Cita literal del documento» un texto
+    que en realidad habia escrito el propio modelo en otra sesion.
     """
-    leidas = archivo_mod.urls_leidas(guardado)
-    entradas, sin_doc, recortados = [], [], []
+    leidas_urls = archivo_mod.urls_leidas(guardado)
+    entradas, leidas, sin_doc, recortados = [], [], [], []
     for hecho in hechos:
-        if hecho.url in leidas:
+        if hecho.url in leidas_urls:
             anterior = archivo_mod.juicio_guardado(guardado, hecho.url)
-            cuerpo = anterior.juicio.que_dice
-        else:
-            doc = documentos.texto_de(hecho.url)
-            if doc.problema:
-                sin_doc.append(f"{hecho.ticker}: {doc.problema}")
-                continue
-            if doc.recortado:
-                recortados.append(hecho.ticker)
-            cuerpo = doc.texto
+            leidas.append((
+                hecho.ticker, hecho.cuando, hecho.tipos, hecho.descripciones,
+                anterior.juicio.que_dice,
+            ))
+            continue
+        doc = documentos.texto_de(hecho.url)
+        if doc.problema:
+            sin_doc.append(f"{hecho.ticker}: {doc.problema}")
+            continue
+        if doc.recortado:
+            recortados.append(hecho.ticker)
         entradas.append(
-            (hecho.ticker, hecho.cuando, hecho.tipos, hecho.descripciones, cuerpo)
+            (hecho.ticker, hecho.cuando, hecho.tipos, hecho.descripciones, doc.texto)
         )
-    return tuple(entradas), tuple(sin_doc), tuple(recortados)
+    return tuple(entradas), tuple(leidas), tuple(sin_doc), tuple(recortados)
 
 
 def anotadas(lectura, hechos):
