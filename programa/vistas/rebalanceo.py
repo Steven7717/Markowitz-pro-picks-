@@ -13,6 +13,9 @@ import streamlit as st
 
 import medidores
 import tema
+from interprete import ajuste, archivo
+from interprete import cliente as interprete_cliente
+from noticias import texto
 from rebalanceo import criterio, propuesta as prop
 from seguimiento import libro as mod, posiciones, precios, rendimiento
 
@@ -308,6 +311,95 @@ st.caption(
     + f" Total de la propuesta: **{plan.coste_total:,.2f}**. No incluye la "
     "horquilla de compraventa, que no está registrada en ninguna parte."
 )
+
+# --- Lo que la aritmética no ve ---------------------------------------------
+#
+# Va antes de la puerta a Seguimiento a propósito: es lo último que se lee sobre
+# la propuesta, y después de leerlo es cuando tiene sentido ir a ejecutarla.
+st.divider()
+st.markdown("**Lo que la aritmética no ve**")
+
+_todas = plan.con_efectivo + plan.y_ademas
+_ops = tuple(
+    (op.ticker, op.accion, (op.importe / plan.deriva.en_plan) if plan.deriva.en_plan else 0.0,
+     op.viable)
+    for op in _todas
+)
+_pesos_ia = tuple(
+    (d.ticker, d.peso_real, d.peso_objetivo) for d in plan.deriva.lineas
+)
+_ruta_ia = archivo.ruta_de(elegida.ruta)
+try:
+    _guardado_ia = archivo.cargar(_ruta_ia)
+    _roto_ia = ""
+except archivo.ArchivoIlegible as _error_ia:
+    _guardado_ia = archivo.Archivo()
+    _roto_ia = str(_error_ia)
+
+if _roto_ia:
+    st.error(
+        f"{_roto_ia}\n\nEl fichero **no se ha tocado**. Se puede comentar "
+        "igual, pero lo que salga no se va a poder guardar."
+    )
+
+for _clase, _texto in st.session_state.pop("ajuste_avisos", []):
+    getattr(st, _clase)(_texto)
+
+if not _ops:
+    st.caption("No hay ninguna operación que comentar: la propuesta está vacía.")
+elif not interprete_cliente.hay_clave():
+    st.info(
+        "Falta la clave de Anthropic. Se pone en **Aprobación**, y la propuesta "
+        "de arriba funciona igual sin ella."
+    )
+elif st.button("¿Qué se le escapa a la aritmética?", icon=":material/auto_awesome:"):
+    with st.spinner("Mirando la propuesta…"):
+        _com = ajuste.comentar(_ops, _pesos_ia)
+    if _com.estado == ajuste.HECHO and not _roto_ia:
+        archivo.anotar_rebalanceo(
+            _ruta_ia,
+            interprete_cliente.MODELO,
+            ajuste.VERSION_PROMPT,
+            archivo.Foto(
+                pesos_reales=tuple((d.ticker, d.peso_real) for d in plan.deriva.lineas),
+                pesos_objetivo=tuple((d.ticker, d.peso_objetivo) for d in plan.deriva.lineas),
+                operaciones=tuple((t, a, p) for t, a, p, _v in _ops),
+            ),
+            _com.observaciones,
+            _com.en_conjunto,
+        )
+        st.session_state["ajuste_avisos"] = [("success", "Comentado y guardado.")]
+        st.rerun()
+    else:
+        for _sobre, _dice in _com.observaciones:
+            st.markdown(f"**{texto.plano(_sobre)}** — {texto.plano(_dice)}")
+        if _com.estado == ajuste.FALLO:
+            st.error(
+                "No se pudo comentar: o la llamada falló, o lo que volvió traía "
+                "cifras inventadas y se descartó entero. **No se ha guardado nada.**"
+            )
+
+# Los anteriores van plegados y fechados, con su foto. **Nunca junto a la
+# propuesta de hoy**: hablan de una deriva que ya no es la que tienes delante, y
+# pintarlos como si aplicaran sería mezclar dos cortes temporales — el defecto
+# que en F dio una GANANCIA −9.700.
+if _guardado_ia.rebalanceo:
+    with st.expander(f"Comentarios anteriores ({len(_guardado_ia.rebalanceo)})"):
+        st.caption(
+            "Cada uno habla de la deriva que había **ese día**, no de la de "
+            "ahora. Por eso viene con la foto de lo que comentaba."
+        )
+        for _com_v in reversed(_guardado_ia.rebalanceo):
+            st.markdown(f"**{_com_v.cuando:%d/%m/%Y a las %H:%M}**")
+            for _sobre, _dice in _com_v.observaciones:
+                st.markdown(f"- **{texto.plano(_sobre)}** — {texto.plano(_dice)}")
+            if _com_v.en_conjunto:
+                st.markdown(texto.plano(_com_v.en_conjunto))
+            st.caption(
+                "Pesos de entonces: "
+                + ", ".join(f"{t} {p:.1%}" for t, p in _com_v.foto.pesos_reales)
+            )
+            st.divider()
 
 # --- Y la puerta a donde esto se convierte en un hecho -----------------------
 #
