@@ -12,3 +12,7 @@
 /actas/
 /portafolios/
 /libros/
+
+# Ajustes de las herramientas con las que se trabaja el repositorio, no del
+# programa: quien lo clone traera las suyas, y no tienen por que ser estas.
+/.superpowers/
