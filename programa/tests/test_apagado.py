@@ -235,9 +235,16 @@ def test_detener_sale_igual_aunque_no_pueda_pedir_el_cierre(monkeypatch):
 def test_detener_espera_antes_de_forzar(monkeypatch):
     # La gracia no es decorativa: es lo que le da tiempo a stop() a cerrar las
     # sesiones abiertas antes de que el proceso desaparezca de golpe.
+    #
+    # Se comprueba el contrato --cuanto se espera, y que se espera ANTES de
+    # salir-- y no el reloj de pared. Cronometrarlo con `time.monotonic()`
+    # hacia el test intermitente: la granularidad del temporizador de Windows
+    # es de ~15,6 ms, asi que `time.sleep(0.2)` vuelve a los 0,187 s una de
+    # cada seis veces --medido, 5 de 30-- y la asercion fallaba sin que nada
+    # estuviera roto. Mismo razonamiento que la clase `Reloj` de arriba, y de
+    # paso el test deja de tardar lo que dura la espera que prueba.
     falso_runtime(monkeypatch, lambda: None)
-    salidas = []
-    inicio = time.monotonic()
-    apagado.detener(gracia=0.2, salir=salidas.append)
-    assert time.monotonic() - inicio >= 0.2
-    assert salidas == [0]
+    hechos = []
+    monkeypatch.setattr(time, "sleep", lambda s: hechos.append(("espera", s)))
+    apagado.detener(gracia=0.2, salir=lambda codigo: hechos.append(("salir", codigo)))
+    assert hechos == [("espera", 0.2), ("salir", 0)]
