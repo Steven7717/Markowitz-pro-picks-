@@ -5,6 +5,10 @@ from scipy.optimize import minimize
 from estimators import estimate_moments
 
 N_SIMULATIONS = 10_000
+
+# Cuantas observaciones necesita un activo en una ventana para que se pueda
+# decir algo de el. Por debajo no hay varianza que estimar, y menos covarianza.
+_MINIMO_POR_ACTIVO = 3
 _N_RANDOM_STARTS = 12
 
 
@@ -110,9 +114,10 @@ def simulate_portfolios(
     weight_bounds: tuple[float, float],
     allow_short: bool,
     shrinkage: bool = False,
+    pairwise: bool = False,
 ) -> pd.DataFrame:
     n = len(returns.columns)
-    moments = estimate_moments(returns, shrinkage=shrinkage)
+    moments = estimate_moments(returns, shrinkage=shrinkage, pairwise=pairwise)
     mean_returns, cov_matrix = moments["mean"], moments["cov"]
     lb, ub = effective_bounds(weight_bounds, allow_short)
     rng = np.random.default_rng(42)
@@ -155,9 +160,10 @@ def optimize_max_sharpe(
     weight_bounds: tuple[float, float],
     allow_short: bool,
     shrinkage: bool = False,
+    pairwise: bool = False,
 ) -> dict:
     n = len(returns.columns)
-    moments = estimate_moments(returns, shrinkage=shrinkage)
+    moments = estimate_moments(returns, shrinkage=shrinkage, pairwise=pairwise)
     mean_returns, cov_matrix = moments["mean"], moments["cov"]
     lb, ub = effective_bounds(weight_bounds, allow_short)
 
@@ -237,6 +243,7 @@ def optimize_min_variance(
     weight_bounds: tuple[float, float],
     allow_short: bool,
     shrinkage: bool = False,
+    pairwise: bool = False,
 ) -> dict:
     """The portfolio with the smallest possible variance.
 
@@ -246,7 +253,7 @@ def optimize_min_variance(
     is that it makes no attempt to earn a return — it only avoids risk.
     """
     n = len(returns.columns)
-    moments = estimate_moments(returns, shrinkage=shrinkage)
+    moments = estimate_moments(returns, shrinkage=shrinkage, pairwise=pairwise)
     cov = moments["cov"]
     lb, ub = effective_bounds(weight_bounds, allow_short)
 
@@ -271,6 +278,7 @@ def optimize_risk_parity(
     weight_bounds: tuple[float, float],
     allow_short: bool = False,
     shrinkage: bool = False,
+    pairwise: bool = False,
 ) -> dict:
     """Equal Risk Contribution: every asset supplies the same share of the risk.
 
@@ -281,7 +289,7 @@ def optimize_risk_parity(
     notion of a risk contribution meaningless.
     """
     n = len(returns.columns)
-    moments = estimate_moments(returns, shrinkage=shrinkage)
+    moments = estimate_moments(returns, shrinkage=shrinkage, pairwise=pairwise)
     cov = moments["cov"]
     lb, ub = effective_bounds(weight_bounds, allow_short=False)
     lb = max(lb, 0.0)
@@ -329,6 +337,7 @@ def optimize_portfolio(
     allow_short: bool,
     strategy: str = "max_sharpe",
     shrinkage: bool = False,
+    pairwise: bool = False,
 ) -> dict:
     """Run one of the available allocation strategies behind a common interface."""
     if strategy not in _STRATEGIES:
@@ -336,8 +345,29 @@ def optimize_portfolio(
             f"Estrategia desconocida: {strategy!r}. "
             f"Opciones válidas: {', '.join(_STRATEGIES)}"
         )
+
+    # Con la covarianza por pares los retornos llegan con huecos, y una ventana
+    # puede caer entera antes de que un activo existiera. Ahi no hay momentos
+    # que estimar --ni varianza propia ni una sola fecha comun de la que sacar
+    # las medias-- y devolver "no convergio" deja que el walk-forward salte esa
+    # ventana con la maquinaria que ya tiene, en vez de propagar NaN.
+    if pairwise:
+        por_activo = returns.notna().sum()
+        comunes = int(returns.notna().all(axis=1).sum())
+        if len(por_activo) and (int(por_activo.min()) < _MINIMO_POR_ACTIVO
+                                or comunes < _MINIMO_POR_ACTIVO):
+            faltan = list(por_activo[por_activo < _MINIMO_POR_ACTIVO].index)
+            return {
+                "converged": False,
+                "message": (
+                    f"Sin historial suficiente en esta ventana"
+                    + (f" para {', '.join(map(str, faltan))}" if faltan else "")
+                    + f" ({comunes} fechas comunes)"
+                ),
+            }
     return _STRATEGIES[strategy](
-        returns, rf_rate, periods_per_year, weight_bounds, allow_short, shrinkage=shrinkage
+        returns, rf_rate, periods_per_year, weight_bounds, allow_short,
+        shrinkage=shrinkage, pairwise=pairwise,
     )
 
 
@@ -346,10 +376,11 @@ def equal_weight_portfolio(
     rf_rate: float,
     periods_per_year: int,
     shrinkage: bool = False,
+    pairwise: bool = False,
 ) -> dict:
     n = len(returns.columns)
     weights = np.ones(n) / n
-    moments = estimate_moments(returns, shrinkage=shrinkage)
+    moments = estimate_moments(returns, shrinkage=shrinkage, pairwise=pairwise)
     ret, vol, sharpe = portfolio_metrics(
         weights, moments["mean"], moments["cov"], rf_rate, periods_per_year
     )

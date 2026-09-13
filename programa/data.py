@@ -89,6 +89,29 @@ def compute_returns(prices: pd.DataFrame) -> pd.DataFrame:
     return returns.dropna(how="any")
 
 
+def compute_returns_amplios(prices: pd.DataFrame) -> pd.DataFrame:
+    """Retornos sin exigir que todos los activos coticen el mismo día.
+
+    Es lo que consume la covarianza por pares: donde `compute_returns` tira la
+    fecha entera si a alguien le falta el precio, aquí se conserva y el hueco
+    queda como NaN sólo en la columna que lo tiene.
+
+    Lo que sí se descarta, uno a uno, es **el retorno que cruza un hueco**: si a
+    un activo le faltan tres días, el movimiento del cuarto es el de cuatro días
+    con etiqueta de uno, y metido en una varianza la infla. Se quita ese dato y
+    no la fecha, que es de los demás.
+    """
+    retornos = prices.pct_change(fill_method=None)
+    for col in prices.columns:
+        posiciones = np.flatnonzero(prices[col].notna().values)
+        if posiciones.size < 2:
+            continue
+        cruzan = posiciones[1:][np.diff(posiciones) > 1]
+        if cruzan.size:
+            retornos.iloc[cruzan, retornos.columns.get_loc(col)] = np.nan
+    return retornos.dropna(how="all")
+
+
 @st.cache_data(ttl=3600)
 def fetch_market_data(tickers: tuple[str, ...], horizon: str) -> dict:
     cfg = HORIZON_CONFIG[horizon]
@@ -119,6 +142,8 @@ def fetch_market_data(tickers: tuple[str, ...], horizon: str) -> dict:
     if not valid_tickers:
         return {
             "returns": pd.DataFrame(),
+            "returns_amplios": pd.DataFrame(),
+            "precios": pd.DataFrame(),
             "rf_rate": rf_rate,
             "rf_available": rf_available,
             "benchmark_returns": pd.Series(dtype=float),
@@ -132,6 +157,7 @@ def fetch_market_data(tickers: tuple[str, ...], horizon: str) -> dict:
     asset_prices = prices[valid_tickers].dropna(how="all")
     huecos = tickers_con_huecos(asset_prices)
     returns = compute_returns(asset_prices)
+    returns_amplios = compute_returns_amplios(asset_prices)
 
     benchmark_returns = pd.Series(dtype=float)
     if "^GSPC" in prices.columns and not prices["^GSPC"].isna().all():
@@ -141,6 +167,10 @@ def fetch_market_data(tickers: tuple[str, ...], horizon: str) -> dict:
 
     return {
         "returns": returns,
+        # Para la covarianza por pares y para la escalera de historial, que
+        # necesitan ver las fechas que `returns` ya ha tirado.
+        "returns_amplios": returns_amplios,
+        "precios": asset_prices,
         "rf_rate": rf_rate,
         "rf_available": rf_available,
         "benchmark_returns": benchmark_returns,

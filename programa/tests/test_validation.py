@@ -364,3 +364,49 @@ def test_the_comparison_matches_the_single_run_when_nothing_is_discarded():
 
 def test_the_comparison_returns_none_when_history_is_too_short():
     assert walk_forward_comparison(_noise(120), 0.0, 252, (0.0, 1.0), False) is None
+
+
+# ── Con covarianza por pares, los retornos llevan huecos ──────────────────────
+
+def _con_recien_llegado(n_obs: int = 2000, desde: int = 1400) -> pd.DataFrame:
+    datos = _factor_market(n_obs, n_assets=4)
+    datos["JOVEN"] = datos["A0"] * 1.1 + np.random.default_rng(4).normal(0, 0.01, n_obs)
+    datos.iloc[:desde, datos.columns.get_loc("JOVEN")] = np.nan
+    return datos
+
+
+def test_el_walk_forward_admite_series_con_arranque_tardio():
+    r = walk_forward_validation(_con_recien_llegado(), 0.0, 252, (0.0, 1.0), False,
+                                pairwise=True)
+    assert r is not None
+    assert np.isfinite(r["out_of_sample_sharpe"])
+
+
+def test_medir_fuera_de_muestra_exige_que_coticen_todos():
+    """Ajustar puede mirar fechas incompletas; medir, no.
+
+    `test.values @ pesos` con un activo sin precio da NaN, y un solo NaN
+    envenena la media, la desviacion y el Sharpe de la serie entera.
+    """
+    r = walk_forward_validation(_con_recien_llegado(), 0.0, 252, (0.0, 1.0), False,
+                                pairwise=True)
+    assert np.isfinite(r["oos_return"])
+    assert np.isfinite(r["equal_weight_sharpe"])
+    assert np.isfinite(r["gap_stderr"])
+
+
+def test_la_comparacion_tambien_admite_huecos():
+    c = walk_forward_comparison(_con_recien_llegado(), 0.0, 252, (0.0, 1.0), False,
+                                pairwise=True)
+    assert c is not None
+    assert len({r["equal_weight_sharpe"] for r in c["por_estrategia"].values()}) == 1
+    for r in c["por_estrategia"].values():
+        assert np.isfinite(r["out_of_sample_sharpe"])
+
+
+def test_sin_la_opcion_los_resultados_no_se_mueven():
+    """La covarianza por pares es opcional y por defecto no esta."""
+    datos = _factor_market(1500)
+    con = walk_forward_validation(datos, 0.0, 252, (0.0, 1.0), False, pairwise=False)
+    sin = walk_forward_validation(datos, 0.0, 252, (0.0, 1.0), False)
+    assert con["out_of_sample_sharpe"] == sin["out_of_sample_sharpe"]

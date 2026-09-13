@@ -233,6 +233,7 @@ def walk_forward_validation(
     weight_bounds: tuple[float, float],
     allow_short: bool,
     shrinkage: bool = False,
+    pairwise: bool = False,
     strategy: str = "max_sharpe",
     train_size: int | None = None,
     test_size: int | None = None,
@@ -257,14 +258,21 @@ def walk_forward_validation(
     benchmark_chunks: list[np.ndarray] = []
 
     for train, test in _ventanas(returns, train_size, test_size):
+        # El ajuste puede mirar fechas incompletas —la covarianza por pares las
+        # aprovecha— pero **medir** exige que coticen todos: un retorno de
+        # cartera con un activo sin precio no es un numero, es un NaN que se
+        # come la serie entera. Sin `pairwise` esto no quita nada.
+        evaluable = test.dropna(how="any")
+        if evaluable.empty:
+            continue
         fitted = optimize_portfolio(
             train, rf_rate, periods_per_year, weight_bounds, allow_short,
-            strategy=strategy, shrinkage=shrinkage,
+            strategy=strategy, shrinkage=shrinkage, pairwise=pairwise,
         )
         if fitted["converged"]:
             in_sample_sharpes.append(fitted["sharpe"])
-            oos_chunks.append(test.values @ fitted["weights"])
-            benchmark_chunks.append(test.values @ equal_weights)
+            oos_chunks.append(evaluable.values @ fitted["weights"])
+            benchmark_chunks.append(evaluable.values @ equal_weights)
 
     if not oos_chunks:
         return None
@@ -288,6 +296,7 @@ def walk_forward_comparison(
     weight_bounds: tuple[float, float],
     allow_short: bool,
     shrinkage: bool = False,
+    pairwise: bool = False,
     strategies: tuple[str, ...] | None = None,
     train_size: int | None = None,
     test_size: int | None = None,
@@ -321,10 +330,14 @@ def walk_forward_comparison(
     descartadas = 0
 
     for train, test in _ventanas(returns, train_size, test_size):
+        evaluable = test.dropna(how="any")
+        if evaluable.empty:
+            descartadas += 1
+            continue
         ajustes = {
             n: optimize_portfolio(
                 train, rf_rate, periods_per_year, weight_bounds, allow_short,
-                strategy=n, shrinkage=shrinkage,
+                strategy=n, shrinkage=shrinkage, pairwise=pairwise,
             )
             for n in nombres
         }
@@ -333,8 +346,8 @@ def walk_forward_comparison(
             continue
         for n, ajuste in ajustes.items():
             in_sample[n].append(ajuste["sharpe"])
-            oos_chunks[n].append(test.values @ ajuste["weights"])
-        benchmark_chunks.append(test.values @ equal_weights)
+            oos_chunks[n].append(evaluable.values @ ajuste["weights"])
+        benchmark_chunks.append(evaluable.values @ equal_weights)
 
     if not benchmark_chunks:
         return None

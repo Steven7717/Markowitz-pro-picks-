@@ -21,6 +21,8 @@ import streamlit as st
 
 import cartera
 import configuracion
+import estimators
+import historial
 import preferencias as preferencias_mod
 import tema
 from charts import (
@@ -132,9 +134,71 @@ with st.container(border=True):
             ),
         )
 
+        usar_pares = st.toggle(
+            "Aprovechar la historia que no comparten todos (covarianza por pares)",
+            key=CLAVES["pares"],
+            help=(
+                "Cada covarianza se estima con las fechas que comparte ESE par, "
+                "no las que comparten todos. Con un activo recién salido a bolsa "
+                "la pareja AAPL-MSFT deja de pagar su juventud. Las medias siguen "
+                "saliendo de la ventana común a propósito, así que ayuda sobre "
+                "todo a mínima varianza y paridad de riesgo."
+            ),
+        )
+
         enviado = st.form_submit_button(
             "Optimizar cartera", type="primary", use_container_width=True,
             icon=":material/play_arrow:",
+        )
+
+
+_MOTIVOS = {
+    "arranque": "sólo hay precios desde {desde}",
+    "interrumpida": "la fuente deja de dar precios suyos; los últimos son de {desde}",
+    "huecos": "le faltan fechas dentro de su propio historial",
+    "sin datos": "no ha devuelto ningún precio",
+}
+
+
+def _mostrar_escalera(peldanos: list, n_obs: int) -> None:
+    """El compromiso entre cuántos activos llevas y cuánta historia tienes.
+
+    Se dice antes que cualquier otra cosa porque es la causa, no el síntoma. El
+    aviso que había aquí llamaba «serie incompleta» a un activo recién salido a
+    bolsa, y eso manda a buscar un fallo donde no lo hay: la serie de PLTR está
+    completa, empieza en 2020 porque la empresa no cotizaba antes.
+    """
+    if len(peldanos) < 2:
+        return
+    cabeza = peldanos[0]
+    if cabeza.corta is None:
+        return
+
+    motivo = _MOTIVOS.get(cabeza.motivo, "recorta la muestra").format(desde=cabeza.desde)
+    mejor = peldanos[-1]
+    st.warning(
+        f"**{cabeza.corta} decide el historial de toda la cartera**: {motivo}. "
+        f"Como se descartan las fechas en las que falte algún precio, con estos "
+        f"{cabeza.activos} activos quedan **{n_obs} observaciones**; sin "
+        f"{cabeza.corta} habría **{peldanos[1].observaciones}**"
+        + (f", y con {mejor.activos} activos hasta **{mejor.observaciones}**."
+           if len(peldanos) > 2 else ".")
+    )
+    with st.expander(f"Qué ganas quitando activos ({len(peldanos) - 1} opciones)"):
+        st.caption(
+            "Ningún dato se está perdiendo por un fallo: el historial anterior a "
+            "una salida a bolsa no existe. Lo que hay es un compromiso entre "
+            "llevar ese activo y tener con qué estimar, y lo decides tú."
+        )
+        st.dataframe(
+            pd.DataFrame([{
+                "Dejando fuera": ", ".join(e.fuera) if e.fuera else "— nada —",
+                "Activos": e.activos,
+                "Observaciones": e.observaciones,
+                "Por activo": f"{e.observaciones / e.activos:.0f}",
+                "Lo corta": e.corta or "— ya nadie —",
+            } for e in peldanos]),
+            use_container_width=True, hide_index=True,
         )
 
 
@@ -165,41 +229,58 @@ def _ejecutar() -> dict | None:
     returns = market["returns"]
     periods_per_year = market["periods_per_year"]
     n_obs = market["n_obs"]
+    # Sobre qué se estima: en modo por pares, los retornos que conservan las
+    # fechas que no comparten todos; si no, los de siempre. Se decide aquí
+    # arriba porque las guardas de más abajo ya dependen de ello.
+    base = market["returns_amplios"] if usar_pares else returns
 
     # Se dice antes de cualquier otra cosa porque es la causa, no el sintoma: un
     # ticker con la serie rota recorta el historial de TODOS —se descartan las
     # fechas donde falte algun precio— y sin esto el usuario solo veia el
     # resultado, "datos insuficientes", sin saber cual de sus activos lo
     # provocaba ni que quitandolo se arreglaba.
-    huecos = market.get("tickers_con_huecos") or {}
-    if huecos:
-        detalle = ", ".join(
-            f"**{t}** ({c:.0%} de las fechas)" for t, c in sorted(huecos.items())
-        )
-        st.warning(
-            f"Series incompletas: {detalle}. Como se descartan las fechas en las "
-            f"que falte algun precio, estos activos recortan el historial de toda "
-            f"la cartera: quedan {n_obs} observaciones comunes. Quitalos y el "
-            "resto recupera su historial completo."
-        )
+    peldanos = historial.escalera(market.get("precios", pd.DataFrame()))
+    _mostrar_escalera(peldanos, n_obs)
 
-    # La covarianza muestral necesita del orden de 30-50 observaciones por
-    # activo antes de ser estable al invertirla. Por debajo, el optimizador
-    # ajusta ruido.
-    obs_per_asset = n_obs / len(valid_tickers)
-    if obs_per_asset < 10:
-        st.error(
-            f"Datos insuficientes: {n_obs} observaciones para {len(valid_tickers)} "
-            f"activos ({obs_per_asset:.0f} por activo). La matriz de covarianza es "
-            "prácticamente singular y el resultado no es interpretable. "
-            + (
-                f"La causa está arriba: quita {', '.join(sorted(huecos))} y vuelve "
-                "a probar."
-                if huecos
-                else "Usa menos activos o un horizonte con datos diarios."
+    # Cada modo se bloquea por lo que de verdad le rompe, porque no es lo mismo.
+    #
+    # Sobre la ventana común manda el cociente observaciones/activos: la
+    # covarianza muestral necesita del orden de 30-50 por activo antes de ser
+    # estable al invertirla, y por debajo de 10 es prácticamente singular.
+    #
+    # Por pares esa premisa no se sostiene --la matriz sale reparada a definida
+    # positiva y encogida hacia la identidad, así que singular no es-- y lo que
+    # manda es otra cosa: que ningún activo baje del solape mínimo con el que se
+    # estima una pareja. Por debajo de eso su fila entera saldría a cero, que es
+    # decir que no se relaciona con nada.
+    if usar_pares:
+        por_activo = int(base.notna().sum().min()) if len(base) else 0
+        if por_activo < estimators.SOLAPE_MINIMO:
+            flaco = str(base.notna().sum().idxmin())
+            st.error(
+                f"Datos insuficientes incluso por pares: **{flaco}** sólo tiene "
+                f"{por_activo} observaciones, y hacen falta "
+                f"{estimators.SOLAPE_MINIMO} para estimar una sola de sus "
+                "parejas. Quítalo, o elige un horizonte con datos diarios."
             )
-        )
-        return None
+            return None
+    else:
+        obs_per_asset = n_obs / len(valid_tickers)
+        if obs_per_asset < 10:
+            st.error(
+                f"Datos insuficientes: {n_obs} observaciones para "
+                f"{len(valid_tickers)} activos ({obs_per_asset:.0f} por activo). "
+                "La matriz de covarianza es prácticamente singular y el "
+                "resultado no es interpretable. "
+                + (
+                    f"La causa está arriba: quita {peldanos[0].corta} y pasas a "
+                    f"{peldanos[1].observaciones} observaciones. O marca "
+                    "«aprovechar la historia que no comparten todos»."
+                    if len(peldanos) > 1 and peldanos[0].corta
+                    else "Usa menos activos o un horizonte con datos diarios."
+                )
+            )
+            return None
 
     feasible, msg = validate_constraints(len(valid_tickers), weight_min, weight_max)
     if not feasible:
@@ -209,16 +290,20 @@ def _ejecutar() -> dict | None:
     rf_rate = market["rf_rate"]
     bounds = (weight_min, weight_max)
     with st.spinner("Optimizando…"):
+        # Todo lo que se dibuja junto en la frontera se estima igual: mezclar
+        # un optimo calculado por pares con una nube calculada sobre la ventana
+        # comun pondria en el mismo grafico puntos que no son comparables.
         sim_df = simulate_portfolios(
-            returns, rf_rate, periods_per_year, bounds, allow_short,
-            shrinkage=use_shrinkage,
+            base, rf_rate, periods_per_year, bounds, allow_short,
+            shrinkage=use_shrinkage, pairwise=usar_pares,
         )
         optimal = optimize_portfolio(
-            returns, rf_rate, periods_per_year, bounds, allow_short,
-            strategy=strategy, shrinkage=use_shrinkage,
+            base, rf_rate, periods_per_year, bounds, allow_short,
+            strategy=strategy, shrinkage=use_shrinkage, pairwise=usar_pares,
         )
         ew = equal_weight_portfolio(
-            returns, rf_rate, periods_per_year, shrinkage=use_shrinkage
+            base, rf_rate, periods_per_year, shrinkage=use_shrinkage,
+            pairwise=usar_pares,
         )
 
     if not optimal["converged"]:
@@ -235,8 +320,8 @@ def _ejecutar() -> dict | None:
         # su propia referencia 1/N, y la tabla de abajo las ponía en columnas
         # como si vinieran de la misma medición.
         comparacion = walk_forward_comparison(
-            returns, rf_rate, periods_per_year, bounds, allow_short,
-            shrinkage=use_shrinkage,
+            base, rf_rate, periods_per_year, bounds, allow_short,
+            shrinkage=use_shrinkage, pairwise=usar_pares,
         )
         todas = comparacion["por_estrategia"] if comparacion else {}
         wf = todas.get(strategy)
@@ -269,6 +354,7 @@ def _ejecutar() -> dict | None:
         "peso_max": weight_max,
         "cortos": allow_short,
         "shrinkage": use_shrinkage,
+        "pares": usar_pares,
     }
 
 
@@ -322,7 +408,7 @@ if not market.get("rf_available", True):
         f"{RF_FALLBACK:.1%} anual."
     )
 obs_per_asset = n_obs / len(valid_tickers)
-if obs_per_asset < 30:
+if obs_per_asset < 30 and not corrida["pares"]:
     st.warning(
         f"Muestra corta: {n_obs} observaciones para {len(valid_tickers)} activos "
         f"({obs_per_asset:.0f} por activo, recomendado >30). Los pesos serán "
@@ -333,24 +419,33 @@ st.markdown(
     tema.etiqueta(STRATEGY_LABELS[corrida["estrategia"]], "acento")
     + tema.etiqueta(f"Horizonte {corrida['horizonte']}")
     + tema.etiqueta(f"{len(valid_tickers)} activos")
-    + tema.etiqueta(f"{n_obs} observaciones")
+    # En modo por pares, "55 observaciones" seria enganoso: son las comunes,
+    # pero la covarianza ha mirado bastantes mas.
+    + tema.etiqueta(
+        f"{n_obs} comunes · hasta {int(market['returns_amplios'].notna().sum().max())} "
+        "por pares" if corrida["pares"] else f"{n_obs} observaciones"
+    )
     + tema.etiqueta(
         "Estimación robusta" if corrida["shrinkage"] else "Estimación clásica",
         "bueno" if corrida["shrinkage"] else "aviso",
     )
+    + (tema.etiqueta("Covarianza por pares", "bueno") if corrida["pares"] else "")
     + (tema.etiqueta("Ventas en corto", "aviso") if corrida["cortos"] else ""),
     unsafe_allow_html=True,
 )
 
 # ── Estructuras compartidas por varias pestañas ──────────────────────────────
+# Con la covarianza por pares, cada activo se describe con SU historia, que es
+# la que el optimizador ha mirado; sin ella, con la ventana comun de siempre.
+_serie_de = market["returns_amplios"] if corrida["pares"] else returns
 weights_df = pd.DataFrame({
     "Ticker": valid_tickers,
     "Peso Óptimo (%)": [f"{w:.2%}" for w in optimal["weights"]],
     "Retorno Esperado (%)": [
-        f"{returns[t].mean() * periods_per_year:.2%}" for t in valid_tickers
+        f"{_serie_de[t].mean() * periods_per_year:.2%}" for t in valid_tickers
     ],
     "Volatilidad (%)": [
-        f"{returns[t].std() * np.sqrt(periods_per_year):.2%}" for t in valid_tickers
+        f"{_serie_de[t].std() * np.sqrt(periods_per_year):.2%}" for t in valid_tickers
     ],
     "Contrib. Riesgo (%)": [f"{c:.2%}" for c in optimal["risk_contribution"]],
 })

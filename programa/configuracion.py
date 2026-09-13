@@ -36,6 +36,7 @@ CLAVES: dict[str, str] = {
     "peso_max": "cfg_peso_max",
     "cortos": "cfg_cortos",
     "shrinkage": "cfg_shrinkage",
+    "pares": "cfg_pares",
 }
 
 # De dónde salió lo que se está viendo, para la etiqueta de la cabecera.
@@ -86,6 +87,10 @@ def sembrar(
         "peso_max": guardadas.peso_max,
         "cortos": guardadas.permitir_cortos,
         "shrinkage": guardadas.shrinkage,
+        # La covarianza por pares no esta en las preferencias ni en el fichero
+        # de un portafolio guardado: es una decision sobre como estimar, de esta
+        # corrida, y arranca apagada siempre. Cargar un portafolio no la toca.
+        "pares": False,
     }
     for campo, clave in CLAVES.items():
         estado.setdefault(clave, base[campo])

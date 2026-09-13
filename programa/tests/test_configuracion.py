@@ -63,6 +63,8 @@ def test_un_portafolio_cargado_pisa_todos_los_campos():
         "peso_max": 40,
         "cortos": True,
         "shrinkage": False,
+        # No viene del portafolio: el fichero no lleva ese campo.
+        "pares": False,
     }
     assert origen == "cargado de «prueba 1»"
 
@@ -223,3 +225,23 @@ def test_reiniciar_sobre_una_sesion_vacia_no_falla():
     estado: dict = {}
     configuracion.reiniciar(estado)
     assert sembrar(estado) == ""
+
+
+def test_la_covarianza_por_pares_arranca_apagada_y_no_la_trae_un_portafolio():
+    """Es una decision sobre como estimar, de esta corrida, no del portafolio.
+
+    El fichero guardado no lleva ese campo --no existia cuando se guardo-- asi
+    que cargarlo no puede encenderla ni apagarla sin inventarse lo que quiso su
+    dueño.
+    """
+    estado = {"portafolio_a_cargar": _portafolio("prueba 1", ["AAPL", "MU"])}
+    sembrar(estado)
+    assert valores(estado)["pares"] is False
+
+
+def test_lo_que_el_usuario_marque_en_pares_sobrevive():
+    estado: dict = {}
+    sembrar(estado)
+    estado[configuracion.CLAVES["pares"]] = True
+    sembrar(estado)
+    assert valores(estado)["pares"] is True

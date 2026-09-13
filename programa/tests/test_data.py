@@ -228,3 +228,52 @@ def test_el_umbral_por_defecto_deja_pasar_una_cobertura_alta():
 
 def test_un_marco_vacio_no_senala_nada():
     assert tickers_con_huecos(pd.DataFrame()) == {}
+
+
+# ── Retornos sin exigir fecha común, para la covarianza por pares ─────────────
+
+from data import compute_returns_amplios
+
+
+def test_los_retornos_amplios_conservan_la_fecha_que_solo_le_falta_a_uno():
+    """Donde `compute_returns` tira la fila entera, aqui el hueco es de su columna."""
+    fechas = pd.bdate_range("2025-01-01", periods=6)
+    p = pd.DataFrame({"AAA": [10, 11, 12, 13, 14, 15.0],
+                      "BBB": [np.nan, np.nan, 20, 21, 22, 23.0]}, index=fechas)
+    estrecho = compute_returns(p)
+    amplio = compute_returns_amplios(p)
+    assert len(estrecho) == 3          # solo donde cotizan los dos
+    assert len(amplio) == 5            # toda la vida de AAA
+    assert amplio["AAA"].notna().sum() == 5
+    assert amplio["BBB"].notna().sum() == 3
+
+
+def test_un_retorno_que_cruza_un_hueco_no_es_de_un_periodo_y_se_descarta():
+    """Tres dias sin precio hacen que el cuarto valga por cuatro.
+
+    Metido en una varianza la infla, y la covarianza por pares se come justo
+    esas fechas que `compute_returns` habria tirado.
+    """
+    fechas = pd.bdate_range("2025-01-01", periods=7)
+    p = pd.DataFrame({"AAA": [10, 11, np.nan, np.nan, 14, 15, 16.0],
+                      "BBB": [20, 21, 22, 23, 24, 25, 26.0]}, index=fechas)
+    amplio = compute_returns_amplios(p)
+    # El de la reaparicion de AAA se descarta; los suyos limpios se quedan.
+    assert np.isnan(amplio.loc[fechas[4], "AAA"])
+    assert amplio["AAA"].notna().sum() == 3
+    # Y a BBB no le quita ninguna fecha: el hueco no era suyo.
+    assert amplio["BBB"].notna().sum() == 6
+
+
+def test_los_retornos_amplios_no_inventan_ningun_precio():
+    fechas = pd.bdate_range("2025-01-01", periods=5)
+    p = pd.DataFrame({"AAA": [10, np.nan, 12, 13, 14.0]}, index=fechas)
+    amplio = compute_returns_amplios(p)
+    assert amplio["AAA"].dropna().tolist() == pytest.approx([13 / 12 - 1, 14 / 13 - 1])
+
+
+def test_sin_huecos_amplio_y_estrecho_coinciden():
+    fechas = pd.bdate_range("2025-01-01", periods=8)
+    p = pd.DataFrame({"AAA": np.linspace(10, 20, 8), "BBB": np.linspace(30, 20, 8)},
+                     index=fechas)
+    assert np.allclose(compute_returns_amplios(p).values, compute_returns(p).values)
