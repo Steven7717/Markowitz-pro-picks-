@@ -41,6 +41,43 @@ def compute_rf_rate(irx_prices: pd.Series, periods_per_year: int) -> tuple[float
     return rf_annual / periods_per_year, True
 
 
+# Por debajo de esta cobertura una serie deja de ser "una serie con huecos" y
+# pasa a ser "una serie que no está": con `dropna(how="any")` detrás, se lleva
+# por delante el historial de todos los demás activos de la cartera.
+COBERTURA_MINIMA = 0.80
+
+
+def tickers_con_huecos(
+    prices: pd.DataFrame,
+    minimo: float = COBERTURA_MINIMA,
+) -> dict[str, float]:
+    """Los tickers cuya serie está tan incompleta que recorta la muestra de todos.
+
+    `compute_returns` descarta las fechas donde falte algún precio, y eso es lo
+    correcto con un hueco suelto: rellenarlo fabricaría un retorno de cero que
+    nadie tuvo. Pero un ticker al 10% de cobertura se lleva por delante el 90%
+    del historial de los demás **sin decirlo**, y el único aviso que había —
+    `invalid_tickers`— sólo mira los que vienen enteros vacíos.
+
+    Medido con AVB en septiembre de 2026: 27 precios de 252, y una cartera de
+    cinco valores se quedaba en 26 observaciones, sin validación posible y sin
+    que nada en pantalla dijera cuál de los cinco lo causaba.
+
+    Returns:
+        {ticker: cobertura} sólo de los que bajan del mínimo, con la cobertura
+        como fracción de las fechas disponibles.
+    """
+    if prices.empty:
+        return {}
+    total = len(prices)
+    coberturas = prices.notna().sum() / total
+    return {
+        str(ticker): float(cobertura)
+        for ticker, cobertura in coberturas.items()
+        if cobertura < minimo
+    }
+
+
 def compute_returns(prices: pd.DataFrame) -> pd.DataFrame:
     """Simple returns, without forward-filling missing prices.
 
@@ -86,12 +123,14 @@ def fetch_market_data(tickers: tuple[str, ...], horizon: str) -> dict:
             "rf_available": rf_available,
             "benchmark_returns": pd.Series(dtype=float),
             "invalid_tickers": list(invalid),
+            "tickers_con_huecos": {},
             "periods_per_year": periods_per_year,
             "valid_tickers": [],
             "n_obs": 0,
         }
 
     asset_prices = prices[valid_tickers].dropna(how="all")
+    huecos = tickers_con_huecos(asset_prices)
     returns = compute_returns(asset_prices)
 
     benchmark_returns = pd.Series(dtype=float)
@@ -106,6 +145,7 @@ def fetch_market_data(tickers: tuple[str, ...], horizon: str) -> dict:
         "rf_available": rf_available,
         "benchmark_returns": benchmark_returns,
         "invalid_tickers": list(invalid),
+        "tickers_con_huecos": huecos,
         "periods_per_year": periods_per_year,
         "valid_tickers": valid_tickers,
         "n_obs": len(returns),

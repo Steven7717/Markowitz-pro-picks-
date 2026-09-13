@@ -459,6 +459,7 @@ def test_el_veredicto_se_extrae_de_las_metricas_guardadas():
         "oos_sharpe": 0.41,
         "oos_equal_weight_sharpe": 0.55,
         "oos_sharpe_stderr": 0.09,
+        "oos_gap_stderr": 0.03,
         "beats_equal_weight": False,
         "oos_windows": 12,
     }
@@ -466,13 +467,28 @@ def test_el_veredicto_se_extrae_de_las_metricas_guardadas():
 
 
 def test_un_portafolio_viejo_sin_error_estandar_no_afirma_un_veredicto():
-    # Los ficheros guardados antes de este cambio no llevan sharpe_stderr. Sin
-    # el, "gana / pierde / no se distingue" no se puede reconstruir: dos Sharpe
-    # sueltos no dicen si la diferencia cabe dentro del ruido. None no es False.
+    # Los ficheros guardados antes de este cambio no llevan los errores estandar.
+    # Sin ellos, "gana / pierde / no se distingue" no se puede reconstruir: dos
+    # Sharpe sueltos no dicen si la diferencia cabe dentro del ruido. None no es
+    # False.
     viejo = {"oos_sharpe": 0.41, "oos_equal_weight_sharpe": 0.55, "oos_windows": 12}
     salida = veredicto_de(viejo)
     assert salida["oos_sharpe_stderr"] is None
+    assert salida["oos_gap_stderr"] is None
     assert salida["beats_equal_weight"] is None
+
+
+def test_un_portafolio_con_solo_el_error_del_nivel_no_trae_el_de_la_diferencia():
+    """El que justifica el veredicto es el de la diferencia, y puede faltar.
+
+    Los portafolios guardados entre que existio `oos_sharpe_stderr` y que
+    existio `oos_gap_stderr` llevan un error estandar que NO es el que decidio
+    su veredicto. Rellenar el hueco con el otro afirmaria una precision que
+    nadie midio.
+    """
+    intermedio = {"oos_sharpe": 0.41, "oos_equal_weight_sharpe": 0.55,
+                  "oos_sharpe_stderr": 0.38, "oos_windows": 12}
+    assert veredicto_de(intermedio)["oos_gap_stderr"] is None
 
 
 def test_el_veredicto_sobrevive_al_viaje_por_el_objetivo():

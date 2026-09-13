@@ -171,3 +171,60 @@ def test_fetch_market_data_reports_the_observation_count(mock_dl):
     mock_dl.return_value = _make_mock_download(["AAPL", "MSFT"], n_rows=100)
     result = fetch_market_data(("AAPL", "MSFT"), "1 Mes")
     assert result["n_obs"] == len(result["returns"])
+
+
+# ── Un ticker incompleto se lleva por delante la muestra de los demás ──────────
+
+import pytest
+
+from data import COBERTURA_MINIMA, tickers_con_huecos
+
+
+def _precios(n: int = 250, **columnas) -> pd.DataFrame:
+    fechas = pd.bdate_range("2025-01-01", periods=n)
+    return pd.DataFrame(columnas, index=fechas)
+
+
+def test_una_serie_casi_vacia_se_senala():
+    """El caso que lo motivó: AVB con 27 precios de 252.
+
+    `compute_returns` tira las fechas donde falta algún precio —lo correcto con
+    un hueco suelto— pero eso deja una cartera de cinco valores en 26
+    observaciones y sin validación posible, sin decir cuál de los cinco lo causó.
+    """
+    completa = np.linspace(100, 130, 250)
+    rota = np.full(250, np.nan)
+    rota[:27] = np.linspace(200, 210, 27)
+    p = _precios(AAA=completa, BBB=completa * 1.1, CCC=rota)
+    huecos = tickers_con_huecos(p)
+    assert set(huecos) == {"CCC"}
+    assert huecos["CCC"] == pytest.approx(27 / 250, abs=0.01)
+
+
+def test_las_series_completas_no_se_senalan():
+    completa = np.linspace(100, 130, 250)
+    assert tickers_con_huecos(_precios(AAA=completa, BBB=completa * 2)) == {}
+
+
+def test_un_hueco_suelto_no_se_senala():
+    """Un festivo local o una sesión sin cierre no es una serie rota."""
+    casi = np.linspace(100, 130, 250)
+    casi[50] = np.nan
+    casi[120] = np.nan
+    assert tickers_con_huecos(_precios(AAA=np.linspace(1, 2, 250), BBB=casi)) == {}
+
+
+def test_el_umbral_es_configurable():
+    casi = np.linspace(100, 130, 250)
+    casi[:60] = np.nan  # 76% de cobertura
+    p = _precios(AAA=np.linspace(1, 2, 250), BBB=casi)
+    assert tickers_con_huecos(p, minimo=0.90) == {"BBB": pytest.approx(0.76, abs=0.01)}
+    assert tickers_con_huecos(p, minimo=0.50) == {}
+
+
+def test_el_umbral_por_defecto_deja_pasar_una_cobertura_alta():
+    assert 0.5 < COBERTURA_MINIMA < 1.0
+
+
+def test_un_marco_vacio_no_senala_nada():
+    assert tickers_con_huecos(pd.DataFrame()) == {}

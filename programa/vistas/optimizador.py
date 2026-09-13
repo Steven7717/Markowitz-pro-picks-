@@ -42,7 +42,7 @@ from optimizer import (
     simulate_portfolios,
     validate_constraints,
 )
-from validation import walk_forward_validation
+from validation import walk_forward_comparison
 
 TICKERS_POR_DEFECTO = "AAPL, MSFT, GOOGL, AMZN, NVDA"
 
@@ -207,6 +207,23 @@ def _ejecutar() -> dict | None:
     periods_per_year = market["periods_per_year"]
     n_obs = market["n_obs"]
 
+    # Se dice antes de cualquier otra cosa porque es la causa, no el sintoma: un
+    # ticker con la serie rota recorta el historial de TODOS —se descartan las
+    # fechas donde falte algun precio— y sin esto el usuario solo veia el
+    # resultado, "datos insuficientes", sin saber cual de sus activos lo
+    # provocaba ni que quitandolo se arreglaba.
+    huecos = market.get("tickers_con_huecos") or {}
+    if huecos:
+        detalle = ", ".join(
+            f"**{t}** ({c:.0%} de las fechas)" for t, c in sorted(huecos.items())
+        )
+        st.warning(
+            f"Series incompletas: {detalle}. Como se descartan las fechas en las "
+            f"que falte algun precio, estos activos recortan el historial de toda "
+            f"la cartera: quedan {n_obs} observaciones comunes. Quitalos y el "
+            "resto recupera su historial completo."
+        )
+
     # La covarianza muestral necesita del orden de 30-50 observaciones por
     # activo antes de ser estable al invertirla. Por debajo, el optimizador
     # ajusta ruido.
@@ -215,8 +232,13 @@ def _ejecutar() -> dict | None:
         st.error(
             f"Datos insuficientes: {n_obs} observaciones para {len(valid_tickers)} "
             f"activos ({obs_per_asset:.0f} por activo). La matriz de covarianza es "
-            "prácticamente singular y el resultado no es interpretable. Usa menos "
-            "activos o un horizonte con datos diarios."
+            "prácticamente singular y el resultado no es interpretable. "
+            + (
+                f"La causa está arriba: quita {', '.join(sorted(huecos))} y vuelve "
+                "a probar."
+                if huecos
+                else "Usa menos activos o un horizonte con datos diarios."
+            )
         )
         return None
 
@@ -248,17 +270,17 @@ def _ejecutar() -> dict | None:
         return None
 
     with st.spinner("Validando fuera de muestra (walk-forward)…"):
-        wf = walk_forward_validation(
+        # Una sola pasada donde antes había cuatro. No es sólo velocidad —la
+        # seleccionada se recorría dos veces—: corriendo cada estrategia por su
+        # lado, cada una se quedaba con las ventanas donde ella convergió y con
+        # su propia referencia 1/N, y la tabla de abajo las ponía en columnas
+        # como si vinieran de la misma medición.
+        comparacion = walk_forward_comparison(
             returns, rf_rate, periods_per_year, bounds, allow_short,
-            strategy=strategy, shrinkage=use_shrinkage,
+            shrinkage=use_shrinkage,
         )
-        todas = {
-            nombre: walk_forward_validation(
-                returns, rf_rate, periods_per_year, bounds, allow_short,
-                strategy=nombre, shrinkage=use_shrinkage,
-            )
-            for nombre in STRATEGY_LABELS
-        }
+        todas = comparacion["por_estrategia"] if comparacion else {}
+        wf = todas.get(strategy)
 
     benchmark = None
     if not market["benchmark_returns"].empty:
@@ -279,6 +301,7 @@ def _ejecutar() -> dict | None:
         "sim_df": sim_df,
         "wf": wf,
         "todas": todas,
+        "comparacion": comparacion,
         "benchmark": benchmark,
         "tickers": valid_tickers,
         "horizonte": horizon,
@@ -392,6 +415,10 @@ metrics = {
     # `beats_equal_weight` es de tres estados a proposito -- None significa "no
     # hay ventanas suficientes para distinguirlo", que no es lo mismo que False.
     "oos_sharpe_stderr": wf["sharpe_stderr"] if wf else None,
+    # El que justifica el veredicto es este, no el de arriba: el de arriba dice
+    # con que precision se conoce el Sharpe, y la afirmacion es sobre la
+    # distancia a 1/N, que se mide sobre las mismas fechas y mucho mas fina.
+    "oos_gap_stderr": wf["gap_stderr"] if wf else None,
     "beats_equal_weight": wf["beats_equal_weight"] if wf else None,
 }
 
@@ -449,8 +476,8 @@ with resumen:
             st.info(
                 f"**Con estos datos no se puede distinguir la optimización de "
                 f"repartir por igual.** La diferencia es {abs(hueco):.2f} de Sharpe "
-                f"y el error de medición es ±{wf['sharpe_stderr']:.2f}: cabe dentro "
-                f"del ruido. Hacen falta más ventanas (hay {wf['n_windows']}); "
+                f"y el error de medir esa diferencia es ±{wf['gap_stderr']:.2f}: cabe "
+                f"dentro del ruido. Hacen falta más ventanas (hay {wf['n_windows']}); "
                 "elige un horizonte con más historial."
             )
         elif wf["beats_equal_weight"] is False:
@@ -458,16 +485,16 @@ with resumen:
                 f"**La optimización queda por debajo de repartir por igual.** "
                 f"Fuera de muestra logra Sharpe {wf['out_of_sample_sharpe']:.2f} "
                 f"frente a {wf['equal_weight_sharpe']:.2f} de Equal Weight, una "
-                f"diferencia de {abs(hueco):.2f} que supera el error de medición "
-                f"(±{wf['sharpe_stderr']:.2f}). Con esta selección y este horizonte, "
-                "la optimización está ajustando ruido."
+                f"diferencia de {abs(hueco):.2f} que supera el error de medir esa "
+                f"diferencia (±{wf['gap_stderr']:.2f}). Con esta selección y este "
+                "horizonte, la optimización está ajustando ruido."
             )
         else:
             st.success(
                 f"**La optimización supera a repartir por igual.** Sharpe "
                 f"{wf['out_of_sample_sharpe']:.2f} frente a "
                 f"{wf['equal_weight_sharpe']:.2f}, una diferencia de {hueco:.2f} por "
-                f"encima del error de medición (±{wf['sharpe_stderr']:.2f})."
+                f"encima del error de medir esa diferencia (±{wf['gap_stderr']:.2f})."
             )
 
     if corrida["shrinkage"]:
@@ -524,8 +551,9 @@ with validacion:
 
         st.caption(
             f"Entrena con {wf['train_size']} períodos y mantiene {wf['test_size']} · "
-            f"{wf['n_oos_periods']} períodos fuera de muestra en total · error "
-            f"estándar del Sharpe ±{wf['sharpe_stderr']:.2f}."
+            f"{wf['n_oos_periods']} períodos fuera de muestra en total · error del "
+            f"Sharpe ±{wf['sharpe_stderr']:.2f} · error de la diferencia contra 1/N "
+            f"±{wf['gap_stderr']:.2f}."
         )
 
         if wf["degradation"] > 1.0:
@@ -548,6 +576,10 @@ with validacion:
                 "Sharpe fuera de muestra": f"{res['out_of_sample_sharpe']:.2f}",
                 "Retorno anual (fuera)": f"{res['oos_return']:.1%}",
                 "Volatilidad (fuera)": f"{res['oos_vol']:.1%}",
+                "Diferencia vs 1/N": (
+                    f"{res['out_of_sample_sharpe'] - res['equal_weight_sharpe']:+.2f}"
+                    f"  ±{res['gap_stderr']:.2f}"
+                ),
             })
         filas.append({
             "Estrategia": "Equal Weight 1/N (referencia)",
@@ -555,12 +587,17 @@ with validacion:
             "Sharpe fuera de muestra": f"{wf['equal_weight_sharpe']:.2f}",
             "Retorno anual (fuera)": "—",
             "Volatilidad (fuera)": "—",
+            "Diferencia vs 1/N": "—",
         })
         st.dataframe(pd.DataFrame(filas), use_container_width=True, hide_index=True)
+        _descartadas = corrida["comparacion"]["n_windows_descartadas"]
         st.caption(
-            f"Todas las cifras de fuera de muestra vienen del mismo walk-forward "
-            f"({wf['n_windows']} ventanas, error estándar ±{wf['sharpe_stderr']:.2f}). "
-            "Diferencias menores que el error estándar no se distinguen del ruido."
+            f"Las tres estrategias recorren exactamente las mismas "
+            f"{wf['n_windows']} ventanas y se miden contra el mismo 1/N"
+            + (f", descartando {_descartadas} donde alguna no convergió" if _descartadas
+               else "")
+            + ". Una diferencia contra 1/N menor que su propio error estándar "
+            "(la columna de la derecha) no se distingue del ruido."
         )
 
 # ── Gráficos ─────────────────────────────────────────────────────────────────

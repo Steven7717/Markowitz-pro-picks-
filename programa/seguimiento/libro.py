@@ -382,13 +382,17 @@ def _con_asientos(libro: Libro, nuevos: list[Asiento]) -> Libro:
     return replace(libro, asientos=tuple(libro.asientos) + tuple(nuevos))
 
 
-# Los cinco campos que hacen falta para poder decir "gana", "pierde" o "no se
-# distingue del ruido". Sin `oos_sharpe_stderr` los otros cuatro no bastan: dos
-# Sharpe sueltos no dicen si la diferencia cabe dentro del error de medicion.
+# Los campos que hacen falta para poder decir "gana", "pierde" o "no se
+# distingue del ruido". Dos Sharpe sueltos no bastan: no dicen si la diferencia
+# cabe dentro del error de medicion. Y el error que decide es
+# `oos_gap_stderr` --el de la DIFERENCIA, medida sobre las mismas fechas--, no
+# `oos_sharpe_stderr`, que es el del nivel de un Sharpe suelto y es entre 3 y 12
+# veces mas ancho. Se guardan los dos porque la pantalla ensena los dos.
 CAMPOS_VEREDICTO = (
     "oos_sharpe",
     "oos_equal_weight_sharpe",
     "oos_sharpe_stderr",
+    "oos_gap_stderr",
     "beats_equal_weight",
     "oos_windows",
 )
