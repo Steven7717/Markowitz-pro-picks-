@@ -20,6 +20,7 @@ import pandas as pd
 import streamlit as st
 
 import cartera
+import configuracion
 import preferencias as preferencias_mod
 import tema
 from charts import (
@@ -70,64 +71,22 @@ for aviso in avisos_preferencias:
     st.warning(aviso)
 
 
-def _valores_iniciales() -> dict:
-    """What the form opens with, and where each value comes from.
-
-    Tres fuentes, en este orden y no en otro: lo que el usuario acaba de cargar
-    a propósito (un portafolio guardado, un acta), lo que le llega del gate de
-    aprobación, y por último sus preferencias. Un portafolio recién cargado
-    tiene que ganarle a las preferencias — es lo que el usuario pidió hace un
-    segundo — y el traspaso del gate tiene que ganarle a la lista por defecto,
-    porque si no, aprobar quince empresas no serviría de nada.
-    """
-    inicial = {
-        "tickers": guardadas.tickers or TICKERS_POR_DEFECTO,
-        "horizonte": guardadas.horizonte,
-        "estrategia": guardadas.estrategia,
-        "peso_min": guardadas.peso_min,
-        "peso_max": guardadas.peso_max,
-        "cortos": guardadas.permitir_cortos,
-        "shrinkage": guardadas.shrinkage,
-        "origen": "",
-    }
-
-    aprobados = st.session_state.get("tickers_aprobados")
-    if aprobados:
-        inicial["tickers"] = ", ".join(aprobados)
-        inicial["origen"] = f"{len(aprobados)} empresas aprobadas en el gate"
-
-    # pop y no get: cargar un portafolio es un gesto de una sola vez. Si se
-    # quedase en sesión, cada reejecución volvería a pisar lo que el usuario
-    # hubiera escrito después, y el campo de tickers sería imposible de editar.
-    cargado = st.session_state.pop("portafolio_a_cargar", None)
-    if cargado is not None:
-        st.session_state.origen_cargado = cargado.nombre
-        inicial.update(
-            tickers=", ".join(cargado.tickers),
-            horizonte=cargado.horizonte,
-            estrategia=cargado.estrategia,
-            peso_min=int(round(cargado.peso_min * 100)),
-            peso_max=int(round(cargado.peso_max * 100)),
-            cortos=cargado.permitir_cortos,
-            shrinkage=cargado.shrinkage,
-        )
-    if st.session_state.get("origen_cargado"):
-        inicial["origen"] = f"cargado de «{st.session_state['origen_cargado']}»"
-    return inicial
-
-
-inicial = _valores_iniciales()
+# Los valores del formulario viven en `session_state` bajo las claves de
+# `configuracion`, no en un diccionario que se recalcule aqui. El porque --y el
+# fallo que salio de hacerlo al reves-- esta escrito en ese modulo.
+origen = configuracion.sembrar(st.session_state, guardadas, TICKERS_POR_DEFECTO)
+CLAVES = configuracion.CLAVES
 
 with st.container(border=True):
-    if inicial["origen"]:
-        st.markdown(
-            tema.etiqueta(inicial["origen"], "acento"), unsafe_allow_html=True
-        )
+    if origen:
+        st.markdown(tema.etiqueta(origen, "acento"), unsafe_allow_html=True)
 
     with st.form("configuracion", border=False):
+        # `key=` y nada de `value=`: los dos juntos hacen que Streamlit avise de
+        # que uno pisa al otro, y el que manda es la sesion.
         raw_tickers = st.text_input(
             "Activos",
-            value=inicial["tickers"],
+            key=CLAVES["tickers"],
             placeholder="AAPL, MSFT, GOOGL",
             help="Separados por coma o espacio. Hacen falta al menos dos.",
         )
@@ -136,14 +95,14 @@ with st.container(border=True):
         horizon = col_horizonte.selectbox(
             "Horizonte de inversión",
             options=list(HORIZON_CONFIG),
-            index=list(HORIZON_CONFIG).index(inicial["horizonte"]),
+            key=CLAVES["horizonte"],
             help="Decide la frecuencia de los datos y cuánto historial se usa.",
         )
         strategy = col_estrategia.radio(
             "Estrategia",
             options=list(STRATEGY_LABELS),
             format_func=lambda k: STRATEGY_LABELS[k],
-            index=list(STRATEGY_LABELS).index(inicial["estrategia"]),
+            key=CLAVES["estrategia"],
             horizontal=True,
             help="Mínima varianza y paridad de riesgo NO usan retornos esperados, "
             "que es donde vive casi todo el error de estimación.",
@@ -151,19 +110,19 @@ with st.container(border=True):
 
         col_min, col_max, col_cortos = st.columns([2, 2, 1])
         weight_min = col_min.slider(
-            "Peso mínimo por activo (%)", 0, 20, inicial["peso_min"],
+            "Peso mínimo por activo (%)", 0, 20, key=CLAVES["peso_min"],
             help="No aplica con ventas en corto: el límite pasa a ser simétrico "
             "(±peso máximo).",
         ) / 100
         weight_max = col_max.slider(
-            "Peso máximo por activo (%)", 20, 100, inicial["peso_max"],
+            "Peso máximo por activo (%)", 20, 100, key=CLAVES["peso_max"],
             help="Con ventas en corto, limita el tamaño absoluto de cada posición (±).",
         ) / 100
-        allow_short = col_cortos.toggle("Ventas en corto", value=inicial["cortos"])
+        allow_short = col_cortos.toggle("Ventas en corto", key=CLAVES["cortos"])
 
         use_shrinkage = st.toggle(
             "Estimación robusta (shrinkage Ledoit-Wolf + Bayes-Stein)",
-            value=inicial["shrinkage"],
+            key=CLAVES["shrinkage"],
             help=(
                 "Corrige el sesgo optimista de Markowitz. Con medias y covarianzas "
                 "muestrales crudas el optimizador maximiza el error de estimación, no "
@@ -321,7 +280,7 @@ if enviado:
     corrida = _ejecutar()
     if corrida is not None:
         st.session_state.corrida = corrida
-        st.session_state.pop("origen_cargado", None)
+        configuracion.olvidar_origen(st.session_state)
 
 corrida = st.session_state.get("corrida")
 

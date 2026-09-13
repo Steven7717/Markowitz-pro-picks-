@@ -14,6 +14,7 @@ trabajo a medias que una recarga pueda tirar a la basura.
 import streamlit as st
 
 import cartera
+import configuracion
 import preferencias as preferencias_mod
 import tema
 from credenciales import (
@@ -213,6 +214,11 @@ with preferencias_tab:
             except OSError as error:
                 st.error(f"No se pudieron guardar: {error}")
             else:
+                # El formulario del optimizador guarda sus valores en sesion
+                # para que no se le cambien solos; sin esto, unas preferencias
+                # recien guardadas no se verian hasta la sesion siguiente y el
+                # mensaje de abajo seria mentira.
+                configuracion.reiniciar(st.session_state)
                 st.success("Guardadas. El optimizador arrancará con estos valores.")
 
     if st.button("Volver a los valores de fábrica", icon=":material/restart_alt:"):
@@ -221,6 +227,7 @@ with preferencias_tab:
         except OSError as error:
             st.error(f"No se pudieron borrar: {error}")
         else:
+            configuracion.reiniciar(st.session_state)
             st.rerun()
 
 # ── Dónde vive todo ──────────────────────────────────────────────────────────

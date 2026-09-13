@@ -88,8 +88,11 @@ for guardada in guardadas:
             ):
                 # Se reutiliza el mismo canal que usa el gate para el traspaso,
                 # asi el optimizador no tiene que saber de donde vino la lista.
+                #
+                # Ya no hace falta borrar a mano la etiqueta del portafolio que
+                # se hubiera cargado antes: ahora hay un solo origen y lo pisa
+                # quien traspasa. (`configuracion.sembrar`.)
                 st.session_state.tickers_aprobados = tickers
-                st.session_state.pop("origen_cargado", None)
                 st.switch_page("vistas/optimizador.py")
 
         with st.expander("Ver el detalle"):
