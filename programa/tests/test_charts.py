@@ -103,3 +103,28 @@ def test_frontier_marker_uses_the_supplied_strategy_label():
 def test_frontier_marker_still_shows_the_sharpe_ratio():
     names = [t.name for t in _frontier(strategy_label="Paridad de riesgo").data]
     assert any("Sharpe" in n for n in names)
+
+
+def test_la_tarta_no_escribe_los_pesos_nulos_en_notacion_cientifica():
+    """Un activo que se queda fuera pesa 7.7e-16, no 0, y se veía como tal.
+
+    `textinfo="label+percent"` deja el formato al de por defecto de Plotly, que
+    es de dígitos significativos (`~%`): al lado del ticker salía
+    «CSGP 7.67e-16%», que no se lee como «cero» sino como un fallo. Con
+    decimales fijos sale «0.0%», que es lo que ese peso es.
+    """
+    fig = plot_weights_pie(np.array([0.6, 0.4, 7.67e-16]), ["AAA", "BBB", "CCC"])
+    trazo = fig.data[0]
+    assert trazo.texttemplate is not None, "sin plantilla el formato lo elige Plotly"
+    assert "%{percent:." in trazo.texttemplate
+
+
+def test_la_tarta_sigue_etiquetando_cada_porcion_con_su_ticker():
+    trazo = plot_weights_pie(np.array([0.5, 0.5]), ["AAA", "BBB"]).data[0]
+    assert "%{label}" in trazo.texttemplate
+
+
+def test_la_tarta_no_deja_dos_formatos_compitiendo():
+    """`textinfo` y `texttemplate` se pisan; que quede sólo el que manda."""
+    trazo = plot_weights_pie(np.array([0.5, 0.5]), ["AAA", "BBB"]).data[0]
+    assert trazo.textinfo is None

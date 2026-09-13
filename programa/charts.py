@@ -91,11 +91,16 @@ def plot_efficient_frontier(
 
 
 def plot_weights_pie(weights: np.ndarray, tickers: list[str]) -> go.Figure:
+    # `texttemplate` y no `textinfo="label+percent"`: el formato de por defecto
+    # de Plotly para el porcentaje es de digitos significativos, y un activo que
+    # el optimizador deja fuera no pesa 0 sino 7.7e-16 -- asi que al lado del
+    # ticker aparecia "CSGP 7.67e-16%", que no se lee como "cero" sino como un
+    # fallo del programa. Con decimales fijos sale "0.0%", que es lo que es.
     fig = go.Figure(go.Pie(
         labels=tickers,
         values=weights,
         hole=0.35,
-        textinfo="label+percent",
+        texttemplate="%{label}<br>%{percent:.1%}",
         hovertemplate="%{label}: %{value:.2%}<extra></extra>",
     ))
     fig.update_layout(title="Distribución de Pesos Óptimos", **_base_layout())
