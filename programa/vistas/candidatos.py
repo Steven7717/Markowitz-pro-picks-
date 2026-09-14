@@ -21,14 +21,22 @@ from aprobacion.acta import (
     TickerInvalido,
     construir_acta,
     guardar_acta,
+    normalizar,
     tickers_aprobados,
 )
-from aprobacion.carga import ContratoRoto, FaltanFichas, cargar_candidatos, resumen_corrida
+from aprobacion.carga import (
+    ContratoRoto,
+    FaltanFichas,
+    cargar_candidatos,
+    kpis_con_dato,
+    resumen_corrida,
+)
 from aprobacion.generacion import (
     COSTE_APROXIMADO_USD,
     disponibilidad,
     hay_revision_en_curso,
 )
+from noticias import texto
 from ranking.criterio import TRIMESTRES_VENTANA
 
 st.markdown(
@@ -48,8 +56,14 @@ if "anadidos" not in st.session_state:
 def _generar(con_ia: bool) -> None:
     """Run sub-project B and overwrite salidas/, then reload the page."""
     from fundamentals.fetch import CorridaAbortada
+    from ranking.llm import gasto_acumulado, reiniciar_gasto
     from ranking.run import construir_ranking, guardar
 
+    # El contador de gasto vive en el módulo `ranking.llm` y el proceso de
+    # Streamlit sobrevive a las corridas: sin ponerlo a cero, la segunda
+    # heredaría el gasto de la primera y podría chocar contra el tope duro sin
+    # haber gastado ella nada.
+    reiniciar_gasto()
     try:
         with st.spinner(
             "Generando candidatos"
@@ -62,8 +76,15 @@ def _generar(con_ia: bool) -> None:
         # salidas/, así que lo que el revisor tenga marcado sigue apuntando a la
         # lista que está viendo. Borrarlo aquí sería el defecto que arregló
         # cbe71a0, y encima castigaría al usuario por un fallo que no es suyo.
+        #
+        # El gasto sí se guarda: una corrida que aborta a mitad ya ha pagado las
+        # llamadas que hizo, y no decirlo es justo el caso en que más falta hace
+        # saberlo.
+        st.session_state.gasto_ultima_corrida = gasto_acumulado()
         st.error(str(error))
         return
+
+    st.session_state.gasto_ultima_corrida = gasto_acumulado()
 
     # Lo marcado antes se refiere a una lista que acaba de dejar de existir.
     for clave in [c for c in st.session_state if c.startswith("ok_")]:
@@ -80,7 +101,7 @@ puede = disponibilidad()
 opciones = ["Sin IA — sólo números, gratis"]
 if puede.puede_usar_ia:
     opciones.append(
-        f"Con IA — narrativa y citas verificadas (~{COSTE_APROXIMADO_USD:.2f} $)"
+        f"Con IA — narrativa y citas verificadas (hasta {COSTE_APROXIMADO_USD:.2f} $)"
     )
 
 with st.container(border=True):
@@ -89,8 +110,11 @@ with st.container(border=True):
         "Generar candidatos", opciones, horizontal=True, key="modo_generacion"
     )
     con_ia = eleccion.startswith("Con IA")
+    # El botón dice lo que va a pasar, no sólo «Generar». El precio vivía sólo
+    # en la etiqueta del radio, en letra pequeña, así que el último clic antes
+    # de gastar no mencionaba el dinero por ninguna parte.
     pulsado = columna_boton.button(
-        "Generar",
+        "Generar con IA" if con_ia else "Generar gratis",
         key="generar",
         use_container_width=True,
         type="primary",
@@ -129,8 +153,69 @@ if hay_revision_en_curso(
         "que dejará de existir."
     )
 
+# --- El paso que separa un clic de un dólar y medio --------------------------
+#
+# La corrida con IA costaba 1,25 $ a un solo clic, y la elección se quedaba
+# pegada: `key="modo_generacion"` sobrevive al `st.rerun()`, así que una corrida
+# que falla a mitad devuelve la página con «Con IA» ya seleccionado y volver a
+# pulsar eran otros 1,25 $ sin que nada lo dijera.
+#
+# La confirmación se arma con una bandera **que no es de un widget** y se
+# desarma justo antes de llamar, así que no sobrevive a nada: después de un
+# fallo hay que volver a confirmar. Eso deja el radio pegado --y da igual que lo
+# esté--, porque pulsar «Generar» ya no gasta nada por sí solo.
+#
+# Lo que no cambia, porque ya estaba bien: la opción gratis es la de por
+# defecto, y sin clave la de pago ni se dibuja.
+_CONFIRMAR = "confirmar_generacion_ia"
+
 if pulsado:
-    _generar(con_ia)
+    if con_ia:
+        st.session_state[_CONFIRMAR] = True
+    else:
+        _generar(False)
+
+if st.session_state.get(_CONFIRMAR) and puede.puede_usar_ia:
+    with st.container(border=True):
+        st.warning(
+            f"**Esto cuesta dinero: hasta {COSTE_APROXIMADO_USD:.2f} $** en tu "
+            "cuenta de Anthropic, cargados al generar. Es el peor caso —todas "
+            "las fichas reintentadas—; lo que cueste de verdad se dice aquí "
+            "mismo al terminar. Sin IA la lista sale igual de ordenada, sólo "
+            "que sin narrativa ni citas."
+        )
+        columna_si, columna_no, _ = st.columns([2, 1, 3])
+        if columna_si.button(
+            f"Sí, generar con IA (hasta {COSTE_APROXIMADO_USD:.2f} $)",
+            key="confirmar_ia",
+            type="primary",
+        ):
+            # Se desarma ANTES de llamar: si la corrida aborta a mitad,
+            # `_generar` vuelve sin recargar y la página no puede quedarse con
+            # la confirmación puesta de la vez anterior.
+            st.session_state[_CONFIRMAR] = False
+            _generar(True)
+        if columna_no.button("Cancelar", key="cancelar_ia"):
+            st.session_state[_CONFIRMAR] = False
+            st.rerun()
+
+_gasto = st.session_state.get("gasto_ultima_corrida")
+if _gasto is not None and _gasto.llamadas:
+    # El README promete que las pantallas que cuestan dinero «avisan antes y
+    # dicen lo que costó después». Esta no decía nada: `ranking/llm.py` recibía
+    # `respuesta.usage` de la API y la tiraba entera, al contrario que
+    # `interprete/cliente.py`, que la conserva y la enseña.
+    st.success(
+        f"La última corrida con IA costó **{_gasto.usd:.2f} $**: "
+        f"{_gasto.llamadas} llamadas, {_gasto.entrada_tokens:,} tokens de "
+        f"entrada y {_gasto.salida_tokens:,} de salida."
+    )
+    if _gasto.tope_alcanzado:
+        st.warning(
+            "La corrida alcanzó el tope de gasto y paró de llamar al modelo: "
+            "las fichas que faltaban salieron de plantilla, sin narrativa. "
+            "No es lo normal, así que merece una mirada antes de repetirla."
+        )
 
 st.divider()
 
@@ -145,14 +230,19 @@ except FaltanFichas as error:
         st.switch_page("vistas/perfil.py")
     st.stop()
 except ContratoRoto as error:
-    st.error(f"Las salidas de B no tienen la forma esperada: {error}")
+    # «B» es el nombre interno de un sub-proyecto: el revisor no sabe qué es y
+    # el mensaje no le dice ni qué fichero mirar ni qué hacer.
+    st.error(
+        f"El fichero de candidatos (salidas/fichas.json) no tiene la forma "
+        f"esperada: {error}. Vuelve a generarlos para reescribirlo."
+    )
     st.stop()
 
 st.info(resumen_corrida(candidatos.corrida))
 st.caption(
-    "El orden lo decide un score determinista que **no esta validado "
-    "empiricamente**: es un criterio de seleccion transparente, no una "
-    "prevision de rentabilidad."
+    "El orden lo decide un score determinista que **no está validado "
+    "empíricamente**: es un criterio de selección transparente, no una "
+    "previsión de rentabilidad."
 )
 
 # La hoja de estilo de los medidores, una sola vez por pasada. Va aqui y no
@@ -231,10 +321,19 @@ for ficha in candidatos.fichas:
     with st.expander(f"Ver la ficha completa de {ticker}"):
         st.markdown("**Los cuatro pilares**, frente a sus pares del sector")
         st.markdown(medidores.medidores_pilares(ficha), unsafe_allow_html=True)
-        st.markdown(
-            medidores.medidor_cobertura(ficha["cobertura"]["kpis_con_dato"]),
-            unsafe_allow_html=True,
-        )
+        # `.get` y no indexación directa, como hacen `medidores.tarjeta_candidato`
+        # y `medidores._nota_pilar` con estos mismos campos: `_CAMPOS_FICHA`
+        # valida que `cobertura` exista pero no su contenido, así que una
+        # fichas.json vieja reventaba con KeyError **a mitad de la lista**, con
+        # tarjetas ya pintadas encima. El escenario está en el repo:
+        # salidas_ejemplo trae `kpis_con_dato` pero no `kpis_por_pilar`.
+        _con_dato = kpis_con_dato(ficha)
+        if _con_dato is None:
+            st.caption("Sin cobertura registrada: esta ficha es de una versión anterior")
+        else:
+            st.markdown(
+                medidores.medidor_cobertura(_con_dato), unsafe_allow_html=True
+            )
 
         # "Sus tres mas fuertes" y no "Fuerte en": la lista es relativa a la
         # propia empresa, y una companyia solida puede tener sus tres peores
@@ -260,20 +359,38 @@ for ficha in candidatos.fichas:
         if narrativa is None:
             st.markdown("_Ficha de plantilla: sin narrativa generada._")
         else:
-            st.markdown(narrativa["tesis"])
+            # Todo lo de aquí abajo lo escribió el modelo, y la cita es texto
+            # copiado literalmente del filing: lo escribe la empresa. Pintarlo
+            # en crudo no es XSS --Streamlit sanea el HTML-- pero sí inyección
+            # de markdown: un `[texto](url)` sale como enlace pulsable al
+            # dominio del emisor, una imagen remota confirma que la ficha se
+            # abrió, y `$…$` se lee como LaTeX y se come la línea. Esta pantalla
+            # era la única de la app que no pasaba por `noticias/texto.py`.
+            st.markdown(texto.plano(narrativa["tesis"]))
             for riesgo in narrativa["riesgos"]:
-                st.markdown(f"- {riesgo['afirmacion']}")
+                st.markdown(f"- {texto.plano(riesgo['afirmacion'])}")
                 if not riesgo["verificada"]:
                     # Si el revisor puede leer la ficha entera sin enterarse de
                     # que una cita es inventada, este sub-proyecto ha fallado.
                     st.error("Cita SIN VERIFICAR: no aparece en el documento original")
-                st.markdown(f"> {' '.join(riesgo['cita'].split())}")
+                bloque = texto.cita_en_bloque(riesgo["cita"])
+                if bloque:
+                    st.markdown(bloque)
+                else:
+                    # Una cita en blanco con el `>` puesto se pinta como una
+                    # raya gris vacía, que se lee como que la cita existe.
+                    st.caption("Sin cita: el modelo no escribió ninguna")
             fuente = narrativa.get("fuente")
             if fuente:
                 recorte = " (recortado)" if fuente["recortado"] else ""
+                # La procedencia sale de EDGAR y no del modelo, pero llega por
+                # la misma tubería y se pinta en el mismo sitio: escaparla
+                # cuesta lo mismo que razonar cada año si sigue siendo de fiar.
                 st.caption(
-                    f"Fuente: {fuente['formulario']} de {fuente['fecha']}, "
-                    f"{fuente['seccion']}, accession {fuente['accession']}{recorte}"
+                    f"Fuente: {texto.plano(fuente['formulario'])} de "
+                    f"{texto.plano(fuente['fecha'])}, "
+                    f"{texto.plano(fuente['seccion'])}, accession "
+                    f"{texto.plano(fuente['accession'])}{recorte}"
                 )
             else:
                 st.warning("Procedencia no disponible: la cita no se puede localizar")
@@ -285,27 +402,71 @@ for ficha in candidatos.fichas:
             motivos[ticker] = motivo.strip()
 
 st.divider()
-st.subheader("Anadir una empresa a mano")
+st.subheader("Añadir una empresa a mano")
 st.caption(
-    "Para recuperar a una empresa que las guardas excluyeron por como reporta "
-    "y no por su calidad. El motivo es obligatorio: sin ranking detras, es la "
-    "unica justificacion que va a existir."
+    "Para recuperar a una empresa que las guardas excluyeron por cómo reporta "
+    "y no por su calidad. El motivo es obligatorio: sin ranking detrás, es la "
+    "única justificación que va a existir."
 )
 
-columna_ticker, columna_motivo, columna_boton = st.columns([1, 3, 1])
-nuevo_ticker = columna_ticker.text_input("Ticker", key="nuevo_ticker")
-nuevo_motivo = columna_motivo.text_input("Motivo", key="nuevo_motivo")
-if columna_boton.button("Anadir", disabled=not (nuevo_ticker and nuevo_motivo.strip())):
-    st.session_state.anadidos.append(
-        Anadido(ticker=nuevo_ticker, motivo=nuevo_motivo)
+# Un formulario, y no dos `text_input` sueltos: `nuevo_ticker` y `nuevo_motivo`
+# sobrevivían al `st.rerun()` que sigue a añadir, así que los campos se quedaban
+# llenos y un clic de más añadía el mismo ticker dos veces. Nada avisaba hasta
+# «Aprobar N empresas», al final de todo, donde `construir_acta` lanza
+# `TickerDuplicado` y el revisor descubre el problema en el peor momento.
+# `clear_on_submit` los vacía al enviar.
+with st.form("anadir_a_mano", clear_on_submit=True):
+    columna_ticker, columna_motivo, columna_boton = st.columns(
+        [1, 3, 1], vertical_alignment="bottom"
     )
-    st.rerun()
+    nuevo_ticker = columna_ticker.text_input("Ticker", key="nuevo_ticker")
+    nuevo_motivo = columna_motivo.text_input("Motivo", key="nuevo_motivo")
+    # Dentro de un formulario no hay recarga al teclear, así que el botón no
+    # puede deshabilitarse según lo escrito: la validación se hace al enviar, y
+    # además así el usuario lee por qué en vez de encontrarse un botón apagado.
+    enviado = columna_boton.form_submit_button("Añadir", use_container_width=True)
+
+if enviado:
+    _ya_anadidos = {a.ticker.strip().upper() for a in st.session_state.anadidos}
+    _del_ranking = {f["ticker"] for f in candidatos.fichas}
+    try:
+        _candidato = normalizar(nuevo_ticker)
+    except TickerInvalido as error:
+        st.error(str(error))
+    else:
+        # Estas tres comprobaciones no sustituyen a las de `construir_acta`, que
+        # sigue siendo la autoridad y las repite al escribir el acta: lo que
+        # hacen es decirlo **ahora**, cuando el revisor todavía recuerda lo que
+        # tecleó, en vez de al final de la revisión entera.
+        if not nuevo_motivo.strip():
+            st.error(
+                f"{_candidato} necesita un motivo escrito: sin ranking detrás, "
+                "es la única justificación que va a existir."
+            )
+        elif _candidato in _del_ranking:
+            st.error(
+                f"{_candidato} ya está en el ranking: apruébalo con su casilla "
+                "en vez de añadirlo a mano."
+            )
+        elif _candidato in _ya_anadidos:
+            st.error(f"{_candidato} ya está en la lista de añadidos a mano.")
+        else:
+            st.session_state.anadidos.append(
+                Anadido(ticker=nuevo_ticker, motivo=nuevo_motivo)
+            )
+            st.rerun()
 
 if st.session_state.anadidos:
     for indice, anadido in enumerate(st.session_state.anadidos):
         columna_texto, columna_quitar = st.columns([11, 1])
         with columna_texto:
-            st.markdown(f"- **{anadido.ticker.strip().upper()}** — {anadido.motivo}")
+            # El motivo lo escribió el propio revisor, pero se escapa igual: un
+            # «PER < $20» se comería la línea hasta el siguiente dólar y le
+            # borraría de la vista la razón que él mismo tecleó.
+            st.markdown(
+                f"- **{texto.plano(anadido.ticker.strip().upper())}** — "
+                f"{texto.plano(anadido.motivo)}"
+            )
         with columna_quitar:
             # El indice como key es seguro aqui porque cada clic reconstruye la
             # lista entera antes del siguiente rerun: no queda un hueco a medio
@@ -319,8 +480,8 @@ if st.session_state.anadidos:
     # que permite probar todo este paquete sin nada montado. El optimizador ya
     # falla de forma visible si un ticker no tiene datos.
     st.caption(
-        "Solo se comprueba la forma del ticker. Si no existe o no tiene precio, "
-        "el fallo aparecera en el optimizador, no aqui."
+        "Sólo se comprueba la forma del ticker. Si no existe o no tiene precio, "
+        "el fallo aparecerá en el optimizador, no aquí."
     )
 
 st.divider()

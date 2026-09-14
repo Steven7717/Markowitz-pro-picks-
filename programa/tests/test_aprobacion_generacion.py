@@ -75,3 +75,45 @@ def test_un_anadido_a_mano_tambien_cuenta():
     # Es el caso que mas duele: lleva un motivo escrito a mano que no se
     # recupera de ningun sitio si se sobrescribe la corrida.
     assert hay_revision_en_curso(set(), [object()])
+
+
+# --- El coste anunciado, y el peor caso que tiene que cubrir -----------------
+#
+# `COSTE_APROXIMADO_USD` decia 1,25 $ y el peor caso medido eran 2,13 $: un 70%
+# mas de lo anunciado, en la unica pantalla del programa donde una cifra decide
+# si se gasta o no. Y el peor caso no era mala suerte: el reintento lo dispara
+# de forma **determinista** un filing hostil, que basta con que induzca un
+# digito en la afirmacion o una cita que no verifique. El texto de un tercero
+# decidia el gasto del usuario por un factor de dos.
+#
+# Los dos de abajo atan la cifra anunciada a las constantes que de verdad la
+# producen, asi que ya no se puede cambiar la politica de reintento sin que la
+# cifra de la pantalla se entere.
+
+from aprobacion import generacion
+from ranking import llm
+from ranking.criterio import TAMANO_TOP
+
+
+def test_el_coste_anunciado_cubre_el_peor_caso():
+    """El saboteador de esta tarea entera: subir MAX_CARACTERES_REINTENTO o
+    MAX_TOKENS sin tocar la cifra de la pantalla tumba esto."""
+    assert generacion.COSTE_APROXIMADO_USD >= generacion.coste_peor_caso()
+
+
+def test_el_coste_anunciado_no_se_va_por_las_nubes():
+    """La otra mitad: anunciar diez dolares tambien «cubre» el peor caso, y
+    seria igual de inutil para decidir. Un margen, no una barra libre."""
+    assert generacion.COSTE_APROXIMADO_USD <= generacion.coste_peor_caso() * 1.2
+
+
+def test_el_peor_caso_crece_con_las_fichas():
+    assert generacion.coste_peor_caso(30) > generacion.coste_peor_caso(15)
+
+
+def test_el_tope_de_la_corrida_deja_pasar_una_corrida_normal():
+    """Un tope por debajo del peor caso convertiria una corrida legitima en
+    fichas de plantilla a mitad de lista, que es la degradacion silenciosa que
+    este programa evita en todas partes. El tope esta para lo que se salga de
+    lo previsto, no para lo previsto."""
+    assert llm.TOPE_USD_POR_CORRIDA > generacion.coste_peor_caso(TAMANO_TOP)

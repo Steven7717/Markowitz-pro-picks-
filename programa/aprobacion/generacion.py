@@ -8,13 +8,63 @@ sobrescribir— y las decisiones se prueban sin arrancar Streamlit.
 import os
 from dataclasses import dataclass
 
+from ranking import llm
+from ranking.criterio import TAMANO_TOP
+
 # Medido con count_tokens contra la API real el 2026-08-16, no estimado: el
 # peor caso son 24.231 tokens de entrada por ficha (ver la enmienda 4 del
-# diseño de B). Quince fichas con su salida, a la tarifa estándar de Sonnet 5,
-# salen por algo más de un dólar. Se redondea hacia arriba a propósito: quien
-# lee esto está a punto de decidir si gastar, y una estimación optimista en ese
+# diseño de B).
+TOKENS_POR_FICHA = 24_231
+
+# Mismo ratio que `vistas/panel_ia.py:_CARACTERES_POR_TOKEN`, y por la misma
+# razón: el reintento se recorta en caracteres y se cobra en tokens, así que
+# alguna conversión hace falta. Cuatro caracteres por token es lo que sale en
+# prosa legal en inglés, que es exactamente lo que se manda.
+CARACTERES_POR_TOKEN = 4
+
+# Lo que se anuncia antes de pulsar. **Es el peor caso, no el caso típico.**
+#
+# Decía 1,25 $ mientras el peor caso medido eran 2,13 $ — un 70 % más de lo
+# anunciado, en la única pantalla del programa donde una cifra decide si se
+# gasta o no. Y el peor caso no era mala suerte: el reintento lo dispara de
+# forma determinista un filing hostil, que sólo tiene que inducir un dígito en
+# la afirmación o una cita que no verifique. El texto de un tercero decidía el
+# gasto del usuario por un factor de dos.
+#
+# Ahora el reintento ya no reenvía los ochenta mil caracteres del filing (ver
+# `ranking/llm.py:MAX_CARACTERES_REINTENTO`) y el peor caso baja a 1,54 $. Se
+# anuncia 1,55: redondeado hacia arriba a propósito, como antes — quien lee
+# esto está a punto de decidir si gastar, y una estimación optimista en ese
 # sitio es peor que no dar ninguna.
-COSTE_APROXIMADO_USD = 1.25
+#
+# Hay un test que lo ata a `coste_peor_caso()` por los dos lados: ni por debajo
+# del peor caso, ni tan por encima que deje de servir para decidir.
+COSTE_APROXIMADO_USD = 1.55
+
+
+def coste_peor_caso(fichas: int = TAMANO_TOP) -> float:
+    """Lo más que puede costar una corrida con IA: todas las fichas reintentadas.
+
+    No es una estimación prudente inventada: sale de las constantes que de
+    verdad producen el gasto —el tamaño medido del turno de usuario, lo que el
+    reintento reenvía, y `MAX_TOKENS`, que es el techo duro de cada respuesta—.
+    Por eso vive aquí como función y no como un número escrito a mano: quien
+    cambie la política de reintento en `ranking/llm.py` mueve esto con ella, y
+    el test que compara la cifra anunciada contra esta función se lo dice.
+
+    El peor caso es «todas reintentan» y no «alguna reintenta» porque el
+    disparador no es aleatorio: si un filing hostil puede forzar un reintento,
+    quince filings hostiles pueden forzar quince.
+    """
+    entrada_reintento = (
+        llm.MAX_CARACTERES_REINTENTO // CARACTERES_POR_TOKEN
+        # El eco de la respuesta anterior, que el reintento sí sigue mandando:
+        # enseñarle al modelo su propio turno es lo que le permite corregirlo.
+        + llm.MAX_TOKENS
+    )
+    entrada = fichas * (TOKENS_POR_FICHA + entrada_reintento)
+    salida = fichas * 2 * llm.MAX_TOKENS
+    return (entrada * llm.PRECIO_ENTRADA + salida * llm.PRECIO_SALIDA) / 1_000_000
 
 
 @dataclass(frozen=True)

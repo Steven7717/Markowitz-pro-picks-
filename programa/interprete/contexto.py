@@ -24,9 +24,37 @@ esquema exige que el modelo se refiera a ellas por esa letra. Dos cosas a la vez
 
 El codigo imprime despues el ticker, la fecha, los codigos de item y el enlace.
 El modelo no escribe ninguno de los cuatro.
+
+## La valla
+
+El texto de los documentos --el anexo EX-99 de un 8-K, treinta mil caracteres
+por hecho y seis hechos por pulsacion-- lo escribe la empresa, y aqui entra
+crudo. Se manda dentro de `ranking.verificacion.vallar` y **no delimitado a
+mano**: la valla anterior era `<<<` y `>>>` a secas, asi que a un anexo le
+bastaba con llevar la marca de cierre en una linea suya para terminar el bloque
+antes de tiempo y que lo que viniera detras se leyera como instrucciones del
+programa.
+
+La unica defensa que quedaba no ve nada: `verificar_cita` compara la cita
+contra el mismo texto que escribio quien ataca, asi que una frase plantada
+verifica siempre y la pantalla la rotula «Cita literal del documento» al lado
+de la casilla de aprobar.
+
+Por este camino ademas **el dano persiste**: lo que salga de ahi lo escribe
+`archivo.anotar_hechos` en `libros/interpretaciones/<libro>.json`, que es
+append-only, y se repinta en cada apertura de la pestana sin pulsar nada. Por
+eso `leidos` --que es justo lo que vuelve de ese fichero-- tambien se limpia:
+sin eso, un `que_dice` envenenado una vez volveria al prompt de todas las
+sesiones siguientes por su cuenta.
+
+Lo que **no** cambia es que la letra viaja fuera de la valla. El mapa de letras
+es lo que impide fabricar un hecho o una operacion que no existen, y una letra
+escrita dentro del documento seria una letra que el documento elige.
 """
 
 from string import ascii_uppercase
+
+from ranking.verificacion import neutralizar_marcas, vallar
 
 _SIN_OBJETIVO = "sin objetivo en el plan"
 
@@ -122,14 +150,30 @@ def leidos(entradas: "tuple[tuple[str, object, tuple, tuple, str], ...]") -> str
     un juicio nuevo podria **citar ese resumen** y `verificar_cita` lo daria por
     bueno, porque la fuente contra la que compara seria ese mismo texto. La
     pantalla lo rotularia «Cita literal del documento» y no lo seria.
+
+    Las marcas de valla se neutralizan aunque esto no vaya dentro de una: es el
+    texto que sale del fichero del libro, y ese fichero es append-only. Un
+    `que_dice` con la marca dentro --escrito bajo el defecto de ayer, o por un
+    modelo al que se le convencio de copiarla-- volveria al prompt de cada
+    sesion siguiente por su cuenta, sin que nadie pulse nada. **Aqui es donde se
+    cierra ese bucle.**
+
+    Se devuelve la cadena vacia cuando no hay nada, y no un bloque vacio:
+    `noticias._prompt` decide con eso si escribe la seccion, y «no hay» y «hay,
+    pero vacio» no son lo mismo.
     """
     if not entradas:
         return ""
     filas = [
-        f"- {ticker} ({', '.join(descripciones) or ', '.join(tipos)}, {cuando}): {texto}"
+        f"- {ticker} ({', '.join(descripciones) or ', '.join(tipos)}, {cuando}): "
+        f"{neutralizar_marcas(texto)}"
         for ticker, cuando, tipos, descripciones, texto in entradas
     ]
-    return "\n".join(filas)
+    # Vallado entero, y no fila a fila: no hay letras que dejar fuera --esto va
+    # sin etiqueta a proposito-- y una valla por fila solo multiplicaria marcas.
+    # Lo que importa es que el bloque quede marcado como texto que se lee, que
+    # es lo que la primera regla de SISTEMA le dice al modelo que significa.
+    return vallar("\n".join(filas))
 
 
 def hechos(
@@ -141,6 +185,15 @@ def hechos(
     o el documento recien bajado y recortado, o el `que_dice` de una lectura
     guardada: los dos entran por la misma puerta porque para el modelo son lo
     mismo, algo que leer sobre ese hecho.
+
+    **Cada hecho lleva su propia valla**, y no una comun a los seis: el sufijo
+    de la marca sale del texto que encierra, asi que la marca de cierre de un
+    anexo no puede cerrar el bloque de otro. Con una comun, el primer documento
+    de la pulsacion podria terminar el ultimo.
+
+    La cabecera --letra, ticker, etiqueta y fecha-- va **fuera**. La letra es lo
+    que despues valida las respuestas, y dentro de la valla seria una letra que
+    elige el documento.
     """
     letras = etiquetas(len(entradas))
     mapa = {}
@@ -150,6 +203,6 @@ def hechos(
         etiqueta = ", ".join(descripciones) or ", ".join(tipos)
         bloques.append(
             f"[{letra}] {ticker} — {etiqueta} — presentado el {cuando}\n"
-            f"<<<\n{texto}\n>>>"
+            f"{vallar(texto)}"
         )
     return "\n\n".join(bloques), mapa

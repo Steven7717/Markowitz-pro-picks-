@@ -40,8 +40,31 @@ _CAMPOS_CORRIDA = frozenset(
     }
 )
 
+# Los codigos con los que `ranking/score.py` marca a las excluidas, en
+# castellano. Se imprimian tal cual --«pilar_sin_datos (74), datos_rancios
+# (2)»-- en la primera frase que lee el revisor, que es ademas la unica que le
+# dice de donde sale la lista que esta mirando.
+#
+# La traduccion vive aqui y no alli porque `ranking/score.py` no es de este
+# paquete: los codigos son su vocabulario interno y estan bien como estan; lo
+# que estaba mal era pintarlos. Este modulo es el que pinta.
+#
+# Cada frase dice **por que** quedo fuera, no solo que quedo fuera: «sin datos
+# para algun pilar entero» es lo que permite leer el sesgo de la lista --dos de
+# cada tres bancos pierden el pilar de solidez por reportar distinto-- en vez de
+# tomarlo por una medida de calidad.
+MOTIVOS_EN_CASTELLANO = {
+    "historia_corta": "con poco historial publicado",
+    "datos_rancios": "con las últimas cuentas demasiado antiguas",
+    "pilar_sin_datos": "sin datos para algún pilar entero",
+    "cobertura_insuficiente": "con muy pocos KPIs publicados",
+    "sector_desconocido": "sin un sector con el que compararlas",
+    "sector_sin_pares": "con demasiado pocas empresas en su sector",
+    "sin_dispersion_sectorial": "en sectores donde todas puntúan casi igual",
+}
+
 _COMO_GENERARLO = (
-    "Falta salidas/fichas.json. Generalo con:\n\n"
+    "Falta salidas/fichas.json. Genéralo con:\n\n"
     '    python -c "from ranking.run import construir_ranking, guardar; '
     "guardar(construir_ranking(con_llm=False), 'salidas')\""
 )
@@ -74,7 +97,7 @@ def _leer_json(fichero: Path) -> object:
     try:
         return json.loads(fichero.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, UnicodeDecodeError) as error:
-        raise ContratoRoto(f"{fichero.name} no es JSON valido: {error}") from error
+        raise ContratoRoto(f"{fichero.name} no es JSON válido: {error}") from error
 
 
 def _validar_fichas(crudo: object) -> list[dict]:
@@ -103,17 +126,17 @@ def _validar_fichas(crudo: object) -> list[dict]:
     tickers_vistos: set = set()
     for posicion, ficha in enumerate(crudo):
         if not isinstance(ficha, dict):
-            raise ContratoRoto(f"la ficha en la posicion {posicion} no es un objeto")
+            raise ContratoRoto(f"la ficha en la posición {posicion} no es un objeto")
         faltan = _CAMPOS_FICHA - set(ficha)
         if faltan:
             raise ContratoRoto(
-                f"a la ficha en la posicion {posicion} le faltan campos: "
+                f"a la ficha en la posición {posicion} le faltan campos: "
                 f"{', '.join(sorted(faltan))}"
             )
         ticker = ficha["ticker"]
         if not isinstance(ticker, str) or not ticker:
             raise ContratoRoto(
-                f"la ficha en la posicion {posicion} tiene un ticker invalido: "
+                f"la ficha en la posición {posicion} tiene un ticker inválido: "
                 f"{ticker!r}"
             )
         puesto = ficha["puesto"]
@@ -121,12 +144,12 @@ def _validar_fichas(crudo: object) -> list[dict]:
         # True/False no son puestos validos aunque pasen ese isinstance.
         if isinstance(puesto, bool) or not isinstance(puesto, int):
             raise ContratoRoto(
-                f"la ficha de {ticker!r} en la posicion {posicion} "
-                f"tiene un puesto invalido: {puesto!r}"
+                f"la ficha de {ticker!r} en la posición {posicion} "
+                f"tiene un puesto inválido: {puesto!r}"
             )
         if ticker in tickers_vistos:
             raise ContratoRoto(
-                f"el ticker {ticker!r} aparece mas de una vez en fichas.json"
+                f"el ticker {ticker!r} aparece más de una vez en fichas.json"
             )
         tickers_vistos.add(ticker)
     return crudo
@@ -185,6 +208,49 @@ def cargar_candidatos(directorio: Path | None = None) -> Candidatos:
     return Candidatos(fichas=fichas, corrida=corrida)
 
 
+def kpis_con_dato(ficha: dict) -> "int | None":
+    """Cuantos KPIs traian dato, o `None` si la ficha no lo registra.
+
+    `vistas/candidatos.py` indexaba `ficha["cobertura"]["kpis_con_dato"]`
+    directo, mientras `medidores.tarjeta_candidato` y `medidores._nota_pilar`
+    leen los mismos campos con `.get(...)` y explican en su docstring que las
+    fichas antiguas se pintan sin ellos. `_CAMPOS_FICHA` valida que `cobertura`
+    exista, pero no su contenido: una `fichas.json` vieja pasaba la validacion
+    entera y reventaba con `KeyError` **a mitad de la lista**, con tarjetas ya
+    pintadas encima. El escenario ya esta en el repo -- `salidas_ejemplo`
+    trae `kpis_con_dato` pero no `kpis_por_pilar`.
+
+    Devuelve `None` tambien si el valor no es un entero. Ausente y corrupto se
+    pintan igual --sin medidor-- porque en los dos casos lo que no hay es el
+    numero, y `medidores.medidor_cobertura` lo divide: una cadena ahi revienta
+    igual que la ausencia.
+
+    `True` no cuenta: `isinstance(True, int)` es cierto en Python, y un booleano
+    dibujaria una barra de un KPI de diecisiete.
+    """
+    cobertura = ficha.get("cobertura") or {}
+    if not isinstance(cobertura, dict):
+        return None
+    valor = cobertura.get("kpis_con_dato")
+    if isinstance(valor, bool) or not isinstance(valor, int):
+        return None
+    return valor
+
+
+def _en_castellano(motivo: str) -> str:
+    """Un codigo de `ranking/score.py`, dicho en palabras.
+
+    Un motivo sin traducir se dice entrecomillado en vez de desaparecer: perder
+    la fila haria que las cuentas por motivo no sumaran el total, que es
+    exactamente el tipo de mentira silenciosa que este resumen existe para
+    evitar. Hay un test que recorre los codigos de las guardas y afirma que
+    estan todos, asi que anadir uno alli sin traducirlo aqui se ve en rojo
+    antes de llegar a la pantalla.
+    """
+    frase = MOTIVOS_EN_CASTELLANO.get(motivo)
+    return frase if frase else f"por «{motivo}»"
+
+
 def resumen_corrida(corrida: dict | None) -> str:
     """One sentence putting the shortlist in the context of what was dropped.
 
@@ -195,15 +261,15 @@ def resumen_corrida(corrida: dict | None) -> str:
     """
     if corrida is None:
         return (
-            "Sin contexto de corrida: este ranking se genero antes de que se "
-            "registraran sus metadatos, asi que no se sabe a cuantas empresas "
+            "Sin contexto de corrida: este ranking se generó antes de que se "
+            "registraran sus metadatos, así que no se sabe a cuántas empresas "
             "dejaron fuera las guardas."
         )
 
     excluidas = corrida["n_panel"] - corrida["n_supervivientes"]
     if corrida["exclusiones"]:
         por_motivo = ", ".join(
-            f"{motivo} ({cuantas})"
+            f"{cuantas} {_en_castellano(motivo)}"
             for motivo, cuantas in sorted(
                 corrida["exclusiones"].items(), key=lambda par: -par[1]
             )

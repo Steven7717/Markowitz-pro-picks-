@@ -37,7 +37,15 @@ class Anadido:
     motivo: str
 
 
-def _normalizar(ticker: str) -> str:
+def normalizar(ticker: str) -> str:
+    """Un ticker escrito a mano, en la forma que usa el acta. Lanza si no lo es.
+
+    Publica desde que `vistas/candidatos.py` la necesita: el formulario de
+    «Anadir a mano» avisa del ticker repetido en el momento de anadirlo, y para
+    saber si se repite hay que compararlo ya normalizado. Con la privada, la
+    pantalla habria escrito su propio `.strip().upper()` -- una segunda copia de
+    la misma regla, que es como empiezan a separarse.
+    """
     limpio = ticker.strip().upper()
     if not _FORMA_TICKER.match(limpio):
         raise TickerInvalido(f"{ticker!r} no tiene forma de ticker")
@@ -76,14 +84,14 @@ def construir_acta(
         if not anadido.motivo.strip():
             raise MotivoRequerido(
                 f"{anadido.ticker}: un ticker que entra sin ranking necesita "
-                "una razon escrita, porque es la unica justificacion que va a "
+                "una razón escrita, porque es la única justificación que va a "
                 "existir"
             )
-        ticker = _normalizar(anadido.ticker)
+        ticker = normalizar(anadido.ticker)
         if ticker in por_ticker:
             raise TickerDuplicado(
-                f"{ticker} ya esta en el ranking: aprobalo con su casilla en "
-                "vez de anadirlo a mano"
+                f"{ticker} ya está en el ranking: apruébalo con su casilla en "
+                "vez de añadirlo a mano"
             )
         # Sin esta comprobacion, dos Anadido con el mismo ticker producirian
         # dos entradas para el mismo ticker en "aprobados" -- exactamente lo
@@ -91,7 +99,7 @@ def construir_acta(
         # optimizador que lo consuma pesaria esa empresa dos veces.
         if ticker in manuales_vistos:
             raise TickerDuplicado(
-                f"{ticker} aparece mas de una vez entre los anadidos a mano"
+                f"{ticker} aparece más de una vez entre los añadidos a mano"
             )
         manuales_vistos.add(ticker)
         manuales.append(
@@ -105,7 +113,7 @@ def construir_acta(
         )
 
     if not aprobados and not manuales:
-        raise NadaQueAprobar("no hay ningun candidato aprobado")
+        raise NadaQueAprobar("no hay ningún candidato aprobado")
 
     del_ranking = [
         {

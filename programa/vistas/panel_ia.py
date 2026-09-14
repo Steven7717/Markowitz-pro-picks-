@@ -158,7 +158,12 @@ def _pintar_juicio(st, juicio, cuando=None, url=None):
     st.markdown(f"**{texto.plano(juicio.ticker)}** — {texto.plano(juicio.que_dice)}")
     st.markdown(texto.plano(juicio.por_que_te_toca))
     if juicio.verificada:
-        marca = "Cita literal del documento"
+        # «del documento de la empresa» y no «del documento» a secas: lo que el
+        # codigo comprueba es que la frase esta en el expediente, y el
+        # expediente lo escribio la empresa. Verificada quiere decir «lo dijo
+        # ella», no «es verdad», y la etiqueta corta se leia como lo segundo
+        # justo encima de una decision de cartera.
+        marca = "Cita literal del documento de la empresa"
     else:
         marca = "⚠ **Sin respaldo literal**: esta frase no se encontró en el documento"
     pie = f"{marca}: «{texto.plano(juicio.cita)}»"

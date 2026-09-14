@@ -282,3 +282,62 @@ def test_una_carpeta_de_actas_que_no_existe_es_una_lista_vacia(tmp_path):
     from aprobacion.acta import listar_actas
 
     assert listar_actas(tmp_path / "todavia-no") == []
+
+
+# --- El castellano de los mensajes ------------------------------------------
+#
+# Estos mensajes salen tal cual en un `st.error` de `vistas/candidatos.py`, en
+# el momento en que el revisor pulsa «Aprobar N empresas» y algo no cuadra. Iban
+# sin tildes --«ya esta en el ranking: aprobalo», «no hay ningun candidato
+# aprobado»-- en una app que por lo demas escribe castellano correcto, asi que
+# lo que se leia como un fallo del programa era en realidad el mensaje que
+# explica el error del usuario.
+#
+# Los comentarios del codigo siguen sin tildes a proposito; lo que se acentua es
+# lo que se ve en pantalla.
+
+
+def _mensaje(excepcion, **kwargs) -> str:
+    with pytest.raises(excepcion) as error:
+        construir_acta(**kwargs)
+    return str(error.value)
+
+
+def test_el_motivo_obligatorio_se_pide_en_castellano():
+    texto = _mensaje(
+        MotivoRequerido,
+        candidatos=candidatos("AAA"),
+        aprobados={"AAA"},
+        anadidos=[Anadido(ticker="JPM", motivo="  ")],
+    )
+    assert "razón escrita" in texto
+    assert "única justificación" in texto
+
+
+def test_el_duplicado_del_ranking_se_dice_en_castellano():
+    texto = _mensaje(
+        TickerDuplicado,
+        candidatos=candidatos("AAA"),
+        aprobados={"AAA"},
+        anadidos=[Anadido(ticker="AAA", motivo="da igual")],
+    )
+    assert "ya está en el ranking" in texto
+    assert "apruébalo" in texto
+    assert "añadirlo" in texto
+
+
+def test_el_duplicado_entre_anadidos_se_dice_en_castellano():
+    texto = _mensaje(
+        TickerDuplicado,
+        candidatos=candidatos("AAA"),
+        aprobados={"AAA"},
+        anadidos=[Anadido(ticker="JPM", motivo="una"),
+                  Anadido(ticker="JPM", motivo="otra")],
+    )
+    assert "más de una vez" in texto
+    assert "añadidos" in texto
+
+
+def test_el_acta_vacia_se_dice_en_castellano():
+    texto = _mensaje(NadaQueAprobar, candidatos=candidatos("AAA"), aprobados=set())
+    assert "ningún candidato" in texto

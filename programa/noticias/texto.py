@@ -26,6 +26,29 @@ def plano(texto: object) -> str:
     return str(texto).translate(ESPECIALES)
 
 
+def cita_en_bloque(cita: object) -> str:
+    """Una cita literal, lista para pintarse como bloque citado.
+
+    El `>` lo pone el codigo; lo de dentro, no. Es la diferencia que hacia falta
+    en la ficha del candidato, donde la cita **es texto copiado del filing** y se
+    pintaba en crudo: un `[texto](url)` dentro de ella salia como enlace pulsable
+    al dominio de quien escribio el documento, justo debajo de la palabra
+    «verificada» y al lado de la casilla de aprobar.
+
+    Los blancos se colapsan antes de escapar. Un filing trae saltos de linea a
+    mitad de frase, y un salto dentro de un bloque citado lo parte en dos: la
+    segunda mitad sale como parrafo normal y deja de parecer una cita.
+
+    Una cita en blanco devuelve cadena vacia y no un `>` solo, que se pinta como
+    una raya gris sin texto y se lee como «la cita existe y esta vacia». No tener
+    cita es otra cosa, y quien llama tiene que poder decirlo con sus palabras.
+    """
+    limpia = " ".join(str(cita).split())
+    if not limpia:
+        return ""
+    return f"> {plano(limpia)}"
+
+
 def enlace(texto: str, url: str) -> str:
     """El texto enlazado, o el texto solo si no hay adonde ir.
 

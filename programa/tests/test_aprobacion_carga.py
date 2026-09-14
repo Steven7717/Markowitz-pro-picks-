@@ -3,6 +3,7 @@ from pathlib import Path
 
 import pytest
 
+from aprobacion import carga
 from aprobacion.carga import (
     ContratoRoto,
     FaltanFichas,
@@ -142,7 +143,9 @@ def test_el_resumen_nombra_las_exclusiones_y_su_peso():
     texto = resumen_corrida(CORRIDA)
     assert "502" in texto
     assert "425" in texto
-    assert "pilar_sin_datos" in texto
+    # El motivo sigue estando; lo que ya no esta es el identificador del codigo
+    # fuente. Ver `test_el_resumen_no_imprime_los_codigos_del_codigo_fuente`.
+    assert "pilar" in texto
 
 
 def test_el_resumen_calcula_bien_cuantas_quedaron_excluidas():
@@ -168,3 +171,98 @@ def test_el_resumen_con_cero_exclusiones_no_deja_la_frase_coja():
     texto = resumen_corrida(sin_exclusiones)
     assert "excluidas 0: ." not in texto
     assert "ninguna" in texto.lower()
+
+
+# --- Los codigos de `ranking/score.py`, en castellano ------------------------
+#
+# `resumen_corrida` imprimia los identificadores del codigo fuente tal cual:
+# «Quedaron excluidas 79: pilar_sin_datos (74), datos_rancios (2),
+# cobertura_insuficiente (2), historia_corta (1)». Es la primera frase que lee
+# el revisor y la unica que le dice de donde sale la lista que esta mirando.
+#
+# Los codigos nacen en `ranking/score.py`, que no es de este paquete, asi que la
+# traduccion vive aqui: donde se pinta.
+
+
+def test_el_resumen_no_imprime_los_codigos_del_codigo_fuente():
+    texto = resumen_corrida(CORRIDA)
+    assert "pilar_sin_datos" not in texto
+    assert "datos_rancios" not in texto
+    assert "_" not in texto
+
+
+def test_el_resumen_sigue_diciendo_cuantas_por_cada_motivo():
+    """Traducir no puede perder la cuenta: la proporcion entre motivos es lo
+    que dice si la lista esta sesgada por un sector que reporta distinto."""
+    texto = resumen_corrida(CORRIDA)
+    assert "72" in texto
+    assert "2" in texto
+
+
+def test_cada_codigo_de_las_guardas_tiene_traduccion():
+    """El saboteador: un motivo nuevo en `ranking/score.py` sin traduccion aqui
+    tumba esto, en vez de colarse en pantalla como identificador."""
+    codigos = {
+        "historia_corta",
+        "datos_rancios",
+        "pilar_sin_datos",
+        "cobertura_insuficiente",
+        "sector_desconocido",
+        "sector_sin_pares",
+        "sin_dispersion_sectorial",
+    }
+    faltan = codigos - set(carga.MOTIVOS_EN_CASTELLANO)
+    assert faltan == set()
+
+
+def test_un_motivo_desconocido_se_dice_en_vez_de_desaparecer():
+    """Si alguien anade un motivo y se olvida de traducirlo, la cuenta tiene que
+    seguir cuadrando: perder la fila seria mentir sobre cuantas se excluyeron."""
+    raro = {**CORRIDA, "exclusiones": {"un_motivo_nuevo": 3}}
+    texto = resumen_corrida(raro)
+    assert "3" in texto
+    assert "un_motivo_nuevo" in texto
+
+
+def test_el_resumen_esta_acentuado():
+    texto = resumen_corrida(CORRIDA)
+    assert "generó" not in texto  # esta rama es la otra
+    assert "sobrevivieron" in texto
+
+
+def test_el_resumen_sin_corrida_esta_acentuado():
+    texto = resumen_corrida(None)
+    assert "generó" in texto
+    assert "cuántas" in texto
+    assert "asi que" not in texto
+
+
+# --- Una ficha vieja no puede reventar la lista a mitad ----------------------
+
+
+def test_la_cobertura_de_una_ficha_sin_el_campo_no_revienta():
+    """`vistas/candidatos.py` indexaba `ficha["cobertura"]["kpis_con_dato"]`
+    directo, mientras `medidores.tarjeta_candidato` y `medidores._nota_pilar`
+    usan `.get(...)` y explican en su docstring que las fichas antiguas se
+    pintan sin ellos. `_CAMPOS_FICHA` valida que `cobertura` exista pero no su
+    contenido, asi que una `fichas.json` vieja pasaba la validacion y reventaba
+    con `KeyError` **a mitad de la lista**, con tarjetas ya pintadas.
+
+    El escenario ya existe en el repo: `salidas_ejemplo/fichas.json` trae
+    `kpis_con_dato` pero no `kpis_por_pilar`.
+    """
+    assert carga.kpis_con_dato({"cobertura": {}}) is None
+    assert carga.kpis_con_dato({}) is None
+    assert carga.kpis_con_dato({"cobertura": None}) is None
+
+
+def test_la_cobertura_de_una_ficha_normal_sale_entera():
+    assert carga.kpis_con_dato(FICHA) == 14
+
+
+def test_una_cobertura_que_no_es_un_numero_se_trata_como_ausente():
+    """Pintar la barra con una cadena la haria reventar igual. Ausente y
+    corrupto se pintan igual --sin medidor-- porque en los dos casos lo que no
+    hay es el numero."""
+    assert carga.kpis_con_dato({"cobertura": {"kpis_con_dato": "muchos"}}) is None
+    assert carga.kpis_con_dato({"cobertura": {"kpis_con_dato": True}}) is None
