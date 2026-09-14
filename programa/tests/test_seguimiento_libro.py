@@ -206,6 +206,137 @@ def test_una_anulacion_no_arrastra_importe_ni_ticker():
         )
 
 
+# --- El split ----------------------------------------------------------------
+#
+# El split es el septimo tipo, y llego tarde: hasta que existio, quien vivia un
+# 2:1 de una compra de diez e intentaba vender veinte recibia «no tienes
+# suficientes acciones de ACME: harian falta 20 y hay 10». O mentia en el
+# numero, o no podia apuntar la venta.
+
+
+def split(**cambios) -> Asiento:
+    campos = {
+        "id": "s1",
+        "fecha": "2026-09-01",
+        "tipo": "split",
+        "ticker": "ACME",
+        "factor": 2.0,
+    }
+    campos.update(cambios)
+    return Asiento(**campos)
+
+
+def test_un_split_bien_formado_pasa():
+    validar(split(), hoy=HOY)
+
+
+def test_un_split_necesita_factor():
+    with pytest.raises(AsientoInvalido, match="factor"):
+        validar(split(factor=None), hoy=HOY)
+
+
+def test_un_factor_que_no_multiplica_nada_no_pasa():
+    # Cero borraria la posicion y un negativo la dejaria en acciones negativas.
+    # Las dos cosas se leen igual de plausibles dentro del fichero.
+    with pytest.raises(AsientoInvalido, match="factor"):
+        validar(split(factor=0.0), hoy=HOY)
+    with pytest.raises(AsientoInvalido, match="factor"):
+        validar(split(factor=-2.0), hoy=HOY)
+
+
+def test_un_split_necesita_ticker():
+    with pytest.raises(AsientoInvalido, match="ticker"):
+        validar(split(ticker=None), hoy=HOY)
+
+
+def test_un_split_no_mueve_dinero_ni_lleva_acciones():
+    # Un split no es una operacion: no se paga ni se cobra nada, y el numero de
+    # acciones no se declara sino que sale de multiplicar lo que ya habia.
+    with pytest.raises(AsientoInvalido, match="no mueve dinero"):
+        validar(split(importe=100.0), hoy=HOY)
+    with pytest.raises(AsientoInvalido, match="no lleva acciones"):
+        validar(split(acciones=10.0), hoy=HOY)
+
+
+def test_solo_un_split_lleva_factor():
+    # Un factor en una compra no lo aplica nadie, asi que se quedaria en el
+    # fichero con pinta de dato mientras el programa lo ignora en silencio.
+    with pytest.raises(AsientoInvalido, match="factor"):
+        validar(compra(factor=2.0), hoy=HOY)
+
+
+def test_un_factor_infinito_no_pasa():
+    with pytest.raises(AsientoInvalido, match="finito"):
+        validar(split(factor=INF), hoy=HOY)
+
+
+def test_despues_de_un_split_se_pueden_vender_las_acciones_nuevas():
+    # El defecto entero, en un test. Diez acciones, un 2:1, y una venta de
+    # veinte que antes se rechazaba.
+    libro = con(
+        Asiento(id="ap", fecha="2026-08-01", tipo="aportacion", importe=5000.0),
+        compra(id="c1", fecha="2026-08-01", ticker="ACME", acciones=10.0,
+               precio=100.0, importe=1000.0),
+        split(id="s1", fecha="2026-08-15", ticker="ACME", factor=2.0),
+    )
+    venta = Asiento(
+        id="v1", fecha="2026-09-01", tipo="venta", ticker="ACME",
+        acciones=20.0, precio=60.0, importe=1200.0,
+    )
+    crecido, _ = anadir(libro, venta, hoy=HOY)
+    assert crecido.asientos[-1].id == "v1"
+
+
+def test_sin_el_split_esa_misma_venta_se_sigue_rechazando():
+    # La otra mitad del contrato: el split tiene que estar REGISTRADO. Sin el,
+    # vender veinte de diez sigue siendo un descubierto, y aceptarlo por si
+    # acaso convertiria el error de tecleo mas caro --un cero de mas-- en un
+    # asiento valido.
+    libro = con(
+        Asiento(id="ap", fecha="2026-08-01", tipo="aportacion", importe=5000.0),
+        compra(id="c1", fecha="2026-08-01", ticker="ACME", acciones=10.0,
+               precio=100.0, importe=1000.0),
+    )
+    venta = Asiento(
+        id="v1", fecha="2026-09-01", tipo="venta", ticker="ACME",
+        acciones=20.0, precio=60.0, importe=1200.0,
+    )
+    with pytest.raises(AsientoInvalido, match="no tienes suficientes"):
+        anadir(libro, venta, hoy=HOY)
+
+
+def test_un_split_anulado_deja_de_partir_nada():
+    libro = con(
+        Asiento(id="ap", fecha="2026-08-01", tipo="aportacion", importe=5000.0),
+        compra(id="c1", fecha="2026-08-01", ticker="ACME", acciones=10.0,
+               precio=100.0, importe=1000.0),
+        split(id="s1", fecha="2026-08-15", ticker="ACME", factor=2.0),
+        Asiento(id="x1", fecha="2026-08-16", tipo="anulacion", anula="s1"),
+    )
+    venta = Asiento(
+        id="v1", fecha="2026-09-01", tipo="venta", ticker="ACME",
+        acciones=20.0, precio=60.0, importe=1200.0,
+    )
+    with pytest.raises(AsientoInvalido, match="no tienes suficientes"):
+        anadir(libro, venta, hoy=HOY)
+
+
+def test_un_libro_viejo_sin_splits_se_sigue_leyendo(tmp_path):
+    # El libro es append-only y se relee con versiones futuras del programa.
+    # Anadir un tipo no puede dejar ilegible un fichero escrito antes de que
+    # ese tipo existiera: ahi no hay campo `factor` en ningun asiento.
+    ruta = tmp_path / "2026-09-02-100000-viejo.json"
+    ruta.write_text(
+        '{"nombre": "Prueba", "creado": "2026-09-02T10:00:00", "moneda": "USD",'
+        ' "objetivos": [], "asientos": [{"id": "a1", "fecha": "2026-09-01",'
+        ' "tipo": "compra", "ticker": "AAPL", "acciones": 10.0,'
+        ' "precio": 220.0, "importe": 2200.0}]}',
+        encoding="utf-8",
+    )
+    leido = mod.cargar(ruta)
+    assert leido.asientos[0].factor is None
+
+
 # --- Derivar el tercer campo -------------------------------------------------
 
 
@@ -678,3 +809,131 @@ def test_un_fallo_a_media_escritura_no_deja_medio_libro_en_el_destino(tmp_path, 
     # `aprobacion/acta.py:guardar_acta`.
     assert sorted(p.name for p in tmp_path.glob("*.json")) == [ruta.name]
     assert ruta.read_text(encoding="utf-8") == antes
+
+
+# --- El libro elegido, compartido entre pantallas -----------------------------
+#
+# Tres pantallas --Seguimiento, Rebalanceo y Noticias-- pintan el mismo
+# desplegable. Sin `key`, ninguna de las tres deja rastro en `session_state`,
+# asi que «Anotar lo que ejecute» saltaba de Rebalanceo a Seguimiento y
+# aterrizaba en OTRO libro con el formulario de registrar abierto debajo. El
+# libro es append-only: un asiento en la cartera equivocada solo se deshace con
+# una anulacion que queda en el historial para siempre.
+
+
+def _entrada(nombre: str, fichero: str) -> mod.Entrada:
+    from pathlib import Path
+    return mod.Entrada(
+        ruta=Path("libros") / fichero,
+        libro=Libro(nombre=nombre, creado="2026-01-01T10:00:00"),
+        error=None,
+    )
+
+
+def test_las_etiquetas_llevan_el_nombre_y_el_fichero():
+    # El nombre solo no basta: dos libros pueden llamarse igual, y entonces el
+    # desplegable ensena dos opciones indistinguibles.
+    entradas = [_entrada("Nucleo", "a.json"), _entrada("Nucleo", "b.json")]
+    assert list(mod.etiquetas_de(entradas)) == ["Nucleo · a.json", "Nucleo · b.json"]
+
+
+def test_un_libro_ilegible_no_es_una_opcion_del_desplegable():
+    # Se nombra aparte, con su motivo, pero no se puede elegir: no hay nada
+    # dentro que ensenar.
+    from pathlib import Path
+    entradas = [
+        _entrada("Nucleo", "a.json"),
+        mod.Entrada(ruta=Path("libros/roto.json"), libro=None, error="roto"),
+    ]
+    assert list(mod.etiquetas_de(entradas)) == ["Nucleo · a.json"]
+
+
+def test_el_libro_recordado_manda_si_sigue_estando():
+    etiquetas = mod.etiquetas_de([_entrada("Uno", "a.json"), _entrada("Dos", "b.json")])
+    assert mod.eleccion_vigente(etiquetas, "Dos · b.json") == "Dos · b.json"
+
+
+def test_un_libro_recordado_que_ya_no_esta_no_deja_la_pantalla_colgada():
+    # Las tres pantallas no listan siempre lo mismo --una puede filtrar, un
+    # fichero puede haberse vuelto ilegible-- asi que la clave compartida puede
+    # apuntar a una opcion que aqui no existe. Se cae a la primera en vez de
+    # reventar.
+    etiquetas = mod.etiquetas_de([_entrada("Uno", "a.json")])
+    assert mod.eleccion_vigente(etiquetas, "Dos · b.json") == "Uno · a.json"
+
+
+def test_sin_ningun_libro_legible_no_hay_nada_que_preseleccionar():
+    assert mod.eleccion_vigente({}, "Uno · a.json") is None
+
+
+# `fijar_eleccion` es la mitad que toca `st.session_state`, y esta aqui y no en
+# la vista porque es la que puede tumbar la pantalla: Streamlit revienta la
+# pasada entera si encuentra en `session_state` un valor que no esta en
+# `options`, y quien lo puso pudo ser OTRA pantalla. Recibe el estado como un
+# diccionario cualquiera --`st.session_state` lo es a estos efectos-- para que
+# se pueda probar sin levantar Streamlit, que es la misma razon por la que la
+# aritmetica vive en `seguimiento/panel.py`.
+
+
+def test_el_libro_recordado_se_queda_puesto_si_sigue_estando():
+    etiquetas = mod.etiquetas_de([_entrada("Uno", "a.json"), _entrada("Dos", "b.json")])
+    estado = {mod.CLAVE_SELECCION: "Dos · b.json"}
+    assert mod.fijar_eleccion(etiquetas, estado) == "Dos · b.json"
+    assert estado[mod.CLAVE_SELECCION] == "Dos · b.json"
+
+
+def test_un_recuerdo_que_ya_no_existe_se_corrige_antes_de_pintar_el_widget():
+    # Lo que importa es que quede CORREGIDO en el estado, no solo devuelto: el
+    # desplegable lee `session_state` por su `key`, asi que una etiqueta muerta
+    # ahi dentro tumba la pantalla antes de dibujar nada.
+    etiquetas = mod.etiquetas_de([_entrada("Uno", "a.json")])
+    estado = {mod.CLAVE_SELECCION: "Borrado · z.json"}
+    assert mod.fijar_eleccion(etiquetas, estado) == "Uno · a.json"
+    assert estado[mod.CLAVE_SELECCION] == "Uno · a.json"
+
+
+def test_sin_nada_que_elegir_el_recuerdo_no_se_borra():
+    # Una pantalla sin libros legibles corta antes del desplegable. Borrar aqui
+    # el recuerdo castigaria a las otras dos: el usuario volveria a la suya y se
+    # encontraria otro libro elegido sin haber tocado nada.
+    estado = {mod.CLAVE_SELECCION: "Uno · a.json"}
+    assert mod.fijar_eleccion({}, estado) is None
+    assert estado[mod.CLAVE_SELECCION] == "Uno · a.json"
+
+
+def test_la_primera_vez_no_hay_nada_recordado_y_manda_la_primera():
+    estado: dict = {}
+    etiquetas = mod.etiquetas_de([_entrada("Uno", "a.json"), _entrada("Dos", "b.json")])
+    assert mod.fijar_eleccion(etiquetas, estado) == "Uno · a.json"
+
+
+# --- El temporal de la escritura atomica --------------------------------------
+
+
+def test_dos_escrituras_no_comparten_el_nombre_del_temporal(tmp_path, monkeypatch):
+    # Con `ruta.with_suffix(".tmp")` las dos pasadas escribian en el MISMO
+    # fichero. Si un `replace` cae mientras la otra esta a mitad de su
+    # escritura, lo que queda en el destino es JSON truncado y el libro pasa a
+    # ilegible -- y eso no se regenera.
+    from pathlib import Path
+
+    libro, _ = anadir(VACIO, Asiento(id="ap", fecha="2026-09-01",
+                                     tipo="aportacion", importe=1000.0), hoy=HOY)
+    ruta = mod.guardar(libro, tmp_path)
+
+    usados = []
+    original = Path.replace
+
+    def anotando(self, destino):
+        usados.append(Path(self))
+        return original(self, destino)
+
+    monkeypatch.setattr(Path, "replace", anotando)
+    mod.actualizar(libro, ruta)
+    mod.actualizar(libro, ruta)
+
+    assert len(usados) == 2
+    assert usados[0] != usados[1]
+    # Y en el mismo directorio que el destino: un `replace` entre volumenes
+    # deja de ser atomico, que es lo unico que este patron compra.
+    assert {p.parent for p in usados} == {ruta.parent}

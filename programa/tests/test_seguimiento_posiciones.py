@@ -247,3 +247,145 @@ def test_un_dividendo_posterior_a_la_venta_no_se_cobra():
     )
     marcha = posiciones.serie([APORTA, COMPRA, venta], h)
     assert marcha.efectivo.loc["2026-01-07"] == pytest.approx(9999.0)
+
+
+# --- El split registrado a mano ----------------------------------------------
+#
+# `serie()` aplica los splits que trae `Historia`, pero `estado()` y
+# `primer_descubierto()` no ven la historia --y no pueden: validar que una
+# venta cabe no puede depender de una descarga de red que falla--. Por eso el
+# libro admite un asiento de `split`, y estos tests fijan que los tres caminos
+# lo cuentan igual.
+
+
+def parte(id_, fecha, ticker, factor) -> Asiento:
+    return Asiento(id=id_, fecha=fecha, tipo="split", ticker=ticker, factor=factor)
+
+
+def test_un_split_registrado_multiplica_las_acciones_del_estado():
+    estado = posiciones.estado(
+        [APORTA, COMPRA, parte("s1", "2026-01-06", "AAPL", 2.0)]
+    )
+    assert estado.acciones == {"AAPL": 80.0}
+    # Y no toca el efectivo: un split no paga ni cobra nada.
+    assert estado.efectivo == pytest.approx(1999.0)
+
+
+def test_un_split_registrado_permite_vender_las_acciones_nuevas():
+    # Sin el, `primer_descubierto` ve cuarenta acciones donde hay ochenta y
+    # rechaza la venta que el usuario si pudo ejecutar en su broker.
+    venta = asiento(
+        "v1", "2026-01-07", "venta", ticker="AAPL",
+        acciones=80.0, precio=100.0, importe=8000.0,
+    )
+    asientos = [APORTA, COMPRA, parte("s1", "2026-01-06", "AAPL", 2.0), venta]
+    assert posiciones.primer_descubierto(asientos) is None
+
+
+def test_el_orden_importa_dentro_del_mismo_recorrido():
+    # Vender ochenta ANTES del split sigue siendo un descubierto. Comprobar el
+    # saldo final lo aceptaria; recorrer el camino, no.
+    venta = asiento(
+        "v1", "2026-01-05", "venta", ticker="AAPL",
+        acciones=80.0, precio=100.0, importe=8000.0,
+    )
+    asientos = [APORTA, COMPRA, venta, parte("s1", "2026-01-06", "AAPL", 2.0)]
+    assert "no tienes suficientes" in (posiciones.primer_descubierto(asientos) or "")
+
+
+def test_el_split_registrado_manda_sobre_el_de_la_historia():
+    # Misma regla que los dividendos: el que el usuario apunto es el que
+    # ocurrio de verdad, y sumar los dos partiria la posicion dos veces --el
+    # peor error posible aqui, porque duplica acciones en silencio.
+    h = historia(
+        {"AAPL": [200.0, 202.0, 51.0]},
+        splits={"AAPL": [0.0, 0.0, 4.0]},
+    )
+    marcha = posiciones.serie(
+        [APORTA, COMPRA, parte("s1", "2026-01-07", "AAPL", 4.0)], h
+    )
+    assert marcha.acciones.loc["2026-01-07", "AAPL"] == pytest.approx(160.0)
+
+
+def test_un_split_registrado_en_otra_fecha_que_el_de_la_historia_no_se_duplica_solo():
+    # El reverso del anterior, y el limite conocido: la regla de precedencia es
+    # por (ticker, fecha), igual que en los dividendos. Registrar el split un
+    # dia distinto del que trae yfinance SI lo cuenta dos veces. Se deja
+    # escrito porque es el unico modo de equivocarse aqui, y la pantalla lo
+    # avisa al registrar.
+    h = historia(
+        {"AAPL": [200.0, 202.0, 51.0]},
+        splits={"AAPL": [0.0, 0.0, 4.0]},
+    )
+    marcha = posiciones.serie(
+        [APORTA, COMPRA, parte("s1", "2026-01-06", "AAPL", 4.0)], h
+    )
+    assert marcha.acciones.loc["2026-01-07", "AAPL"] == pytest.approx(640.0)
+
+
+def test_una_compra_anterior_al_calendario_si_se_parte_con_el_split_del_primer_dia():
+    # Los asientos fechados antes del primer cierre disponible se arrastran al
+    # primer dia del calendario. Si se aplicaran DESPUES del split de ese dia,
+    # una compra de diciembre se quedaria sin partir por un split de enero.
+    vieja = asiento(
+        "c0", "2025-12-20", "compra", ticker="AAPL",
+        acciones=40.0, precio=200.0, importe=8000.0,
+    )
+    aporta = asiento("a0", "2025-12-19", "aportacion", importe=10_000.0)
+    h = historia(
+        {"AAPL": [50.0, 51.0, 52.0]},
+        splits={"AAPL": [4.0, 0.0, 0.0]},
+    )
+    marcha = posiciones.serie([aporta, vieja], h)
+    assert marcha.acciones.loc["2026-01-05", "AAPL"] == pytest.approx(160.0)
+
+
+# --- El efectivo con los dividendos automaticos dentro -----------------------
+
+
+def test_el_efectivo_de_estado_cuenta_los_dividendos_de_la_historia():
+    # `serie()` los cobraba y `estado()` no, y la pantalla enseña los dos
+    # numeros juntos: el saldo de arriba decia 320,00 y el de abajo 300,00 del
+    # mismo libro, sin nada que explicara la diferencia.
+    h = historia(
+        {"AAPL": [200.0, 202.0, 204.0]},
+        dividendos={"AAPL": [0.0, 0.24, 0.0]},
+    )
+    con_historia = posiciones.estado([APORTA, COMPRA], historia=h)
+    assert con_historia.efectivo == pytest.approx(1999.0 + 9.6)
+    # Y coincide con el que lleva la serie, que es el punto entero.
+    marcha = posiciones.serie([APORTA, COMPRA], h)
+    assert con_historia.efectivo == pytest.approx(
+        float(marcha.efectivo.iloc[-1])
+    )
+
+
+def test_sin_historia_el_estado_sigue_dando_lo_apuntado_a_mano():
+    # `libro.anadir` llama a `estado()` sin historia a proposito: financiar una
+    # compra no puede depender de la red. Ahi el efectivo es el de los
+    # asientos, que es una cifra menor y por tanto conservadora.
+    h = historia(
+        {"AAPL": [200.0, 202.0, 204.0]},
+        dividendos={"AAPL": [0.0, 0.24, 0.0]},
+    )
+    assert posiciones.estado([APORTA, COMPRA]).efectivo == pytest.approx(1999.0)
+    assert posiciones.estado([APORTA, COMPRA], historia=h).efectivo > 1999.0
+
+
+def test_el_dividendo_a_mano_sigue_mandando_tambien_en_estado():
+    manual = asiento("d1", "2026-01-06", "dividendo", ticker="AAPL", importe=7.1)
+    h = historia(
+        {"AAPL": [200.0, 202.0, 204.0]},
+        dividendos={"AAPL": [0.0, 0.24, 0.0]},
+    )
+    estado = posiciones.estado([APORTA, COMPRA, manual], historia=h)
+    assert estado.efectivo == pytest.approx(1999.0 + 7.1)
+
+
+def test_el_corte_por_fecha_tambien_corta_los_dividendos_automaticos():
+    h = historia(
+        {"AAPL": [200.0, 202.0, 204.0]},
+        dividendos={"AAPL": [0.0, 0.24, 0.0]},
+    )
+    estado = posiciones.estado([APORTA, COMPRA], hasta="2026-01-05", historia=h)
+    assert estado.efectivo == pytest.approx(1999.0)

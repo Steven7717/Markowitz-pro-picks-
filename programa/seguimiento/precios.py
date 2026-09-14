@@ -78,6 +78,27 @@ def desde_panel(crudo: pd.DataFrame, tickers: list[str]) -> Historia:
     )
 
 
+def celda(marco: pd.DataFrame, dia, ticker: str) -> float:
+    """Un valor de una de estas tablas, con el hueco leído como cero.
+
+    `float(x or 0.0)` no vale, y es el error que hay que no cometer: **NaN es
+    truthy**, así que un hueco atraviesa el `or` y sale NaN. Donde eso se
+    compara con cero no hace daño —`nan > 0` es `False`— pero donde se
+    multiplica por la tenencia envenena el efectivo con un NaN que después borra
+    el activo entero de la tabla de posiciones, por el filtro de polvo de
+    `seguimiento.posiciones`. El usuario no ve un error: ve una posición que
+    desapareció.
+
+    `desde_panel` ya rellena `dividendos` y `splits` con ceros, así que esto es
+    sobre todo el cinturón para las `Historia` construidas a mano y para los
+    cierres, que sí conservan sus huecos a propósito.
+    """
+    if ticker not in marco.columns or dia not in marco.index:
+        return 0.0
+    valor = marco.at[dia, ticker]
+    return 0.0 if pd.isna(valor) else float(valor)
+
+
 def factor_split(
     historia: Historia, ticker: str, desde: str, hasta: str
 ) -> float:

@@ -18,6 +18,7 @@ from interprete import cliente as interprete_cliente
 from noticias import texto
 from rebalanceo import criterio, propuesta as prop
 from seguimiento import libro as mod, posiciones, precios, rendimiento
+from vistas import libros
 
 # Lo que se supone que cuesta una operación cuando el libro todavía no tiene
 # ninguna registrada. Sale del escenario "base" de `research/costs.py` aplicado
@@ -92,18 +93,12 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-todas = mod.listar()
-# **Un fichero ilegible se nombra.** Filtrarlo en silencio y decir despues que
-# no llevas ningun libro convierte «no puedo leer el tuyo» en «no tienes
-# ninguno»: son cosas opuestas, y la segunda deja al usuario sin nada que
-# buscar. Es la misma regla que `vistas/seguimiento.py` ya aplicaba, y que
-# `seguimiento/libro.py` explica: una cache se regenera, un libro no.
-for _entrada in todas:
-    if _entrada.libro is None:
-        st.error(f"`{_entrada.ruta.name}` no se puede leer: {_entrada.error}")
-
-entradas = [e for e in todas if e.libro is not None]
-if not entradas:
+# Listar, nombrar los ilegibles y elegir uno es el mismo trabajo en las tres
+# pantallas que tienen libro. Vive en `vistas/libros.py`, que es tambien donde
+# esta escrito por que el desplegable lleva `key`: sin ella la eleccion no
+# sobrevivia al salto de una pantalla a otra.
+_en_disco, etiquetas = libros.disponibles()
+if not etiquetas:
     st.info(
         "Todavía no llevas ningún libro. Empiézalo en **Empezar un libro**."
     )
@@ -111,8 +106,7 @@ if not entradas:
         st.switch_page("vistas/seguimiento.py")
     st.stop()
 
-etiquetas = {f"{e.libro.nombre} · {e.ruta.name}": e for e in entradas}
-elegida = etiquetas[st.selectbox("Libro", options=list(etiquetas))]
+elegida = libros.desplegable(etiquetas)
 actual = elegida.libro
 
 # --- Sin objetivo no hay deriva que medir -----------------------------------
@@ -149,9 +143,16 @@ def _historia(tickers: tuple[str, ...], desde: str):
 
 historia = _historia(tuple(tickers), desde)
 ultimos = {t: precios.ultimo(historia, t)[0] for t in historia.cierres.columns}
-lineas = rendimiento.por_activo(actual.asientos, {t: p for t, p in ultimos.items() if p})
+# Con la `Historia`, y no sin ella: **toda la deriva de esta pantalla sale de
+# aqui**. Sin los splits, las acciones de un activo que hubiera partido salian
+# a la mitad, su peso real tambien, y la propuesta mandaba comprar mas de algo
+# que ya estaba donde tenia que estar. Y sin los dividendos, el efectivo a
+# repartir salia corto.
+lineas = rendimiento.por_activo(
+    actual.asientos, {t: p for t, p in ultimos.items() if p}, historia
+)
 valores = {t: l.valor for t, l in lineas.items()}
-efectivo = posiciones.estado(actual.asientos).efectivo
+efectivo = posiciones.estado(actual.asientos, historia=historia).efectivo
 
 # --- Lo que hay y lo que vas a poner -----------------------------------------
 
@@ -366,49 +367,78 @@ else:
         with st.spinner("Mirando la propuesta…"):
             _com = ajuste.comentar(_ops, _pesos_ia)
         if _com.estado == ajuste.HECHO and not _roto_ia:
-            archivo.anotar_rebalanceo(
-                _ruta_ia,
-                interprete_cliente.MODELO,
-                ajuste.VERSION_PROMPT,
-                archivo.Foto(
-                    pesos_reales=tuple((d.ticker, d.peso_real) for d in plan.deriva.lineas),
-                    pesos_objetivo=tuple((d.ticker, d.peso_objetivo) for d in plan.deriva.lineas),
-                    operaciones=tuple((t, a, p) for t, a, p, _v in _ops),
-                ),
-                _com.observaciones,
-                _com.en_conjunto,
-            )
-            _avisos_aj = [("success", "Comentado y guardado.")]
-            if not _com.observaciones and not _com.en_conjunto:
-                _avisos_aj = [(
-                    "warning",
-                    "Se miró la propuesta y **no salió nada que decir**. No es un "
-                    "fallo: la llamada fue bien y no había nada que añadir a la "
-                    "aritmética.",
-                )]
-            if _com.descartadas:
-                _avisos_aj.append((
-                    "warning",
-                    f"Se descartaron {_com.descartadas} observaciones que nombraban "
-                    "una operación que no estaba en la propuesta.",
-                ))
-            if _com.conjunto_descartado:
-                _avisos_aj.append((
-                    "warning",
-                    "Se descartó el párrafo de conjunto: nombraba algo en mayúsculas "
-                    "que no está en tu cartera, o llevaba una cifra.",
-                ))
-            if _com.entrada_tokens or _com.salida_tokens:
-                _coste_aj = interprete_cliente.coste(_com.entrada_tokens, _com.salida_tokens)
-                _avisos_aj.append((
-                    "info",
-                    f"Este comentario costó **{_coste_aj:.3f} $** "
-                    f"({_com.entrada_tokens:,} tokens de entrada y "
-                    f"{_com.salida_tokens:,} de salida, a la tarifa de "
-                    f"{interprete_cliente.MODELO}).",
-                ))
-            st.session_state["ajuste_avisos"] = _avisos_aj
-            st.rerun()
+            _guardado_aj = True
+            try:
+                archivo.anotar_rebalanceo(
+                    _ruta_ia,
+                    interprete_cliente.MODELO,
+                    ajuste.VERSION_PROMPT,
+                    archivo.Foto(
+                        pesos_reales=tuple((d.ticker, d.peso_real) for d in plan.deriva.lineas),
+                        pesos_objetivo=tuple((d.ticker, d.peso_objetivo) for d in plan.deriva.lineas),
+                        operaciones=tuple((t, a, p) for t, a, p, _v in _ops),
+                    ),
+                    _com.observaciones,
+                    _com.en_conjunto,
+                )
+            except OSError as _fallo_io:
+                # Un disco lleno o el antivirus llegaban aqui como traceback, y
+                # `showErrorDetails` viene encendido por defecto: lo que el
+                # usuario leia era una pila de Python encima de un comentario
+                # que ya habia pagado. El archivo anterior no se toca --se
+                # escribe en un temporal y se hace `replace`-- asi que se puede
+                # afirmar que sigue entero. Es el patron de
+                # `vistas/optimizador.py`.
+                st.error(
+                    f"**No se pudo guardar el comentario: {_fallo_io}**\n\n"
+                    "El archivo anterior sigue intacto, pero esto **no ha "
+                    "quedado guardado** y volver a pedirlo se cobra otra vez. "
+                    "Aquí abajo está entero."
+                )
+                for _sobre_io, _dice_io in _com.observaciones:
+                    st.markdown(
+                        f"- **{texto.plano(_sobre_io)}** — {texto.plano(_dice_io)}"
+                    )
+                if _com.en_conjunto:
+                    st.markdown(texto.plano(_com.en_conjunto))
+                # Y no `st.stop()`: lo que queda debajo es el historial de
+                # comentarios y el boton «Anotar lo que ejecute», que es
+                # justamente la puerta que esta pantalla existe para abrir.
+                # Cortar aqui castigaria al usuario dos veces por un fallo
+                # de disco. Misma forma que la rama de `FALLO` de abajo.
+                _guardado_aj = False
+            if _guardado_aj:
+                _avisos_aj = [("success", "Comentado y guardado.")]
+                if not _com.observaciones and not _com.en_conjunto:
+                    _avisos_aj = [(
+                        "warning",
+                        "Se miró la propuesta y **no salió nada que decir**. No es un "
+                        "fallo: la llamada fue bien y no había nada que añadir a la "
+                        "aritmética.",
+                    )]
+                if _com.descartadas:
+                    _avisos_aj.append((
+                        "warning",
+                        f"Se descartaron {_com.descartadas} observaciones que nombraban "
+                        "una operación que no estaba en la propuesta.",
+                    ))
+                if _com.conjunto_descartado:
+                    _avisos_aj.append((
+                        "warning",
+                        "Se descartó el párrafo de conjunto: nombraba algo en mayúsculas "
+                        "que no está en tu cartera, o llevaba una cifra.",
+                    ))
+                if _com.entrada_tokens or _com.salida_tokens:
+                    _coste_aj = interprete_cliente.coste(_com.entrada_tokens, _com.salida_tokens)
+                    _avisos_aj.append((
+                        "info",
+                        f"Este comentario costó **{_coste_aj:.3f} $** "
+                        f"({_com.entrada_tokens:,} tokens de entrada y "
+                        f"{_com.salida_tokens:,} de salida, a la tarifa de "
+                        f"{interprete_cliente.MODELO}).",
+                    ))
+                st.session_state["ajuste_avisos"] = _avisos_aj
+                st.rerun()
         else:
             for _sobre, _dice in _com.observaciones:
                 st.markdown(f"**{texto.plano(_sobre)}** — {texto.plano(_dice)}")
@@ -463,8 +493,18 @@ if _guardado_ia.rebalanceo:
 # arreglo en los otros dos saltos del recorrido --decir adonde ir en vez de
 # llevar-- y este se habia quedado sin arreglar.
 #
-# `st.switch_page` y no un aviso: conserva `st.session_state`, asi que el libro
-# elegido arriba sigue elegido al llegar.
+# `st.switch_page` y no un aviso: conserva `st.session_state`, y ahi es donde
+# viaja el libro elegido.
+#
+# **Esa segunda frase fue falsa hasta que el desplegable tuvo `key`.** Los tres
+# de esta app se pintaban sin ella, asi que en `session_state` no habia ninguna
+# entrada con el libro: `switch_page` conservaba fielmente una sesion que no lo
+# contenia, y Seguimiento aterrizaba en el primero de su lista con el
+# formulario de registrar abierto debajo. Reproducido: elegir `CORE-SATELLIT`
+# aqui y llegar alli con `prueba` puesto. Y el libro es append-only, asi que un
+# asiento en la cartera equivocada solo se deshace con una anulacion que queda
+# en el historial para siempre. La clave compartida y su preseleccion tolerante
+# viven en `vistas/libros.py` y `seguimiento/libro.py`.
 st.divider()
 izq, der = st.columns([3, 2])
 izq.markdown(

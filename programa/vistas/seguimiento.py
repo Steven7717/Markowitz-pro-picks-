@@ -23,7 +23,7 @@ from interprete import cliente as interprete_cliente
 from interprete import noticias as interprete_noticias
 from noticias import resumen, texto, traer
 from seguimiento import comparacion, libro as mod, panel, posiciones, precios
-from vistas import panel_ia
+from vistas import libros, panel_ia
 
 st.markdown(
     tema.cabecera(
@@ -41,7 +41,10 @@ st.markdown(
 if st.session_state.get("portafolio_a_seguir") is not None:
     st.switch_page("vistas/estrenar.py")
 
-entradas = mod.listar()
+# Listar, nombrar los ilegibles y elegir uno lo hacen las tres pantallas que
+# tienen libro, y lo hacian por su cuenta las tres. Vive en `vistas/libros.py`,
+# que es tambien donde esta escrito por que el desplegable lleva `key`.
+entradas, etiquetas = libros.disponibles()
 
 if not entradas:
     st.info(
@@ -53,18 +56,10 @@ if not entradas:
         st.switch_page("vistas/portafolios.py")
     st.stop()
 
-# Los ilegibles se pintan con su motivo, como en vistas/portafolios.py. Aqui no
-# hay boton de borrar: alli lo peor que se pierde es una fotografia repetible, y
-# aqui es el historial entero de lo que alguien compro.
-for entrada in entradas:
-    if entrada.libro is None:
-        st.error(f"`{entrada.ruta.name}` no se puede leer: {entrada.error}")
-
-sanos = [e for e in entradas if e.libro is not None]
-if not sanos:
+if not etiquetas:
+    # Hay ficheros, pero ninguno se lee. El motivo de cada uno ya esta escrito
+    # arriba; repetir aqui «no tienes ningun libro» diria lo contrario.
     st.stop()
-
-etiquetas = {f"{e.libro.nombre} · {e.ruta.name}": e for e in sanos}
 
 # El nombre del libro grande, con el selector al lado. Hasta el sub-proyecto K
 # el nombre solo aparecia DENTRO del desplegable: para saber que cartera se
@@ -76,7 +71,7 @@ etiquetas = {f"{e.libro.nombre} · {e.ruta.name}": e for e in sanos}
 # depende de la seleccion. Streamlit coloca cada elemento en la columna a la que
 # se lo pides, no en el orden en que se lo pides.
 col_nombre, col_libro = st.columns([3, 2], vertical_alignment="center")
-elegida = etiquetas[col_libro.selectbox("Libro", options=list(etiquetas))]
+elegida = libros.desplegable(etiquetas, col_libro)
 actual = elegida.libro
 col_nombre.markdown(
     f'<div style="font-size:1.45rem;font-weight:700;line-height:1.2;'
@@ -140,12 +135,44 @@ def _resumen(asiento) -> str:
     partes = [asiento.tipo]
     if asiento.ticker:
         partes.append(asiento.ticker)
+    if asiento.factor:
+        # Un split no lleva acciones ni importe, asi que sin el factor su
+        # resumen seria «split · ACME · el 2026-01-12»: dos asientos distintos
+        # del mismo dia se leerian igual, que es justo lo que este resumen
+        # existe para evitar.
+        partes.append(f"×{asiento.factor:g}")
     if asiento.acciones:
         partes.append(f"{asiento.acciones:g} acc.")
     if asiento.importe:
         partes.append(f"{asiento.importe:,.2f}")
     partes.append(f"el {asiento.fecha}")
     return " · ".join(partes)
+
+
+# Las claves de los widgets del alta. **Existen para que se puedan borrar.**
+# Hasta que las tuvieron, ningun campo del formulario llevaba `key`, asi que
+# despues de registrar seguian escritos el tipo, la fecha, el ticker, el
+# importe, las acciones y el precio: un segundo clic escribia un asiento
+# identico, y `mod.anadir` no tiene por que rechazarlo --comprar dos veces lo
+# mismo el mismo dia es una cosa que pasa--. El libro es append-only, asi que
+# ese duplicado solo se quita con una anulacion que se queda en el historial.
+#
+# El vaciado es por borrado y no por asignacion: Streamlit no deja escribir en
+# `session_state` la clave de un widget que ya se dibujo en esta pasada, pero
+# si deja quitarla, y entonces el widget vuelve a nacer con su valor por
+# defecto en la pasada siguiente. Por eso `_limpiar_alta()` se llama justo
+# antes del `st.rerun()`.
+_CLAVES_ALTA = (
+    "alta_tipo", "alta_fecha", "alta_ticker", "alta_importe", "alta_acciones",
+    "alta_precio", "alta_del_cierre", "alta_factor", "alta_comision",
+    "alta_nota",
+)
+
+
+def _limpiar_alta() -> None:
+    """Deja el formulario de alta en blanco para la pasada siguiente."""
+    for clave in _CLAVES_ALTA:
+        st.session_state.pop(clave, None)
 
 
 def _registrar_operacion(plegado: bool = True):
@@ -179,8 +206,12 @@ def _registrar_operacion(plegado: bool = True):
 
     marco = st.expander("Registrar una operación") if plegado else contextlib.nullcontext()
     with marco:
-        tipo = st.selectbox("Tipo", options=sorted(mod.TIPOS - {"anulacion"}))
-        cuando = st.date_input("Fecha", value=date.today(), max_value=date.today())
+        tipo = st.selectbox(
+            "Tipo", options=sorted(mod.TIPOS - {"anulacion"}), key="alta_tipo"
+        )
+        cuando = st.date_input(
+            "Fecha", value=date.today(), max_value=date.today(), key="alta_fecha"
+        )
         # Los del libro primero, y `accept_new_options` para el que compras hoy
         # por primera vez. Escribirlo a pelo era la puerta por la que entraba un
         # ticker mal tecleado, que despues sale en «Sin precios para: ...» y ya
@@ -201,32 +232,59 @@ def _registrar_operacion(plegado: bool = True):
                 placeholder="Elige uno del libro o escribe otro",
                 help="Los de tu cartera salen en la lista. Si compras algo "
                      "nuevo, escríbelo y pulsa Enter.",
+                key="alta_ticker",
             )
             ticker = (elegido or "").strip().upper() or None
 
-        importe = acciones = precio = None
+        importe = acciones = precio = factor = None
         del_cierre = False
         if tipo in {"compra", "venta"}:
             col_a, col_b, col_c = st.columns(3)
-            importe = col_a.number_input("Importe", min_value=0.0, value=0.0) or None
-            acciones = col_b.number_input("Acciones", min_value=0.0, value=0.0) or None
-            precio = col_c.number_input("Precio", min_value=0.0, value=0.0) or None
+            importe = col_a.number_input(
+                "Importe", min_value=0.0, value=0.0, key="alta_importe") or None
+            acciones = col_b.number_input(
+                "Acciones", min_value=0.0, value=0.0, key="alta_acciones") or None
+            precio = col_c.number_input(
+                "Precio", min_value=0.0, value=0.0, key="alta_precio") or None
             del_cierre = st.checkbox(
                 "No recuerdo el precio: usa el cierre de ese día",
                 help="La operación queda marcada como precio estimado y se ve así en "
                      "el historial. Una compra intradía en un día volátil se desvía "
                      "un 3-4% del cierre.",
+                key="alta_del_cierre",
             )
             st.caption(
                 "Rellena el importe **o** las acciones, más el precio. El tercero se "
                 "calcula solo. Si escribes los tres, mandan los tres: el bróker "
                 "aplica redondeos que ninguna división reproduce."
             )
+        elif tipo == "split":
+            # Un split **no mueve dinero**: no se paga ni se cobra nada, y las
+            # acciones no se teclean --salen de multiplicar las que hubiera--.
+            # Por eso aqui no hay importe, ni precio, ni comision: `validar()`
+            # los rechaza, y ofrecer una casilla que va a hacer fallar el alta
+            # es peor que no ofrecerla.
+            factor = st.number_input(
+                "Factor", min_value=0.0, value=2.0, step=1.0, format="%.4f",
+                help="Por cuánto se multiplican tus acciones. Un 2:1 es 2 y un "
+                     "contrasplit de 1:10 es 0,1.",
+                key="alta_factor",
+            ) or None
+            st.caption(
+                "Regístralo sólo si tu bróker lo aplicó y tus acciones cambiaron "
+                "de número. **Lo que anotes aquí manda** sobre el split que traen "
+                "los precios descargados para ese activo y ese día, así que no se "
+                "aplica dos veces."
+            )
         else:
-            importe = st.number_input("Importe", min_value=0.0, value=0.0) or None
+            importe = st.number_input(
+                "Importe", min_value=0.0, value=0.0, key="alta_importe") or None
 
-        comision = st.number_input("Comisión", min_value=0.0, value=0.0)
-        nota = st.text_input("Nota (opcional)")
+        comision = 0.0
+        if tipo != "split":
+            comision = st.number_input(
+                "Comisión", min_value=0.0, value=0.0, key="alta_comision")
+        nota = st.text_input("Nota (opcional)", key="alta_nota")
 
         if st.button("Registrar", type="primary", icon=":material/add:"):
             try:
@@ -261,33 +319,55 @@ def _registrar_operacion(plegado: bool = True):
                     id=f"{cuando.isoformat()}-{len(actual.asientos) + 1}",
                     fecha=cuando.isoformat(), tipo=tipo, ticker=ticker or None,
                     acciones=acciones, precio=precio, importe=importe or 0.0,
-                    comision=comision, precio_estimado=estimado, nota=nota,
+                    comision=comision, precio_estimado=estimado,
+                    factor=factor, nota=nota,
                 )
                 actualizado, escritos = mod.anadir(actual, nuevo, financiar=True)
             except mod.AsientoInvalido as error:
                 st.error(str(error))
             else:
-                mod.actualizar(actualizado, elegida.ruta)
-
-                # Se guardan para la pasada siguiente en vez de escribirse aqui:
-                # `st.rerun()` esta a dos lineas y se los llevaria por delante.
-                avisos = [("success", f"Registrado: {_resumen(nuevo)}.")]
-                if len(escritos) > 1:
-                    avisos.append((
-                        "warning",
-                        f"**Se registró además una aportación de "
-                        f"{escritos[0].importe:,.2f}**, porque no había efectivo "
-                        "suficiente para pagar la compra. Son dos asientos, y los "
-                        "dos salen en **Movimientos**.",
-                    ))
-                if estimado:
-                    avisos.append((
-                        "info",
-                        f"Precio tomado del cierre del {cuando.isoformat()}: "
-                        f"{precio:,.2f}. Queda marcado como estimado en el historial.",
-                    ))
-                st.session_state["registro_avisos"] = avisos
-                st.rerun()
+                try:
+                    mod.actualizar(actualizado, elegida.ruta)
+                except OSError as fallo:
+                    # **El disco es el unico sitio donde este dato existe.** Sin
+                    # esta rama, un disco lleno o el antivirus llegaban como un
+                    # traceback --`showErrorDetails` viene encendido por
+                    # defecto-- y lo que el usuario no sabia era justo lo que
+                    # importa: si el asiento se escribio o no. Se puede afirmar
+                    # que no: `mod.actualizar` escribe en un temporal y hace
+                    # `replace`, asi que un fallo deja el fichero anterior
+                    # intacto y entero. Es el patron de `vistas/optimizador.py`.
+                    st.error(
+                        f"**No se pudo guardar: {fallo}**\n\n"
+                        "El asiento **no** quedó registrado y el libro sigue "
+                        "como estaba: se escribe entero o no se escribe, nunca "
+                        "a medias. Comprueba que hay sitio en el disco y que el "
+                        "fichero no está abierto en otro programa, y vuelve a "
+                        "pulsar Registrar — lo que escribiste sigue en el "
+                        "formulario."
+                    )
+                else:
+                    # Se guardan para la pasada siguiente en vez de escribirse
+                    # aqui: `st.rerun()` esta a dos lineas y se los llevaria por
+                    # delante.
+                    avisos = [("success", f"Registrado: {_resumen(nuevo)}.")]
+                    if len(escritos) > 1:
+                        avisos.append((
+                            "warning",
+                            f"**Se registró además una aportación de "
+                            f"{escritos[0].importe:,.2f}**, porque no había efectivo "
+                            "suficiente para pagar la compra. Son dos asientos, y los "
+                            "dos salen en **Movimientos**.",
+                        ))
+                    if estimado:
+                        avisos.append((
+                            "info",
+                            f"Precio tomado del cierre del {cuando.isoformat()}: "
+                            f"{precio:,.2f}. Queda marcado como estimado en el historial.",
+                        ))
+                    st.session_state["registro_avisos"] = avisos
+                    _limpiar_alta()
+                    st.rerun()
 
 
 # --- Precios ----------------------------------------------------------------
@@ -467,7 +547,11 @@ if aviso:
 st.subheader("Composición")
 
 objetivo = actual.objetivo
-comp = panel.composicion(actual.asientos, precios_hoy, objetivo)
+# `historia` no es opcional aqui aunque el parametro lo sea: de esto salen los
+# pesos reales y el efectivo, y sin ella un split partia el peso de un activo
+# --y con el, el de todos los demas, que comparten denominador-- mientras la
+# cabecera de arriba, que si aplica los splits, decia otra cosa.
+comp = panel.composicion(actual.asientos, precios_hoy, objetivo, historia)
 
 if not comp.lineas:
     st.caption("Ningún activo con precio, así que no hay reparto que enseñar.")
@@ -588,17 +672,26 @@ evolucion, por_activo, movimientos, registrar, noticias = st.tabs(
 with evolucion:
     st.subheader("Valor en el tiempo")
 
+    # La `Historia` entera, no `historia.cierres`: los cierres van sin ajustar
+    # --el punto entero de `seguimiento/precios.py`-- asi que el dia de un split
+    # el precio se parte a la mitad y las participaciones compradas antes tienen
+    # que duplicarse. Mientras esto recibio solo la tabla de precios, «repartir
+    # por igual» perdia el 51% de su valor en un dia y el grafico concluia que
+    # la cartera del usuario le sacaba un 114%. Las dos desviaciones --esa y los
+    # dividendos que la referencia no cobraba-- empujaban a favor del usuario,
+    # que es la peor direccion posible en un grafico que existe para
+    # desenganarle.
     lineas = {"Tu cartera": marcha.valor}
     if objetivo is not None:
         pesos = mod.pesos_objetivo(objetivo)
         if pesos:
             lineas["Si hubieras seguido el plan"] = comparacion.referencia(
-                marcha.flujos, pesos, historia.cierres
+                marcha.flujos, pesos, historia
             )
     lineas["Repartir por igual (1/N)"] = comparacion.referencia(
         marcha.flujos,
         comparacion.equal_weight(list(historia.cierres.columns)),
-        historia.cierres,
+        historia,
     )
 
     st.line_chart(pd.DataFrame(lineas))
@@ -626,7 +719,7 @@ with por_activo:
     # es la suma de los activos y este incluye el efectivo sin invertir. Con el
     # segundo la columna sumaba 71,9% al lado de un objetivo que suma 100%.
     filas = panel.filas_por_activo(
-        actual.asientos, precios_hoy, comp.invertido, objetivo
+        actual.asientos, precios_hoy, comp.invertido, objetivo, historia
     )
 
     st.dataframe(pd.DataFrame(filas), use_container_width=True, hide_index=True)
@@ -740,16 +833,29 @@ with movimientos:
                     except mod.AsientoInvalido as _error:
                         st.error(str(_error))
                     else:
-                        mod.actualizar(_nuevo_libro, elegida.ruta)
-                        # Como en el alta: `st.rerun()` se llevaria el mensaje por
-                        # delante, asi que viaja por `session_state`.
-                        st.session_state["anulacion_avisos"] = [(
-                            "success",
-                            f"Anulado: {_resumen(_cual)} del {_cual.fecha}. "
-                            "Sigue en la tabla, marcado como anulado, y ya no "
-                            "cuenta para el valor ni para el coste.",
-                        )]
-                        st.rerun()
+                        try:
+                            mod.actualizar(_nuevo_libro, elegida.ruta)
+                        except OSError as _fallo:
+                            # Igual que en el alta, y por lo mismo: sin esto el
+                            # usuario ve un traceback y no sabe si la anulacion
+                            # entro. Entera o nada, nunca a medias.
+                            st.error(
+                                f"**No se pudo guardar: {_fallo}**\n\n"
+                                "La anulación **no** quedó registrada y el "
+                                "libro sigue como estaba. Comprueba el disco y "
+                                "vuelve a intentarlo."
+                            )
+                        else:
+                            # Como en el alta: `st.rerun()` se llevaria el
+                            # mensaje por delante, asi que viaja por
+                            # `session_state`.
+                            st.session_state["anulacion_avisos"] = [(
+                                "success",
+                                f"Anulado: {_resumen(_cual)} del {_cual.fecha}. "
+                                "Sigue en la tabla, marcado como anulado, y ya no "
+                                "cuenta para el valor ni para el coste.",
+                            )]
+                            st.rerun()
 
 # ── Registrar ────────────────────────────────────────────────────────────────
 with registrar:
@@ -996,15 +1102,29 @@ with noticias:
                     leidos=_leidas,
                 )
             if _lectura.estado == interprete_noticias.HECHA and not _roto:
-                archivo.anotar_hechos(
-                    _ruta_archivo,
-                    interprete_cliente.MODELO,
-                    interprete_noticias.VERSION_PROMPT,
-                    panel_ia.anotadas(_lectura, _a_leer),
-                    _lectura.en_conjunto,
-                )
-                st.session_state["ia_avisos"] = panel_ia.avisos(_lectura)
-                st.rerun()
+                try:
+                    archivo.anotar_hechos(
+                        _ruta_archivo,
+                        interprete_cliente.MODELO,
+                        interprete_noticias.VERSION_PROMPT,
+                        panel_ia.anotadas(_lectura, _a_leer),
+                        _lectura.en_conjunto,
+                    )
+                except OSError as _fallo:
+                    # Esta lectura ya se pago. Un traceback aqui perderia
+                    # ademas la unica copia que existe de ella, asi que el aviso
+                    # dice las dos cosas --que no se guardo y que volver a
+                    # pedirla se vuelve a cobrar-- y la deja en pantalla.
+                    st.error(
+                        f"**No se pudo guardar la lectura: {_fallo}**\n\n"
+                        "El archivo anterior sigue intacto, pero lo que se "
+                        "acaba de leer **no ha quedado guardado**, y volver a "
+                        "pedirlo se cobra otra vez. Aquí abajo está entero."
+                    )
+                    panel_ia.pintar_lectura(st, _lectura)
+                else:
+                    st.session_state["ia_avisos"] = panel_ia.avisos(_lectura)
+                    st.rerun()
             else:
                 # No se guarda y no se rerun: si se fue por `FALLO` o el archivo
                 # está roto, el `st.rerun()` se llevaría por delante el único

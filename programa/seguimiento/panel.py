@@ -217,7 +217,7 @@ class Composicion:
     efectivo: float
 
 
-def composicion(asientos, precios_hoy, objetivo) -> Composicion:
+def composicion(asientos, precios_hoy, objetivo, historia=None) -> Composicion:
     """El reparto de la cartera, sobre el total de lo que TIENE precio.
 
     Un activo sin precio no entra en el denominador. Meterlo valorado a cero
@@ -231,9 +231,23 @@ def composicion(asientos, precios_hoy, objetivo) -> Composicion:
     las lineas traen `objetivo=None`. **No se rellena con el peso real**: una
     marca encima de la barra, justo donde esta la barra, diria que ya estas
     donde querias estar, que es una afirmacion sobre un plan que no existe.
+
+    ## Por que hace falta la `Historia`
+
+    Porque sin ella ni `rendimiento.por_activo` ni `posiciones.estado` pueden
+    enterarse de un split ni de un dividendo automatico, y las dos alimentan
+    esto: con un 2:1 de por medio las acciones de la linea salian a la mitad,
+    asi que **el peso de ese activo y el de todos los demas** --que se reparten
+    el mismo denominador-- quedaban falseados a la vez, y el efectivo salia
+    corto por los dividendos que solo cobraba `serie()`. La cabecera decia
+    320,00 y esta linea 300,00, en la misma pantalla.
+
+    Se queda opcional --`None` es «no se conocen acciones corporativas», no «no
+    hubo ninguna»-- para que se pueda llamar desde donde no hay descarga. Las
+    dos pantallas que si la tienen la pasan siempre.
     """
     pesos_obj = mod.pesos_objetivo(objetivo)
-    lineas_activo = rendimiento.por_activo(asientos, precios_hoy)
+    lineas_activo = rendimiento.por_activo(asientos, precios_hoy, historia)
 
     sin_precio = tuple(
         t for t, linea in lineas_activo.items() if linea.valor is None
@@ -260,11 +274,13 @@ def composicion(asientos, precios_hoy, objetivo) -> Composicion:
         sin_precio=sin_precio,
         hay_objetivo=bool(pesos_obj),
         invertido=total,
-        efectivo=posiciones.estado(asientos).efectivo,
+        efectivo=posiciones.estado(asientos, historia=historia).efectivo,
     )
 
 
-def filas_por_activo(asientos, precios_hoy, invertido, objetivo) -> "list[dict]":
+def filas_por_activo(
+    asientos, precios_hoy, invertido, objetivo, historia=None
+) -> "list[dict]":
     """La tabla por activo, tal cual la pinta la pantalla y la exporta Excel.
 
     Devuelve una lista de diccionarios ya formateados, y no dataclases, porque
@@ -282,10 +298,16 @@ def filas_por_activo(asientos, precios_hoy, invertido, objetivo) -> "list[dict]"
     El objetivo reparte sobre los activos y `rebalanceo/deriva.py` mide sobre los
     activos. Esta tabla ahora tambien, que es lo que hace que las dos pantallas
     digan lo mismo del mismo libro.
+
+    `historia` es lo que deja que las siete cifras de cada fila cuenten los
+    splits y los dividendos. Va al final y con valor por defecto porque el
+    parametro que manda aqui es `invertido`, y el orden de los tres primeros ya
+    estaba escrito en las dos llamadas que existen.
     """
     pesos_obj = mod.pesos_objetivo(objetivo)
     filas = []
-    for ticker, linea in rendimiento.por_activo(asientos, precios_hoy).items():
+    lineas = rendimiento.por_activo(asientos, precios_hoy, historia)
+    for ticker, linea in lineas.items():
         peso_real = (linea.valor / invertido) if (linea.valor and invertido) else None
         filas.append({
             "Ticker": ticker,
@@ -316,7 +338,12 @@ def filas_de_historial(asientos) -> "list[dict]":
     for a in reversed(posiciones.ordenados(asientos)):
         historial.append({
             "Fecha": a.fecha,
-            "Tipo": a.tipo,
+            # El factor va pegado al tipo. Un split no lleva acciones, ni
+            # precio, ni importe --no se paga ni se cobra nada--, asi que sin
+            # esto su fila es la palabra «split» y cuatro rayas: el unico dato
+            # que tiene el asiento no se veria. Y no en una columna propia,
+            # que seria un «—» en todas las demas filas de todos los libros.
+            "Tipo": a.tipo if a.factor is None else f"{a.tipo} ×{a.factor:g}",
             "Ticker": a.ticker or "—",
             "Acciones": cartera.formato_cifra(a.acciones, 4),
             "Precio": cartera.formato_cifra(a.precio) + (" (est.)" if a.precio_estimado else ""),

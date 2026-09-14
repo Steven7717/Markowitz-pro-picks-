@@ -19,6 +19,7 @@ import pandas as pd
 from scipy.optimize import brentq
 
 from seguimiento import posiciones
+from seguimiento.precios import Historia
 
 # Por debajo de un mes, anualizar convierte un ruido en una afirmación: un 2% en
 # tres días sale a +780% anual. Se devuelve el retorno del periodo, sin
@@ -159,7 +160,9 @@ class Linea:
 
 
 def por_activo(
-    asientos: "list", precios_actuales: dict[str, float]
+    asientos: "list",
+    precios_actuales: dict[str, float],
+    historia: "Historia | None" = None,
 ) -> dict[str, Linea]:
     """Per-asset cost, gain and contribution, in dollars.
 
@@ -176,13 +179,57 @@ def por_activo(
     en `None`, no en cero. Valorarlo a cero restaría la posición entera de la
     ganancia sin decir por qué; `None` es lo que hace que quien lo pinta escriba
     "—" con `cartera.formato_cifra`.
+
+    ## Por qué hace falta la `Historia`
+
+    Hasta que la recibió, esta función **no podía enterarse de un split ni de un
+    dividendo automático**, porque no tenía dónde mirarlos. No era un matiz: con
+    un 2:1 de por medio las siete cifras de la línea salían mal a la vez, y
+    todas hacia el mismo lado. La misma pantalla enseñaba +70,00 arriba —que
+    sale de `posiciones.serie`, que sí los aplica— y −450,00 abajo, del mismo
+    activo y el mismo día, sin nada que dijera cuál creer. Y de aquí salen
+    además la composición, los pesos reales y la deriva que alimenta la pantalla
+    de Rebalanceo entera.
+
+    El recorrido lo pone `posiciones.cronologia`, el mismo que usa `estado()`,
+    para que las tres funciones cuenten lo mismo en vez de cada una a su manera.
+
+    **Qué le hace un split a las dos cifras de coste.** Las acciones se
+    multiplican por el factor y el coste **total** no se mueve —no se ha pagado
+    ni cobrado nada—, así que el coste por acción se parte igual que el precio:
+    aquí sale solo, porque `coste_medio` se deriva de `coste / acciones`. Y la
+    ganancia realizada de una venta posterior se mide contra ese coste medio ya
+    partido; contra el de antes, vender cinco acciones a 60 con un coste de 100
+    declaraba una pérdida de 200 que nadie tuvo.
+
+    `historia=None` significa **«no se conocen acciones corporativas»**, no «no
+    hubo ninguna». Se deja así para que se pueda llamar desde donde no hay
+    descarga, y por eso las dos pantallas que sí la tienen —Seguimiento y
+    Rebalanceo— la pasan siempre. Quien añada una tercera tiene que pasarla
+    también, o la tabla volverá a decir lo contrario que la cabecera.
     """
     acciones: dict[str, float] = {}
     coste: dict[str, float] = {}
     realizada: dict[str, float] = {}
     dividendos: dict[str, float] = {}
 
-    for a in posiciones.ordenados(posiciones.vigentes(asientos)):
+    for evento in posiciones.cronologia(asientos, historia):
+        if evento[0] == "split":
+            _, _, ticker, factor = evento
+            # El coste total se queda quieto a proposito: es lo que hace que el
+            # coste medio quede dividido por el factor sin escribir la division
+            # en ninguna parte, y que no haya dos sitios que puedan desviarse.
+            if acciones.get(ticker):
+                acciones[ticker] *= factor
+            continue
+        if evento[0] == "dividendo":
+            _, _, ticker, por_accion = evento
+            cobro = acciones.get(ticker, 0.0) * por_accion
+            if cobro:
+                dividendos[ticker] = dividendos.get(ticker, 0.0) + cobro
+            continue
+
+        a = evento[2]
         if a.tipo == "compra":
             acciones[a.ticker] = acciones.get(a.ticker, 0.0) + a.acciones
             coste[a.ticker] = coste.get(a.ticker, 0.0) + a.importe + a.comision

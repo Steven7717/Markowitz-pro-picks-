@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING
 
 import pandas as pd
 
-from seguimiento.precios import Historia
+from seguimiento.precios import Historia, celda
 
 if TYPE_CHECKING:  # pragma: no cover
     from seguimiento.libro import Asiento
@@ -58,28 +58,136 @@ def ordenados(asientos: "list[Asiento]") -> "list[Asiento]":
     return sorted(asientos, key=lambda a: a.fecha)
 
 
-def estado(asientos: "list[Asiento]", hasta: str | date | None = None) -> Estado:
-    """Shares per ticker and cash, as of `hasta` (default: everything)."""
-    limite = hasta.isoformat() if isinstance(hasta, date) else hasta
+def _corporativas(historia: "Historia | None") -> "dict[str, tuple[dict, dict]]":
+    """Lo que la historia dice que pasó, por fecha: splits y dividendos.
 
+    Se recorre por columnas y filtrando los ceros porque estas dos tablas son
+    casi todo ceros: una acción reparte cuatro dividendos al año sobre
+    doscientas cincuenta sesiones, y un split es un acontecimiento de la
+    década. Recorrer el calendario entero día a día sería mil veces más trabajo
+    para el mismo resultado.
+    """
+    eventos: "dict[str, tuple[dict, dict]]" = {}
+    if historia is None:
+        return eventos
+    for marco, hueco in ((historia.splits, 0), (historia.dividendos, 1)):
+        if marco is None or marco.empty:
+            continue
+        for ticker in marco.columns:
+            columna = marco[ticker]
+            for dia, valor in columna[columna > 0].items():
+                clave = dia.strftime("%Y-%m-%d")
+                eventos.setdefault(clave, ({}, {}))[hueco][ticker] = float(valor)
+    return eventos
+
+
+def cronologia(
+    asientos: "list[Asiento]",
+    historia: "Historia | None" = None,
+    hasta: str | date | None = None,
+):
+    """Los asientos y las acciones corporativas, en el orden en que ocurrieron.
+
+    Devuelve tuplas `("split", fecha, ticker, factor)`,
+    `("dividendo", fecha, ticker, por_accion)` y `("asiento", fecha, asiento)`.
+    Existe para que `estado()` y `rendimiento.por_activo()` cuenten los splits y
+    los dividendos **exactamente igual que `serie()`**, en vez de cada uno a su
+    manera: mientras cada función tuvo su propio recorrido, la misma pantalla
+    enseñaba +70,00 en la cabecera y −450,00 en la tabla, del mismo activo.
+
+    El orden dentro de un día es el de `serie()` y no es arbitrario:
+
+    1. **El split primero**, porque parte lo que ya se tenía. Lo comprado hoy se
+       compró ya partido, así que no le toca.
+    2. **El dividendo después**, sobre esa misma tenencia y todavía **antes de
+       los movimientos del día**. Para cobrar hay que tener las acciones antes
+       de la fecha ex: quien compra ese mismo día compra ya sin el dividendo, y
+       quien vende ese día sí cobra.
+    3. **Y por último los asientos del día.**
+
+    Un split o un dividendo registrados a mano mandan sobre los calculados de
+    ese ticker y esa fecha, igual que en `serie()`. El manual es lo que ocurrió
+    de verdad —el neto que llegó, el factor que aplicó el bróker—; el calculado
+    es teórico. Sumar los dos cobraría dos veces o partiría la posición dos
+    veces.
+    """
+    limite = hasta.isoformat() if isinstance(hasta, date) else hasta
+    vivos = ordenados(vigentes(asientos))
+    corporativas = _corporativas(historia)
+
+    manual_dividendo = {(a.ticker, a.fecha) for a in vivos if a.tipo == "dividendo"}
+    manual_split = {(a.ticker, a.fecha) for a in vivos if a.tipo == "split"}
+
+    por_fecha: "dict[str, list[Asiento]]" = {}
+    for a in vivos:
+        por_fecha.setdefault(a.fecha, []).append(a)
+
+    for fecha in sorted(set(por_fecha) | set(corporativas)):
+        if limite is not None and fecha > limite:
+            return
+        del_dia = por_fecha.get(fecha, ())
+        splits, dividendos = corporativas.get(fecha, ({}, {}))
+
+        for a in del_dia:
+            if a.tipo == "split":
+                yield ("split", fecha, a.ticker, float(a.factor))
+        for ticker, factor in sorted(splits.items()):
+            if (ticker, fecha) not in manual_split:
+                yield ("split", fecha, ticker, factor)
+        for ticker, por_accion in sorted(dividendos.items()):
+            if (ticker, fecha) not in manual_dividendo:
+                yield ("dividendo", fecha, ticker, por_accion)
+        for a in del_dia:
+            if a.tipo != "split":
+                yield ("asiento", fecha, a)
+
+
+def estado(
+    asientos: "list[Asiento]",
+    hasta: str | date | None = None,
+    historia: "Historia | None" = None,
+) -> Estado:
+    """Shares per ticker and cash, as of `hasta` (default: everything).
+
+    **`historia` no es un adorno: sin ella el efectivo sale corto.** Los
+    dividendos automáticos —acciones en cartera en la fecha ex por el dividendo
+    por acción— sólo vivían dentro de `serie()`, así que la misma pantalla
+    enseñaba 320,00 arriba, que sale de la serie, y 300,00 abajo, que salía de
+    aquí. Dos saldos del mismo libro, en la misma pantalla, sin nada que
+    explicara la diferencia.
+
+    Se queda opcional a propósito: **`libro.anadir` la llama sin historia**, y
+    tiene que poder. Decidir si una compra cabe en el efectivo no puede depender
+    de una descarga de red que falla, y sin dividendos el saldo que sale es
+    menor, o sea conservador: como mucho arrastra una aportación de financiación
+    que no hacía falta, y esa se ve en Movimientos. Al revés —aceptar una compra
+    contando un dividendo que la red inventó— no se vería.
+    """
     acciones: dict[str, float] = {}
     efectivo = 0.0
 
-    for a in ordenados(vigentes(asientos)):
-        if limite is not None and a.fecha > limite:
-            break
-        if a.tipo == "aportacion":
-            efectivo += a.importe
-        elif a.tipo == "retiro":
-            efectivo -= a.importe
-        elif a.tipo == "dividendo":
-            efectivo += a.importe
-        elif a.tipo == "compra":
-            efectivo -= a.importe + a.comision
-            acciones[a.ticker] = acciones.get(a.ticker, 0.0) + a.acciones
-        elif a.tipo == "venta":
-            efectivo += a.importe - a.comision
-            acciones[a.ticker] = acciones.get(a.ticker, 0.0) - a.acciones
+    for evento in cronologia(asientos, historia, hasta=hasta):
+        if evento[0] == "split":
+            _, _, ticker, factor = evento
+            if acciones.get(ticker):
+                acciones[ticker] *= factor
+        elif evento[0] == "dividendo":
+            _, _, ticker, por_accion = evento
+            efectivo += acciones.get(ticker, 0.0) * por_accion
+        else:
+            a = evento[2]
+            if a.tipo == "aportacion":
+                efectivo += a.importe
+            elif a.tipo == "retiro":
+                efectivo -= a.importe
+            elif a.tipo == "dividendo":
+                efectivo += a.importe
+            elif a.tipo == "compra":
+                efectivo -= a.importe + a.comision
+                acciones[a.ticker] = acciones.get(a.ticker, 0.0) + a.acciones
+            elif a.tipo == "venta":
+                efectivo += a.importe - a.comision
+                acciones[a.ticker] = acciones.get(a.ticker, 0.0) - a.acciones
 
     return Estado(
         acciones={t: n for t, n in acciones.items() if abs(n) > _POLVO},
@@ -105,12 +213,25 @@ def primer_descubierto(asientos: "list[Asiento]") -> str | None:
     que se tiene siga valiendo: el número de acciones viene de dividir un
     importe entre un precio, así que arrastra error de redondeo y una igualdad
     exacta fallaría por un femtoaccion de diferencia.
+
+    **No recibe `Historia` y no debe recibirla.** Es la función que decide si un
+    asiento se puede escribir, y decidir eso no puede depender de una descarga
+    que falla: los días en que yfinance se cae serían días en que no se puede
+    registrar una venta perfectamente real. Por eso el split que hace falta aquí
+    es el que el usuario registró como asiento —ver el bloque de `TIPOS` en
+    `seguimiento/libro.py`—, y por eso este recorrido es puro.
     """
     acciones: dict[str, float] = {}
     efectivo = 0.0
 
     for a in ordenados(vigentes(asientos)):
-        if a.tipo == "aportacion":
+        if a.tipo == "split":
+            # Sin esto, quien vivió un 2:1 de una compra de diez e intentaba
+            # vender veinte recibía «no tienes suficientes acciones»: o mentía
+            # en el número, o no podía apuntar la venta.
+            if acciones.get(a.ticker):
+                acciones[a.ticker] *= a.factor
+        elif a.tipo == "aportacion":
             efectivo += a.importe
         elif a.tipo == "dividendo":
             efectivo += a.importe
@@ -215,43 +336,78 @@ def serie(asientos: "list[Asiento]", historia: Historia) -> Marcha:
     caja = 0.0
     pendientes = list(vivos)
 
+    def _aplicar(a, dia) -> None:
+        """Un asiento que no es un split, sobre la tenencia y la caja."""
+        nonlocal caja
+        if a.tipo == "aportacion":
+            caja += a.importe
+            flujos[dia] += a.importe
+        elif a.tipo == "retiro":
+            caja -= a.importe
+            flujos[dia] -= a.importe
+        elif a.tipo == "dividendo":
+            caja += a.importe
+            if a.ticker in dividendos.columns:
+                dividendos.at[dia, a.ticker] += a.importe
+        elif a.tipo == "compra":
+            caja -= a.importe + a.comision
+            tenencia[a.ticker] = tenencia.get(a.ticker, 0.0) + a.acciones
+        elif a.tipo == "venta":
+            caja += a.importe - a.comision
+            tenencia[a.ticker] = tenencia.get(a.ticker, 0.0) - a.acciones
+
     for dia in calendario:
         clave = dia.strftime("%Y-%m-%d")
 
-        # 1. Los splits del dia parten lo que ya se tenia.
+        # 1. Lo fechado ANTES de hoy y todavia sin aplicar, que el primer dia
+        #    del calendario es todo lo anterior a el. Va delante del split de
+        #    hoy y no detras: una compra de diciembre que vive un split de enero
+        #    se tiene que partir, y aplicandola despues se quedaba entera.
+        while pendientes and pendientes[0].fecha < clave:
+            a = pendientes.pop(0)
+            if a.tipo == "split":
+                if tenencia.get(a.ticker):
+                    tenencia[a.ticker] *= a.factor
+            else:
+                _aplicar(a, dia)
+
+        # 2. Los splits de HOY que el usuario registro. Van antes que los de la
+        #    historia y **en lugar de ellos** para ese ticker: sumar los dos
+        #    partiria la posicion dos veces, que es el peor error posible aqui
+        #    porque duplica acciones en silencio. Es la misma precedencia que ya
+        #    regia para los dividendos, y por lo mismo.
+        registrados = set()
+        indice = 0
+        while indice < len(pendientes) and pendientes[indice].fecha == clave:
+            a = pendientes[indice]
+            if a.tipo == "split":
+                if tenencia.get(a.ticker):
+                    tenencia[a.ticker] *= a.factor
+                registrados.add(a.ticker)
+                pendientes.pop(indice)
+                continue
+            indice += 1
+
+        # 3. Los splits del dia que trae la historia parten lo que ya se tenia.
         for ticker in tickers:
-            factor = float(historia.splits.at[dia, ticker] or 0.0)
+            if ticker in registrados:
+                continue
+            factor = celda(historia.splits, dia, ticker)
             if factor > 0 and tenencia.get(ticker):
                 tenencia[ticker] *= factor
 
-        # 2. La foto de lo que se tenia al cierre de ayer, ya partida por el
+        # 4. La foto de lo que se tenia al cierre de ayer, ya partida por el
         #    split de hoy si lo hubo. Es la que decide quien cobra el dividendo,
         #    y por eso se toma ANTES de los movimientos del dia.
         tenencia_ex = dict(tenencia)
 
-        # 3. Los asientos fechados hasta hoy que aun no se han aplicado.
+        # 5. Los asientos de hoy.
         while pendientes and pendientes[0].fecha <= clave:
-            a = pendientes.pop(0)
-            if a.tipo == "aportacion":
-                caja += a.importe
-                flujos[dia] += a.importe
-            elif a.tipo == "retiro":
-                caja -= a.importe
-                flujos[dia] -= a.importe
-            elif a.tipo == "dividendo":
-                caja += a.importe
-                if a.ticker in dividendos.columns:
-                    dividendos.at[dia, a.ticker] += a.importe
-            elif a.tipo == "compra":
-                caja -= a.importe + a.comision
-                tenencia[a.ticker] = tenencia.get(a.ticker, 0.0) + a.acciones
-            elif a.tipo == "venta":
-                caja += a.importe - a.comision
-                tenencia[a.ticker] = tenencia.get(a.ticker, 0.0) - a.acciones
+            _aplicar(pendientes.pop(0), dia)
 
-        # 4. Los dividendos calculados, sobre la foto de la fecha ex.
+        # 6. Los dividendos calculados, sobre la foto de la fecha ex.
         for ticker in tickers:
-            por_accion = float(historia.dividendos.at[dia, ticker] or 0.0)
+            por_accion = celda(historia.dividendos, dia, ticker)
             if por_accion <= 0 or (ticker, clave) in manuales:
                 continue
             cobro = tenencia_ex.get(ticker, 0.0) * por_accion

@@ -25,6 +25,7 @@ import streamlit as st
 import tema
 from noticias import cache, macro, texto, traer
 from seguimiento import libro as mod, posiciones
+from vistas import libros
 
 # El orden en que se pintan y se consultan. Es el orden de la pantalla —lo que
 # viene, los hechos, la prensa— y no el alfabético, para que el pie de página
@@ -101,18 +102,12 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-todas = mod.listar()
-# **Un fichero ilegible se nombra.** Filtrarlo en silencio y decir despues que
-# no llevas ningun libro convierte «no puedo leer el tuyo» en «no tienes
-# ninguno»: son cosas opuestas, y la segunda deja al usuario sin nada que
-# buscar. Es la misma regla que `vistas/seguimiento.py` ya aplicaba, y que
-# `seguimiento/libro.py` explica: una cache se regenera, un libro no.
-for _entrada in todas:
-    if _entrada.libro is None:
-        st.error(f"`{_entrada.ruta.name}` no se puede leer: {_entrada.error}")
-
-entradas = [e for e in todas if e.libro is not None]
-if not entradas:
+# Listar, nombrar los ilegibles y elegir uno es el mismo trabajo en las tres
+# pantallas que tienen libro. Vive en `vistas/libros.py`, que es tambien donde
+# esta escrito por que el desplegable lleva `key`: sin ella la eleccion no
+# sobrevivia al salto de una pantalla a otra.
+_en_disco, etiquetas = libros.disponibles()
+if not etiquetas:
     st.info(
         "Todavía no llevas ningún libro. Empiézalo en **Empezar un libro**."
     )
@@ -120,8 +115,7 @@ if not entradas:
         st.switch_page("vistas/seguimiento.py")
     st.stop()
 
-etiquetas = {f"{e.libro.nombre} · {e.ruta.name}": e for e in entradas}
-elegida = etiquetas[st.selectbox("Libro", options=list(etiquetas))]
+elegida = libros.desplegable(etiquetas)
 actual = elegida.libro
 
 # --- Sin activos no hay a quién consultar ------------------------------------

@@ -265,3 +265,136 @@ def test_un_activo_sin_precio_no_se_valora_a_cero():
     assert linea.valor is None
     assert linea.latente is None
     assert linea.contribucion is None
+
+
+# --- Splits y dividendos en la tabla por activo ------------------------------
+#
+# `por_activo` no recibia la `Historia`, asi que estructuralmente no podia
+# enterarse de un split ni de un dividendo automatico. La misma pantalla
+# enseñaba +70,00 en la cabecera --que sale de `posiciones.serie`, que si los
+# aplica-- y -450,00 en la tabla, del mismo activo y el mismo dia.
+
+from seguimiento import posiciones, precios
+
+CALENDARIO = pd.to_datetime([
+    "2026-01-05", "2026-01-06", "2026-01-07", "2026-01-08", "2026-01-09",
+    "2026-01-12", "2026-01-13", "2026-01-14", "2026-01-15",
+])
+
+
+def historia_acme() -> precios.Historia:
+    """Un dividendo de 2,00 el dia 8 y un split 2:1 el dia 12.
+
+    Los cierres se parten a la mitad el dia del split, que es lo que hace un
+    cierre SIN ajustar: el precio de ayer se queda como se cotizo y el de hoy
+    vale la mitad. Es el punto entero de `seguimiento/precios.py`.
+    """
+    cierres = [100.0] * 5 + [50.0] * 4
+    dividendos = [0.0, 0.0, 0.0, 2.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    splits = [0.0, 0.0, 0.0, 0.0, 0.0, 2.0, 0.0, 0.0, 0.0]
+    return precios.Historia(
+        cierres=pd.DataFrame({"ACME": cierres}, index=CALENDARIO),
+        dividendos=pd.DataFrame({"ACME": dividendos}, index=CALENDARIO),
+        splits=pd.DataFrame({"ACME": splits}, index=CALENDARIO),
+        sin_datos=[],
+    )
+
+
+def libro_acme() -> list:
+    """El libro del defecto, tal cual se reprodujo."""
+    return [
+        ap("a", "2026-01-05", 1000.0),
+        cp("c1", "2026-01-05", "ACME", 10.0, 100.0),
+        vt("v1", "2026-01-14", "ACME", 5.0, 60.0),
+    ]
+
+
+def test_un_split_multiplica_las_acciones_de_la_tabla():
+    linea = rendimiento.por_activo(
+        libro_acme(), {"ACME": 50.0}, historia_acme()
+    )["ACME"]
+    # Diez compradas, un 2:1, menos cinco vendidas: quince.
+    assert linea.acciones == pytest.approx(15.0)
+
+
+def test_un_split_divide_el_coste_medio_por_el_factor():
+    # Las acciones se multiplican y el coste TOTAL no se mueve --no se ha
+    # pagado ni cobrado nada--, asi que el coste por accion se parte igual que
+    # el precio. Sin esto, la tabla comparaba un coste de 100 contra un precio
+    # de 50 y declaraba una perdida del 50% que nadie tuvo.
+    linea = rendimiento.por_activo(
+        libro_acme(), {"ACME": 50.0}, historia_acme()
+    )["ACME"]
+    assert linea.coste_medio == pytest.approx(50.0)
+    assert linea.valor == pytest.approx(750.0)
+    assert linea.latente == pytest.approx(0.0)
+
+
+def test_la_ganancia_realizada_se_mide_contra_el_coste_medio_ya_partido():
+    # Cinco acciones a 60 contra un coste medio de 50: +50. Contra el coste sin
+    # partir --100-- salia -200, que es una perdida inventada por el split.
+    linea = rendimiento.por_activo(
+        libro_acme(), {"ACME": 50.0}, historia_acme()
+    )["ACME"]
+    assert linea.realizada == pytest.approx(50.0)
+
+
+def test_los_dividendos_automaticos_llegan_a_la_tabla():
+    # Diez acciones el dia ex por 2,00: veinte. Antes salia 0,00, porque el
+    # unico dividendo que la tabla veia era el tecleado a mano.
+    linea = rendimiento.por_activo(
+        libro_acme(), {"ACME": 50.0}, historia_acme()
+    )["ACME"]
+    assert linea.dividendos == pytest.approx(20.0)
+
+
+def test_la_contribucion_de_la_tabla_cuadra_con_la_ganancia_de_la_cabecera():
+    """El defecto entero: +70,00 arriba y -450,00 abajo, del mismo activo.
+
+    La cabecera sale de `posiciones.serie`, que si aplica splits y dividendos.
+    La tabla salia de `por_activo`, que no los veia. Dos numeros bajo la misma
+    palabra en la misma pantalla, y ninguna forma de saber cual creer.
+    """
+    asientos = libro_acme()
+    h = historia_acme()
+    marcha = posiciones.serie(asientos, h)
+    aportado = float(marcha.flujos.sum())
+    ganancia = float(marcha.valor.iloc[-1]) - aportado
+
+    linea = rendimiento.por_activo(asientos, {"ACME": 50.0}, h)["ACME"]
+
+    assert ganancia == pytest.approx(70.0)
+    assert linea.contribucion == pytest.approx(ganancia)
+
+
+def test_un_dividendo_apuntado_a_mano_manda_sobre_el_calculado_en_la_tabla():
+    # Misma regla que en `posiciones.serie`: el manual es el neto que llego de
+    # verdad y el calculado es teorico y bruto. Sumar los dos cobraria dos
+    # veces.
+    asientos = libro_acme() + [
+        Asiento(id="d1", fecha="2026-01-08", tipo="dividendo",
+                ticker="ACME", importe=17.0),
+    ]
+    linea = rendimiento.por_activo(asientos, {"ACME": 50.0}, historia_acme())["ACME"]
+    assert linea.dividendos == pytest.approx(17.0)
+
+
+def test_un_split_registrado_a_mano_manda_sobre_el_de_la_historia():
+    asientos = [
+        ap("a", "2026-01-05", 1000.0),
+        cp("c1", "2026-01-05", "ACME", 10.0, 100.0),
+        Asiento(id="s1", fecha="2026-01-12", tipo="split",
+                ticker="ACME", factor=2.0),
+    ]
+    linea = rendimiento.por_activo(asientos, {"ACME": 50.0}, historia_acme())["ACME"]
+    assert linea.acciones == pytest.approx(20.0)
+
+
+def test_sin_historia_la_tabla_no_inventa_ninguna_accion_corporativa():
+    # El contrato de la puerta trasera: `historia=None` significa «no se
+    # conocen acciones corporativas», no «no hubo ninguna». Es lo que permite
+    # llamar a `por_activo` desde donde no hay descarga, y por eso las dos
+    # pantallas que si la tienen la pasan siempre.
+    linea = rendimiento.por_activo(libro_acme(), {"ACME": 50.0})["ACME"]
+    assert linea.acciones == pytest.approx(5.0)
+    assert linea.dividendos == pytest.approx(0.0)

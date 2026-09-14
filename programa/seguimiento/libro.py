@@ -14,7 +14,9 @@ perfectamente bien y miente.
 
 import json
 import math
+import os
 import re
+import tempfile
 from dataclasses import asdict, dataclass, field
 from datetime import date, datetime
 from pathlib import Path
@@ -22,11 +24,41 @@ from pathlib import Path
 import cartera
 
 TIPOS = frozenset(
-    {"aportacion", "retiro", "compra", "venta", "dividendo", "anulacion"}
+    {"aportacion", "retiro", "compra", "venta", "dividendo", "split", "anulacion"}
 )
 
+# --- Por qué el split es un asiento y no una consulta a la red ---------------
+#
+# `posiciones.serie()` ya aplica los splits que trae `Historia`, así que durante
+# mucho tiempo pareció que no hacía falta ninguno más. No lo era: `validar()` y
+# `posiciones.primer_descubierto()` **no ven la historia**, así que quien vivía
+# un 2:1 de una compra de diez e intentaba registrar la venta de veinte recibía
+# «el 2026-01-14 no tienes suficientes acciones de ACME: harían falta 20 y hay
+# 10». O mentía en el número de acciones, o no podía apuntar la venta.
+#
+# La otra salida era que la validación consultara `historia.splits`. Se
+# descartó por una razón concreta: **el libro es el único dato irreemplazable
+# del programa, y decidir si un asiento se puede escribir no puede depender de
+# una descarga que falla**. yfinance se cae, devuelve el ticker vacío, o
+# sencillamente no trae todavía el split de esta mañana; con esa salida, los
+# días en que la red falla son días en que no se puede registrar una venta
+# perfectamente real. Y `Historia.sin_datos` demuestra que el caso no es
+# teórico: hay tickers que vuelven en blanco de descargas normales.
+#
+# El precio de añadir un tipo está pagado y es pequeño. `cargar()` sigue
+# leyendo los libros escritos antes de que existiera, porque `TIPOS` sólo
+# crece y un fichero viejo simplemente no trae ninguno — `factor` es un campo
+# con valor por defecto, así que `Asiento(**a)` lo rellena con `None`. Y un
+# libro sin splits registrados **no cambia de comportamiento**: los que trae la
+# historia se siguen aplicando igual.
+#
+# La precedencia es la misma que ya regía para los dividendos, y por lo mismo:
+# un split registrado para (ticker, fecha) silencia el que la historia trae ese
+# día para ese ticker. Sumar los dos partiría la posición dos veces, que es el
+# error más caro posible aquí porque duplica acciones sin decir nada.
+
 # Los tipos que mueven un activo concreto, y por tanto necesitan ticker.
-CON_TICKER = frozenset({"compra", "venta", "dividendo"})
+CON_TICKER = frozenset({"compra", "venta", "dividendo", "split"})
 
 # Los dos únicos que son dinero entrando o saliendo del bolsillo del usuario.
 # Todo lo demás mueve dinero *dentro* de la cartera, y por eso cuenta en el
@@ -43,11 +75,16 @@ FLUJOS_EXTERNOS = frozenset({"aportacion", "retiro"})
 # y el mismo agujero; aquí no se hereda.
 _FORMA_TICKER = re.compile(r"[A-Z]+(-[A-Z]+)*")
 
+# El orden importa: `derivar` hace `zip` de esta tupla con los tres valores que
+# completa —importe, acciones, precio, en ese orden—, así que los tres van
+# delante y lo que se añada va detrás. `zip` corta por el más corto, de modo
+# que los campos de más no le estorban.
 _CAMPOS_NUMERICOS = (
     ("importe", "el importe"),
     ("acciones", "las acciones"),
     ("precio", "el precio"),
     ("comision", "la comisión"),
+    ("factor", "el factor"),
 )
 
 
@@ -72,6 +109,15 @@ class Asiento:
     # intradía en un día volátil se desvía un 3-4% del cierre, y eso tiene que
     # ser visible, no una nota al pie del diseño.
     precio_estimado: bool = False
+    # Sólo lo lleva un asiento de `split`: por cuánto se multiplica lo que se
+    # tenía. Un 2:1 es 2,0 y un contrasplit de 1:10 es 0,1. Campo propio y no
+    # `acciones` reutilizado, porque «acciones» significa en todo el resto del
+    # módulo un número de títulos que se compran o se venden, y un 2,0 ahí lo
+    # leería como dos acciones cualquiera que sume esa columna.
+    #
+    # Con valor por defecto, que es lo que deja que `cargar()` siga abriendo
+    # los libros escritos antes de que este campo existiera.
+    factor: float | None = None
     anula: str | None = None
     nota: str = ""
 
@@ -218,6 +264,15 @@ def validar(asiento: Asiento, hoy: date | None = None) -> None:
     if asiento.comision < 0:
         raise AsientoInvalido("la comisión no puede ser negativa")
 
+    if asiento.factor is not None and asiento.tipo != "split":
+        # Un factor fuera de un split no lo aplica nadie, así que se quedaría
+        # en el fichero con pinta de dato mientras el programa lo ignora en
+        # silencio. Es la misma regla por la que una anulación no lleva ticker.
+        raise AsientoInvalido(
+            f"un asiento de {asiento.tipo} no lleva factor: el factor es lo que "
+            "multiplica un split, y esto no lo es"
+        )
+
     if asiento.tipo == "anulacion":
         if not asiento.anula:
             raise AsientoInvalido("una anulación tiene que decir a qué asiento anula")
@@ -241,6 +296,24 @@ def validar(asiento: Asiento, hoy: date | None = None) -> None:
             f"un asiento de {asiento.tipo} no lleva ticker: es dinero entrando o "
             "saliendo, no dinero puesto en algo"
         )
+
+    if asiento.tipo == "split":
+        # Un split no es una operación: no se paga ni se cobra nada, y el número
+        # de acciones no se declara —sale de multiplicar lo que ya hubiera—.
+        # Por eso sale antes de las guardas de importe y de precio, que aquí no
+        # aplican, y por eso rechaza todo lo demás en vez de ignorarlo.
+        if asiento.factor is None or asiento.factor <= 0:
+            raise AsientoInvalido(
+                "un split necesita un factor mayor que cero: 2 para un 2:1, "
+                "0,1 para un contrasplit de 1:10. Un cero borraría la posición "
+                "y un negativo la dejaría en acciones negativas"
+            )
+        for campo in ("acciones", "precio"):
+            if getattr(asiento, campo) is not None:
+                raise AsientoInvalido(f"un split no lleva {campo}")
+        if asiento.importe or asiento.comision:
+            raise AsientoInvalido("un split no mueve dinero")
+        return
 
     if asiento.importe <= 0:
         raise AsientoInvalido("el importe tiene que ser mayor que cero")
@@ -433,6 +506,86 @@ class Entrada:
     error: str | None
 
 
+# --- El libro elegido, que es el mismo en las tres pantallas -----------------
+#
+# Seguimiento, Rebalanceo y Noticias pintan el mismo desplegable con la misma
+# etiqueta. Los tres lo construían por su cuenta y **ninguno le ponía `key`**,
+# de modo que no existía ninguna entrada en `st.session_state` que pudiera
+# viajar entre páginas: «Anotar lo que ejecuté» saltaba de Rebalanceo a
+# Seguimiento y aterrizaba en el primer libro de la lista, con el formulario de
+# registrar abierto debajo. El libro es append-only, así que un asiento en la
+# cartera equivocada sólo se deshace con una anulación que queda en el
+# historial para siempre.
+#
+# La parte que decide QUÉ se puede elegir y CUÁL se preselecciona vive aquí, en
+# un módulo sin Streamlit, para que se pueda probar. El widget lo pinta
+# `vistas/libros.py`, que es tres líneas.
+CLAVE_SELECCION = "libro_elegido"
+
+
+def etiquetas_de(entradas: "list[Entrada]") -> "dict[str, Entrada]":
+    """Las opciones del desplegable: etiqueta legible -> entrada.
+
+    Lleva el nombre **y el fichero**. El nombre solo no basta: dos libros
+    pueden llamarse igual —`guardar` no lo impide, sólo desambigua el nombre
+    del fichero— y entonces el desplegable enseñaría dos opciones
+    indistinguibles.
+
+    Los ilegibles se quedan fuera: no hay nada dentro que enseñar. Pero **no
+    desaparecen de la pantalla**, que los nombra aparte con su motivo; es la
+    regla que `Entrada` existe para sostener.
+    """
+    return {
+        f"{e.libro.nombre} · {e.ruta.name}": e
+        for e in entradas
+        if e.libro is not None
+    }
+
+
+def eleccion_vigente(
+    etiquetas: "dict[str, Entrada]", recordada: "str | None"
+) -> "str | None":
+    """La etiqueta que hay que preseleccionar, o `None` si no hay ninguna.
+
+    **Tolera que el libro recordado ya no esté en la lista**, y no es un caso
+    raro: las tres pantallas no listan siempre lo mismo —un fichero puede
+    haberse vuelto ilegible entre una y otra, o haberse borrado desde fuera—,
+    así que la clave compartida puede apuntar a una opción que aquí no existe.
+    Sin esta caída a la primera, Streamlit recibiría en `session_state` un valor
+    que no está en `options` y la pantalla reventaría entera por un libro que
+    el usuario ni siquiera está mirando.
+    """
+    if recordada in etiquetas:
+        return recordada
+    return next(iter(etiquetas), None)
+
+
+def fijar_eleccion(etiquetas: "dict[str, Entrada]", estado) -> "str | None":
+    """Deja en `estado` la etiqueta que el desplegable tiene que traer puesta.
+
+    `estado` es `st.session_state`, que a estos efectos es un diccionario. Se
+    recibe como parametro en vez de importar Streamlit para que esto se pueda
+    probar sin levantar la app, que es la misma razon por la que la aritmetica
+    del panel vive en `seguimiento/panel.py`.
+
+    **Corrige el estado antes de que el widget lo lea, y ese es el punto.** El
+    desplegable lee `session_state` por su `key`, y Streamlit tumba la pasada
+    entera si encuentra ahi un valor que no esta en `options`. Quien lo puso
+    pudo ser otra pantalla —la clave es compartida a proposito— sobre una lista
+    que ya no es la misma, asi que devolver la etiqueta buena y dejar la muerta
+    escrita no arreglaria nada.
+
+    Sin nada que elegir **no se toca el recuerdo**. Borrarlo aqui castigaria a
+    las otras dos pantallas: una en la que hoy no hay ningun libro legible
+    dejaria al usuario, al volver a la suya, con otro libro elegido sin haber
+    tocado nada.
+    """
+    elegida = eleccion_vigente(etiquetas, estado.get(CLAVE_SELECCION))
+    if elegida is not None:
+        estado[CLAVE_SELECCION] = elegida
+    return elegida
+
+
 def desde_portafolio(
     nombre: str,
     portafolio,
@@ -535,9 +688,34 @@ def actualizar(libro: Libro, ruta: Path) -> Path:
     ruta = Path(ruta)
     ruta.parent.mkdir(parents=True, exist_ok=True)
     texto = json.dumps(asdict(libro), ensure_ascii=False, indent=2, allow_nan=False)
-    tmp = ruta.with_suffix(".tmp")
-    tmp.write_text(texto, encoding="utf-8")
-    tmp.replace(ruta)
+
+    # **Un nombre único por escritura, no `ruta.with_suffix(".tmp")`.** Con el
+    # nombre fijo, dos pasadas sobre el mismo libro escriben en el MISMO
+    # fichero: si un `replace` cae mientras la otra está a mitad de su
+    # escritura, lo que aterriza en el destino es JSON truncado y el libro pasa
+    # a ilegible. Y esto no es una caché que se regenere — es el historial de lo
+    # que alguien compró. No hace falta que sea frecuente para que importe: el
+    # daño es total y no tiene vuelta atrás.
+    #
+    # En el MISMO directorio que el destino, y ese detalle es la mitad del
+    # patrón: `replace` sólo es atómico dentro del mismo volumen, así que un
+    # temporal en la carpeta de temporales del sistema convertiría el remplazo
+    # atómico en una copia a medias. `mkstemp` además abre con O_EXCL, de modo
+    # que ni siquiera dos procesos pueden coincidir en el nombre.
+    descriptor, provisional = tempfile.mkstemp(
+        dir=ruta.parent, prefix=f".{ruta.stem}-", suffix=".tmp"
+    )
+    tmp = Path(provisional)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as destino:
+            destino.write(texto)
+        tmp.replace(ruta)
+    except BaseException:
+        # El temporal se limpia sólo cuando el fallo ocurre ANTES del
+        # `replace`; después ya no existe con ese nombre. `missing_ok` es lo
+        # que hace que las dos situaciones se puedan escribir en una línea.
+        tmp.unlink(missing_ok=True)
+        raise
     return ruta
 
 
