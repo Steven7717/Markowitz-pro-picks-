@@ -195,8 +195,13 @@ if actual.aportacion_prevista is not None:
     )
 
 titulo_dinero = _titulo_del_dinero(efectivo, nuevo, actual.moneda)
+# `precios_hoy` y `fracciones` para que la propuesta hable en acciones enteras
+# cuando el broker no admite fracciones: «comprar 137,42» de una accion de 480
+# no es una instruccion ejecutable, y el dinero se quedaba sin colocar sin que
+# nada lo dijera.
 plan = prop.construir(
-    valores, pesos, efectivo + nuevo, actual.asientos, COSTE_SUPUESTO
+    valores, pesos, efectivo + nuevo, actual.asientos, COSTE_SUPUESTO,
+    precios=ultimos, fracciones=actual.fracciones,
 )
 
 if plan.deriva.sin_precio:
@@ -250,7 +255,8 @@ if plan.con_efectivo:
     )
     st.dataframe(
         pd.DataFrame([
-            {"Ticker": o.ticker, "Comprar": f"{o.importe:,.2f}"}
+            {"Ticker": o.ticker, "Comprar": f"{o.importe:,.2f}",
+             **({"Acciones": o.acciones} if o.acciones is not None else {})}
             for o in plan.con_efectivo
         ]),
         use_container_width=True, hide_index=True,

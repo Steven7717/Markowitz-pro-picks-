@@ -148,3 +148,65 @@ def test_la_deriva_viaja_dentro_de_la_propuesta():
                             efectivo=0.0, asientos=[], coste_declarado=1.0)
     assert p.deriva.invertido == pytest.approx(10_000.0)
     assert [l.ticker for l in p.deriva.lineas] == ["AAPL", "MSFT"]
+
+
+# --- Un broker sin fracciones compra acciones enteras, no importes -----------
+
+
+def test_sin_fracciones_la_propuesta_dice_cuantas_acciones_son():
+    """La pantalla decia «comprar 100,00» de una accion de 500.
+
+    `seguimiento/alta.py` redondea hacia abajo desde la primera compra, pero el
+    rebalanceo trabajaba solo en dinero: proponia importes que un broker sin
+    fracciones no puede ejecutar, y quien lo intentaba compraba cero acciones de
+    la cara y se quedaba con el dinero sin colocar, sin que nada lo dijera.
+    """
+    p = propuesta.construir(
+        {"BARATA": 1000.0, "CARA": 1000.0, "MEDIA": 1000.0},
+        {"BARATA": 1 / 3, "CARA": 1 / 3, "MEDIA": 1 / 3},
+        efectivo=300.0, asientos=[], coste_declarado=1.0,
+        precios={"BARATA": 5.0, "CARA": 500.0, "MEDIA": 50.0},
+        fracciones=False,
+    )
+
+    por_ticker = {o.ticker: o for o in p.con_efectivo}
+    assert por_ticker["BARATA"].acciones == 20      # 100 / 5
+    assert por_ticker["MEDIA"].acciones == 2        # 100 / 50
+    assert "CARA" not in por_ticker, (
+        "una operacion que compra cero acciones no es una operacion"
+    )
+
+
+def test_sin_fracciones_el_coste_cuenta_solo_lo_ejecutable():
+    """Declaraba tres operaciones cuando solo dos se pueden ejecutar."""
+    p = propuesta.construir(
+        {"BARATA": 1000.0, "CARA": 1000.0, "MEDIA": 1000.0},
+        {"BARATA": 1 / 3, "CARA": 1 / 3, "MEDIA": 1 / 3},
+        efectivo=300.0, asientos=[], coste_declarado=1.0,
+        precios={"BARATA": 5.0, "CARA": 500.0, "MEDIA": 50.0},
+        fracciones=False,
+    )
+
+    assert p.coste_total == pytest.approx(2.0)
+
+
+def test_con_fracciones_nada_cambia():
+    """El camino de siempre: quien admite fracciones sigue viendo importes."""
+    p = propuesta.construir(
+        {"BARATA": 1000.0, "CARA": 1000.0, "MEDIA": 1000.0},
+        {"BARATA": 1 / 3, "CARA": 1 / 3, "MEDIA": 1 / 3},
+        efectivo=300.0, asientos=[], coste_declarado=1.0,
+        precios={"BARATA": 5.0, "CARA": 500.0, "MEDIA": 50.0},
+        fracciones=True,
+    )
+
+    assert len(p.con_efectivo) == 3
+    assert all(o.acciones is None for o in p.con_efectivo)
+    assert p.coste_total == pytest.approx(3.0)
+
+
+def test_sin_precios_la_propuesta_sigue_siendo_la_de_siempre():
+    """Compatibilidad: quien no pase precios obtiene el comportamiento anterior."""
+    p = propuesta.construir({"AAPL": 6000.0, "MSFT": 4000.0}, OBJETIVO,
+                            efectivo=4000.0, asientos=[], coste_declarado=1.0)
+    assert all(o.acciones is None for o in p.con_efectivo)

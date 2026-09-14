@@ -24,6 +24,11 @@ class Operacion:
     importe: float
     coste: float
     viable: bool
+    # Cuantas acciones enteras son, cuando el libro no admite fracciones.
+    # `None` significa «no aplica»: o el libro admite fracciones, o no habia
+    # precio con el que traducir el importe. No es cero, que querria decir otra
+    # cosa muy distinta --que la operacion existe y no compra nada--.
+    acciones: "int | None" = None
 
 
 @dataclass(frozen=True)
@@ -40,14 +45,39 @@ class Propuesta:
     coste_total: float
 
 
+def _en_acciones(importe: float, precio: "float | None") -> "int | None":
+    """El importe traducido a acciones enteras, redondeando hacia abajo.
+
+    Hacia abajo y en valor absoluto: comprar de mas exige dinero que no hay, y
+    vender de mas exige acciones que no se tienen. `seguimiento/alta.py` ya
+    redondea asi desde la primera compra; esto es la misma regla en la otra
+    punta del recorrido.
+    """
+    if not precio or precio <= 0:
+        return None
+    return int(abs(importe) // precio)
+
+
 def construir(
     valores: "dict[str, float | None]",
     objetivo: dict[str, float],
     efectivo: float,
     asientos: "list",
     coste_declarado: float,
+    precios: "dict[str, float | None] | None" = None,
+    fracciones: bool = True,
 ) -> Propuesta:
     """Assemble the whole plan from the book's current state.
+
+    Con `fracciones=False` y `precios`, las operaciones dicen **cuántas
+    acciones enteras** son, y las que se quedan en cero desaparecen: proponer
+    «comprar 100,00» de una acción de 500 es pedirle al usuario algo que su
+    bróker no puede ejecutar, y el dinero se quedaba sin colocar sin que nada lo
+    dijera. El coste total cuenta entonces sólo las operaciones que sobreviven,
+    no las líneas propuestas.
+
+    Los dos parámetros son opcionales y por defecto no cambian nada: quien
+    llame sin ellos obtiene el plan en dinero de siempre.
 
     `basta_con_la_aportacion` es `True` cuando después de repartir el efectivo
     no queda nada fuera de banda. **Se devuelve como un hecho propio y no se
@@ -71,9 +101,16 @@ def construir(
     # una parte.
     en_plan = {t: v for t, v in con_precio.items() if pesos.get(t, 0.0) > 0}
     reparto = reparto_mod.repartir(en_plan, pesos, efectivo, por_operacion)
+    precios = precios or {}
     con_efectivo = tuple(
-        Operacion(t, "comprar", importe, por_operacion, True)
-        for t, importe in sorted(reparto.asignaciones.items())
+        op for op in (
+            Operacion(t, "comprar", importe, por_operacion, True,
+                      acciones=None if fracciones
+                      else _en_acciones(importe, precios.get(t)))
+            for t, importe in sorted(reparto.asignaciones.items())
+        )
+        # Una operacion que compra cero acciones enteras no es una operacion.
+        if fracciones or op.acciones is None or op.acciones > 0
     )
 
     # La cartera tal como quedaria tras invertir el efectivo, que es contra lo
@@ -98,12 +135,21 @@ def construir(
             importe = objetivo_valor - linea.valor
             if importe == 0:
                 continue
+            enteras = (
+                None if fracciones else _en_acciones(importe, precios.get(linea.ticker))
+            )
+            if enteras == 0:
+                # Ni se propone ni se descarta «por coste»: es que no cabe
+                # ninguna accion, y decir que el coste se la comio seria dar un
+                # motivo falso.
+                continue
             operacion = Operacion(
                 ticker=linea.ticker,
                 accion="comprar" if importe > 0 else "vender",
                 importe=importe,
                 coste=por_operacion,
                 viable=criterio.merece_la_pena(importe, por_operacion),
+                acciones=enteras,
             )
             (y_ademas if operacion.viable else descartadas).append(operacion)
 
