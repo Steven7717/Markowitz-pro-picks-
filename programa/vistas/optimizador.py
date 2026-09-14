@@ -45,7 +45,7 @@ from optimizer import (
     simulate_portfolios,
     validate_constraints,
 )
-from validation import frase_veredicto, retorno_stderr, walk_forward_comparison
+from validation import medida_veredicto, retorno_stderr, walk_forward_comparison
 
 TICKERS_POR_DEFECTO = "AAPL, MSFT, GOOGL, AMZN, NVDA"
 
@@ -619,7 +619,10 @@ with resumen:
         # número está en `validation.veredicto`.
         hueco = wf["out_of_sample_sharpe"] - wf["equal_weight_sharpe"]
         _marco = f"{wf['n_windows']} ventanas · {wf['n_oos_periods']} períodos"
-        _frase = frase_veredicto(hueco, wf["gap_stderr"])
+        # La medida y no la frase entera: el titular en negrita de cada rama
+        # ya dice cuál de los tres casos es, y `frase_veredicto` lo repetía
+        # palabra por palabra justo detrás.
+        _frase = medida_veredicto(hueco, wf["gap_stderr"])
         _cifras = (
             f"Fuera de muestra: Sharpe {wf['out_of_sample_sharpe']:.2f} frente a "
             f"{wf['equal_weight_sharpe']:.2f} de Equal Weight ({_marco})."

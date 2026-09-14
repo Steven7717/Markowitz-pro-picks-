@@ -5,6 +5,7 @@ import pytest
 from validation import (
     default_window_sizes,
     frase_veredicto,
+    medida_veredicto,
     retorno_stderr,
     sharpe_difference_standard_error,
     sharpe_standard_error,
@@ -578,6 +579,40 @@ def test_la_frase_concuerda_siempre_con_el_veredicto():
         estado = veredicto(hueco, 0.30)
         assert ("supera" in frase) is (estado is True)
         assert ("debajo" in frase) is (estado is False)
+
+
+# ── La medida, sin repetir el veredicto ──────────────────────────────────────
+
+def test_la_medida_no_repite_el_veredicto():
+    """La pantalla del optimizador ya pone su propio titular en negrita.
+
+    Con la frase entera detras, el usuario leia dos veces el mismo juicio:
+    «Con estos datos no se puede distinguir la optimizacion de repartir por
+    igual. Estos datos no distinguen esta cartera de repartir por igual: las
+    separan...». La medida es la mitad que aporta algo nuevo.
+    """
+    for hueco in (0.80, 0.40, -0.80):
+        medida = medida_veredicto(hueco, 0.30).lower()
+        assert "supera" not in medida
+        assert "debajo" not in medida
+        assert "no distinguen" not in medida
+
+
+def test_la_medida_lleva_el_hueco_y_el_liston():
+    medida = medida_veredicto(0.40, 0.30)
+    assert "0,40" in medida, "no dice cuanto separa a las dos"
+    assert "0,60" in medida, "no dice el liston que habia que superar"
+    assert "0,30" in medida, "no dice el error estandar del que sale el liston"
+
+
+def test_la_frase_entera_contiene_su_medida():
+    """Las dos salen de las mismas piezas: no pueden separarse con el tiempo."""
+    for hueco in (0.80, 0.40, -0.80):
+        assert medida_veredicto(hueco, 0.30) in frase_veredicto(hueco, 0.30)
+
+
+def test_sin_error_medible_la_medida_tampoco_inventa_un_numero():
+    assert "sin" in medida_veredicto(0.5, float("inf")).lower()
 
 
 # ── La degradación resta dos números del mismo tipo ───────────────────────────

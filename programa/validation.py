@@ -225,24 +225,40 @@ def frase_veredicto(
             "Sin error de medición no hay veredicto posible: no se puede decir si "
             "esta cartera le gana a repartir por igual."
         )
-    umbral = sigmas * gap_stderr
     estado = veredicto(gap, gap_stderr, sigmas)
-    liston = (
-        f"hacen falta {_es(umbral)} de Sharpe "
-        f"({_es(sigmas, 0)} errores estándar de ±{_es(gap_stderr)})"
-    )
+    medida = medida_veredicto(gap, gap_stderr, sigmas)
     if estado is True:
-        return (
-            f"Supera a repartir por igual por {_es(gap)} de Sharpe, y {liston}."
-        )
+        return f"Supera a repartir por igual. {medida}"
     if estado is False:
+        return f"Queda por debajo de repartir por igual. {medida}"
+    return f"Estos datos no distinguen esta cartera de repartir por igual. {medida}"
+
+
+def medida_veredicto(
+    gap: float,
+    gap_stderr: float,
+    sigmas: float = _SIGMAS_VEREDICTO,
+) -> str:
+    """Sólo la medición: cuánto separa a las dos y contra qué listón se juzga.
+
+    La mitad del veredicto que aporta un número, sin el juicio. Existe porque
+    la pantalla del optimizador ya pone su propio titular en negrita —el color
+    del recuadro y la frase gruesa ya dicen cuál de los tres casos es— y con la
+    frase entera detrás el usuario leía dos veces lo mismo: «Con estos datos no
+    se puede distinguir la optimización de repartir por igual. Estos datos no
+    distinguen esta cartera de repartir por igual: las separan…».
+
+    `frase_veredicto` se construye sobre esta función y no al revés, para que
+    las dos no puedan decir cosas distintas dentro de un año.
+    """
+    if not np.isfinite(gap_stderr) or gap_stderr < 0:
         return (
-            f"Queda por debajo de repartir por igual en {_es(abs(gap))} de "
-            f"Sharpe, y {liston}."
+            "Sin error de medición no hay veredicto posible: no se puede decir "
+            "si esta cartera le gana a repartir por igual."
         )
     return (
-        f"Estos datos no distinguen esta cartera de repartir por igual: las "
-        f"separan {_es(gap)} de Sharpe y {liston}."
+        f"Las separan {_es(gap)} de Sharpe y hacen falta {_es(sigmas * gap_stderr)} "
+        f"({_es(sigmas, 0)} errores estándar de ±{_es(gap_stderr)})."
     )
 
 

@@ -26,6 +26,16 @@ from vistas import libros
 COSTE_SUPUESTO = 1.0
 
 
+def _cuantos(n: int) -> str:
+    """«1 activo» o «3 activos», nunca «1 activo(s)».
+
+    El parentesis de cortesia es la forma barata de no concordar, y en una
+    pantalla que da cifras de dinero delata que nadie leyo la frase. El resto
+    del programa concuerda en todas partes; esto era el unico sitio que no.
+    """
+    return "1 activo" if n == 1 else f"{n} activos"
+
+
 def _medidores(deriva) -> str:
     """Una fila por activo, con su barra y su veredicto escrito.
 
@@ -212,12 +222,12 @@ if not fuera:
 elif plan.basta_con_la_aportacion:
     _quien = "el dinero que vas a repartir" if nuevo else "tu efectivo"
     st.info(
-        f"**{len(fuera)} activo(s) fuera de banda, y {_quien} basta para "
+        f"**{_cuantos(len(fuera))} fuera de banda, y {_quien} basta para "
         "corregirlo.** No hace falta vender nada."
     )
 else:
     st.warning(
-        f"**{len(fuera)} activo(s) fuera de banda.** El efectivo disponible no "
+        f"**{_cuantos(len(fuera))} fuera de banda.** El efectivo disponible no "
         "llega para corregirlo sólo con compras."
     )
 
