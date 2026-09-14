@@ -36,6 +36,15 @@ class Cabecera:
     # momentos distintos, y lo que la explicacion por calendario necesita son
     # momentos.
     flujos: int
+    # Cuanto se separa el valor del PRIMER dia de la serie del dinero que
+    # habia entrado hasta esa fecha. Con los precios de compra registrados al
+    # cierre de ese dia deberia ser cero: lo que mide es la otra causa
+    # posible de la brecha TWR/TIR, la de coste contra mercado, y medirla es
+    # lo que permite dejar de suponerla. `None` si no hay serie valorada.
+    salto_inicial: "float | None" = None
+    # Los flujos externos POSTERIORES al primer dia, en valor absoluto. Un
+    # centimo es un «momento» pero no mueve una TIR ponderada por dinero.
+    flujo_posterior: float = 0.0
 
 
 def _cifra(valor) -> str:
@@ -104,6 +113,18 @@ def cabecera(marcha, vivos, sin_valorar: bool) -> Cabecera:
     # de la ecuacion. Contarlo aqui haria que un libro con una sola aportacion
     # pareciera tener dos momentos.
     dias_con_flujo = len(flujos_tir)
+
+    # El salto del primer dia: valor de la serie menos el dinero que habia
+    # entrado hasta ese dia. Si las compras se registraron al cierre, es cero.
+    salto_inicial = None
+    flujo_posterior = 0.0
+    if len(marcha.valor) and not sin_valorar:
+        primer_dia = marcha.valor.index[0]
+        entrado = float(marcha.flujos.loc[:primer_dia].sum())
+        salto_inicial = float(marcha.valor.iloc[0]) - entrado
+        flujo_posterior = float(
+            marcha.flujos.loc[marcha.flujos.index > primer_dia].abs().sum()
+        )
     if flujos_tir and len(marcha.valor) and not sin_valorar:
         flujos_tir.append((marcha.valor.index[-1].date(), valor_hoy))
     tasa_interna = rendimiento.tir(flujos_tir)
@@ -133,8 +154,18 @@ def cabecera(marcha, vivos, sin_valorar: bool) -> Cabecera:
         sin_valorar=sin_valorar,
         dias=dias,
         flujos=dias_con_flujo,
+        salto_inicial=salto_inicial,
+        flujo_posterior=flujo_posterior,
     )
 
+
+# Un salto inicial por debajo de esta fraccion del dinero aportado es redondeo
+# (comisiones, un cierre que se movio un tick) y no una causa que nombrar.
+_SALTO_MATERIAL = 0.01
+
+# Y unos flujos posteriores por debajo de esta fraccion no pueden mover una
+# TIR ponderada por dinero lo bastante como para explicar una brecha.
+_FLUJO_MATERIAL = 0.05
 
 # Por debajo de esto la separacion entre las dos medidas es ruido de redondeo y
 # de calendario, y nombrarla haria mirar donde no hay nada.
@@ -170,7 +201,34 @@ def aviso_de_brecha(cab: Cabecera) -> "str | None":
         return None
 
     encabezado = f"**TWR y TIR se separan {abs(brecha):.1%}.**"
-    if cab.flujos >= 2:
+
+    # La causa MEDIDA manda sobre la supuesta. Si la serie de valor arranca lejos
+    # del dinero que habia entrado, las compras se registraron a un precio que no
+    # era el cierre de ese dia, y ahi esta la brecha entera: el TWR no cuenta ese
+    # salto --arranca en `valor.iloc[0]`-- y la TIR si, porque parte de lo que
+    # entro. No es una hipotesis, es una resta.
+    if cab.salto_inicial is not None and cab.aportado > 0:
+        if abs(cab.salto_inicial) > _SALTO_MATERIAL * abs(cab.aportado):
+            return (
+                f"{encabezado} **No es el efecto de *cuándo* aportaste.** El "
+                f"primer día la cartera ya valía {cab.salto_inicial:+,.2f} "
+                "respecto del dinero que había entrado, así que los precios con "
+                "los que registraste las compras no eran el cierre de mercado de "
+                "ese día. Esa diferencia es de **coste contra mercado** y se "
+                "quedó dentro de la ganancia desde el primer momento: el TWR no "
+                "la cuenta y la TIR sí, y de ahí salen casi todos estos puntos. "
+                "Revisa los precios de las primeras operaciones."
+            )
+
+    # Y el calendario sólo explica algo si hubo dinero suficiente para moverlo.
+    # `flujos >= 2` contaba una aportacion de un centimo como un «momento», de
+    # modo que bastaba eso para pasar de dudar honestamente a afirmar una causa.
+    calendario_posible = (
+        cab.flujos >= 2
+        and cab.aportado > 0
+        and cab.flujo_posterior > _FLUJO_MATERIAL * abs(cab.aportado)
+    )
+    if calendario_posible:
         return (
             f"{encabezado} Esa diferencia es el efecto de *cuándo* aportaste, "
             "no de qué compraste: "
