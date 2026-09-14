@@ -22,3 +22,8 @@ libros/
 # `git add -A` despistado no se los lleve dentro.
 actas/
 portafolios/
+
+# El sitio donde la documentacion de Streamlit dice poner secretos. Aqui no se
+# usa, pero el dia que alguien siga ese tutorial un `git add -A` se llevaria su
+# clave dentro del repo.
+.streamlit/secrets.toml

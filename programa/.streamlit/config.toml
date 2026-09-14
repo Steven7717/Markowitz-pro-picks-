@@ -9,3 +9,21 @@ textColor = "#e6e8ef"
 # Sin el boton "Deploy": este programa se arranca con un .bat en el escritorio
 # de alguien y no se despliega en ningun sitio. El menu de ajustes sigue ahi.
 toolbarMode = "minimal"
+
+[server]
+# Solo el propio ordenador. Sin esta linea Streamlit enlaza 0.0.0.0, y entonces
+# cualquiera en la misma wifi --una cafeteria, un piso compartido, un invitado--
+# abre http://ip-del-usuario:8501 y tiene la aplicacion entera sin que le pidan
+# nada: lee las posiciones, ve el correo en Perfil, y puede pulsar los botones
+# que gastan la clave de Anthropic del dueno. No hay sesion ni contrasena que lo
+# impida, porque este programa nunca fue pensado para tener visitantes.
+address = "127.0.0.1"
+
+[browser]
+# La pantalla de Perfil promete que "nada de esto se envia a ningun sitio". Con
+# la telemetria por defecto esa frase no era cierta: Streamlit manda estadisticas
+# de uso con un identificador estable de la maquina. Y los lanzadores escriben
+# ~/.streamlit/credentials.toml para saltarse el dialogo de primer arranque, que
+# es el unico sitio donde Streamlit lo menciona, asi que el usuario nunca llegaba
+# a enterarse. Se apaga aqui para que la frase sea verdad.
+gatherUsageStats = false
