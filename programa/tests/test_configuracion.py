@@ -245,3 +245,40 @@ def test_lo_que_el_usuario_marque_en_pares_sobrevive():
     estado[configuracion.CLAVES["pares"]] = True
     sembrar(estado)
     assert valores(estado)["pares"] is True
+
+
+def test_un_portafolio_con_pesos_fuera_del_rango_no_deja_la_pantalla_en_blanco():
+    """Los deslizadores van de 0 a 20 y de 20 a 100; el fichero, de 0 a 1.
+
+    `cargar` acepta cualquier float y `sembrar` lo escribia sin acotar, asi que
+    un portafolio editado a mano, venido de otra version o compartido por
+    alguien reventaba el widget al construirlo -- `StreamlitValueAboveMaxError`
+    -- y la pagina entera se quedaba en blanco antes de pintar nada. Y el valor
+    malo se quedaba en sesion: seguia rota hasta cargar otro o reiniciar.
+
+    Es el mismo fallo que `preferencias.saneadas()` documenta y evita; el canal
+    del portafolio no pasaba por ahi.
+    """
+    estado = {
+        "portafolio_a_cargar": _portafolio(
+            "de otra version", ["AAPL", "MU"], peso_min=0.30, peso_max=1.50
+        )
+    }
+
+    sembrar(estado)
+
+    assert 0 <= estado[configuracion.CLAVES["peso_min"]] <= 20
+    assert 20 <= estado[configuracion.CLAVES["peso_max"]] <= 100
+
+
+def test_un_portafolio_con_pesos_dentro_del_rango_se_siembra_tal_cual():
+    estado = {
+        "portafolio_a_cargar": _portafolio(
+            "normal", ["AAPL", "MU"], peso_min=0.05, peso_max=0.40
+        )
+    }
+
+    sembrar(estado)
+
+    assert estado[configuracion.CLAVES["peso_min"]] == 5
+    assert estado[configuracion.CLAVES["peso_max"]] == 40

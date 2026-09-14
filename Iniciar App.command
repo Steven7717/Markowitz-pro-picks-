@@ -74,7 +74,11 @@ if ! cd programa; then
     echo
     echo 'No se encuentra la carpeta "programa", que tiene que estar junto a'
     echo 'este archivo. Puede que la descarga se extrajera a medias, o que se'
-    echo 'moviera solo el lanzador. Vuelve a descargar la carpeta entera.'
+    echo 'moviera solo el lanzador.'
+    echo
+    echo 'Si acabas de descargar un ZIP, DESCOMPRIMELO primero: doble clic'
+    echo 'sobre el archivo. El programa no funciona desde dentro del'
+    echo 'comprimido, aunque Finder deje verlo como una carpeta.'
     echo
     read -r -n 1 -s -p 'Pulsa una tecla para cerrar.'
     exit 1

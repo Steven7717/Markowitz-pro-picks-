@@ -101,7 +101,11 @@ if errorlevel 1 (
   echo.
   echo No se encuentra la carpeta "programa", que tiene que estar junto a este
   echo archivo. Puede que la descarga se extrajera a medias, o que se moviera
-  echo solo el lanzador. Vuelve a descargar la carpeta entera.
+  echo solo el lanzador.
+  echo.
+  echo Si acabas de descargar un ZIP, DESCOMPRIMELO primero: clic derecho
+  echo sobre el archivo y "Extraer todo". El programa no funciona desde
+  echo dentro del comprimido, aunque Windows deje verlo como una carpeta.
   echo.
   call :esperar
   exit /b 1
@@ -221,6 +225,41 @@ if not exist "%USERPROFILE%\.streamlit\credentials.toml" (
   >> "%USERPROFILE%\.streamlit\credentials.toml" echo email = ""
 )
 
+rem Un entorno virtual lleva su propia ruta grabada a fuego: los lanzadores de
+rem .venv\Scripts (streamlit.exe entre ellos) llevan dentro la linea
+rem "#!C:\ruta\absoluta\.venv\Scripts\python.exe". Si alguien mueve o copia la
+rem carpeta, esa ruta deja de existir y uv falla con "Failed to spawn: streamlit
+rem - No such file or directory", que suena a que falta instalar algo cuando en
+rem realidad solo hay que rehacer el entorno. El .command de Mac ya lo detecta
+rem comparando ese shebang con un "head"; aqui no se puede, porque el shim es un
+rem .exe y findstr no sobrevive a una ruta con espacios como la de este proyecto.
+rem En su lugar se deja una marca con la ruta, escrita al terminar cada arranque.
+rem
+rem La marca se escribe DESPUES de que uv haya creado el entorno, nunca antes:
+rem dejarle a uv un .venv a medio hacer con un fichero dentro es pedir un fallo
+rem peor que el que esto viene a evitar.
+rem
+rem Limitacion conocida: un entorno creado antes de que esto existiera no tiene
+rem marca, y ahi no se puede distinguir "no se ha movido" de "se movio y no nos
+rem enteramos". No se rehace por las dudas --seria rehacer el entorno de todo el
+rem mundo una vez-- asi que quien lo hubiera movido antes de esta version se
+rem encuentra el error viejo una ultima vez, y a partir de la siguiente ya queda
+rem cubierto.
+setlocal enabledelayedexpansion
+set "MARCA_ENTORNO=%CD%\.venv\.ruta-de-origen"
+if exist ".venv\Scripts\streamlit.exe" if exist "!MARCA_ENTORNO!" (
+  set "RUTA_GRABADA="
+  set /p RUTA_GRABADA=<"!MARCA_ENTORNO!"
+  if not "!RUTA_GRABADA!"=="!CD!" (
+    echo.
+    echo La carpeta ha cambiado de sitio desde la ultima vez. Rehaciendo el
+    echo entorno ^(esta vez es rapido, las librerias ya estan descargadas^)...
+    echo.
+    rmdir /s /q ".venv"
+  )
+)
+endlocal
+
 echo.
 echo Iniciando Markowitz Pro Picks...
 echo.
@@ -228,8 +267,15 @@ echo La primera vez tarda unos minutos: hay que descargar Python y las
 echo librerias, varios cientos de MB. No cierres esta ventana.
 echo.
 uv run streamlit run app.py
+rem El codigo de salida se guarda AQUI: lo que viene debajo lo pisaria, y es
+rem el que decide si el .vbs considera que el arranque fue bien.
+set "SALIDA_APP=%ERRORLEVEL%"
+
+rem La marca de donde vive este entorno, para el arranque de la proxima vez.
+if exist ".venv\Scripts\streamlit.exe" > "%CD%\.venv\.ruta-de-origen" echo %CD%
+
 call :esperar
-exit /b %ERRORLEVEL%
+exit /b %SALIDA_APP%
 
 rem Con la ventana oculta no hay nadie que pueda pulsar una tecla, y un `pause`
 rem ahi deja el proceso vivo para siempre esperandola: exactamente el problema

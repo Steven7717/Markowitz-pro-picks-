@@ -26,6 +26,8 @@ traspaso es lo único que lo pisa: escribe en esas claves una vez y se vacía.
 
 from typing import MutableMapping
 
+from preferencias import entero_en_rango
+
 # Qué clave de `session_state` guarda cada campo del formulario. El prefijo
 # `cfg_` las separa de los canales de traspaso, que viven en el mismo sitio.
 CLAVES: dict[str, str] = {
@@ -110,8 +112,22 @@ def sembrar(
         estado[CLAVES["estrategia"]] = cargado.estrategia
         # Los deslizadores van de 0 a 100 y el portafolio lo guarda en
         # fracción, que es como lo consume el optimizador.
-        estado[CLAVES["peso_min"]] = int(round(cargado.peso_min * 100))
-        estado[CLAVES["peso_max"]] = int(round(cargado.peso_max * 100))
+        #
+        # Acotado con la misma función que `preferencias.saneadas()`, y por
+        # el mismo motivo: `cartera.cargar` valida el contrato del fichero
+        # pero no los rangos, así que un portafolio editado a mano, venido
+        # de otra versión o compartido por alguien podía traer un 30 % de
+        # peso mínimo cuando el deslizador llega a 20. Streamlit revienta al
+        # CONSTRUIR el widget, o sea que la página se queda en blanco antes
+        # de pintar nada, y el valor malo se queda en sesión: sigue rota
+        # hasta cargar otro portafolio o reiniciar. El canal de las
+        # preferencias ya estaba protegido; este no.
+        estado[CLAVES["peso_min"]] = entero_en_rango(
+            round(cargado.peso_min * 100), 0, 20, 0
+        )
+        estado[CLAVES["peso_max"]] = entero_en_rango(
+            round(cargado.peso_max * 100), 20, 100, 100
+        )
         estado[CLAVES["cortos"]] = cargado.permitir_cortos
         estado[CLAVES["shrinkage"]] = cargado.shrinkage
         estado[CLAVE_ORIGEN] = f"cargado de «{cargado.nombre}»"

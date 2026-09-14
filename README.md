@@ -21,10 +21,10 @@ Son tres clics y una espera. Lo que sí necesitas:
 | **Un ordenador** | Windows o Mac |
 | **Un correo electrónico** | El tuyo. **Es obligatorio**, incluso para la parte gratis: la SEC exige un contacto en cada petición que se le hace, y sin él no se descarga nada |
 | **Unos minutos la primera vez** | Se bajan Python y las librerías, varios cientos de MB. Después arranca en segundos |
-| **Espacio en disco** | Poco menos de 1 GB una vez instalado (medido: 843 MB, de los que 625 son el Python que se descarga) |
+| **Espacio en disco** | Algo más de 1,5 GB (medido: 635 MB el entorno del programa, 134 MB el Python, y una copia de las librerías que la caché de uv conserva y que en Windows no se puede evitar) |
 
 **Opcional:** una clave de [Anthropic](https://platform.claude.com) si quieres
-la mitad con IA. Cuesta dinero tuyo — alrededor de **1,25 $** por cada análisis
+la mitad con IA. Cuesta dinero tuyo — alrededor de **1,55 $** por cada análisis
 completo del S&P 500. Sin ella el programa funciona igual, sólo que sin las
 fichas redactadas.
 
@@ -56,7 +56,18 @@ ahí**.
 Haz **clic derecho** sobre el archivo descargado → **Extraer todo…** → **Extraer**.
 
 Te queda una carpeta llamada `Markowitz-pro-picks--master`. Muévela donde te
-apetezca — el Escritorio está bien, y también Documentos. Dentro hay otra
+apetezca — el Escritorio está bien, y también Documentos.
+
+> **Si tu Escritorio o tus Documentos están dentro de OneDrive** —en muchos
+> Windows 11 lo están—, elige mejor una carpeta que no lo esté, como
+> `C:\Markowitz`. El programa ocupa más de medio giga y OneDrive intentaría
+> subirlo entero a la nube.
+
+Mover o copiar la carpeta más adelante no rompe nada: el programa detecta el
+cambio y rehace su entorno solo, en un par de segundos y sin volver a
+descargar nada. (La única excepción es una carpeta que ya hubieras movido
+*antes* de actualizar a esta versión: esa vez verás un error en inglés que
+menciona `Failed to spawn`, y basta con volver a abrir el programa.) Dentro hay otra
 carpeta con el mismo nombre; entra hasta ver estos archivos:
 
 ```
@@ -153,9 +164,10 @@ darle el correo:
 
 **Barra lateral → Perfil y ajustes → Correo para EDGAR → Guardar credenciales**
 
-Sin eso, la SEC rechaza las peticiones y no se genera nada. No es un registro,
-no se envía a nadie más, y se guarda en tu carpeta personal —fuera de la carpeta
-del programa— así que si algún día le pasas el programa a alguien, tus datos no
+Sin eso, la SEC rechaza las peticiones y no se genera nada. No es un registro:
+la SEC exige un contacto en la cabecera de cada petición y **sólo se envía ahí**,
+a nadie más. Se guarda en tu carpeta personal —fuera de la carpeta del
+programa— así que si algún día le pasas el programa a alguien, tus datos no
 viajan dentro.
 
 A partir de ahí, el recorrido es el que marca la pantalla de inicio: generar
@@ -275,9 +287,12 @@ Si abriste con **el acceso directo del Escritorio**, no hay ventana negra que
 cerrar. Dos formas, las dos valen:
 
 - El botón **«Salir del programa»**, abajo del todo en la barra lateral.
-- Cerrar la pestaña del navegador y olvidarte. El programa mira cada pocos
-  segundos si queda alguna pestaña abierta, y si lleva minuto y medio sin
-  ninguna, se apaga solo.
+- **En Windows**, cerrar la pestaña del navegador y olvidarte. El programa mira
+  cada pocos segundos si queda alguna pestaña abierta, y si lleva minuto y medio
+  sin ninguna, se apaga solo.
+- **En Mac** el atajo abre una ventana de Terminal y ésa sí hay que cerrarla: el
+  apagado automático no se activa por ese camino. Usa el botón «Salir del
+  programa», o pulsa **Ctrl + C** en la ventana de Terminal.
 
 Recargar la página no lo apaga, y volver a abrir el acceso directo mientras
 sigue vivo no arranca un segundo programa: reutiliza el que ya está.
@@ -301,7 +316,7 @@ El programa funciona en dos mitades:
 
 | Qué | Cuánto |
 |---|---|
-| Análisis completo del S&P 500 con fichas | ~**1,25 $** (estimado al alza a propósito) |
+| Análisis completo del S&P 500 con fichas | ~**1,55 $** (estimado al alza a propósito: es el peor caso, con un reintento en las quince fichas). El programa se planta solo en 2,50 $ |
 | Interpretar las noticias de tu cartera | ~**0,10 $** por pulsación |
 | Comentar una propuesta de rebalanceo | menos de **0,01 $** |
 
@@ -315,7 +330,7 @@ al final de la barra lateral:
 
 | Qué | De dónde sale | Hace falta para |
 |---|---|---|
-| Un correo electrónico | El tuyo. No es un registro y no se envía a nadie más | **Las dos mitades** — sin él no se genera nada |
+| Un correo electrónico | El tuyo. No es un registro: viaja en la cabecera de cada petición a la SEC, que es quien lo exige, y a ningún otro sitio | **Las dos mitades** — sin él no se genera nada |
 | Clave de Anthropic | [platform.claude.com](https://platform.claude.com) — es tuya y tú pagas su uso. **Hay que comprar saldo**, ver abajo | Sólo la mitad con IA |
 
 ### Cómo conseguir la clave de Anthropic, paso a paso
@@ -343,7 +358,7 @@ clave, se prueba, y falla sin que se entienda por qué.
 4. Escribe la cantidad y confirma.
 
 El saldo **está disponible al momento**. Con 5 $ tienes de sobra para probar:
-el análisis completo cuesta alrededor de 1,25 $ y las pulsaciones de la parte de
+el análisis completo cuesta alrededor de 1,55 $ y las pulsaciones de la parte de
 seguimiento, céntimos.
 
 > **Ojo a dos cosas:** los créditos **caducan al año** de comprarlos y **no se
@@ -411,12 +426,14 @@ guardan decisiones y pesos, no importes.
 
 | Lo que ves | Qué pasa |
 |---|---|
-| La ventana negra se abre y se cierra de golpe | Falta la carpeta `programa`, o el ZIP se extrajo a medias. Vuelve a descomprimirlo entero |
+| «No se encuentra la carpeta programa» | Estás ejecutándolo desde dentro del ZIP, o se extrajo a medias. **Descomprímelo primero**: clic derecho → Extraer todo |
+| La ventana negra se abre y se cierra de golpe sin escribir nada | No es un fallo del programa: algo lo está cortando antes de empezar, casi siempre el antivirus. Mira el apartado del antivirus más abajo |
 | «Windows protegió su PC» | El archivo viene de internet. **Más información → Ejecutar de todas formas** |
 | En Mac: «desarrollador no identificado» | Ábrelo con **clic derecho → Abrir** la primera vez |
 | En Mac: arranca, escribe dos líneas y se corta | La carpeta está en Descargas, Escritorio o Documentos. Muévela a tu carpeta de usuario |
 | Se queda minutos sin decir nada | Es la primera descarga. Es normal. No cierres la ventana |
-| «No se pudo descargar» al generar candidatos | Falta el correo en **Perfil y ajustes** |
+| «Falta EDGAR_IDENTITY en el entorno» al generar candidatos | Es tu correo, y falta. Ponlo en **Perfil y ajustes → Correo para EDGAR** |
+| Texto rojo en inglés con `download`, `network` o `timeout` | Se ha cortado internet. Cierra la ventana, comprueba la conexión y vuelve a abrir el programa: lo ya descargado no se pierde, sigue por donde iba |
 
 ---
 
@@ -444,12 +461,14 @@ número. Por orden:
    programa, puede que aún esté terminando.
 2. **Cierra la copia anterior.** Si la ves en el navegador, usa el botón
    **«Salir del programa»** de la barra lateral.
-3. **Si no la encuentras**, ciérrala a lo bruto:
-   - **Windows:** Ctrl+Shift+Esc abre el Administrador de tareas. Busca
-     `python.exe` en la lista, selecciónalo y pulsa **Finalizar tarea**.
-   - **Mac:** en la ventana de Terminal del programa, pulsa **Ctrl + C**. Si no
-     la tienes, cierra Terminal entera con **Cmd + Q**.
-4. **Si sigue igual, reinicia el ordenador.** Resuelve este caso siempre.
+3. **En Mac**, en la ventana de Terminal del programa pulsa **Ctrl + C**. Si no
+   la tienes, cierra Terminal entera con **Cmd + Q**.
+4. **Si sigue igual, reinicia el ordenador.** Resuelve este caso siempre, y es
+   lo más seguro que puedes hacer.
+5. **Sólo si tienes prisa y sabes lo que haces:** Ctrl+Shift+Esc abre el
+   Administrador de tareas de Windows. Puede haber **varios** `python.exe` y
+   sólo uno es el del programa; cerrar el que no es puede tirarte otra cosa que
+   estuvieras usando. Reiniciar hace lo mismo sin ese riesgo.
 
 ### La página del navegador se queda en blanco o «cargando»
 

@@ -65,8 +65,8 @@ class Preferencias:
             )
             cambios["estrategia"] = ESTRATEGIA_POR_DEFECTO
 
-        minimo = _entero_en_rango(self.peso_min, 0, 20, 0)
-        maximo = _entero_en_rango(self.peso_max, 20, 100, 100)
+        minimo = entero_en_rango(self.peso_min, 0, 20, 0)
+        maximo = entero_en_rango(self.peso_max, 20, 100, 100)
         # El mínimo por activo multiplicado por el número de activos no puede
         # pasar del 100%, pero cuántos activos habrá no se sabe hasta que se
         # escriben los tickers: esa comprobación es de `validate_constraints` y
@@ -86,8 +86,14 @@ class Preferencias:
         return (replace(self, **cambios) if cambios else self), avisos
 
 
-def _entero_en_rango(valor, minimo: int, maximo: int, defecto: int) -> int:
+def entero_en_rango(valor, minimo: int, maximo: int, defecto: int) -> int:
     """Clamp into the range the slider accepts; anything unusable becomes the default.
+
+    Publica, y no privada, porque `configuracion.sembrar` tiene que acotar
+    exactamente igual los pesos que llegan de un portafolio guardado. Dos
+    copias de esta decision se separarian igual de facil que dos copias de
+    cualquier otra, con la diferencia de que la que se quedase atras deja la
+    pantalla en blanco sin decir por que.
 
     El deslizador de Streamlit revienta si su `value` cae fuera de
     `[min, max]`, y lo hace al construir el widget: la página entera se queda

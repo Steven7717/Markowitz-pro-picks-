@@ -4,6 +4,7 @@ import pandas as pd
 import streamlit as st
 
 import cartera
+import comparativa
 import tema
 from optimizer import STRATEGY_LABELS
 
@@ -16,21 +17,20 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-entradas = [e for e in cartera.listar() if e.portafolio is not None]
+# Las etiquetas las construye `comparativa` y no esta pantalla: dos
+# guardados con el mismo nombre en el mismo minuto producian la misma
+# clave, y el que llegaba segundo desaparecia sin decir nada.
+por_etiqueta = comparativa.etiquetar(cartera.listar())
 
-if len(entradas) < 2:
+if len(por_etiqueta) < 2:
     st.info(
         "Hacen falta al menos dos portafolios guardados para comparar. Ahora "
-        f"mismo hay {len(entradas)}."
+        f"mismo hay {len(por_etiqueta)}."
     )
     if st.button("Ir al optimizador", icon=":material/insights:"):
         st.switch_page("vistas/optimizador.py")
     st.stop()
 
-por_etiqueta = {
-    f"{e.portafolio.nombre} · {e.portafolio.fecha_legible}": e.portafolio
-    for e in entradas
-}
 elegidos = st.multiselect(
     "Portafolios a comparar",
     options=list(por_etiqueta),
@@ -42,7 +42,8 @@ if len(elegidos) < 2:
     st.info("Elige al menos dos.")
     st.stop()
 
-seleccion = [por_etiqueta[etiqueta] for etiqueta in elegidos]
+elegidas = {etiqueta: por_etiqueta[etiqueta] for etiqueta in elegidos}
+seleccion = list(elegidas.values())
 
 # La advertencia que hace honesta a esta pantalla. Dos carteras optimizadas
 # sobre horizontes distintos no compiten: sus Sharpe salen de muestras
@@ -92,41 +93,17 @@ st.caption(
 
 # ── Pesos enfrentados ────────────────────────────────────────────────────────
 st.markdown("#### Pesos por activo")
-matriz: dict[str, dict[str, float]] = {}
-for p in seleccion:
-    for ticker, peso in zip(p.tickers, p.pesos):
-        matriz.setdefault(ticker, {})[p.nombre] = peso
-
-# Un activo que no esta en una cartera sale vacio, no a cero: son cosas
-# distintas. Un cero significaria "se considero y se le dio peso nulo", y en la
-# mayoria de los casos ni siquiera estaba en la lista de entrada.
-pesos = pd.DataFrame(
-    [
-        {"Ticker": ticker, **{
-            p.nombre: (
-                f"{columnas[p.nombre]:.2%}" if p.nombre in columnas else "—"
-            )
-            for p in seleccion
-        }}
-        for ticker, columnas in sorted(matriz.items())
-    ]
+st.dataframe(
+    pd.DataFrame(comparativa.matriz_de_pesos(elegidas)),
+    use_container_width=True, hide_index=True,
 )
-st.dataframe(pesos, use_container_width=True, hide_index=True)
-
-comunes = set.intersection(*(set(p.tickers) for p in seleccion))
-todos = set.union(*(set(p.tickers) for p in seleccion))
-st.caption(
-    f"{len(comunes)} activos aparecen en todos los portafolios elegidos, de "
-    f"{len(todos)} distintos en total. Un guion significa que ese activo no "
-    "estaba en esa cartera, no que se le asignara un peso de cero."
-)
+st.caption(comparativa.frase_de_cobertura(elegidas))
 
 st.divider()
-cargar = st.selectbox(
-    "Cargar uno en el optimizador", options=[p.nombre for p in seleccion]
-)
+# Por etiqueta y no por nombre: con dos guardados que se llaman igual,
+# `next(p for p in seleccion if p.nombre == cargar)` devolvia siempre el
+# primero, que podia no ser el que el usuario acababa de elegir.
+cargar = st.selectbox("Cargar uno en el optimizador", options=list(elegidas))
 if st.button("Cargar", type="primary", icon=":material/upload:"):
-    st.session_state.portafolio_a_cargar = next(
-        p for p in seleccion if p.nombre == cargar
-    )
+    st.session_state.portafolio_a_cargar = elegidas[cargar]
     st.switch_page("vistas/optimizador.py")
