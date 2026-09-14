@@ -30,11 +30,12 @@ TIPOS = frozenset(
 # --- Por qué el split es un asiento y no una consulta a la red ---------------
 #
 # `posiciones.serie()` ya aplica los splits que trae `Historia`, así que durante
-# mucho tiempo pareció que no hacía falta ninguno más. No lo era: `validar()` y
-# `posiciones.primer_descubierto()` **no ven la historia**, así que quien vivía
-# un 2:1 de una compra de diez e intentaba registrar la venta de veinte recibía
-# «el 2026-01-14 no tienes suficientes acciones de ACME: harían falta 20 y hay
-# 10». O mentía en el número de acciones, o no podía apuntar la venta.
+# mucho tiempo pareció que no hacía falta ninguno más. No lo era: `validar()` no
+# ve la historia **nunca**, y `posiciones.primer_descubierto()` puede no verla
+# —la recibe opcional, y sin red llega vacía—, así que quien vivía un 2:1 de una
+# compra de diez e intentaba registrar la venta de veinte recibía «el 2026-01-14
+# no tienes suficientes acciones de ACME: harían falta 20 y hay 10». O mentía en
+# el número de acciones, o no podía apuntar la venta.
 #
 # La otra salida era que la validación consultara `historia.splits`. Se
 # descartó por una razón concreta: **el libro es el único dato irreemplazable
@@ -377,6 +378,7 @@ def anadir(
     asiento: Asiento,
     hoy: date | None = None,
     financiar: bool = False,
+    historia=None,
 ) -> tuple[Libro, list[Asiento]]:
     """Validate against the ledger's state and return the new book.
 
@@ -391,6 +393,13 @@ def anadir(
     quedaría negativo por el importe exacto de la comisión en cuanto se
     registrase la primera compra — un descuadre pequeño, permanente y sin causa
     visible.
+
+    `historia` es opcional y la pantalla la pasa siempre que la tenga: sin
+    ella, el efectivo que se cuenta aquí no incluye los dividendos que el
+    bróker ya ingresó, y entonces esta función **escribe una aportación que
+    el usuario nunca hizo** para financiar una compra que su dividendo ya
+    pagaba. En un libro append-only eso no se puede deshacer. Ver el
+    razonamiento entero en `posiciones.primer_descubierto`.
     """
     # Importación local: `posiciones` no importa este módulo en tiempo de
     # ejecución justamente para que no haya ciclo, y hacerlo arriba lo crearía.
@@ -419,7 +428,9 @@ def anadir(
         # asiento puede llegar fechado en el pasado —es el caso normal cuando
         # alguien empieza a registrar lo que ya tenía comprado— y financiarlo
         # con el saldo de hoy escribiría una aportación del tamaño equivocado.
-        disponible = posiciones.estado(libro.asientos, hasta=asiento.fecha).efectivo
+        disponible = posiciones.estado(
+            libro.asientos, hasta=asiento.fecha, historia=historia
+        ).efectivo
         coste = asiento.importe + asiento.comision
         if coste > disponible:
             escritos = [
@@ -441,7 +452,7 @@ def anadir(
     # camino — justo lo que `posiciones.ordenados` existe para evitar. Medido
     # antes de escribir esto: `estado(hasta="2026-07-01")` devolvía
     # `{'AAPL': -10.0}` sin que nada lo hubiera impedido.
-    motivo = posiciones.primer_descubierto(candidato.asientos)
+    motivo = posiciones.primer_descubierto(candidato.asientos, historia)
     if motivo is not None:
         raise AsientoInvalido(motivo)
 

@@ -125,6 +125,31 @@ def _cierre_del_dia(ticker: str, fecha: str):
 
 # --- Alta de asiento ---------------------------------------------------------
 
+@st.cache_data(ttl=3600, show_spinner="Descargando precios...")
+def _historia(tickers: tuple[str, ...], desde: str):
+    return precios.descargar(list(tickers), desde=desde)
+
+
+def _precios_para_escribir(libro):
+    """La `Historia` del libro, o `None` si hoy no se puede saber.
+
+    La usa el alta para contar el efectivo igual que la cabecera. Va aparte de
+    la `historia` que la pagina calcula mas abajo porque el formulario se pinta
+    ANTES: aqui no existe todavia esa variable. Como `_historia` esta cacheada,
+    la llamada de abajo la reaprovecha y no se descarga dos veces.
+    """
+    vivos_ahora = posiciones.vigentes(libro.asientos)
+    con_ticker = sorted({a.ticker for a in vivos_ahora if a.ticker})
+    if not con_ticker:
+        # Sin ninguna compra no puede haber dividendo ni split que contar.
+        return None
+    try:
+        return _historia(tuple(con_ticker), min(a.fecha for a in vivos_ahora))
+    except Exception:
+        # Un fallo de red no puede impedir registrar una operacion real.
+        return None
+
+
 def _resumen(asiento) -> str:
     """Lo que se acaba de registrar, en una linea.
 
@@ -322,7 +347,17 @@ def _registrar_operacion(plegado: bool = True):
                     comision=comision, precio_estimado=estimado,
                     factor=factor, nota=nota,
                 )
-                actualizado, escritos = mod.anadir(actual, nuevo, financiar=True)
+                # El efectivo que ve quien escribe tiene que ser el mismo que
+                # ve la cabecera. `estado()` cobra los dividendos automaticos y
+                # `anadir` no los veia, asi que la pantalla decia 20,00 en caja
+                # y el validador rechazaba sacarlos --y, peor, financiaba la
+                # compra con una aportacion que el usuario nunca hizo, en un
+                # libro donde nada se borra. Si la descarga falla se pasa `None`
+                # y se vuelve al guardarrail conservador, que es lo correcto:
+                # rechazar de mas se arregla registrando el dividendo a mano.
+                actualizado, escritos = mod.anadir(
+                    actual, nuevo, financiar=True, historia=_precios_para_escribir(actual)
+                )
             except mod.AsientoInvalido as error:
                 st.error(str(error))
             else:
@@ -399,11 +434,6 @@ if not tickers:
     )
     _registrar_operacion()
     st.stop()
-
-
-@st.cache_data(ttl=3600, show_spinner="Descargando precios...")
-def _historia(tickers: tuple[str, ...], desde: str):
-    return precios.descargar(list(tickers), desde=desde)
 
 
 historia = _historia(tuple(tickers), desde)
@@ -829,7 +859,10 @@ with movimientos:
                         nota=_motivo,
                     )
                     try:
-                        _nuevo_libro, _ = mod.anadir(actual, _anulacion)
+                        _nuevo_libro, _ = mod.anadir(
+                            actual, _anulacion,
+                            historia=_precios_para_escribir(actual),
+                        )
                     except mod.AsientoInvalido as _error:
                         st.error(str(_error))
                     else:

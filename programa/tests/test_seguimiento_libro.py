@@ -4,6 +4,7 @@ import pytest
 
 from seguimiento.libro import (
     Asiento,
+    anadir,
     AsientoInvalido,
     Libro,
     Objetivo,
@@ -937,3 +938,79 @@ def test_dos_escrituras_no_comparten_el_nombre_del_temporal(tmp_path, monkeypatc
     # Y en el mismo directorio que el destino: un `replace` entre volumenes
     # deja de ser atomico, que es lo unico que este patron compra.
     assert {p.parent for p in usados} == {ruta.parent}
+
+
+# --- El efectivo que ve quien escribe es el que ve la pantalla ---------------
+
+
+def _con_dividendo_automatico():
+    """Aporta 1.000, compra 10 a 100 (efectivo 0) y cobra 2,00 por accion."""
+    import pandas as pd
+
+    from seguimiento import precios
+
+    fechas = pd.to_datetime(["2026-01-05", "2026-01-06", "2026-01-07", "2026-01-08"])
+    hist = precios.Historia(
+        cierres=pd.DataFrame({"ACME": [100.0] * 4}, index=fechas),
+        dividendos=pd.DataFrame({"ACME": [0.0, 0.0, 0.0, 2.0]}, index=fechas),
+        splits=pd.DataFrame({"ACME": [0.0] * 4}, index=fechas),
+        sin_datos=[],
+    )
+    asientos = [
+        Asiento(id="ap", fecha="2026-01-05", tipo="aportacion", importe=1000.0),
+        Asiento(id="c1", fecha="2026-01-05", tipo="compra", ticker="ACME",
+                acciones=10.0, precio=100.0, importe=1000.0),
+    ]
+    return Libro(nombre="con dividendo", creado="2026-01-05T09:00:00",
+                 asientos=asientos), hist
+
+
+def test_retirar_el_dividendo_que_la_pantalla_ensena_no_se_rechaza():
+    """La cabecera decia 20,00 de efectivo y el validador decia 0,00.
+
+    `estado()` pasó a cobrar los dividendos automáticos y `anadir` se quedó sin
+    verlos, así que la pantalla y quien escribe dejaron de contar lo mismo. El
+    usuario leía que tenía el dividendo en caja y el programa le rechazaba
+    sacarlo.
+    """
+    libro, hist = _con_dividendo_automatico()
+    retiro = Asiento(id="r1", fecha="2026-01-08", tipo="retiro", importe=20.0)
+
+    actualizado, escritos = anadir(libro, retiro, hoy=date(2026, 1, 9), historia=hist)
+
+    assert [a.id for a in escritos] == ["r1"]
+    assert actualizado.asientos[-1].tipo == "retiro"
+
+
+def test_comprar_con_el_dividendo_no_inventa_una_aportacion():
+    """Y este es el daño de verdad: el libro es append-only.
+
+    Sin ver el dividendo, `financiar=True` escribía una aportación de 20,00 que
+    el usuario nunca hizo. Queda para siempre inflando el «aportado neto»,
+    envenenando la TIR con un flujo externo inexistente, y dejando en caja un
+    dinero que en el broker no está.
+    """
+    libro, hist = _con_dividendo_automatico()
+    compra_pequena = Asiento(id="c2", fecha="2026-01-08", tipo="compra",
+                             ticker="ACME", acciones=0.2, precio=100.0, importe=20.0)
+
+    _, escritos = anadir(libro, compra_pequena, hoy=date(2026, 1, 9),
+                         financiar=True, historia=hist)
+
+    assert [a.tipo for a in escritos] == ["compra"], (
+        "se ha escrito una aportación que el usuario no hizo"
+    )
+
+
+def test_sin_historia_el_guardarrail_sigue_siendo_el_conservador():
+    """Si la descarga de precios falla, no se puede saber del dividendo.
+
+    Ahí lo correcto es seguir siendo estricto: rechazar de más es recuperable
+    --el usuario registra el dividendo a mano y vuelve a intentarlo-- y aceptar
+    de más escribe un descubierto que no se puede deshacer.
+    """
+    libro, _ = _con_dividendo_automatico()
+    retiro = Asiento(id="r1", fecha="2026-01-08", tipo="retiro", importe=20.0)
+
+    with pytest.raises(AsientoInvalido):
+        anadir(libro, retiro, hoy=date(2026, 1, 9))

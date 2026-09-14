@@ -195,7 +195,10 @@ def estado(
     )
 
 
-def primer_descubierto(asientos: "list[Asiento]") -> str | None:
+def primer_descubierto(
+    asientos: "list[Asiento]",
+    historia: "Historia | None" = None,
+) -> str | None:
     """The first moment the book would go into the red, in words, or None.
 
     `estado()` responde "qué hay al final". Esta función responde "¿hubo algún
@@ -214,21 +217,45 @@ def primer_descubierto(asientos: "list[Asiento]") -> str | None:
     importe entre un precio, así que arrastra error de redondeo y una igualdad
     exacta fallaría por un femtoaccion de diferencia.
 
-    **No recibe `Historia` y no debe recibirla.** Es la función que decide si un
-    asiento se puede escribir, y decidir eso no puede depender de una descarga
-    que falla: los días en que yfinance se cae serían días en que no se puede
-    registrar una venta perfectamente real. Por eso el split que hace falta aquí
-    es el que el usuario registró como asiento —ver el bloque de `TIPOS` en
-    `seguimiento/libro.py`—, y por eso este recorrido es puro.
+    **`Historia` es opcional, y esa asimetría es deliberada.** Decidir si un
+    asiento se puede escribir no puede depender de una descarga que falla: los
+    días en que yfinance se cae serían días en que no se puede registrar una
+    venta perfectamente real. Por eso sin `Historia` este recorrido es puro y
+    sólo cuenta lo que el usuario registró como asiento.
+
+    Pero cuando la pantalla **ya tiene** los precios —los acaba de descargar
+    para pintarse— pasárselos es gratis, y no hacerlo costaba caro: `estado()`
+    empezó a cobrar los dividendos automáticos y esta función se quedó sin
+    verlos, así que la cabecera enseñaba 20,00 de efectivo mientras aquí se
+    rechazaba un retiro de 20,00. Peor: `libro.anadir` financiaba la compra con
+    una **aportación que el usuario nunca hizo**, y el libro es append-only, así
+    que ese hecho falso se quedaba para siempre inflando el aportado neto y
+    envenenando la TIR.
+
+    La regla, entonces: con datos se cuenta lo que de verdad hay; sin datos se
+    es conservador. Rechazar de más es recuperable —se registra el dividendo a
+    mano y se vuelve a intentar—; aceptar de más escribe un descubierto que no
+    se puede deshacer.
     """
     acciones: dict[str, float] = {}
     efectivo = 0.0
 
-    for a in ordenados(vigentes(asientos)):
-        if a.tipo == "split":
+    for evento in cronologia(asientos, historia):
+        if evento[0] == "split":
             # Sin esto, quien vivió un 2:1 de una compra de diez e intentaba
             # vender veinte recibía «no tienes suficientes acciones»: o mentía
             # en el número, o no podía apuntar la venta.
+            _, _, ticker, factor = evento
+            if acciones.get(ticker):
+                acciones[ticker] *= factor
+            continue
+        if evento[0] == "dividendo":
+            _, _, ticker, por_accion = evento
+            efectivo += acciones.get(ticker, 0.0) * por_accion
+            continue
+
+        a = evento[2]
+        if a.tipo == "split":
             if acciones.get(a.ticker):
                 acciones[a.ticker] *= a.factor
         elif a.tipo == "aportacion":
