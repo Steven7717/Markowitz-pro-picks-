@@ -307,12 +307,17 @@ def test_el_split_registrado_manda_sobre_el_de_la_historia():
     assert marcha.acciones.loc["2026-01-07", "AAPL"] == pytest.approx(160.0)
 
 
-def test_un_split_registrado_en_otra_fecha_que_el_de_la_historia_no_se_duplica_solo():
-    # El reverso del anterior, y el limite conocido: la regla de precedencia es
-    # por (ticker, fecha), igual que en los dividendos. Registrar el split un
-    # dia distinto del que trae yfinance SI lo cuenta dos veces. Se deja
-    # escrito porque es el unico modo de equivocarse aqui, y la pantalla lo
-    # avisa al registrar.
+def test_un_split_registrado_un_dia_antes_tampoco_se_duplica():
+    # Este test afirmaba lo contrario, y lo afirmaba como limite aceptado:
+    # registrar el split un dia distinto del que trae yfinance lo contaba dos
+    # veces (640 acciones donde hay 160). Se dejo escrito porque «es el unico
+    # modo de equivocarse aqui».
+    #
+    # Pero es que es el modo NORMAL de equivocarse: el broker aplica el split un
+    # dia y lo notifica otro, asi que el desfase de un dia es lo que va a pasar.
+    # Y duplicar la posicion en silencio es el peor error de este modulo. Ahora
+    # el manual silencia al automatico dentro de una ventana de dias, no solo en
+    # la fecha exacta.
     h = historia(
         {"AAPL": [200.0, 202.0, 51.0]},
         splits={"AAPL": [0.0, 0.0, 4.0]},
@@ -320,7 +325,7 @@ def test_un_split_registrado_en_otra_fecha_que_el_de_la_historia_no_se_duplica_s
     marcha = posiciones.serie(
         [APORTA, COMPRA, parte("s1", "2026-01-06", "AAPL", 4.0)], h
     )
-    assert marcha.acciones.loc["2026-01-07", "AAPL"] == pytest.approx(640.0)
+    assert marcha.acciones.loc["2026-01-07", "AAPL"] == pytest.approx(160.0)
 
 
 def test_una_compra_anterior_al_calendario_si_se_parte_con_el_split_del_primer_dia():
@@ -417,3 +422,69 @@ def test_un_dividendo_apuntado_a_mano_cuenta_aunque_su_ticker_no_traiga_precios(
 
     assert float(marcha.dividendos.sum().sum()) == pytest.approx(50.0)
     assert marcha.efectivo.iloc[-1] == pytest.approx(550.0)
+
+
+def _con_split(dia_manual: str) -> tuple:
+    """Compra de 10 el dia 5; la historia parte 2:1 el dia 7; el usuario lo
+    apunta el `dia_manual`."""
+    fechas = pd.to_datetime([f"2026-01-{d:02d}" for d in (5, 6, 7, 8, 9)])
+    ceros = {"ACME": [0.0] * 5}
+    h = precios.Historia(
+        cierres=pd.DataFrame({"ACME": [100.0, 100.0, 50.0, 50.0, 50.0]}, index=fechas),
+        dividendos=pd.DataFrame(ceros, index=fechas),
+        splits=pd.DataFrame({"ACME": [0.0, 0.0, 2.0, 0.0, 0.0]}, index=fechas),
+        sin_datos=[],
+    )
+    asientos = [
+        Asiento(id="ap", fecha="2026-01-05", tipo="aportacion", importe=1000.0),
+        Asiento(id="c1", fecha="2026-01-05", tipo="compra", ticker="ACME",
+                acciones=10.0, precio=100.0, importe=1000.0),
+        Asiento(id="s1", fecha=dia_manual, tipo="split", ticker="ACME", factor=2.0),
+    ]
+    return asientos, h
+
+
+def test_un_split_apuntado_con_un_dia_de_desfase_no_parte_la_posicion_dos_veces():
+    """El broker aplica el split un dia y lo notifica otro: es lo normal.
+
+    La precedencia se decidia por (ticker, fecha) exacta, asi que apuntarlo el
+    dia de antes aplicaba el manual Y el de la historia: 40 acciones donde hay
+    20, mil de plusvalia latente inventada y diez puntos de TWR de la nada. Y
+    nada lo decia.
+    """
+    asientos, h = _con_split("2026-01-06")
+
+    marcha = posiciones.serie(asientos, h)
+
+    assert marcha.acciones["ACME"].iloc[-1] == pytest.approx(20.0)
+    assert posiciones.estado(asientos, historia=h).acciones["ACME"] == pytest.approx(20.0)
+
+
+def test_el_split_apuntado_el_mismo_dia_sigue_mandando():
+    asientos, h = _con_split("2026-01-07")
+
+    assert posiciones.serie(asientos, h).acciones["ACME"].iloc[-1] == pytest.approx(20.0)
+
+
+def test_dos_splits_de_verdad_separados_en_el_tiempo_se_aplican_los_dos():
+    """La ventana no puede tragarse un split real posterior."""
+    fechas = pd.to_datetime([f"2026-01-{d:02d}" for d in range(5, 26)])
+    ceros = {"ACME": [0.0] * len(fechas)}
+    splits = [0.0] * len(fechas)
+    splits[2] = 2.0    # el dia 7
+    splits[17] = 3.0   # el dia 22, muy lejos del manual
+    h = precios.Historia(
+        cierres=pd.DataFrame({"ACME": [100.0] * len(fechas)}, index=fechas),
+        dividendos=pd.DataFrame(ceros, index=fechas),
+        splits=pd.DataFrame({"ACME": splits}, index=fechas),
+        sin_datos=[],
+    )
+    asientos = [
+        Asiento(id="ap", fecha="2026-01-05", tipo="aportacion", importe=1000.0),
+        Asiento(id="c1", fecha="2026-01-05", tipo="compra", ticker="ACME",
+                acciones=10.0, precio=100.0, importe=1000.0),
+        Asiento(id="s1", fecha="2026-01-07", tipo="split", ticker="ACME", factor=2.0),
+    ]
+
+    # 10 -> 20 por el manual del dia 7, -> 60 por el de la historia del dia 22.
+    assert posiciones.serie(asientos, h).acciones["ACME"].iloc[-1] == pytest.approx(60.0)

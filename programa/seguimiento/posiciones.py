@@ -81,6 +81,30 @@ def _corporativas(historia: "Historia | None") -> "dict[str, tuple[dict, dict]]"
     return eventos
 
 
+# Un split registrado a mano silencia el que trae la historia para ese ticker
+# dentro de esta ventana de dias, no solo en la fecha exacta. El broker aplica
+# el split un dia y lo notifica otro, asi que apuntarlo con un dia de desfase es
+# el caso normal --y con la precedencia por fecha exacta se aplicaban LOS DOS:
+# cuarenta acciones donde hay veinte, mil de plusvalia latente inventada y diez
+# puntos de TWR de la nada, sin que nada lo dijera. Duplicar la posicion en
+# silencio es el peor error posible de este modulo.
+#
+# Cinco dias cubre un puente largo y sigue siendo mucho menos que la distancia
+# entre dos splits reales de la misma empresa, que se cuentan por anos.
+_VENTANA_SPLIT_MANUAL = 5
+
+
+def _silenciado_por_manual(ticker: str, fecha: str, manuales: dict) -> bool:
+    """Si el usuario registro un split de ese ticker lo bastante cerca."""
+    cercanos = manuales.get(ticker)
+    if not cercanos:
+        return False
+    dia = date.fromisoformat(fecha)
+    return any(
+        abs((dia - otra).days) <= _VENTANA_SPLIT_MANUAL for otra in cercanos
+    )
+
+
 def cronologia(
     asientos: "list[Asiento]",
     historia: "Historia | None" = None,
@@ -116,7 +140,10 @@ def cronologia(
     corporativas = _corporativas(historia)
 
     manual_dividendo = {(a.ticker, a.fecha) for a in vivos if a.tipo == "dividendo"}
-    manual_split = {(a.ticker, a.fecha) for a in vivos if a.tipo == "split"}
+    manual_split: "dict[str, list[date]]" = {}
+    for a in vivos:
+        if a.tipo == "split":
+            manual_split.setdefault(a.ticker, []).append(date.fromisoformat(a.fecha))
 
     por_fecha: "dict[str, list[Asiento]]" = {}
     for a in vivos:
@@ -132,7 +159,7 @@ def cronologia(
             if a.tipo == "split":
                 yield ("split", fecha, a.ticker, float(a.factor))
         for ticker, factor in sorted(splits.items()):
-            if (ticker, fecha) not in manual_split:
+            if not _silenciado_por_manual(ticker, fecha, manual_split):
                 yield ("split", fecha, ticker, factor)
         for ticker, por_accion in sorted(dividendos.items()):
             if (ticker, fecha) not in manual_dividendo:
@@ -373,6 +400,10 @@ def serie(asientos: "list[Asiento]", historia: Historia) -> Marcha:
     manuales = {
         (a.ticker, a.fecha) for a in vivos if a.tipo == "dividendo"
     }
+    splits_manuales: "dict[str, list[date]]" = {}
+    for a in vivos:
+        if a.tipo == "split":
+            splits_manuales.setdefault(a.ticker, []).append(date.fromisoformat(a.fecha))
 
     tenencia: dict[str, float] = {}
     caja = 0.0
@@ -418,6 +449,13 @@ def serie(asientos: "list[Asiento]", historia: Historia) -> Marcha:
         #    partiria la posicion dos veces, que es el peor error posible aqui
         #    porque duplica acciones en silencio. Es la misma precedencia que ya
         #    regia para los dividendos, y por lo mismo.
+        #
+        #    El silencio alcanza una ventana de dias y no solo la fecha exacta
+        #    --ver `_silenciado_por_manual`--, porque el broker aplica el split
+        #    un dia y lo notifica otro. Esta regla y la de `cronologia` tienen
+        #    que decir lo mismo: si se separan, la cabecera y la tabla vuelven a
+        #    contradecirse, que es el defecto que este modulo existe para haber
+        #    cerrado.
         registrados = set()
         indice = 0
         while indice < len(pendientes) and pendientes[indice].fecha == clave:
@@ -432,7 +470,9 @@ def serie(asientos: "list[Asiento]", historia: Historia) -> Marcha:
 
         # 3. Los splits del dia que trae la historia parten lo que ya se tenia.
         for ticker in tickers:
-            if ticker in registrados:
+            if ticker in registrados or _silenciado_por_manual(
+                ticker, clave, splits_manuales
+            ):
                 continue
             factor = celda(historia.splits, dia, ticker)
             if factor > 0 and tenencia.get(ticker):
