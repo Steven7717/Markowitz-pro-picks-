@@ -261,8 +261,27 @@ def _comunes(nombre_por_defecto: str) -> tuple[str, bool, object, str | None]:
 
 
 def _crear(nuevo: mod.Libro) -> None:
-    """Guarda el libro, apaga el borrador y aterriza en Seguimiento."""
-    ruta = mod.guardar(nuevo)
+    """Guarda el libro, apaga el borrador y aterriza en Seguimiento.
+
+    El `except OSError` está aquí por lo mismo que en el alta de
+    `vistas/seguimiento.py`: **el disco es el único sitio donde este dato
+    existe**, y sin esta rama un disco lleno o el antivirus llegaban como un
+    traceback --`showErrorDetails` viene encendido por defecto-- que no le dice
+    al usuario lo único que importa, que es si el libro se creó o no. Se puede
+    afirmar que no: `mod.guardar` escribe en un temporal y hace `replace`, así
+    que un fallo no deja un fichero a medias, deja que no haya fichero. Y como
+    no se pone la marca de `estreno_creado`, volver a pulsar vuelve a intentarlo
+    en vez de quedarse en una pantalla que dice que ya está hecho.
+    """
+    try:
+        ruta = mod.guardar(nuevo)
+    except OSError as fallo:
+        st.error(
+            f"No se pudo crear el libro: {fallo}. No se ha guardado nada — "
+            "comprueba que hay espacio en el disco y que ningún antivirus esté "
+            "bloqueando la carpeta, y vuelve a intentarlo."
+        )
+        return
     # La marca se pone en cuanto el fichero existe, y entre `guardar` y esta
     # línea no hay ninguna llamada a Streamlit donde un segundo clic pueda
     # interrumpir la pasada. Sin ella ese segundo clic escribiría un libro

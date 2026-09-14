@@ -34,6 +34,8 @@ devuelve el ultimo: se conserva todo, se ensena lo ultimo.
 """
 
 import json
+import os
+import tempfile
 from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
@@ -295,9 +297,25 @@ def _escribir(ruta: Path, guardado: Archivo) -> None:
         indent=2,
         allow_nan=False,
     )
-    tmp = ruta.with_suffix(".tmp")
-    tmp.write_text(texto, encoding="utf-8")
-    tmp.replace(ruta)
+    # Un nombre de temporal fijo lo comparten todas las pasadas, y este programa
+    # admite dos ventanas del mismo libro. Si el `replace` de una cae mientras
+    # otra está a mitad de su escritura, lo que aterriza en el destino es JSON
+    # truncado y las lecturas de IA ya pagadas se pierden. En el MISMO
+    # directorio que el destino, porque `replace` sólo es atómico dentro del
+    # mismo volumen; y `mkstemp` abre con O_EXCL, así que ni dos procesos
+    # coinciden en el nombre. Mismo patrón que `seguimiento/libro.py:actualizar`,
+    # y por la misma razón.
+    descriptor, provisional = tempfile.mkstemp(
+        dir=ruta.parent, prefix=f".{ruta.stem}-", suffix=".tmp"
+    )
+    tmp = Path(provisional)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as destino:
+            destino.write(texto)
+        tmp.replace(ruta)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
 
 
 def anotar_hechos(
