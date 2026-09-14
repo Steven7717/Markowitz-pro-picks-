@@ -1,7 +1,9 @@
 import io
 import pandas as pd
 import openpyxl
-from exporter import to_excel
+from fpdf import FPDF
+
+from exporter import kpi_rows, texto_pdf, to_excel, to_pdf
 
 
 def _weights_df() -> pd.DataFrame:
@@ -99,3 +101,45 @@ def test_to_pdf_returns_bytes_for_validated_metrics():
     result = to_pdf(_weights_df(), _validated_metrics(), [])
     assert isinstance(result, bytes)
     assert len(result) > 0
+
+
+# ── El PDF en castellano ──────────────────────────────────────────────────────
+#
+# El informe estaba escrito en un castellano sin tildes --«Metricas», «Optimo»,
+# «desempeno»-- y lo parecia una limitacion de fpdf2. No lo es: Helvetica es una
+# fuente del nucleo del PDF y su codificacion es latin-1, que lleva las tildes,
+# la enye y los signos de apertura sin problema. Lo unico que no cabe ahi son
+# tres caracteres que el castellano no necesita, y para esos hay un sustituto.
+
+def test_las_etiquetas_del_informe_llevan_tildes():
+    completas = _metrics() | {"oos_sharpe": 1.1, "shrinkage": "Sí"}
+    etiquetas = [e for e, _ in kpi_rows(completas)]
+    assert "Retorno Anual Esperado (aritmético)" in etiquetas
+    assert "Ventanas de validación" in etiquetas
+    assert "Estimación robusta (shrinkage)" in etiquetas
+
+
+def test_helvetica_acepta_de_verdad_el_castellano():
+    """La comprobación que faltaba antes de rendirse: no era una limitación."""
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_font("Helvetica", "", 10)
+    pdf.cell(0, 7, "Métricas del Portafolio Óptimo · ¿desempeño? «sí» ±1")
+    assert len(bytes(pdf.output())) > 0
+
+
+def test_una_raya_larga_no_puede_tumbar_el_informe():
+    """`—`, `“”` y `€` no caben en latin-1 y lanzaban una excepción.
+
+    Los textos del informe vienen en parte de fuera —la etiqueta de la
+    estrategia, los nombres de las columnas— así que basta con que alguien
+    escriba una raya larga en cualquiera de ellos para que la descarga entera
+    reviente en vez de sacar el PDF.
+    """
+    assert texto_pdf("aquí — allá “eso” 5€") == 'aquí - allá "eso" 5 EUR'
+
+
+def test_el_informe_sale_aunque_le_metan_caracteres_imposibles():
+    df = _weights_df().rename(columns={"Ticker": "Ticker — símbolo"})
+    datos = to_pdf(df, _metrics() | {"strategy": "Prueba “rara” —"}, [])
+    assert datos.startswith(b"%PDF")

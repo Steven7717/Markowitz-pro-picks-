@@ -4,8 +4,11 @@ import pytest
 
 from validation import (
     default_window_sizes,
+    frase_veredicto,
+    retorno_stderr,
     sharpe_difference_standard_error,
     sharpe_standard_error,
+    veredicto,
     walk_forward_comparison,
     walk_forward_validation,
 )
@@ -88,9 +91,15 @@ def test_reports_an_equal_weight_benchmark_over_the_same_windows():
 
 
 def test_degradation_is_the_gap_between_in_and_out_of_sample():
+    """Y los dos lados de la resta se miden igual: media de ventanas contra media.
+
+    Restar el Sharpe agrupado a la media de cocientes cruzaba dos estimadores
+    distintos del mismo número; `out_of_sample_sharpe_medio` es el que hace juego
+    con `in_sample_sharpe`.
+    """
     r = walk_forward_validation(_noise(3000), 0.0, 252, (0.0, 1.0), False)
     assert np.isclose(
-        r["degradation"], r["in_sample_sharpe"] - r["out_of_sample_sharpe"]
+        r["degradation"], r["in_sample_sharpe"] - r["out_of_sample_sharpe_medio"]
     )
 
 
@@ -273,12 +282,13 @@ def test_the_gap_error_needs_two_series_of_the_same_length():
 # ── El veredicto se decide con el error del hueco ─────────────────────────────
 
 def test_the_verdict_is_judged_against_the_error_of_the_gap():
+    """Contra el error del HUECO, y con el margen de dos sigmas."""
     r = walk_forward_validation(_factor_market(2000), 0.0, 252, (0.0, 1.0), False)
     hueco = abs(r["out_of_sample_sharpe"] - r["equal_weight_sharpe"])
     if r["beats_equal_weight"] is None:
-        assert hueco <= r["gap_stderr"]
+        assert hueco <= r["umbral_veredicto"]
     else:
-        assert hueco > r["gap_stderr"]
+        assert hueco > r["umbral_veredicto"]
 
 
 def test_the_gap_error_is_reported_alongside_the_sharpe_error():
@@ -287,11 +297,59 @@ def test_the_gap_error_is_reported_alongside_the_sharpe_error():
     assert r["gap_stderr"] < r["sharpe_stderr"]
 
 
-def test_a_genuine_edge_is_no_longer_hidden_by_the_wrong_error_bar():
-    """Un activo con Sharpe verdadero 1,6 entre cuatro de puro ruido.
+def _mercado_con_ventaja(n_obs: int, seed: int, alfa: float = 0.0020) -> pd.DataFrame:
+    """El mercado de factor de arriba, con una ventaja REAL en el primer activo.
 
-    La optimización le gana a 1/N de verdad; con el umbral viejo —el error de un
-    Sharpe suelto— el veredicto salía «no se distingue» en el 100% de los casos.
+    Un activo con alfa sobre el factor común es la ventaja que la optimización
+    puede encontrar de verdad, y deja la cartera óptima pegada a 1/N —todos los
+    activos comparten el factor— que es el régimen medido en la aplicación
+    (correlación de 0,90 a 0,995) y donde el error del hueco y el del nivel se
+    separan de veras.
+    """
+    rng = np.random.default_rng(seed)
+    betas = np.linspace(0.5, 1.8, 6)
+    idio = np.linspace(0.006, 0.024, 6)
+    factor = rng.normal(0.0004, 0.010, size=(n_obs, 1))
+    datos = factor @ betas.reshape(1, -1) + rng.normal(0, 1, (n_obs, 6)) * idio
+    datos[:, 0] += alfa
+    return pd.DataFrame(datos, columns=[f"A{i}" for i in range(6)])
+
+
+def test_a_genuine_edge_is_no_longer_hidden_by_the_wrong_error_bar():
+    """Seis mundos con ventaja real, con el tope del 30% que trae la aplicación.
+
+    Sobre un solo sorteo esta pregunta no se puede contestar: el hueco fuera de
+    muestra tiene un error estándar de ~0,3 Sharpe, así que una semilla
+    afortunada demuestra tan poco como una desafortunada. Medido sobre seis
+    mundos, la barra que toca —la del hueco pareado— ve la ventaja en cinco; la
+    del Sharpe suelto no la ve en **ninguno**, que es lo que el usuario contaba
+    («casi ninguna optimización supera a repartir por igual»).
+
+    Y las dos barras se juzgan aquí con el MISMO umbral de dos sigmas, para que
+    la comparación sea sobre el estadístico y no sobre el listón.
+    """
+    con_el_hueco = con_el_nivel = 0
+    for semilla in range(8, 14):
+        r = walk_forward_validation(
+            _mercado_con_ventaja(2000, semilla), 0.0, 252, (0.0, 0.30), False
+        )
+        hueco = r["out_of_sample_sharpe"] - r["equal_weight_sharpe"]
+        con_el_hueco += veredicto(hueco, r["gap_stderr"]) is True
+        con_el_nivel += veredicto(hueco, r["sharpe_stderr"]) is True
+    assert con_el_hueco >= 4, "la barra que toca sigue sin ver una ventaja real"
+    assert con_el_nivel == 0, "la barra del nivel ya no era la que escondía nada"
+
+
+def test_el_precio_de_pedir_dos_sigmas_es_callar_en_los_casos_justos():
+    """Lo que el umbral nuevo cuesta, escrito aquí para que no se olvide.
+
+    Este mundo —un activo de Sharpe 1,6 entre cuatro de ruido— tiene ventaja de
+    verdad y el hueco medido la ve, pero a 1,91 errores estándar: dentro del
+    listón. Con un solo error estándar la pantalla habría dicho «gana»; con dos
+    dice «estos datos no lo distinguen», que es exactamente lo que ocurre a 1,91
+    sigmas y es la dirección en la que conviene equivocarse. La misma tirada con
+    otras siete semillas da entre -0,74 y 2,73 sigmas: el sorteo no sostenía un
+    veredicto, lo sorteaba.
     """
     rng = np.random.default_rng(1000)
     mu = np.array([0.0010, 0.0, 0.0, 0.0, 0.0])
@@ -301,8 +359,9 @@ def test_a_genuine_edge_is_no_longer_hidden_by_the_wrong_error_bar():
         columns=[f"A{i}" for i in range(5)],
     )
     r = walk_forward_validation(datos, 0.0, 252, (0.0, 1.0), False)
-    assert r["out_of_sample_sharpe"] > r["equal_weight_sharpe"]
-    assert r["beats_equal_weight"] is True
+    hueco = r["out_of_sample_sharpe"] - r["equal_weight_sharpe"]
+    assert hueco > r["gap_stderr"], "con un error estándar habría sido un «gana»"
+    assert r["beats_equal_weight"] is None
 
 
 # ── Un año bursátil de datos diarios ──────────────────────────────────────────
@@ -410,3 +469,155 @@ def test_sin_la_opcion_los_resultados_no_se_mueven():
     con = walk_forward_validation(datos, 0.0, 252, (0.0, 1.0), False, pairwise=False)
     sin = walk_forward_validation(datos, 0.0, 252, (0.0, 1.0), False)
     assert con["out_of_sample_sharpe"] == sin["out_of_sample_sharpe"]
+
+
+# ── El veredicto pide dos errores estándar, no uno ────────────────────────────
+
+def test_una_diferencia_de_un_solo_error_estandar_no_basta_para_un_veredicto():
+    """Un error estándar es ~1σ, y el convenio de toda la estadística es 2σ."""
+    assert veredicto(0.50, 0.30) is None
+
+
+def test_dos_errores_estandar_sostienen_el_veredicto():
+    assert veredicto(0.70, 0.30) is True
+
+
+def test_perder_contra_1_sobre_n_exige_la_misma_evidencia_que_ganar():
+    assert veredicto(-0.50, 0.30) is None
+    assert veredicto(-0.70, 0.30) is False
+
+
+def test_sin_un_error_medible_no_se_dicta_nada():
+    assert veredicto(1.0, float("inf")) is None
+
+
+def test_el_umbral_recorta_los_falsos_positivos_en_mundos_sin_ninguna_ventaja():
+    """200 mundos sintéticos donde la optimización NO aporta nada.
+
+    El hueco medido es entonces puro ruido de media cero. Con un solo error
+    estándar la pantalla escribía el recuadro verde de `st.success` —«La
+    optimización supera a repartir por igual»— en el 12% de ellos; con dos, la
+    cola normal deja ~2%.
+    """
+    rng = np.random.default_rng(20)
+    error = 0.35
+    huecos = rng.normal(0.0, error, 200)
+    con_uno = sum(veredicto(h, error, sigmas=1.0) is True for h in huecos)
+    con_dos = sum(veredicto(h, error) is True for h in huecos)
+    assert con_uno / 200 > 0.10
+    assert con_dos / 200 < 0.05
+
+
+def test_el_recorrido_completo_usa_el_mismo_umbral_que_la_regla():
+    r = walk_forward_validation(_factor_market(2000), 0.0, 252, (0.0, 1.0), False)
+    hueco = r["out_of_sample_sharpe"] - r["equal_weight_sharpe"]
+    assert r["beats_equal_weight"] is veredicto(hueco, r["gap_stderr"])
+
+
+def test_el_resultado_dice_contra_que_umbral_se_juzgo():
+    """La pantalla tiene que poder escribir el número, no reconstruirlo."""
+    r = walk_forward_validation(_factor_market(2000), 0.0, 252, (0.0, 1.0), False)
+    assert r["umbral_veredicto"] == pytest.approx(2.0 * r["gap_stderr"])
+
+
+# ── La barra de error del retorno esperado ────────────────────────────────────
+
+def test_el_error_del_retorno_esperado_es_la_volatilidad_repartida_entre_los_anios():
+    """SE(μ anual) = σ anual / √años, que es el mismo Lo de siempre sin el cociente."""
+    assert retorno_stderr(0.25, n_periods=252, periods_per_year=252) == pytest.approx(0.25)
+    assert retorno_stderr(0.25, n_periods=1008, periods_per_year=252) == pytest.approx(0.125)
+
+
+def test_el_error_del_retorno_reproduce_el_ruido_que_dice_medir():
+    """Monte Carlo: 4.000 muestras de dos años de retornos diarios."""
+    rng = np.random.default_rng(3)
+    vol_anual, n, ppy = 0.25, 504, 252
+    muestras = rng.standard_normal((4000, n)) * (vol_anual / np.sqrt(ppy))
+    empirico = float((muestras.mean(axis=1) * ppy).std(ddof=1))
+    assert retorno_stderr(vol_anual, n, ppy) == pytest.approx(empirico, rel=0.05)
+
+
+def test_medio_ano_de_datos_deja_el_retorno_esperado_sin_significado():
+    """El caso de la pantalla: 28,76% esperado con ±15,64 pp de error.
+
+    El intervalo al 95% va de -1,9% a 59,4%, y la pantalla escribía el 28,76%
+    solo, con dos decimales, mientras sí ponía barra de error al Sharpe.
+    """
+    se = retorno_stderr(0.2482, n_periods=500, periods_per_year=252)
+    assert se == pytest.approx(0.1762, abs=0.01)
+    assert 0.2876 - 2 * se < 0
+
+
+# ── La frase del veredicto la escribe quien lo dicta ──────────────────────────
+
+def test_la_frase_dice_contra_que_umbral_se_juzga():
+    frase = frase_veredicto(0.80, 0.30)
+    assert "0,60" in frase, "no dice el listón que había que superar"
+    assert "supera" in frase.lower()
+
+
+def test_la_frase_del_empate_no_promete_nada():
+    frase = frase_veredicto(0.40, 0.30)
+    assert "no" in frase.lower()
+    assert "0,60" in frase
+
+
+def test_la_frase_de_la_derrota_tambien_lleva_su_umbral():
+    frase = frase_veredicto(-0.80, 0.30)
+    assert "0,60" in frase
+    assert "debajo" in frase.lower()
+
+
+def test_sin_veredicto_medible_la_frase_lo_dice_en_vez_de_inventar_un_numero():
+    assert "sin" in frase_veredicto(0.5, float("inf")).lower()
+
+
+def test_la_frase_concuerda_siempre_con_el_veredicto():
+    for hueco in (-1.0, -0.61, -0.59, 0.0, 0.59, 0.61, 1.0):
+        frase = frase_veredicto(hueco, 0.30).lower()
+        estado = veredicto(hueco, 0.30)
+        assert ("supera" in frase) is (estado is True)
+        assert ("debajo" in frase) is (estado is False)
+
+
+# ── La degradación resta dos números del mismo tipo ───────────────────────────
+
+def test_la_degradacion_resta_medias_de_ventana_contra_medias_de_ventana():
+    """Restaba el Sharpe AGRUPADO menos la media de cocientes: dos estimadores.
+
+    En la pantalla salía «-0,57» donde quien leía 1,13 en muestra y 0,80 fuera
+    esperaba -0,33, y ninguno de los dos números de la resta era el que tenía
+    delante.
+    """
+    r = walk_forward_validation(_factor_market(2000), 0.0, 252, (0.0, 1.0), False)
+    assert r["degradation"] == pytest.approx(
+        r["in_sample_sharpe"] - r["out_of_sample_sharpe_medio"]
+    )
+
+
+def test_el_sharpe_medio_por_ventana_se_publica_junto_al_agrupado():
+    """Son dos estimadores del mismo número y la pantalla los enseña los dos."""
+    r = walk_forward_validation(_factor_market(2000), 0.0, 252, (0.0, 1.0), False)
+    assert np.isfinite(r["out_of_sample_sharpe_medio"])
+    assert r["out_of_sample_sharpe_medio"] != r["out_of_sample_sharpe"]
+
+
+def test_el_agrupado_sigue_siendo_el_titular_y_el_que_lleva_barra_de_error():
+    """El agrupado usa todas las observaciones a la vez: es el mejor estimador.
+
+    La media de cocientes la domina la ventana más afortunada —1,206, 0,941,
+    0,993 y 2,343 en el caso medido— y por eso no es la que se anuncia.
+    """
+    r = walk_forward_validation(_factor_market(2000), 0.0, 252, (0.0, 1.0), False)
+    assert r["sharpe_stderr"] == sharpe_standard_error(
+        r["out_of_sample_sharpe"], r["n_oos_periods"], 252
+    )
+
+
+def test_una_sola_ventana_hace_coincidir_los_dos_estimadores():
+    """Con una ventana no hay promedio de cocientes que pueda separarse."""
+    r = walk_forward_validation(
+        _factor_market(600), 0.0, 252, (0.0, 1.0), False, train_size=500, test_size=100
+    )
+    assert r["n_windows"] == 1
+    assert r["out_of_sample_sharpe_medio"] == pytest.approx(r["out_of_sample_sharpe"])

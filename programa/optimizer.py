@@ -11,6 +11,13 @@ N_SIMULATIONS = 10_000
 _MINIMO_POR_ACTIVO = 3
 _N_RANDOM_STARTS = 12
 
+# Cuánto puede separarse de su objetivo la peor aportación al riesgo antes de
+# que «paridad de riesgo» deje de describir la cartera. Un punto porcentual de
+# la varianza total: por debajo de eso la diferencia no cambia ninguna decisión,
+# y por encima empieza a haber un activo mandando. Los casos medidos que fallaban
+# iban del 2,5% al 47%, así que el listón no está fino de más.
+_TOLERANCIA_ERC = 0.01
+
 
 def portfolio_metrics(
     weights: np.ndarray,
@@ -24,6 +31,39 @@ def portfolio_metrics(
     rf_annual = rf_rate * periods_per_year
     sharpe = float((port_return - rf_annual) / port_vol) if port_vol > 0 else 0.0
     return port_return, port_vol, sharpe
+
+
+def criterio_sharpe(port_return: float, port_vol: float, rf_annual: float) -> float:
+    """Lo que «máximo Sharpe» maximiza de verdad, también en mercado bajista.
+
+    El cociente de Sharpe **no ordena carteras cuando el exceso esperado es
+    negativo**. Con el numerador por debajo de cero —2022, 2008, 2000-02: todos
+    los activos rentando menos que las letras del Tesoro— agrandar el
+    denominador acerca el cociente a cero, así que maximizarlo es literalmente
+    maximizar la volatilidad. Medido con tres activos y rf = 4%:
+
+        medias anuales   defensivo -10%   medio -12%   volátil  -8%
+        vol anual        defensivo  15%   medio  24%   volátil  46%
+
+    y el optimizador entregaba el volátil al 100%, «convergido», sin un aviso.
+
+    Aquí el criterio es la extensión continua de Israelsen: exceso/σ mientras el
+    exceso sea positivo —donde el cociente sí ordena— y exceso×σ cuando es
+    negativo, que penaliza la volatilidad en vez de premiarla. Los dos tramos se
+    pegan en cero y **no compiten**: cualquier cartera con exceso positivo
+    puntúa por encima de cero y ninguna con exceso negativo llega, así que
+    mientras exista una cartera factible que supere a las letras el óptimo es
+    exactamente el máximo Sharpe de siempre. Sólo cambia el régimen en el que el
+    cociente había dejado de significar algo, y ahí `optimize_max_sharpe`
+    devuelve `sin_prima=True` para que la pantalla lo diga.
+
+    Reference: Israelsen (2005), "A refinement to the Sharpe ratio and
+        information ratio", Journal of Asset Management 5(6).
+    """
+    if port_vol <= 0:
+        return 0.0
+    exceso = port_return - rf_annual
+    return exceso / port_vol if exceso >= 0 else exceso * port_vol
 
 
 def risk_contribution(weights: np.ndarray, cov_matrix: np.ndarray) -> np.ndarray:
@@ -167,23 +207,27 @@ def optimize_max_sharpe(
     mean_returns, cov_matrix = moments["mean"], moments["cov"]
     lb, ub = effective_bounds(weight_bounds, allow_short)
 
-    def neg_sharpe(w: np.ndarray) -> float:
-        _, _, sharpe = portfolio_metrics(w, mean_returns, cov_matrix, rf_rate, periods_per_year)
-        return -sharpe
+    rf_annual = rf_rate * periods_per_year
+
+    def _puntuacion(w: np.ndarray) -> float:
+        port_return, port_vol, _ = portfolio_metrics(
+            w, mean_returns, cov_matrix, rf_rate, periods_per_year
+        )
+        return criterio_sharpe(port_return, port_vol, rf_annual)
 
     bounds = [(lb, ub)] * n
     constraints = [{"type": "eq", "fun": lambda w: np.sum(w) - 1}]
 
-    best_w, best_sharpe = None, -np.inf
+    best_w, best_score = None, -np.inf
     for x0 in _start_points(n, lb, ub):
         # The start point is itself a feasible candidate, which guarantees the
         # result can never be worse than equal weight.
-        _, _, s0 = portfolio_metrics(x0, mean_returns, cov_matrix, rf_rate, periods_per_year)
-        if s0 > best_sharpe:
-            best_w, best_sharpe = x0, s0
+        s0 = _puntuacion(x0)
+        if s0 > best_score:
+            best_w, best_score = x0, s0
 
         result = minimize(
-            neg_sharpe,
+            lambda w: -_puntuacion(w),
             x0,
             method="SLSQP",
             bounds=bounds,
@@ -193,14 +237,21 @@ def optimize_max_sharpe(
         if not result.success:
             continue
         w = project_to_bounds(result.x, lb, ub)
-        _, _, sharpe = portfolio_metrics(w, mean_returns, cov_matrix, rf_rate, periods_per_year)
-        if sharpe > best_sharpe:
-            best_w, best_sharpe = w, sharpe
+        score = _puntuacion(w)
+        if score > best_score:
+            best_w, best_score = w, score
 
     if best_w is None:
         return {"converged": False, "message": "SLSQP no encontró una solución factible"}
 
     ret, vol, sharpe = portfolio_metrics(best_w, mean_returns, cov_matrix, rf_rate, periods_per_year)
+
+    # Que el óptimo salga con exceso negativo no es un detalle del ajuste: dice
+    # que **ninguna** cartera factible supera a las letras del Tesoro, porque si
+    # alguna lo hiciera el criterio la habría preferido (puntúa por encima de
+    # cero, y ésta no). Es la afirmación que la pantalla tiene que dar, y por eso
+    # viaja en el resultado en vez de deducirse otra vez arriba.
+    sin_prima = bool(ret - rf_annual < 0)
     return {
         "converged": True,
         "weights": best_w,
@@ -210,7 +261,16 @@ def optimize_max_sharpe(
         "risk_contribution": risk_contribution(best_w, cov_matrix),
         "cov_shrinkage": moments["cov_shrinkage"],
         "mean_shrinkage": moments["mean_shrinkage"],
-        "message": "OK",
+        "mean": np.asarray(mean_returns, dtype=float),
+        "cov": np.asarray(cov_matrix, dtype=float),
+        "sin_prima": sin_prima,
+        "message": (
+            "Ningún activo supera la tasa libre de riesgo en este período: el "
+            "cociente de Sharpe deja de ordenar carteras y se ha maximizado el "
+            "criterio de Israelsen, que ahí penaliza la volatilidad en vez de "
+            "premiarla."
+            if sin_prima else "OK"
+        ),
     }
 
 
@@ -232,8 +292,95 @@ def _result(
         "risk_contribution": risk_contribution(weights, moments["cov"]),
         "cov_shrinkage": moments["cov_shrinkage"],
         "mean_shrinkage": moments["mean_shrinkage"],
+        # Los momentos con los que se ha optimizado de verdad, no los que quien
+        # llama pueda recalcular a su manera. La tabla de pesos de la pantalla
+        # imprimía la media **muestral** de cada activo mientras el optimizador
+        # trabajaba con las encogidas: MSFT «esperaba» un 12,4% y recibía un 27,8%
+        # de peso, y nadie podía entender su propia cartera desde la tabla que
+        # la describe.
+        "mean": np.asarray(moments["mean"], dtype=float),
+        "cov": np.asarray(moments["cov"], dtype=float),
+        # Ni mínima varianza ni paridad de riesgo miran los retornos esperados,
+        # así que su criterio no se rompe en un mercado bajista. Pero «esta
+        # cartera pierde contra las letras» se sigue queriendo decir en pantalla,
+        # y el contrato de las tres estrategias es el mismo.
+        "sin_prima": bool(ret - rf_rate * periods_per_year < 0),
         "message": "OK",
     }
+
+
+def _resolver_erc(
+    cov: np.ndarray,
+    n: int,
+    lb: float,
+    ub: float,
+) -> tuple[np.ndarray | None, float]:
+    """La mejor cartera de riesgo igualado dentro de la caja, y lo lejos que queda.
+
+    Devuelve `(pesos, desviación)`, donde la desviación es lo que se separa de
+    su objetivo la **peor** aportación al riesgo. Un promedio escondería justo
+    el caso que importa: una cartera con cuatro activos en su sitio y el quinto
+    en el 10% de la varianza cuando le tocaba el 20% es exactamente lo que no se
+    puede llamar paridad.
+
+    El objetivo no es convexo, así que un solo arranque puede dejar a SLSQP
+    parado en un óptimo local: con ocho activos y ningún tope se quedaba con un
+    activo al 0% de la varianza y devolvía «convergido». Los arranques extra
+    sólo se pagan cuando el primero no llega, que es el caso raro.
+    """
+    objetivo = 1.0 / n
+
+    def dispersion(w: np.ndarray) -> float:
+        variance = float(w @ cov @ w)
+        if variance <= 0:
+            return 1e6
+        contributions = w * (cov @ w) / variance
+        return float(np.sum((contributions - objetivo) ** 2))
+
+    def desviacion(w: np.ndarray) -> float:
+        return float(np.max(np.abs(risk_contribution(w, cov) - objetivo)))
+
+    bounds = [(lb, ub)] * n
+    constraints = [{"type": "eq", "fun": lambda w: np.sum(w) - 1}]
+
+    def intentar(x0: np.ndarray) -> np.ndarray | None:
+        result = minimize(
+            dispersion, x0, method="SLSQP", bounds=bounds,
+            constraints=constraints, options={"maxiter": 2000, "ftol": 1e-16},
+        )
+        return project_to_bounds(result.x, lb, ub) if result.success else None
+
+    # La inversa de la volatilidad ES la solución exacta cuando las
+    # correlaciones son cero, así que en cualquier mercado real cae muy cerca del
+    # óptimo: es el arranque que toca, y el reparto por igual —el único que había—
+    # no lo es. Con ocho activos donde uno era mucho más tranquilo que el resto,
+    # desde el reparto por igual SLSQP dejaba a ese activo en el 0% de la
+    # varianza; desde la inversa de la volatilidad iguala exactamente.
+    # El suelo es relativo a la mayor volatilidad y no absoluto: una serie
+    # constante daría 1/0 y un arranque de NaN que se lleva por delante el
+    # ajuste entero.
+    varianzas = np.diag(cov)
+    sigma = np.sqrt(np.maximum(varianzas, max(float(np.max(varianzas)), 0.0) * 1e-12))
+    inversa = 1.0 / sigma if np.all(sigma > 0) else np.ones(n)
+    arranques = [
+        project_to_bounds(inversa / inversa.sum(), lb, ub),
+        *_start_points(n, lb, ub),
+    ]
+
+    mejor_w, mejor_d = None, np.inf
+    for x0 in arranques:
+        w = intentar(x0)
+        if w is None:
+            continue
+        d = desviacion(w)
+        if d < mejor_d:
+            mejor_w, mejor_d = w, d
+        # La inversa de la volatilidad es el primer arranque y resuelve casi
+        # todos los casos; en cuanto uno iguala, los otros veinte no se pagan.
+        if mejor_d <= _TOLERANCIA_ERC:
+            break
+
+    return mejor_w, float(mejor_d)
 
 
 def optimize_min_variance(
@@ -293,27 +440,63 @@ def optimize_risk_parity(
     cov = moments["cov"]
     lb, ub = effective_bounds(weight_bounds, allow_short=False)
     lb = max(lb, 0.0)
-    target = 1.0 / n
 
-    def dispersion(w: np.ndarray) -> float:
-        variance = float(w @ cov @ w)
-        if variance <= 0:
-            return 1e6
-        contributions = w * (cov @ w) / variance
-        return float(np.sum((contributions - target) ** 2))
+    mejor, desviacion = _resolver_erc(cov, n, lb, ub)
+    if mejor is None:
+        return {
+            "converged": False,
+            "message": "SLSQP no encontró una cartera factible para igualar el riesgo",
+        }
 
-    result = minimize(
-        dispersion,
-        project_to_bounds(np.ones(n) / n, lb, ub),
-        method="SLSQP",
-        bounds=[(lb, ub)] * n,
-        constraints=[{"type": "eq", "fun": lambda w: np.sum(w) - 1}],
-        options={"maxiter": 2000, "ftol": 1e-16},
+    if desviacion <= _TOLERANCIA_ERC:
+        return _result(mejor, moments, rf_rate, periods_per_year) | {
+            "erc_exacto": True,
+            "erc_desviacion": desviacion,
+        }
+
+    # No iguala. Quedan dos explicaciones muy distintas y sólo una es culpa del
+    # ajuste: si la cartera ERC **sin tope** existe y se sale de la caja que el
+    # usuario fijó, entonces ninguna cartera dentro de la caja puede igualar, y
+    # lo que hay que decirle es que afloje el tope. Si en cambio la solución
+    # libre cabría, el tope no es el problema y no hemos sabido resolverlo.
+    libre, desviacion_libre = _resolver_erc(cov, n, 0.0, 1.0)
+    tope_manda = (
+        libre is not None
+        and desviacion_libre <= _TOLERANCIA_ERC
+        and (libre.max() > ub + 1e-9 or libre.min() < lb - 1e-9)
     )
-    if not result.success:
-        return {"converged": False, "message": result.message}
+    if not tope_manda:
+        return {
+            "converged": False,
+            "message": (
+                "No se ha podido igualar el riesgo entre los activos: la peor "
+                f"aportación se desvía {desviacion:.1%} de su objetivo. Prueba "
+                "con menos activos o con más historial."
+            ),
+        }
 
-    return _result(project_to_bounds(result.x, lb, ub), moments, rf_rate, periods_per_year)
+    contribuciones = risk_contribution(mejor, cov)
+    peor = int(np.argmax(np.abs(contribuciones - 1.0 / n)))
+    # Cuál de los dos límites es el que estorba, para no mandar al usuario a
+    # mover el deslizador equivocado.
+    if libre.max() > ub + 1e-9:
+        estorba = f"el peso máximo del {ub:.0%} por activo"
+        remedio = "Sube el peso máximo"
+    else:
+        estorba = f"el peso mínimo del {lb:.0%} por activo"
+        remedio = "Baja el peso mínimo"
+    return _result(mejor, moments, rf_rate, periods_per_year) | {
+        "erc_exacto": False,
+        "erc_desviacion": desviacion,
+        "message": (
+            f"Con estos límites no existe: igualar el riesgo pediría un peso de "
+            f"{libre[int(np.argmax(np.abs(libre - np.clip(libre, lb, ub))))]:.0%} "
+            f"en algún activo y {estorba} lo impide. Así, "
+            f"«{returns.columns[peor]}» aporta el {contribuciones[peor]:.0%} del "
+            f"riesgo en vez del {1.0 / n:.0%} que le tocaría. {remedio} si quieres "
+            "una paridad exacta."
+        ),
+    }
 
 
 STRATEGY_LABELS: dict[str, str] = {

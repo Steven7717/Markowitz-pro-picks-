@@ -20,6 +20,11 @@ from optimizer import STRATEGY_LABELS, optimize_portfolio
 # historial» sobre un año completo de datos.
 _TOLERANCIA_CALENDARIO = 0.95
 
+# Cuántos errores estándar tiene que medir el hueco contra 1/N antes de que la
+# pantalla se atreva a decir quién gana. El porqué del número está en
+# `veredicto`.
+_SIGMAS_VEREDICTO = 2.0
+
 
 def default_window_sizes(periods_per_year: int) -> tuple[int, int]:
     """Train on roughly two years, hold for roughly one quarter."""
@@ -79,6 +84,30 @@ def sharpe_standard_error(
     return float(np.sqrt((1.0 + sharpe**2 / (2.0 * periods_per_year)) / years))
 
 
+def retorno_stderr(
+    annual_vol: float,
+    n_periods: int,
+    periods_per_year: int,
+) -> float:
+    """Con qué precisión se conoce un retorno anual esperado. Muy poca.
+
+    SE(μ anual) = σ anual / √años, sin más: la media es el estadístico peor
+    medido de toda la optimización media-varianza, y por eso `estimators`
+    encoge las medias mucho más que la covarianza.
+
+    Cuánto pesa, con las cifras que la pantalla enseñaba: «Retorno anual
+    esperado 28,76%» sobre 500 observaciones diarias de una cartera al 24,8% de
+    volatilidad lleva un error estándar de 15,6 puntos porcentuales. El
+    intervalo al 95% va de -1,9% a 59,4% — y el número salía solo, con dos
+    decimales, mientras el Sharpe fuera de muestra sí llevaba su barra. El 2%
+    que el usuario cree estar leyendo como precisión no existe.
+    """
+    years = n_periods / periods_per_year
+    if years <= 0 or annual_vol < 0:
+        return float("inf")
+    return float(annual_vol / np.sqrt(years))
+
+
 def sharpe_difference_standard_error(
     a: np.ndarray,
     b: np.ndarray,
@@ -128,6 +157,95 @@ def sharpe_difference_standard_error(
     return float(np.sqrt(max(variance, 0.0)) * np.sqrt(periods_per_year))
 
 
+def veredicto(
+    gap: float,
+    gap_stderr: float,
+    sigmas: float = _SIGMAS_VEREDICTO,
+) -> bool | None:
+    """¿Gana la optimización a repartir por igual? True, False, o «no se sabe».
+
+    **Dos errores estándar, no uno.** Un error estándar es ~1σ, y el convenio de
+    toda la estadística aplicada es 2σ (~95% a dos colas). Con 1σ el recuadro
+    verde de `st.success` —«La optimización supera a repartir por igual»— salía
+    en el **12%** de 200 mundos sintéticos construidos *sin ninguna ventaja
+    real*: uno de cada ocho usuarios sin ventaja leía que la tenía. A 2σ la cola
+    normal deja eso en ~2% por lado, que es el precio que este veredicto puede
+    permitirse: es la afirmación con más consecuencias de la aplicación.
+
+    El umbral no se revisó cuando `_componer` pasó de `sharpe_stderr` a
+    `gap_stderr`, y ese cambio es correcto y no se toca: el hueco es lo único
+    que puede justificar el veredicto. Pero el error de la diferencia es entre 3
+    y 12 veces menor que el del nivel, así que el mismo «1σ» pasó a ser un
+    liston entre 3 y 12 veces más bajo, y lo que antes casi nunca se superaba
+    empezó a superarse por azar.
+
+    Y sí, `research/timing.py:passes` se queda en 1σ, a sabiendas. Aquello es
+    una criba interna: un falso positivo cuesta otro experimento, y perder un
+    candidato real cuesta una idea. Esto es un recuadro verde en la pantalla de
+    alguien que va a repartir su dinero según lo que lea, y ahí el coste de los
+    dos errores no se parece en nada. El mismo listón para las dos cosas sería
+    la coherencia equivocada.
+
+    None significa «estos datos no distinguen las dos carteras», que no es lo
+    mismo que False —«pierde»— y por eso hay tres estados y no dos. El precio de
+    pedir 2σ está escrito y medido en
+    `tests/test_validation.py::test_el_precio_de_pedir_dos_sigmas_es_callar_en_los_casos_justos`:
+    un mundo con ventaja real a 1,91σ ahora se calla.
+    """
+    if not np.isfinite(gap_stderr) or gap_stderr < 0:
+        return None
+    if abs(gap) <= sigmas * gap_stderr:
+        return None
+    return bool(gap > 0)
+
+
+def _es(x: float, decimales: int = 2) -> str:
+    """Un número con la coma decimal que usa el resto de la aplicación."""
+    return f"{x:.{decimales}f}".replace(".", ",")
+
+
+def frase_veredicto(
+    gap: float,
+    gap_stderr: float,
+    sigmas: float = _SIGMAS_VEREDICTO,
+) -> str:
+    """El veredicto en una línea, **con el liston contra el que se dictó**.
+
+    Vive aquí y no en la pantalla porque hay dos pantallas —el optimizador y los
+    portafolios guardados— y sólo una lo escribía. La otra dejaba «Sharpe fuera
+    de muestra 2,24» en grande mientras el propio fichero guardaba que era
+    2,24 ± 2,10 e indistinguible de repartir por igual.
+
+    Y dice el umbral ya multiplicado. Escribir «±0,28» cuando lo que hay que
+    superar es 0,56 invita a que el lector compare su hueco contra el número
+    equivocado, que es exactamente el error que se está corrigiendo.
+    """
+    if not np.isfinite(gap_stderr) or gap_stderr < 0:
+        return (
+            "Sin error de medición no hay veredicto posible: no se puede decir si "
+            "esta cartera le gana a repartir por igual."
+        )
+    umbral = sigmas * gap_stderr
+    estado = veredicto(gap, gap_stderr, sigmas)
+    liston = (
+        f"hacen falta {_es(umbral)} de Sharpe "
+        f"({_es(sigmas, 0)} errores estándar de ±{_es(gap_stderr)})"
+    )
+    if estado is True:
+        return (
+            f"Supera a repartir por igual por {_es(gap)} de Sharpe, y {liston}."
+        )
+    if estado is False:
+        return (
+            f"Queda por debajo de repartir por igual en {_es(abs(gap))} de "
+            f"Sharpe, y {liston}."
+        )
+    return (
+        f"Estos datos no distinguen esta cartera de repartir por igual: las "
+        f"separan {_es(gap)} de Sharpe y {liston}."
+    )
+
+
 def _annualised_sharpe(
     period_returns: np.ndarray,
     rf_rate: float,
@@ -158,7 +276,7 @@ def _ventanas(returns: pd.DataFrame, train_size: int, test_size: int):
 
 
 def _componer(
-    oos: np.ndarray,
+    oos_chunks: list[np.ndarray],
     benchmark: np.ndarray,
     in_sample_sharpes: list[float],
     rf_rate: float,
@@ -168,9 +286,25 @@ def _componer(
     test_size: int,
 ) -> dict:
     """El resultado de un recorrido ya terminado, con su veredicto."""
+    oos = np.concatenate(oos_chunks)
     in_sample = float(np.mean(in_sample_sharpes)) if in_sample_sharpes else float("nan")
     out_of_sample = _annualised_sharpe(oos, rf_rate, periods_per_year)
     equal_weight = _annualised_sharpe(benchmark, rf_rate, periods_per_year)
+
+    # El MISMO estimador que `in_sample`, para poder restarlos. `in_sample` es la
+    # media de un cociente por ventana y `out_of_sample` es el cociente de todas
+    # las observaciones juntas: restarlos —lo que hacía `degradation`— cruza dos
+    # estimadores distintos del mismo número. En la pantalla salía «-0,57» donde
+    # quien leía un 1,13 en muestra y un 0,80 fuera esperaba -0,33, y ninguno de
+    # los dos números de esa resta era el que tenía delante.
+    #
+    # El agrupado se queda como titular porque es el mejor de los dos: usa todas
+    # las observaciones a la vez, mientras que la media de cocientes la domina la
+    # ventana más afortunada (1,206 · 0,941 · 0,993 · 2,343 en el caso medido).
+    por_ventana = [
+        _annualised_sharpe(c, rf_rate, periods_per_year) for c in oos_chunks
+    ]
+    out_of_sample_medio = float(np.mean(por_ventana)) if por_ventana else float("nan")
 
     # Dos errores estándar porque son dos preguntas distintas. `sharpe_stderr`
     # dice con qué precisión se conoce el Sharpe de arriba; `gap_stderr` dice con
@@ -184,23 +318,30 @@ def _componer(
         oos, benchmark, rf_rate, periods_per_year
     )
 
-    # Only call a winner when the gap is bigger than the error bar on measuring
-    # it. Otherwise the honest answer is "this data cannot tell them apart".
+    # Only call a winner when the gap clears the error bar on measuring it, by
+    # the 2σ margin `veredicto` argues for. Otherwise the honest answer is
+    # "this data cannot tell them apart".
     gap = out_of_sample - equal_weight
-    beats_equal_weight = bool(gap > 0) if abs(gap) > gap_stderr else None
+    beats_equal_weight = veredicto(gap, gap_stderr)
 
     return {
         "n_windows": n_windows,
         "n_oos_periods": int(oos.size),
         "in_sample_sharpe": in_sample,
         "out_of_sample_sharpe": out_of_sample,
+        "out_of_sample_sharpe_medio": out_of_sample_medio,
         "equal_weight_sharpe": equal_weight,
         "sharpe_stderr": stderr,
         "gap_stderr": gap_stderr,
+        # La distancia que el hueco tiene que superar para que haya veredicto,
+        # ya multiplicada. La pantalla la escribe tal cual: decir «±0,28» cuando
+        # se está juzgando contra 0,56 invita a sumar mal.
+        "umbral_veredicto": _SIGMAS_VEREDICTO * gap_stderr,
+        "sigmas_veredicto": _SIGMAS_VEREDICTO,
         "beats_equal_weight": beats_equal_weight,
         "oos_return": float(oos.mean() * periods_per_year),
         "oos_vol": float(oos.std(ddof=1) * np.sqrt(periods_per_year)),
-        "degradation": in_sample - out_of_sample,
+        "degradation": in_sample - out_of_sample_medio,
         "train_size": train_size,
         "test_size": test_size,
     }
@@ -278,7 +419,7 @@ def walk_forward_validation(
         return None
 
     return _componer(
-        np.concatenate(oos_chunks),
+        oos_chunks,
         np.concatenate(benchmark_chunks),
         in_sample_sharpes,
         rf_rate,
@@ -357,7 +498,7 @@ def walk_forward_comparison(
     return {
         "por_estrategia": {
             n: _componer(
-                np.concatenate(oos_chunks[n]),
+                oos_chunks[n],
                 benchmark,
                 in_sample[n],
                 rf_rate,

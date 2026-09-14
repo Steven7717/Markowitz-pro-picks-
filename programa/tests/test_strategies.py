@@ -177,3 +177,229 @@ def test_strategies_accept_shrinkage(market):
             market, RF, PPY, (0.0, 1.0), False, strategy=strategy, shrinkage=True
         )
         assert result["cov_shrinkage"] > 0.0
+
+
+# ── Mercado bajista: nadie supera la tasa libre de riesgo ─────────────────────
+#
+# El hueco que dejó pasar el defecto: TODOS los tests de arriba usan `RF = 0` y
+# fixtures con deriva positiva, así que el numerador del Sharpe nunca llegaba a
+# ser negativo y la patología no podía aparecer. Aquí la tasa libre de riesgo es
+# real y la deriva es la de 2022.
+
+RF_REAL = 0.04 / PPY
+
+
+def _bajista(
+    medias: tuple[float, ...] = (-0.10, -0.12, -0.08),
+    vols: tuple[float, ...] = (0.15, 0.24, 0.46),
+    nombres: tuple[str, ...] = ("defensivo", "medio", "volatil"),
+    n_obs: int = 500,
+    seed: int = 7,
+) -> pd.DataFrame:
+    """Un mercado donde ningún activo renta lo que rentan las letras del Tesoro.
+
+    Las medias y las volatilidades **muestrales** se fijan exactamente a lo
+    pedido: lo que se está probando es cómo decide el optimizador dados unos
+    momentos, no si un generador aleatorio los reproduce.
+    """
+    rng = np.random.default_rng(seed)
+    mu = np.array(medias) / PPY
+    sigma = np.array(vols) / np.sqrt(PPY)
+    datos = rng.standard_normal((n_obs, len(medias)))
+    datos = datos - datos.mean(axis=0)
+    datos = datos / datos.std(axis=0, ddof=1) * sigma + mu
+    return pd.DataFrame(datos, columns=list(nombres))
+
+
+def test_max_sharpe_no_se_lleva_el_activo_mas_volatil_en_mercado_bajista():
+    """El defecto crítico: con el exceso negativo, maximizar S maximiza la vol.
+
+    Con todos los excesos esperados por debajo de cero, agrandar el denominador
+    acerca un número negativo a cero, así que el cociente premia exactamente lo
+    que debería penalizar. La aplicación entregaba el activo más volátil al
+    100%, convergido y sin un aviso.
+    """
+    resultado = optimize_max_sharpe(_bajista(), RF_REAL, PPY, (0.0, 1.0), False)
+    assert resultado["converged"]
+    assert resultado["weights"][2] < 0.5, "se va entero al activo más volátil"
+    assert resultado["annual_vol"] < 0.25, "la cartera hereda la volatilidad del peor"
+
+
+def test_max_sharpe_descarta_al_mas_volatil_aunque_sea_el_que_menos_pierde():
+    """El caso que ningún criterio sensato podría defender.
+
+    Aquí el activo más volátil es además el que peor renta: pierde más y tiembla
+    más. El cociente de Sharpe seguía prefiriéndolo —-0,16/0,46 = -0,35 contra
+    -0,12/0,15 = -0,80— porque sólo mira el cociente.
+    """
+    mercado = _bajista(medias=(-0.08, -0.10, -0.12), vols=(0.15, 0.24, 0.46))
+    resultado = optimize_max_sharpe(mercado, RF_REAL, PPY, (0.0, 1.0), False)
+    assert resultado["weights"][2] < 0.10
+    assert resultado["weights"][0] > 0.50
+
+
+def test_max_sharpe_avisa_de_que_en_este_regimen_no_hay_prima_que_maximizar():
+    """No basta con elegir mejor: hay que decir que el criterio cambió."""
+    resultado = optimize_max_sharpe(_bajista(), RF_REAL, PPY, (0.0, 1.0), False)
+    assert resultado["sin_prima"] is True
+    assert "libre de riesgo" in resultado["message"].lower()
+
+
+def test_a_igualdad_de_perdida_esperada_se_queda_con_la_cartera_mas_tranquila():
+    mercado = _bajista(
+        medias=(-0.10, -0.10), vols=(0.14, 0.40), nombres=("tranquilo", "nervioso")
+    )
+    resultado = optimize_max_sharpe(mercado, RF_REAL, PPY, (0.0, 1.0), False)
+    assert resultado["weights"][0] > resultado["weights"][1]
+
+
+def test_una_tasa_libre_de_riesgo_positiva_basta_para_entrar_en_el_regimen():
+    """Con rf = 0 la deriva del 2% parece prima; con rf = 4% no lo es.
+
+    Es literalmente el hueco de la suite: el mismo mercado, la misma
+    optimización, y sólo cambia la tasa contra la que se compara.
+    """
+    mercado = _bajista(medias=(0.02, 0.01, 0.03), vols=(0.15, 0.24, 0.46))
+    assert optimize_max_sharpe(mercado, 0.0, PPY, (0.0, 1.0), False)["sin_prima"] is False
+    caro = optimize_max_sharpe(mercado, RF_REAL, PPY, (0.0, 1.0), False)
+    assert caro["sin_prima"] is True
+    assert caro["weights"][2] < 0.5
+
+
+def test_en_un_mercado_normal_el_criterio_no_cambia(market):
+    """La corrección no puede tocar el caso de siempre.
+
+    Mientras exista una cartera factible con exceso positivo, el criterio de
+    Israelsen coincide con el cociente de Sharpe —cualquier cartera con exceso
+    negativo puntúa por debajo de cero y ninguna positiva lo hace— así que el
+    óptimo es el mismo de antes.
+    """
+    resultado = optimize_max_sharpe(market, RF, PPY, (0.0, 1.0), False)
+    assert resultado["sin_prima"] is False
+    ew = equal_weight_portfolio(market, RF, PPY)
+    assert resultado["sharpe"] >= ew["sharpe"] - 1e-9
+
+
+def test_el_aviso_de_regimen_viaja_por_la_interfaz_comun():
+    resultado = optimize_portfolio(
+        _bajista(), RF_REAL, PPY, (0.0, 1.0), False, strategy="max_sharpe"
+    )
+    assert resultado["sin_prima"] is True
+
+
+# ── Paridad de riesgo: «convergido» tiene que significar que iguala ───────────
+#
+# `optimize_risk_parity` arrancaba de un único punto sobre un objetivo que no es
+# convexo, aceptaba cualquier `success` de SLSQP y no miraba nunca el resultado.
+# `optimize_max_sharpe` usa 17 arranques justo por ese motivo. Con el tope del
+# 30% por defecto, 11 de 40 carteras de cinco activos salían desiguales y la
+# pantalla las llamaba «paridad de riesgo» igual.
+
+
+def _dispares(
+    vols: tuple[float, ...] = (0.08, 0.10, 0.55),
+    n_obs: int = 500,
+    rho: float = 0.2,
+    seed: int = 3,
+) -> pd.DataFrame:
+    """Activos con volatilidades muy distintas y una correlación suave."""
+    k = len(vols)
+    rng = np.random.default_rng(seed)
+    corr = np.full((k, k), rho)
+    np.fill_diagonal(corr, 1.0)
+    z = rng.standard_normal((n_obs, k)) @ np.linalg.cholesky(corr).T
+    z = (z - z.mean(0)) / z.std(0, ddof=1) * (np.array(vols) / np.sqrt(PPY))
+    return pd.DataFrame(z, columns=[f"A{i}" for i in range(k)])
+
+
+def test_paridad_de_riesgo_dice_cuando_ha_igualado_de_verdad(market):
+    rp = optimize_risk_parity(market, RF, PPY, (0.0, 1.0), False)
+    assert rp["erc_exacto"] is True
+    assert rp["erc_desviacion"] < 0.01
+
+
+def test_el_tope_puede_hacer_imposible_la_paridad_y_hay_que_decirlo():
+    """Tres activos dispares con tope del 34%: no hay cartera que iguale.
+
+    El tope encierra los pesos en [0.32, 0.34] —casi reparto por igual— y ahí el
+    activo volátil aporta el 88% del riesgo. Es infactible, no un fallo del
+    ajuste, y la diferencia importa: al usuario hay que decirle que afloje el
+    tope, no que vuelva a intentarlo.
+    """
+    rp = optimize_risk_parity(_dispares(), RF, PPY, (0.0, 0.34), False)
+    assert rp["converged"] is True
+    assert rp["erc_exacto"] is False
+    assert rp["erc_desviacion"] > 0.10
+    # Y el mensaje manda a mover el deslizador que de verdad estorba.
+    assert "peso máximo" in rp["message"].lower()
+    assert "sube el peso máximo" in rp["message"].lower()
+
+
+def test_el_tope_imposible_no_se_disfraza_de_fallo_de_convergencia():
+    """`converged=False` haría que el walk-forward tirase la ventana entera.
+
+    Y con el tope del 30% por defecto la tiraría casi siempre, que es peor que
+    enseñar una cartera imperfecta explicando en qué lo es.
+    """
+    rp = optimize_risk_parity(_dispares(), RF, PPY, (0.0, 0.34), False)
+    assert rp["converged"] is True
+    assert "weights" in rp and abs(rp["weights"].sum() - 1.0) < 1e-6
+
+
+def test_la_desviacion_es_la_peor_contribucion_contra_su_objetivo():
+    rp = optimize_risk_parity(_dispares(), RF, PPY, (0.0, 0.34), False)
+    contribuciones = rp["risk_contribution"]
+    peor = float(np.max(np.abs(contribuciones - 1.0 / len(contribuciones))))
+    assert rp["erc_desviacion"] == pytest.approx(peor, abs=1e-9)
+
+
+def test_un_solo_arranque_deja_a_un_activo_sin_riesgo_y_hay_que_reintentar():
+    """Ocho activos sin ningún tope: el óptimo existe y SLSQP no lo encontraba.
+
+    Desde el reparto por igual el ajuste se quedaba parado con un activo en el
+    0% de la varianza —una desviación de 0,125, que es el objetivo entero— y
+    devolvía «convergido». Aquí no hay tope que culpar: es el arranque.
+    """
+    rng = np.random.default_rng(0)
+    k = 8
+    vols = rng.uniform(0.05, 0.70, k)
+    betas = rng.uniform(-0.2, 2.0, k)
+    factor = rng.normal(0, 0.012, (700, 1))
+    datos = pd.DataFrame(
+        factor @ betas.reshape(1, -1) + rng.standard_normal((700, k)) * (vols / np.sqrt(250)),
+        columns=[f"A{i}" for i in range(k)],
+    )
+    rp = optimize_risk_parity(datos, RF, 250, (0.0, 1.0), False)
+    assert rp["converged"] is True
+    assert rp["erc_exacto"] is True, "sigue parado en un óptimo local"
+    assert rp["erc_desviacion"] < 0.01
+
+
+def test_con_tope_del_30_por_ciento_ninguna_cartera_miente_sobre_su_paridad():
+    """Las 40 carteras de cinco activos del informe, ahora etiquetadas.
+
+    No se exige que todas igualen —con el tope del 30% muchas no pueden— sino
+    que ninguna diga que iguala sin igualar.
+    """
+    for semilla in range(40):
+        rng = np.random.default_rng(semilla)
+        k = 5
+        vols = rng.uniform(0.08, 0.55, k)
+        betas = rng.uniform(0.3, 1.8, k)
+        factor = rng.normal(0, 0.010, (600, 1))
+        datos = pd.DataFrame(
+            factor @ betas.reshape(1, -1) + rng.standard_normal((600, k)) * (vols / np.sqrt(PPY)),
+            columns=[f"A{i}" for i in range(k)],
+        )
+        rp = optimize_risk_parity(datos, RF, PPY, (0.0, 0.30), False)
+        if not rp["converged"]:
+            continue
+        desigual = float(np.max(np.abs(rp["risk_contribution"] - 1.0 / k))) > 0.01
+        assert rp["erc_exacto"] is not desigual, f"semilla {semilla} se etiqueta mal"
+
+
+def test_el_aviso_de_paridad_viaja_por_la_interfaz_comun():
+    rp = optimize_portfolio(
+        _dispares(), RF, PPY, (0.0, 0.34), False, strategy="risk_parity"
+    )
+    assert rp["erc_exacto"] is False

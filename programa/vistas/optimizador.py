@@ -45,7 +45,7 @@ from optimizer import (
     simulate_portfolios,
     validate_constraints,
 )
-from validation import walk_forward_comparison
+from validation import frase_veredicto, retorno_stderr, walk_forward_comparison
 
 TICKERS_POR_DEFECTO = "AAPL, MSFT, GOOGL, AMZN, NVDA"
 
@@ -202,6 +202,51 @@ def _mostrar_escalera(peldanos: list, n_obs: int) -> None:
         )
 
 
+# Si el aviso de tickers omitidos ya se ha pintado en ESTA re-ejecución. Es una
+# variable de módulo y no de sesión a propósito: Streamlit reejecuta el guion
+# entero en cada interacción, así que el módulo se recarga y la bandera se
+# reinicia sola, que es justo el alcance que hace falta.
+_omitidos_avisados = False
+
+# Los nombres ya usados, leidos una vez por re-ejecución en vez de una vez por
+# tecla: `cartera.nombres_usados()` abre y parsea todos los JSON guardados, y
+# esto se consulta desde un `text_input`, o sea en cada pulsación. Se vacía al
+# lanzar una corrida nueva y después de guardar, que son los dos momentos en que
+# la lista puede haber cambiado.
+_NOMBRES_USADOS: list[set[str]] = []
+
+
+def _nombres_usados() -> set[str]:
+    if not _NOMBRES_USADOS:
+        _NOMBRES_USADOS.append(cartera.nombres_usados())
+    return _NOMBRES_USADOS[0]
+
+
+def _avisar_omitidos(market: dict) -> None:
+    """Los tickers que se descartaron, dichos antes que nada.
+
+    Vivía en el camino de éxito, **después** de los seis `return None` de
+    `_ejecutar`. Reproducido con `AAPL, MSFT, ZZZZNOEXISTE`: el ticker malo se
+    descarta en `data.py`, quedan dos activos, y lo único que el usuario leía era
+    «Restricción infactible: peso máximo (30%) × 2 activos = 60% < 100%» — un
+    error sobre una restricción que él no había tocado, sin una palabra sobre el
+    ticker que la había provocado. Otra pantalla le promete además que «el fallo
+    aparecerá en el optimizador».
+
+    La causa va antes que el síntoma: quien ve primero «ZZZZNOEXISTE no existe»
+    entiende el resto de la pantalla; quien ve primero la restricción, no.
+    """
+    global _omitidos_avisados
+    if _omitidos_avisados or not market.get("invalid_tickers"):
+        return
+    _omitidos_avisados = True
+    st.warning(
+        "Activos no encontrados y omitidos: "
+        + ", ".join(market["invalid_tickers"])
+        + ". Todo lo que sigue se ha calculado sin ellos."
+    )
+
+
 def _ejecutar() -> dict | None:
     """Fetch, optimise and validate. Returns None once it has explained a stop.
 
@@ -217,6 +262,10 @@ def _ejecutar() -> dict | None:
 
     with st.spinner("Descargando datos de mercado…"):
         market = fetch_market_data(tuple(tickers), horizon)
+
+    # Lo primero que se pinta, porque es la causa de casi todo lo que puede
+    # fallar debajo.
+    _avisar_omitidos(market)
 
     valid_tickers = market["valid_tickers"]
     if len(valid_tickers) < 2:
@@ -363,6 +412,9 @@ if enviado:
     # es el error, no los resultados de la corrida anterior con los parámetros
     # nuevos escritos encima.
     st.session_state.pop("corrida", None)
+    # El informe pertenece a la corrida que lo generó.
+    st.session_state.pop("pdf_informe", None)
+    _NOMBRES_USADOS.clear()
     corrida = _ejecutar()
     if corrida is not None:
         st.session_state.corrida = corrida
@@ -398,10 +450,11 @@ periods_per_year = market["periods_per_year"]
 rf_anual = market["rf_rate"] * periods_per_year
 n_obs = market["n_obs"]
 
-if market["invalid_tickers"]:
-    st.warning(
-        "Activos no encontrados y omitidos: " + ", ".join(market["invalid_tickers"])
-    )
+# En la corrida que acaba de lanzarse esto ya lo dijo `_ejecutar` antes de
+# cualquier error; en las re-ejecuciones posteriores --cambiar de pestaña,
+# descargar-- lo dice aquí, para que el aviso no desaparezca mientras los
+# resultados que lo necesitan siguen en pantalla.
+_avisar_omitidos(market)
 if not market.get("rf_available", True):
     st.warning(
         f"^IRX no disponible. Se usa una tasa libre de riesgo de referencia: "
@@ -438,15 +491,27 @@ st.markdown(
 # Con la covarianza por pares, cada activo se describe con SU historia, que es
 # la que el optimizador ha mirado; sin ella, con la ventana comun de siempre.
 _serie_de = market["returns_amplios"] if corrida["pares"] else returns
+
+# **Los momentos que el optimizador miró, no los que se pueden recalcular.** La
+# tabla imprimía la media MUESTRAL de cada activo mientras el reparto se había
+# decidido con las encogidas al 77%, y los dos números no se parecían:
+#
+#     AAPL  tabla 24,75% / optimizador 27,88%    MSFT   tabla 12,40% / 25,01%
+#     GOOGL tabla 44,84% / optimizador 32,54%    NVDA   tabla 40,45% / 31,52%
+#
+# MSFT «esperaba» un 12,4% y recibía el 27,8% del dinero: la tabla que describe
+# la cartera hacía imposible entenderla. Ahora `optimize_portfolio` devuelve
+# `mean` y `cov`, y aquí se leen de ahí — con shrinkage y sin él, porque sin él
+# son exactamente los muestrales y la tabla no cambia.
+_mu_usada = np.asarray(optimal["mean"], dtype=float) * periods_per_year
+_vol_usada = np.sqrt(np.diag(np.asarray(optimal["cov"], dtype=float))) * np.sqrt(
+    periods_per_year
+)
 weights_df = pd.DataFrame({
     "Ticker": valid_tickers,
     "Peso Óptimo (%)": [f"{w:.2%}" for w in optimal["weights"]],
-    "Retorno Esperado (%)": [
-        f"{_serie_de[t].mean() * periods_per_year:.2%}" for t in valid_tickers
-    ],
-    "Volatilidad (%)": [
-        f"{_serie_de[t].std() * np.sqrt(periods_per_year):.2%}" for t in valid_tickers
-    ],
+    "Retorno Esperado (%)": [f"{m:.2%}" for m in _mu_usada],
+    "Volatilidad (%)": [f"{v:.2%}" for v in _vol_usada],
     "Contrib. Riesgo (%)": [f"{c:.2%}" for c in optimal["risk_contribution"]],
 })
 
@@ -485,7 +550,10 @@ fig_frontier = plot_efficient_frontier(
     strategy_label=STRATEGY_LABELS[corrida["estrategia"]],
 )
 fig_pie = plot_weights_pie(optimal["weights"], valid_tickers)
-fig_corr = plot_correlation_heatmap(returns)
+# `_serie_de` y no `returns`: con «covarianza por pares» marcado, la tabla de
+# arriba describe cada activo con SU historia y el mapa seguía dibujando la
+# ventana común, que es otra matriz.
+fig_corr = plot_correlation_heatmap(_serie_de)
 fig_comp = plot_comparison(
     valid_tickers, optimal["weights"], ew["weights"],
     optimal["annual_return"], ew["annual_return"],
@@ -499,16 +567,36 @@ resumen, validacion, graficos, exportar = st.tabs(
 # ── Resumen ──────────────────────────────────────────────────────────────────
 with resumen:
     k1, k2, k3, k4 = st.columns(4)
+    # «Sharpe (en muestra)» se llamaba igual que la columna de la tabla de
+    # validación, y eran dos números distintos: éste es UN ajuste sobre toda la
+    # muestra (salía 1,13), y aquél la media de los cocientes de
+    # cada ventana (salía 1,37, dominada por una de las cuatro: 1,206 · 0,941 ·
+    # 0,993 · 2,343). Dos etiquetas iguales sobre dos estimadores distintos
+    # invitan a restarlos, que es de donde salía la degradación imposible.
     k1.metric(
-        "Sharpe (en muestra)", f"{optimal['sharpe']:.2f}",
-        help="Medido sobre los mismos datos con los que se optimizó. Es una cota "
-        "superior, no una expectativa: el número que importa está en la pestaña "
-        "de validación.",
+        "Sharpe del ajuste único", f"{optimal['sharpe']:.2f}",
+        help=f"Un solo ajuste sobre las {n_obs} observaciones, medido sobre los "
+        "mismos datos con los que se optimizó. Es una cota superior, no una "
+        "expectativa: el número que importa está en la pestaña de validación, y "
+        "el «Sharpe medio en muestra» de allí es otro estimador —la media de las "
+        "ventanas— que no se puede comparar con éste.",
     )
+    # **Con su barra de error, como el Sharpe.** «28,76%» a dos decimales sobre
+    # 500 observaciones lleva un error estándar de 15,6 puntos porcentuales: el
+    # intervalo al 95% iba de -1,9% a 59,4%, y la pantalla ponía barra de error al
+    # Sharpe fuera de muestra y no a esto. La media es el estadístico peor medido
+    # de toda la optimización media-varianza —por eso `estimators` la encoge más
+    # que la covarianza— y enseñarla desnuda con dos decimales promete una
+    # precisión que no existe.
+    _se_retorno = retorno_stderr(optimal["annual_vol"], n_obs, periods_per_year)
     k2.metric(
-        "Retorno anual esperado", f"{optimal['annual_return']:.2%}",
+        "Retorno anual esperado",
+        f"{optimal['annual_return']:.1%} ± {_se_retorno:.1%}",
         help="Media aritmética anualizada (μ×períodos), la convención de Markowitz. "
-        "No es un CAGR: no es la tasa a la que capitaliza una inversión.",
+        "No es un CAGR: no es la tasa a la que capitaliza una inversión. El ± es un "
+        f"error estándar sobre {n_obs} observaciones; el intervalo al 95% son dos, "
+        f"o sea de {optimal['annual_return'] - 2 * _se_retorno:.1%} a "
+        f"{optimal['annual_return'] + 2 * _se_retorno:.1%}.",
     )
     k3.metric("Volatilidad anual", f"{optimal['annual_vol']:.2%}")
     k4.metric(
@@ -525,30 +613,32 @@ with resumen:
             "horizonte. Sin esa validación, el Sharpe de arriba no está verificado."
         )
     else:
+        # El listón va escrito en la frase, no reconstruido aquí: son dos
+        # errores estándar, no uno, y con uno solo este recuadro verde salía en
+        # el 12% de 200 mundos sintéticos SIN ninguna ventaja real. El porqué del
+        # número está en `validation.veredicto`.
         hueco = wf["out_of_sample_sharpe"] - wf["equal_weight_sharpe"]
+        _marco = f"{wf['n_windows']} ventanas · {wf['n_oos_periods']} períodos"
+        _frase = frase_veredicto(hueco, wf["gap_stderr"])
+        _cifras = (
+            f"Fuera de muestra: Sharpe {wf['out_of_sample_sharpe']:.2f} frente a "
+            f"{wf['equal_weight_sharpe']:.2f} de Equal Weight ({_marco})."
+        )
         if wf["beats_equal_weight"] is None:
             st.info(
                 f"**Con estos datos no se puede distinguir la optimización de "
-                f"repartir por igual.** La diferencia es {abs(hueco):.2f} de Sharpe "
-                f"y el error de medir esa diferencia es ±{wf['gap_stderr']:.2f}: cabe "
-                f"dentro del ruido. Hacen falta más ventanas (hay {wf['n_windows']}); "
-                "elige un horizonte con más historial."
+                f"repartir por igual.** {_frase} {_cifras} Elige un horizonte con "
+                "más historial si quieres un veredicto."
             )
         elif wf["beats_equal_weight"] is False:
             st.warning(
                 f"**La optimización queda por debajo de repartir por igual.** "
-                f"Fuera de muestra logra Sharpe {wf['out_of_sample_sharpe']:.2f} "
-                f"frente a {wf['equal_weight_sharpe']:.2f} de Equal Weight, una "
-                f"diferencia de {abs(hueco):.2f} que supera el error de medir esa "
-                f"diferencia (±{wf['gap_stderr']:.2f}). Con esta selección y este "
-                "horizonte, la optimización está ajustando ruido."
+                f"{_frase} {_cifras} Con esta selección y este horizonte, la "
+                "optimización está ajustando ruido."
             )
         else:
             st.success(
-                f"**La optimización supera a repartir por igual.** Sharpe "
-                f"{wf['out_of_sample_sharpe']:.2f} frente a "
-                f"{wf['equal_weight_sharpe']:.2f}, una diferencia de {hueco:.2f} por "
-                f"encima del error de medir esa diferencia (±{wf['gap_stderr']:.2f})."
+                f"**La optimización supera a repartir por igual.** {_frase} {_cifras}"
             )
 
     if corrida["shrinkage"]:
@@ -563,6 +653,39 @@ with resumen:
         st.caption(
             "Estimación clásica (sin shrinkage): el Sharpe mostrado está inflado por "
             "error de estimación. Actívala en el panel de arriba."
+        )
+
+    # **Mercado bajista: el aviso que faltaba.** `optimize_max_sharpe` ya no
+    # entrega el activo más volátil al 100% cuando el exceso esperado es
+    # negativo, pero callarse el cambio de régimen sería la otra mitad del mismo
+    # fallo: un Sharpe negativo en pantalla no dice por sí solo que NINGUNA
+    # cartera factible supere a las letras del Tesoro, y esa es la afirmación.
+    if optimal.get("sin_prima"):
+        if corrida["estrategia"] == "max_sharpe":
+            st.warning(
+                "**Ningún reparto de estos activos supera a la tasa libre de "
+                f"riesgo ({rf_anual:.2%} anual) en este período.** "
+                + optimal["message"]
+                + " El Sharpe de arriba es negativo y ordenar carteras por él deja "
+                "de tener sentido: comparar dos números negativos divididos por su "
+                "volatilidad premia a la más volátil."
+            )
+        else:
+            st.warning(
+                "**Esta cartera rinde por debajo de la tasa libre de riesgo "
+                f"({rf_anual:.2%} anual) sobre el período estimado.** El Sharpe de "
+                "arriba es negativo, y un Sharpe negativo no ordena: entre dos "
+                "carteras que pierden, la más volátil sale con el cociente más "
+                "alto. Léelo como «pierde», no como «pierde menos»."
+            )
+
+    # Paridad de riesgo que no ha podido igualar. `converged` sigue en True a
+    # propósito —es una cartera factible y útil— pero llamarla «paridad de
+    # riesgo» sin más sería falso: con el tope del 30% por defecto, 11 de 40
+    # carteras de cinco activos salían desiguales y ninguna lo decía.
+    if optimal.get("erc_exacto") is False:
+        st.warning(
+            f"**Esta cartera no llega a igualar el riesgo.** {optimal['message']}"
         )
 
     peso_max_real = float(optimal["weights"].max())
@@ -589,11 +712,27 @@ with validacion:
         )
     else:
         v1, v2, v3, v4 = st.columns(4)
+        # **Doble negación, flecha verde.** Estaba escrito `-degradation` (o sea
+        # ya negativo cuando el método empeora) con `delta_color="inverse"` (que
+        # pinta de verde lo negativo): «-0,57 vs en muestra» salía en VERDE, el
+        # color de «va bien», justo cuando significa que fuera de muestra rinde
+        # mucho peor. Con el signo ya invertido en el número, el color que toca
+        # es el normal.
+        #
+        # Y la referencia se nombra: la degradación resta la media por ventana,
+        # no el ajuste único del Resumen ni el agrupado de este mismo recuadro.
         v1.metric(
-            "Sharpe fuera de muestra", f"{wf['out_of_sample_sharpe']:.2f}",
-            delta=f"{-wf['degradation']:.2f} vs en muestra", delta_color="inverse",
+            "Sharpe fuera de muestra (agrupado)",
+            f"{wf['out_of_sample_sharpe']:.2f}",
+            delta=f"{-wf['degradation']:+.2f} vs. media en muestra",
+            delta_color="normal",
             help="Optimiza en una ventana, mantiene los pesos fijos en la siguiente "
-            "y repite. Este es el número que refleja lo que el método habría logrado.",
+            "y repite. Este es el número que refleja lo que el método habría logrado, "
+            "medido sobre todos los períodos fuera de muestra a la vez. La variación "
+            "de debajo compara dos medias por ventana entre sí —"
+            f"{wf['in_sample_sharpe']:.2f} dentro contra "
+            f"{wf['out_of_sample_sharpe_medio']:.2f} fuera— que son los dos números "
+            "que sí se pueden restar.",
         )
         v2.metric(
             "Equal Weight (1/N)", f"{wf['equal_weight_sharpe']:.2f}",
@@ -607,8 +746,23 @@ with validacion:
             f"Entrena con {wf['train_size']} períodos y mantiene {wf['test_size']} · "
             f"{wf['n_oos_periods']} períodos fuera de muestra en total · error del "
             f"Sharpe ±{wf['sharpe_stderr']:.2f} · error de la diferencia contra 1/N "
-            f"±{wf['gap_stderr']:.2f}."
+            f"±{wf['gap_stderr']:.2f}, y el veredicto pide superar "
+            f"{wf['umbral_veredicto']:.2f} (dos de ellos)."
         )
+
+        # El guardarraíl de muestra corta mira la muestra COMPLETA y nunca las
+        # ventanas de entrenamiento, que son mucho más cortas: en «1 Año» y «3
+        # Años» se entrena con 24 observaciones y la pantalla no decía nada.
+        _por_activo_entreno = wf["train_size"] / len(valid_tickers)
+        if _por_activo_entreno < 30:
+            st.warning(
+                f"**Cada ventana se entrena con {wf['train_size']} observaciones "
+                f"para {len(valid_tickers)} activos** "
+                f"({_por_activo_entreno:.0f} por activo, recomendado >30). El aviso "
+                "de muestra corta de arriba mira el historial entero; la validación "
+                "reoptimiza sobre trozos mucho más cortos, y ahí los pesos de cada "
+                "ventana son ruido aunque la muestra completa parezca suficiente."
+            )
 
         if wf["degradation"] > 1.0:
             st.warning(
@@ -626,19 +780,24 @@ with validacion:
             filas.append({
                 "Estrategia": etiqueta
                 + ("  ◄ seleccionada" if nombre == corrida["estrategia"] else ""),
-                "Sharpe en muestra": f"{res['in_sample_sharpe']:.2f}",
-                "Sharpe fuera de muestra": f"{res['out_of_sample_sharpe']:.2f}",
+                "Sharpe medio en muestra": f"{res['in_sample_sharpe']:.2f}",
+                "Sharpe medio fuera": f"{res['out_of_sample_sharpe_medio']:.2f}",
+                "Sharpe fuera agrupado": f"{res['out_of_sample_sharpe']:.2f}",
                 "Retorno anual (fuera)": f"{res['oos_return']:.1%}",
                 "Volatilidad (fuera)": f"{res['oos_vol']:.1%}",
+                # El listón ya multiplicado, no el error suelto: poner «±0,28»
+                # al lado de un hueco que se juzga contra 0,56 es pedirle al
+                # lector que compare contra el número equivocado.
                 "Diferencia vs 1/N": (
                     f"{res['out_of_sample_sharpe'] - res['equal_weight_sharpe']:+.2f}"
-                    f"  ±{res['gap_stderr']:.2f}"
+                    f"  (hace falta {res['umbral_veredicto']:.2f})"
                 ),
             })
         filas.append({
             "Estrategia": "Equal Weight 1/N (referencia)",
-            "Sharpe en muestra": "—",
-            "Sharpe fuera de muestra": f"{wf['equal_weight_sharpe']:.2f}",
+            "Sharpe medio en muestra": "—",
+            "Sharpe medio fuera": "—",
+            "Sharpe fuera agrupado": f"{wf['equal_weight_sharpe']:.2f}",
             "Retorno anual (fuera)": "—",
             "Volatilidad (fuera)": "—",
             "Diferencia vs 1/N": "—",
@@ -650,8 +809,11 @@ with validacion:
             f"{wf['n_windows']} ventanas y se miden contra el mismo 1/N"
             + (f", descartando {_descartadas} donde alguna no convergió" if _descartadas
                else "")
-            + ". Una diferencia contra 1/N menor que su propio error estándar "
-            "(la columna de la derecha) no se distingue del ruido."
+            + ". Una diferencia contra 1/N que no llegue a lo que pide la columna "
+            "de la derecha —dos errores estándar— no se distingue del ruido. "
+            "«Medio» es la media de los cocientes de cada ventana y «agrupado» el "
+            "cociente de todos los períodos juntos: son dos estimadores del mismo "
+            "número, y sólo los medios se pueden restar entre sí."
         )
 
 # ── Gráficos ─────────────────────────────────────────────────────────────────
@@ -688,7 +850,7 @@ with exportar:
     # todavia vacio o demasiado largo no es un error que toque gritar mientras
     # se escribe. `guardar` ya lo rechazara si llega asi.
     _comparable = " ".join(nombre.split())
-    if _comparable and _comparable in cartera.nombres_usados():
+    if _comparable and _comparable in _nombres_usados():
         st.warning(
             f"Ya tienes un portafolio llamado **{nombre.strip()}**. Guardar no "
             "lo sobrescribe: se quedan los dos, y en la lista se verán con el "
@@ -741,6 +903,7 @@ with exportar:
         # boton principal este mensaje no llega a leerse, porque `switch_page`
         # se lleva la pantalla en la misma re-ejecucion; alli el acuse es
         # aterrizar en el estreno con el nombre en el encabezado.)
+        _NOMBRES_USADOS.clear()
         st.success(f"Guardado en {destino}. Está en **Portafolios guardados**.")
         return portafolio
 
@@ -771,11 +934,43 @@ with exportar:
         use_container_width=True,
         icon=":material/table_view:",
     )
-    col_pdf.download_button(
-        "Descargar PDF",
-        data=to_pdf(weights_df, metrics, [fig_frontier, fig_pie, fig_corr, fig_comp]),
-        file_name=f"markowitz_{corrida['horizonte'].replace(' ', '_')}.pdf",
-        mime="application/pdf",
-        use_container_width=True,
-        icon=":material/picture_as_pdf:",
+    # **El PDF se genera cuando se pide, no en cada re-ejecución.** `data=` de
+    # `st.download_button` es un argumento normal: se evalúa SIEMPRE, y dentro
+    # hay cuatro `write_image` que arrancan Chromium por kaleido. Medido: 8,8
+    # segundos, sin caché, en cada cambio de pestaña, cada tecla del nombre del
+    # portafolio y cada pulsación de cualquier botón de la pantalla. El PDF
+    # estaba bien (33,8 KB); el problema era cuándo.
+    #
+    # El botón previo lo genera una vez y lo deja en sesión atado a la firma de
+    # esta corrida, para que una corrida nueva no ofrezca el informe de la
+    # anterior.
+    _firma_pdf = (
+        tuple(valid_tickers), corrida["horizonte"], corrida["estrategia"],
+        tuple(np.round(optimal["weights"], 8).tolist()),
     )
+    _pdf = st.session_state.get("pdf_informe")
+    if _pdf is not None and _pdf["firma"] != _firma_pdf:
+        _pdf = None
+        st.session_state.pop("pdf_informe", None)
+
+    if _pdf is None:
+        if col_pdf.button("Preparar PDF", use_container_width=True,
+                          icon=":material/picture_as_pdf:"):
+            with st.spinner("Generando el PDF (tarda unos segundos)…"):
+                st.session_state.pdf_informe = {
+                    "firma": _firma_pdf,
+                    "datos": to_pdf(
+                        weights_df, metrics,
+                        [fig_frontier, fig_pie, fig_corr, fig_comp],
+                    ),
+                }
+            st.rerun()
+    else:
+        col_pdf.download_button(
+            "Descargar PDF",
+            data=_pdf["datos"],
+            file_name=f"markowitz_{corrida['horizonte'].replace(' ', '_')}.pdf",
+            mime="application/pdf",
+            use_container_width=True,
+            icon=":material/picture_as_pdf:",
+        )

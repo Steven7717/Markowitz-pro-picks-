@@ -6,6 +6,7 @@ import streamlit as st
 import cartera
 import tema
 from optimizer import STRATEGY_LABELS
+from validation import frase_veredicto
 
 st.markdown(
     tema.cabecera(
@@ -159,10 +160,52 @@ for entrada in entradas:
 
         metricas = p.metricas or {}
         m1, m2, m3, m4 = st.columns(4)
-        m1.metric("Sharpe (en muestra)", cartera.formato_cifra(metricas.get("sharpe")))
-        m2.metric("Sharpe fuera de muestra", cartera.formato_cifra(metricas.get("oos_sharpe")))
-        m3.metric("Retorno anual", cartera.formato_porcentaje(metricas.get("annual_return")))
+        m1.metric(
+            "Sharpe del ajuste único",
+            cartera.formato_cifra(metricas.get("sharpe")),
+            help="Medido sobre los mismos datos con los que se optimizó ese día. "
+            "Es una cota superior, no una expectativa.",
+        )
+        m2.metric(
+            "Sharpe fuera de muestra",
+            cartera.formato_cifra(metricas.get("oos_sharpe")),
+            help="El único de los cuatro que se midió sobre datos que el "
+            "optimizador no había visto.",
+        )
+        # «Retorno anual» a secas, y sin la ayuda que sí tiene el optimizador: un
+        # guardado lucía **144,91%** como si fuera lo que la cartera renta. Es la
+        # media aritmética anualizada de la ventana con la que se optimizó —la
+        # convención de Markowitz— y ni capitaliza ni se espera que se repita.
+        m3.metric(
+            "Retorno anual esperado",
+            cartera.formato_porcentaje(metricas.get("annual_return")),
+            help="Media aritmética anualizada (μ×períodos) sobre la muestra con la "
+            "que se optimizó, la convención de Markowitz. No es un CAGR ni una "
+            "previsión: sobre unos pocos meses de datos esta cifra se dispara con "
+            "facilidad, y su error estándar es de varios puntos porcentuales.",
+        )
         m4.metric("Volatilidad anual", cartera.formato_porcentaje(metricas.get("annual_vol")))
+
+        # **El veredicto guardado, impreso.** El fichero ya llevaba
+        # `oos_gap_stderr` y `beats_equal_weight`, y esta pantalla no escribía
+        # ninguno de los dos: dejaba «Sharpe fuera de muestra 2,24» en grande
+        # mientras el JSON decía «2,24 ± 2,10, indistinguible de repartir por
+        # igual». El número grande sin su barra es el que se recuerda.
+        _oos = metricas.get("oos_sharpe")
+        _ew = metricas.get("oos_equal_weight_sharpe")
+        _gap_se = metricas.get("oos_gap_stderr")
+        if _oos is not None and _ew is not None and _gap_se is not None:
+            _frase = frase_veredicto(_oos - _ew, _gap_se)
+            _pintar = {True: st.success, False: st.warning}.get(
+                metricas.get("beats_equal_weight"), st.info
+            )
+            _pintar(f"{_frase} (Equal Weight: {cartera.formato_cifra(_ew)}.)")
+        elif _oos is not None:
+            st.info(
+                "Este fichero es anterior al error de la diferencia contra 1/N, "
+                "así que su Sharpe fuera de muestra no viene con barra de error y "
+                "no se puede decir si le ganaba a repartir por igual."
+            )
 
         with st.expander(f"Pesos de {p.nombre}"):
             st.dataframe(
