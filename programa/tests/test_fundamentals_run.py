@@ -8,6 +8,7 @@ import pytest
 from edgar.exceptions import CompanyNotFoundError
 
 from fundamentals.kpis import TODOS_LOS_KPIS
+from fundamentals.fetch import CorridaAbortada
 from fundamentals.run import (
     DIAS_HASTA_PRESENTACION,
     DIAS_HASTA_PRESENTACION_ANUAL,
@@ -15,23 +16,31 @@ from fundamentals.run import (
     build_panel,
 )
 
+# En millones de dolares, igual que la empresa sintetica de
+# tests/test_fundamentals_kpis.py y por el mismo motivo: los minimos de
+# `fundamentals.kpis` son **economicos**, no numericos, asi que una empresa de
+# juguete con mil dolares de ingresos y quinientos de patrimonio los dispara y el
+# panel sale vacio sin que nada este mal. El BPA no se escala —es por accion— y
+# sigue cuadrando con la identidad: 100e6 / 50e6 = 2,00.
+M = 1e6
+
 BASE = {
-    "Revenues": 1000.0,
-    "CostOfGoodsAndServicesSold": 600.0,
-    "OperatingIncomeLoss": 200.0,
-    "NetIncomeLoss": 100.0,
+    "Revenues": 1000.0 * M,
+    "CostOfGoodsAndServicesSold": 600.0 * M,
+    "OperatingIncomeLoss": 200.0 * M,
+    "NetIncomeLoss": 100.0 * M,
     "EarningsPerShareDiluted": 2.0,
-    "DepreciationDepletionAndAmortization": 50.0,
-    "InterestExpense": 25.0,
-    "Assets": 2000.0,
-    "AssetsCurrent": 500.0,
-    "LiabilitiesCurrent": 250.0,
-    "StockholdersEquity": 500.0,
-    "LongTermDebt": 400.0,
-    "CashAndCashEquivalentsAtCarryingValue": 150.0,
-    "NetCashProvidedByUsedInOperatingActivities": 180.0,
-    "PaymentsToAcquirePropertyPlantAndEquipment": 60.0,
-    "WeightedAverageNumberOfDilutedSharesOutstanding": 50.0,
+    "DepreciationDepletionAndAmortization": 50.0 * M,
+    "InterestExpense": 25.0 * M,
+    "Assets": 2000.0 * M,
+    "AssetsCurrent": 500.0 * M,
+    "LiabilitiesCurrent": 250.0 * M,
+    "StockholdersEquity": 500.0 * M,
+    "LongTermDebt": 400.0 * M,
+    "CashAndCashEquivalentsAtCarryingValue": 150.0 * M,
+    "NetCashProvidedByUsedInOperatingActivities": 180.0 * M,
+    "PaymentsToAcquirePropertyPlantAndEquipment": 60.0 * M,
+    "WeightedAverageNumberOfDilutedSharesOutstanding": 50.0 * M,
 }
 
 INSTANTES = {
@@ -79,7 +88,7 @@ def sectores(tmp_path: Path) -> Path:
 def _construir(tickers, cache_dir, sectores, **kwargs):
     sin_precio = pd.Series(dtype="float64")
     with patch("fundamentals.fetch._fetch_facts", side_effect=lambda t: _facts(t)), \
-         patch("fundamentals.run._precios_por_periodo", return_value=sin_precio):
+         patch("fundamentals.run._precios_por_periodo", return_value=(sin_precio, False)):
         return build_panel(tickers, cache_dir=cache_dir, sectores_path=sectores, **kwargs)
 
 
@@ -124,7 +133,10 @@ def test_companies_are_scored_against_peers_in_the_same_calendar_quarter(cache_d
         return _facts(ticker, escala={"AAA": 1.0, "BBB": 2.0, "CCC": 3.0}[ticker])
 
     with patch("fundamentals.fetch._fetch_facts", side_effect=escalado), \
-         patch("fundamentals.run._precios_por_periodo", return_value=pd.Series(dtype="float64")):
+         patch(
+             "fundamentals.run._precios_por_periodo",
+             return_value=(pd.Series(dtype="float64"), False),
+         ):
         panel, _, _ = build_panel(
             ["AAA", "BBB", "CCC"], cache_dir=cache_dir, sectores_path=sectores, con_zscore=True
         )
@@ -147,7 +159,10 @@ def test_missing_concepts_are_reported_per_ticker(cache_dir, sectores):
         return f[~f["concept"].str.endswith("PaymentsToAcquirePropertyPlantAndEquipment")]
 
     with patch("fundamentals.fetch._fetch_facts", side_effect=sin_capex), \
-         patch("fundamentals.run._precios_por_periodo", return_value=pd.Series(dtype="float64")):
+         patch(
+             "fundamentals.run._precios_por_periodo",
+             return_value=(pd.Series(dtype="float64"), False),
+         ):
         panel, _, cobertura = build_panel(
             ["AAA"], cache_dir=cache_dir, sectores_path=sectores
         )
@@ -163,7 +178,10 @@ def test_a_failed_ticker_does_not_abort_the_whole_run(cache_dir, sectores):
         return _facts(ticker)
 
     with patch("fundamentals.fetch._fetch_facts", side_effect=una_falla), \
-         patch("fundamentals.run._precios_por_periodo", return_value=pd.Series(dtype="float64")):
+         patch(
+             "fundamentals.run._precios_por_periodo",
+             return_value=(pd.Series(dtype="float64"), False),
+         ):
         panel, _, cobertura = build_panel(
             ["AAA", "BBB", "CCC"], cache_dir=cache_dir, sectores_path=sectores
         )
@@ -174,7 +192,10 @@ def test_a_failed_ticker_does_not_abort_the_whole_run(cache_dir, sectores):
 def test_a_company_with_too_few_quarters_is_marked_but_kept(cache_dir, sectores):
     """Sin 5 trimestres no hay crecimiento interanual, pero los niveles sirven."""
     with patch("fundamentals.fetch._fetch_facts", side_effect=lambda t: _facts(t, n=3)), \
-         patch("fundamentals.run._precios_por_periodo", return_value=pd.Series(dtype="float64")):
+         patch(
+             "fundamentals.run._precios_por_periodo",
+             return_value=(pd.Series(dtype="float64"), False),
+         ):
         panel, _, cobertura = build_panel(
             ["AAA"], cache_dir=cache_dir, sectores_path=sectores
         )
@@ -195,7 +216,7 @@ def test_the_price_is_taken_after_the_results_became_public():
     trimestre = pd.DatetimeIndex([pd.Timestamp("2024-03-31")])
 
     with patch("research.loader.load_ohlcv", return_value=(panel, None)):
-        precios = _precios_por_periodo("AAA", trimestre)
+        precios, _ = _precios_por_periodo("AAA", trimestre)
 
     serie = panel[("Close", "AAA")]
     publicacion = trimestre[0] + pd.Timedelta(days=DIAS_HASTA_PRESENTACION)
@@ -233,7 +254,7 @@ def test_an_annual_close_is_priced_after_the_ten_k_deadline_not_the_ten_q_one():
     presentado = pd.Timestamp("2025-09-26")
 
     with patch("research.loader.load_ohlcv", return_value=(panel, None)):
-        precios = _precios_por_periodo(
+        precios, _ = _precios_por_periodo(
             "AAA", pd.DatetimeIndex([cierre]), cierres_anuales=pd.DatetimeIndex([cierre])
         )
 
@@ -249,7 +270,7 @@ def test_a_quarterly_close_keeps_the_shorter_lag():
     cierre = pd.Timestamp("2025-03-31")
 
     with patch("research.loader.load_ohlcv", return_value=(panel, None)):
-        precios = _precios_por_periodo(
+        precios, _ = _precios_por_periodo(
             "AAA", pd.DatetimeIndex([cierre]), cierres_anuales=pd.DatetimeIndex([])
         )
 
@@ -284,3 +305,115 @@ def test_the_download_window_reaches_the_latest_pricing_date():
 def test_the_annual_deadline_is_longer_than_the_quarterly_one():
     """Una regresion que los igualase devolveria el look-ahead sin romper nada."""
     assert DIAS_HASTA_PRESENTACION_ANUAL > DIAS_HASTA_PRESENTACION
+
+
+# ── Una descarga de precios que falla deja de ser un silencio ─────────────────
+#
+# La clave de `research/.cache` es (ticker, inicio, fin), y el desfase hasta la
+# presentación mueve el `fin`. Cuando pasó de 45 a 65 días, 70 de las 502 claves
+# dejaron de acertar —CPRT, JKHY y MU entre ellas, tres de las quince
+# finalistas—. Sin red, esas 70 se quedaban sin los cuatro KPIs de valoración y
+# caían por `pilar_sin_datos` sin que nada dijera que la causa había sido la
+# caché: el resultado era indistinguible del de una empresa que no cotiza.
+
+
+def _panel_vacio_con_fallo(tickers, start, end, **kwargs):
+    from research.loader import CoverageReport as CoberturaPrecios
+
+    return pd.DataFrame(), CoberturaPrecios(requested=list(tickers), failed_download=list(tickers))
+
+
+def _una_descarga_buena(tickers, start, end, **kwargs):
+    """AAA se sirve de caché y el resto falla: la caché a medias de verdad."""
+    from research.loader import CoverageReport as CoberturaPrecios
+
+    if list(tickers) == ["AAA"]:
+        return _panel_de_cierres(), CoberturaPrecios(requested=["AAA"], included=["AAA"])
+    return _panel_vacio_con_fallo(tickers, start, end, **kwargs)
+
+
+def test_a_failed_price_download_is_told_apart_from_a_company_without_prices(
+    cache_dir, sectores
+):
+    """Son dos cosas distintas y acaban igual de vacías: hay que poder leerlas
+    aparte. Una dice «esta empresa no cotiza en la ventana», la otra dice «no
+    hemos podido preguntarlo», y sólo la segunda se arregla volviendo a correr.
+    """
+    with patch("fundamentals.fetch._fetch_facts", side_effect=lambda t: _facts(t)), \
+         patch("research.loader.load_ohlcv", side_effect=_una_descarga_buena):
+        _, _, cobertura = build_panel(
+            ["AAA", "BBB", "CCC"], cache_dir=cache_dir, sectores_path=sectores
+        )
+
+    assert cobertura.failed_price_download == ["BBB", "CCC"]
+    assert cobertura.missing_price == []
+
+
+def test_a_company_whose_prices_do_not_reach_the_window_is_not_a_download_failure(
+    cache_dir, sectores
+):
+    """La caché respondió y no trae esas fechas. Contarlo como fallo de descarga
+    mandaría a revisar una red que funciona."""
+    vacio = pd.Series(dtype="float64")
+    with patch("fundamentals.fetch._fetch_facts", side_effect=lambda t: _facts(t)), \
+         patch("fundamentals.run._precios_por_periodo", return_value=(vacio, False)):
+        _, _, cobertura = build_panel(
+            ["AAA"], cache_dir=cache_dir, sectores_path=sectores
+        )
+
+    assert cobertura.failed_price_download == []
+    assert cobertura.missing_price == ["AAA"]
+
+
+def test_the_coverage_report_names_the_failed_price_downloads(cache_dir, sectores):
+    """Si no sale en el resumen, el recuento existe y nadie lo lee."""
+    with patch("fundamentals.fetch._fetch_facts", side_effect=lambda t: _facts(t)), \
+         patch("research.loader.load_ohlcv", side_effect=_una_descarga_buena):
+        _, _, cobertura = build_panel(
+            ["AAA", "BBB", "CCC"], cache_dir=cache_dir, sectores_path=sectores
+        )
+
+    assert "precio no descargado: 2" in cobertura.summary()
+
+
+def test_no_price_at_all_aborts_the_run_instead_of_ranking_on_three_pillars(
+    cache_dir, sectores
+):
+    """Que fallen todas no es que fallen las empresas: es que no hay fuente de
+    precios, y es la misma política que `load_facts` aplica a los hechos. Sin un
+    solo precio, el pilar de valoración se vacía para las 502 y `compuesto`
+    —que exige los cuatro pilares— devuelve un ranking vacío. Abortar diciendo
+    por qué es estrictamente mejor que entregar esa página en blanco.
+    """
+    with patch("fundamentals.fetch._fetch_facts", side_effect=lambda t: _facts(t)), \
+         patch("research.loader.load_ohlcv", side_effect=_panel_vacio_con_fallo):
+        with pytest.raises(CorridaAbortada) as excepcion:
+            build_panel(["AAA", "BBB"], cache_dir=cache_dir, sectores_path=sectores)
+
+    assert "precio" in str(excepcion.value).lower()
+
+
+def test_one_price_download_surviving_is_enough_not_to_abort(cache_dir, sectores):
+    """El tope es para «no hay fuente», no para «esta empresa no está en caché».
+    Con una sola descarga buena, la corrida sigue y las demás se anotan."""
+    with patch("fundamentals.fetch._fetch_facts", side_effect=lambda t: _facts(t)), \
+         patch("research.loader.load_ohlcv", side_effect=_una_descarga_buena):
+        _, _, cobertura = build_panel(
+            ["AAA", "BBB"], cache_dir=cache_dir, sectores_path=sectores
+        )
+
+    assert cobertura.failed_price_download == ["BBB"]
+
+
+def test_a_price_download_that_reports_nothing_is_not_read_as_a_failure():
+    """Los dobles de varios tests devuelven `(panel, None)` en vez de una
+    cobertura. Leer ese None como un fallo convertiría cada uno de ellos en un
+    aborto, así que la ausencia de informe se lee como «no se sabe», no como
+    «falló»."""
+    panel = _panel_de_cierres()
+    with patch("research.loader.load_ohlcv", return_value=(panel, None)):
+        precios, fallo = _precios_por_periodo(
+            "AAA", pd.DatetimeIndex([pd.Timestamp("2025-03-31")])
+        )
+    assert fallo is False
+    assert precios.notna().all()

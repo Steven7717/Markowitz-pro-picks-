@@ -17,6 +17,33 @@ _MIN_DENOMINADOR = 1e-6
 # coste financiero que cubrir, y el cociente mide redondeo en vez de solvencia.
 _MIN_GASTO_FINANCIERO = 1e6
 
+# El mismo argumento, extendido a los tres denominadores de balance. Todas las
+# guardas de este módulo filtraban por **signo** y ninguna por **magnitud**, así
+# que la numérica dejaba pasar cosas como éstas:
+#
+#   SW   2024-03-31 patrimonio_neto = 108 $     -> roe 1.768.518,52
+#                                                  precio_valor_libro 106.440.047,51
+#   SW   2024-06-30 patrimonio_neto = 14.462 $  -> roe 9.127,37
+#   MTD  2026-06-30 patrimonio_neto = 12,8 M    -> precio_valor_libro 2.259,85
+#   GDDY 2026-06-30 patrimonio_neto = 6,7 M     -> roe 35,84 (3.584% trimestral)
+#   CPT  2025-09-30 ingresos = 2.565.000 $      -> margen_neto 42,47 (4.247%)
+#                                                  margen_fcf 97,83
+#
+# Cien millones y no un millón, y el corte está medido, no elegido. Sobre las
+# 6.004 celdas de las 502 cachés: en ingresos hay doce celdas positivas por
+# debajo de 1e8 —entre 1,0 y 5,3 millones— y ninguna entre esos 5,3 millones y
+# los 91 millones del percentil 0,2, o sea que el umbral cae dentro de un hueco
+# vacío y separa los artefactos de la distribución real sin tocarla. En
+# patrimonio neto cuesta 16 celdas de 5.621 (el 0,28%), que son exactamente los
+# residuos de recompra del listado de arriba. En pasivo corriente cuesta 11 de
+# 5.004 y ahí no hay artefacto medido: va por prevención y por simetría, porque
+# el argumento —«no tiene pasivo corriente que cubrir»— es idéntico.
+#
+# Una sola constante para las tres porque el corte también es uno solo y por el
+# mismo motivo: es el suelo por debajo del cual, en una empresa del S&P 500, una
+# partida de balance ya no es una magnitud económica sino un residuo contable.
+_MIN_PARTIDA_DE_BALANCE = 1e8
+
 _TRIMESTRES_POR_ANO = 4
 
 KPIS_NIVEL = (
@@ -70,6 +97,26 @@ def _solo_positivo(serie: pd.Series) -> pd.Series:
     return valores.where(valores > _MIN_DENOMINADOR)
 
 
+def _con_suelo(serie: pd.Series, suelo: float = _MIN_PARTIDA_DE_BALANCE) -> pd.Series:
+    """Enmascara una partida de balance demasiado pequeña para ser un denominador.
+
+    Filtra por **magnitud**, no por signo, y por eso se aplica al valor absoluto:
+    un patrimonio de -108 dólares no es más medible que uno de +108, y un ROE es
+    igual de artificial con cualquiera de los dos. Quien además necesite que el
+    denominador sea positivo —un múltiplo, donde el signo destruye el orden— lo
+    encadena con `_solo_positivo`, que es lo que hace `precio_valor_libro`.
+
+    Ojo con el efecto perverso que motivó separar las dos cosas: `_solo_positivo`
+    sobre el patrimonio es lo que **fabricaba** el caso de MTD. Enmascaraba sus
+    seis trimestres de patrimonio negativo y dejaba pasar el único que rozaba el
+    cero por arriba —12,8 millones—, así que la guarda de signo no protegía del
+    ruido: seleccionaba el trimestre más ruidoso de los siete. El suelo es lo que
+    convierte esa selección en un descarte.
+    """
+    valores = pd.to_numeric(serie, errors="coerce")
+    return valores.where(valores.abs() >= suelo)
+
+
 def _ttm(serie: pd.Series) -> pd.Series:
     """Los últimos doce meses de un flujo: cuatro trimestres sumados.
 
@@ -88,6 +135,29 @@ def _ttm(serie: pd.Series) -> pd.Series:
     el denominador y dispararía el múltiplo justo en las empresas con menos
     historia, que es donde menos se puede permitir un número inventado; los tres
     primeros trimestres de un panel se quedan por tanto sin múltiplo de flujo.
+
+    El precio de esa exigencia está medido y se paga a sabiendas: un hueco
+    intermedio no cuesta un trimestre de múltiplo sino **cuatro**, porque ninguna
+    ventana que lo contenga se completa. A quien le falta un trimestre por año
+    —23 empresas de las 502, típicamente el Q4 que no se declara suelto— no le
+    queda ninguna ventana limpia, y el múltiplo desaparece del todo: el PER de
+    HAL pasó de 8 trimestres con dato a 0 el día que este TTM entró.
+
+    La salida tentadora era bajar `min_periods` a tres y reescalar la suma a un
+    año, y está descartada con números. Contrastado sobre las 502 cachés,
+    quitando un trimestre de cada ventana completa y comparando el estimado
+    contra el año real: el reescalado se equivoca con un error mediano del 6,3% y
+    un p90 del 43,9% en el BPA, y del 12,8% y el 63,4% en el flujo libre. Un PER
+    con un 44% de error en el p90 es un número inventado, y nada en la salida lo
+    distinguiría de uno medido — que es exactamente la clase de defecto que este
+    motor lleva varias rondas quitando.
+
+    El hueco se cierra en el origen y sólo donde se puede cerrar **midiendo**:
+    `fundamentals.concepts.completar_bpa_por_identidad` recupera el BPA que falta
+    desde el beneficio y el recuento de acciones del mismo informe, con un error
+    mediano del 0,30% y un p90 del 4,9%. Donde no hay identidad que aplicar
+    —amortización, capex, resultado de explotación— el hueco se queda, y lo que
+    se pierde es visible en la cobertura del pilar, no en un número falso.
 
     Asume, como `compute_growth`, que las filas son trimestres consecutivos del
     más antiguo al más reciente, que es como los entrega `quarterly_panel`.
@@ -133,13 +203,19 @@ def compute_levels(lineas: pd.DataFrame) -> pd.DataFrame:
     deuda_neta = l["deuda_total"] - l["efectivo"]
     fcf = l["flujo_operativo"] - l["capex"]
     capital_invertido = l["patrimonio_neto"] + l["deuda_total"] - l["efectivo"]
+    # Los tres denominadores de balance pasan por el mínimo económico antes de
+    # dividir. Ver `_MIN_PARTIDA_DE_BALANCE`: la guarda numérica sólo impide
+    # dividir por cero, y 108 dólares de patrimonio no son cero.
+    ingresos = _con_suelo(l["ingresos"])
+    patrimonio = _con_suelo(l["patrimonio_neto"])
+    pasivos_corrientes = _con_suelo(l["pasivos_corrientes"])
 
     return pd.DataFrame(
         {
-            "margen_bruto": _div(l["ingresos"] - l["coste_de_ventas"], l["ingresos"]),
-            "margen_operativo": _div(l["beneficio_operativo"], l["ingresos"]),
-            "margen_neto": _div(l["beneficio_neto"], l["ingresos"]),
-            "roe": _div(l["beneficio_neto"], l["patrimonio_neto"]),
+            "margen_bruto": _div(l["ingresos"] - l["coste_de_ventas"], ingresos),
+            "margen_operativo": _div(l["beneficio_operativo"], ingresos),
+            "margen_neto": _div(l["beneficio_neto"], ingresos),
+            "roe": _div(l["beneficio_neto"], patrimonio),
             "roic": _div(l["beneficio_neto"], capital_invertido),
             # El EBITDA va por `_solo_positivo` y no por `_div` a secas: con un
             # EBITDA negativo el cociente sale negativo y el signo -1 del
@@ -154,8 +230,8 @@ def compute_levels(lineas: pd.DataFrame) -> pd.DataFrame:
                     l["gasto_por_intereses"] >= _MIN_GASTO_FINANCIERO
                 ),
             ),
-            "razon_corriente": _div(l["activos_corrientes"], l["pasivos_corrientes"]),
-            "margen_fcf": _div(fcf, l["ingresos"]),
+            "razon_corriente": _div(l["activos_corrientes"], pasivos_corrientes),
+            "margen_fcf": _div(fcf, ingresos),
             # Con beneficio negativo el cociente cambia de signo y miente al
             # revés: quien quema caja perdiendo dinero sale con conversión
             # positiva. Es el mismo motivo por el que `_yoy` no crece desde una
@@ -243,7 +319,12 @@ def compute_valuation(lineas: pd.DataFrame, precios: pd.Series) -> pd.DataFrame:
             # la guarda estaba en el lado equivocado del cociente.
             "ev_ebitda": _div(_solo_positivo(valor_empresa), _solo_positivo(ebitda_ttm)),
             "precio_fcf": _div(capitalizacion, _solo_positivo(fcf_ttm)),
-            "precio_valor_libro": _div(capitalizacion, _solo_positivo(l["patrimonio_neto"])),
+            # Las dos guardas encadenadas y no una: el signo ordena y la
+            # magnitud mide. `_solo_positivo` solo era lo que fabricaba el
+            # 2.259,85 de MTD — ver `_con_suelo`.
+            "precio_valor_libro": _div(
+                capitalizacion, _solo_positivo(_con_suelo(l["patrimonio_neto"]))
+            ),
         },
         index=lineas.index,
     )

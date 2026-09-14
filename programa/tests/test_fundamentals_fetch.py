@@ -204,7 +204,14 @@ def test_coverage_summary_names_every_category(cache_dir):
     with patch("fundamentals.fetch._fetch_facts", side_effect=_facts):
         _, cobertura = load_facts(["AAA"], cache_dir=cache_dir)
     resumen = cobertura.summary()
-    for etiqueta in ("solicitados", "incluidos", "sin CIK", "sin sector", "sin precio"):
+    for etiqueta in (
+        "solicitados",
+        "incluidos",
+        "sin CIK",
+        "sin sector",
+        "sin precio",
+        "precio no descargado",
+    ):
         assert etiqueta in resumen
 
 

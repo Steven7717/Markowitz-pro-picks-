@@ -82,6 +82,16 @@ class CoverageReport:
     missing_concepts: dict[str, list[str]] = field(default_factory=dict)
     missing_sector: list[str] = field(default_factory=list)
     missing_price: list[str] = field(default_factory=list)
+    # `missing_price` y `failed_price_download` son dos cosas distintas por el
+    # mismo motivo que lo son `no_facts` y `failed_download`: la empresa que no
+    # cotizó en esa ventana y la petición de precios que no llegó a completarse.
+    # Las dos dejan el pilar de valoración vacío y la empresa fuera del ranking
+    # por `pilar_sin_datos`, así que sin separarlas el informe no distingue una
+    # empresa rara de una caché fría — y sólo la segunda se arregla volviendo a
+    # correr con red. La clave de `research/.cache` es (ticker, inicio, fin) y el
+    # desfase hasta la presentación mueve el `fin`: cuando pasó de 45 a 65 días,
+    # 70 de las 502 claves dejaron de acertar, CPRT, JKHY y MU entre ellas.
+    failed_price_download: list[str] = field(default_factory=list)
 
     def summary(self) -> str:
         return (
@@ -92,7 +102,8 @@ class CoverageReport:
             f"fallos de descarga: {len(self.failed_download)} | "
             f"historia corta: {len(self.short_history)} | "
             f"sin sector: {len(self.missing_sector)} | "
-            f"sin precio: {len(self.missing_price)}"
+            f"sin precio: {len(self.missing_price)} | "
+            f"precio no descargado: {len(self.failed_price_download)}"
         )
 
 

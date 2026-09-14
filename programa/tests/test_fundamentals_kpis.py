@@ -7,6 +7,8 @@ from fundamentals.kpis import (
     KPIS_NIVEL,
     KPIS_VALORACION,
     TODOS_LOS_KPIS,
+    _MIN_DENOMINADOR,
+    _MIN_PARTIDA_DE_BALANCE,
     compute_growth,
     compute_levels,
     compute_valuation,
@@ -325,3 +327,103 @@ def test_the_three_families_together_make_seventeen_kpis_with_no_duplicates():
     """
     assert len(TODOS_LOS_KPIS) == 17
     assert len(set(TODOS_LOS_KPIS)) == 17
+
+
+# ──────────────────────────────── mínimos económicos del denominador ─────────
+#
+# La guarda numérica `_MIN_DENOMINADOR = 1e-6` sólo impide dividir por cero. Las
+# partidas de este motor van en dólares crudos, así que la atraviesan 108 dólares
+# de patrimonio y dos millones y medio de ingresos, y el cociente que sale mide
+# redondeo contable en vez de economía. El precedente correcto ya estaba en el
+# módulo —`_MIN_GASTO_FINANCIERO`— y estas pruebas lo extienden a los tres
+# denominadores de balance que lo necesitaban.
+
+def test_a_residual_equity_yields_no_return_on_equity():
+    """SW declaró 108 dólares de patrimonio neto en 2024-03-31 y salió con un ROE
+    de 1.768.518,52; en 2024-06-30 declaró 14.462 y salió con 9.127,37. Una
+    empresa del S&P 500 con ese patrimonio no es infinitamente rentable: su
+    patrimonio es el residuo de una recompra, y el cociente no mide rentabilidad.
+    """
+    assert np.isnan(compute_levels(_lineas(patrimonio_neto=108.0)).loc[FECHA, "roe"])
+    assert np.isnan(compute_levels(_lineas(patrimonio_neto=14_462.0)).loc[FECHA, "roe"])
+
+
+def test_an_equity_worn_down_by_buybacks_yields_no_price_to_book():
+    """El caso que `_solo_positivo` fabricaba.
+
+    MTD llevaba seis trimestres con patrimonio negativo —enmascarados, y bien— y
+    en 2026-06-30 declaró 12,8 millones, el único que rozaba el cero por arriba.
+    La guarda de signo lo dejaba pasar y el precio/valor en libros salió 2.259,85
+    contra una mediana de panel de 3,63: el filtro de signo no protegía de nada,
+    seleccionaba el peor trimestre de los siete.
+    """
+    lineas = _lineas(patrimonio_neto=12.8 * M)
+    precios = pd.Series([40.0] * len(FECHAS), index=FECHAS)
+    assert np.isnan(compute_valuation(lineas, precios).loc[FECHA, "precio_valor_libro"])
+
+
+def test_a_residual_revenue_yields_no_margins():
+    """CPT declaró 2.565.000 dólares de ingresos en 2025-09-30 y Camden factura
+    unos 390 millones al trimestre. De ahí salieron un margen neto de 42,47
+    —4.247%— y un margen de FCF de 97,83, los dos dentro de la ventana que
+    puntúa. Y el daño no se queda en la empresa: en Real Estate 2025Q3 esa sola
+    celda subía la media del sector de 0,184 a 1,594 y multiplicaba por 36 su
+    desviación típica, con lo que el |z| medio del resto del sector caía de 0,762
+    a 0,186 — VICI leía -0,110 debiendo leer +2,688. Una celda corrupta no
+    ensucia una fila: anula la señal de todos sus pares.
+    """
+    resultado = compute_levels(_lineas(ingresos=2_565_000.0))
+    assert np.isnan(resultado.loc[FECHA, "margen_neto"])
+    assert np.isnan(resultado.loc[FECHA, "margen_fcf"])
+    assert np.isnan(resultado.loc[FECHA, "margen_operativo"])
+    assert np.isnan(resultado.loc[FECHA, "margen_bruto"])
+
+
+def test_a_residual_current_liability_yields_no_current_ratio():
+    """El mismo argumento que la cobertura de intereses: por debajo de este
+    mínimo la empresa no tiene una liquidez altísima, no tiene pasivo corriente
+    que cubrir, y la razón mide el redondeo del denominador."""
+    assert np.isnan(
+        compute_levels(_lineas(pasivos_corrientes=500_000.0)).loc[FECHA, "razon_corriente"]
+    )
+
+
+def test_the_economic_floor_does_not_touch_a_normal_company():
+    """El control: los mínimos tienen que quitar los artefactos y nada más."""
+    resultado = compute_levels(_lineas())
+    assert resultado.loc[FECHA, "roe"] == pytest.approx(0.20)
+    assert resultado.loc[FECHA, "margen_neto"] == pytest.approx(0.10)
+    assert resultado.loc[FECHA, "razon_corriente"] == pytest.approx(2.0)
+
+
+def test_the_floors_are_economic_and_not_numerical():
+    """Una regresión que los bajara a `_MIN_DENOMINADOR` no rompería ningún test
+    de los de arriba si el umbral no se afirma aquí explícitamente."""
+    assert _MIN_PARTIDA_DE_BALANCE > _MIN_DENOMINADOR * 1e10
+
+
+# ────────────────────── el TTM sigue exigiendo los cuatro trimestres ─────────
+
+def test_the_trailing_year_is_never_extrapolated_from_three_quarters():
+    """Decisión, no descuido: `min_periods` sigue en cuatro.
+
+    Un hueco cuesta cuatro trimestres de múltiplo en vez de uno, y eso es caro
+    —31 empresas tienen al menos un hueco de BPA y 23 tienen tres o más—, pero la
+    alternativa de sumar tres trimestres y reescalarlos a un año es peor.
+    Contrastado sobre las 502 cachés, quitando un trimestre de cada ventana
+    completa y comparando el estimado con el año real: el reescalado se equivoca
+    con un error mediano del 6,3% y un p90 del 43,9% en el BPA, y del 12,8% y el
+    63,4% en el flujo libre. Un PER con un 44% de error en el p90 no es un PER
+    con ruido: es un número inventado que nada en la salida distinguiría de uno
+    medido.
+
+    El hueco se cierra donde se puede cerrar midiendo, que es en el origen:
+    `fundamentals.concepts.completar_bpa_por_identidad` recupera el BPA que falta
+    desde el beneficio y las acciones del mismo informe, con un error mediano del
+    0,30%. Donde no hay identidad que aplicar —amortización, capex, resultado de
+    explotación— el hueco se queda y la pérdida se acepta.
+    """
+    lineas = _lineas()
+    lineas.loc[FECHAS[1], "bpa_diluido"] = np.nan
+    precios = pd.Series([40.0] * len(FECHAS), index=FECHAS)
+    assert np.isnan(compute_valuation(lineas, precios).loc[FECHA, "per"])
