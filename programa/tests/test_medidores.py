@@ -239,3 +239,25 @@ def test_lo_que_viene_del_fichero_se_escapa_antes_de_pegarlo():
     html = m.tarjeta_candidato(hostil)
     assert "<img" not in html
     assert "&lt;img" in html
+
+
+# ── Ninguna etiqueta promete un periodo que el numero no cubre ────────────────
+
+def test_the_labels_say_which_ratios_are_measured_on_a_single_quarter():
+    """Un numero trimestral con nombre de anual es una mentira de una palabra.
+
+    `deuda_neta_ebitda` y los tres multiplos de flujo pasaron a doce meses
+    moviles en `fundamentals/kpis.py`, asi que sus etiquetas ya dicen la verdad.
+    `roe` y `roic` siguen siendo flujo de un trimestre sobre un saldo de
+    balance: un ROE trimestral del 5% se lee como un 5% anual cuando es un 20%.
+    Mientras el calculo siga siendo trimestral, la etiqueta lo dice.
+    """
+    assert m.KPIS["roe"].etiqueta == "ROE trimestral"
+    assert m.KPIS["roic"].etiqueta == "ROIC trimestral"
+
+
+def test_the_labels_of_the_trailing_year_ratios_do_not_say_quarterly():
+    """El reverso del test anterior: lo que si cubre doce meses no se rotula
+    como trimestral, o la aclaracion pasaria a ser el error."""
+    for kpi in ("deuda_neta_ebitda", "per", "ev_ebitda", "precio_fcf"):
+        assert "trimestral" not in m.KPIS[kpi].etiqueta.lower()

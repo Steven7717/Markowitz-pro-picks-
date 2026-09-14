@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from fundamentals.panel import quarterly_panel
+from fundamentals.panel import cierres_de_ejercicio, quarterly_panel
 
 COLUMNAS = [
     "concept", "numeric_value", "unit", "period_type",
@@ -231,3 +231,95 @@ def test_a_concept_never_reported_still_appears_as_an_empty_column():
     panel = quarterly_panel(_facts(_trimestres()[:1]), {"Revenues", "NuncaReportado"})
     assert "NuncaReportado" in panel.columns
     assert panel["NuncaReportado"].isna().all()
+
+
+# ── Medias ponderadas frente a acumulados ─────────────────────────────────────
+
+ACCIONES = "us-gaap:WeightedAverageNumberOfDilutedSharesOutstanding"
+
+
+def _ytd(concept, valores, ano=2025, unit="USD"):
+    """El acumulado del ano hasta la fecha: 3 meses, 6, 9 y el ejercicio."""
+    limites = [
+        (f"{ano}-01-01", f"{ano}-03-31"),
+        (f"{ano}-01-01", f"{ano}-06-30"),
+        (f"{ano}-01-01", f"{ano}-09-30"),
+        (f"{ano}-01-01", f"{ano}-12-31"),
+    ]
+    return [
+        _hecho(concept, v, i, f, fy=ano, fp=("FY" if n == 3 else f"Q{n + 1}"), unit=unit)
+        for n, (v, (i, f)) in enumerate(zip(valores, limites))
+    ]
+
+
+def test_a_weighted_average_share_count_is_never_descumulated_as_a_flow():
+    """El recuento medio ponderado no es un acumulado: restarlo da basura.
+
+    CPRT declara 977.485.000 acciones hasta abril de 2025 y 977.563.000 hasta
+    julio; la resta, 78.000, es lo que el panel guardaba como «acciones del Q4»
+    y con lo que se calculaba la capitalizacion. Medido sobre las 502 empresas:
+    974 celdas nulas o negativas mas 473 positivas pero absurdas.
+
+    La media de n trimestres es la media de las n-1 anteriores mas la del
+    ultimo, asi que el trimestre sale de n*YTDn - (n-1)*YTDn-1, no de la resta.
+    """
+    filas = _ytd(ACCIONES, [1000.0, 1010.0, 1020.0, 1030.0], unit="shares")
+    panel = quarterly_panel(_facts(filas), {"WeightedAverageNumberOfDilutedSharesOutstanding"})
+    serie = panel["WeightedAverageNumberOfDilutedSharesOutstanding"]
+    assert serie.iloc[0] == pytest.approx(1000.0)
+    # 2*1010 - 1*1000 = 1020; 3*1020 - 2*1010 = 1040; 4*1030 - 3*1020 = 1060
+    assert list(serie.iloc[1:]) == pytest.approx([1020.0, 1040.0, 1060.0])
+
+
+def test_a_flow_is_still_descumulated_by_plain_subtraction():
+    """Contrastado en las cachés: la resta simple reproduce el trimestre
+    declarado con error mediano 0 en ingresos y en BPA, y 1,0 —o sea, del todo
+    equivocada— en el recuento de acciones."""
+    filas = _ytd("us-gaap:Revenues", [100.0, 250.0, 420.0, 600.0])
+    panel = quarterly_panel(_facts(filas), {"Revenues"})
+    assert list(panel["Revenues"]) == pytest.approx([100.0, 150.0, 170.0, 180.0])
+
+
+def test_the_fourth_quarter_of_a_weighted_average_comes_from_the_annual_average():
+    """El Q4 que el 10-K no publica: la media anual son las cuatro trimestrales,
+    asi que la que falta es 4*anual menos las tres declaradas, no la resta."""
+    filas = _trimestres(ACCIONES, (1000.0, 1010.0, 1020.0, 0.0))[:3] + [
+        _hecho(ACCIONES, 1020.0, "2025-01-01", "2025-12-31", fy=2025, fp="FY", unit="shares")
+    ]
+    panel = quarterly_panel(_facts(filas), {"WeightedAverageNumberOfDilutedSharesOutstanding"})
+    serie = panel["WeightedAverageNumberOfDilutedSharesOutstanding"]
+    # 4*1020 - (1000 + 1010 + 1020) = 1050
+    assert serie.iloc[3] == pytest.approx(1050.0)
+
+
+def test_a_derived_weighted_average_wildly_off_its_own_year_is_dropped():
+    """Un emisor de 52/53 semanas tiene trimestres desiguales y la aritmetica
+    se le va. Un recuento de acciones no se duplica ni se parte por la mitad en
+    un trimestre: fuera de ese margen no es una medicion, es ruido amplificado,
+    y un hueco declarado es preferible a una cifra inventada."""
+    filas = _ytd(ACCIONES, [1000.0, 200.0, 210.0, 220.0], unit="shares")
+    panel = quarterly_panel(_facts(filas), {"WeightedAverageNumberOfDilutedSharesOutstanding"})
+    serie = panel["WeightedAverageNumberOfDilutedSharesOutstanding"]
+    # 2*200 - 1000 = -600, que no es un recuento de acciones de nadie: el
+    # trimestre se queda sin cifra en vez de entrar con esa.
+    assert np.isnan(serie.reindex([pd.Timestamp("2025-06-30")]).iloc[0])
+    assert (serie.dropna() > 0).all()
+
+
+def test_the_fiscal_year_closes_are_the_ends_of_the_twelve_month_windows():
+    """El desfase hasta la presentacion depende de si el cierre es de ejercicio.
+
+    El mes de cierre no se puede leer del calendario: el de Apple es septiembre
+    y el de CPRT julio. Lo que si lo dice son las ventanas de doce meses que la
+    propia empresa declara.
+    """
+    filas = _trimestres()[:3] + [
+        _hecho("us-gaap:Revenues", 600.0, "2025-01-01", "2025-12-31", fy=2025, fp="FY")
+    ]
+    cierres = cierres_de_ejercicio(_facts(filas), {"Revenues"})
+    assert list(cierres) == [pd.Timestamp("2025-12-31")]
+
+
+def test_a_company_with_no_annual_window_declares_no_fiscal_year_close():
+    cierres = cierres_de_ejercicio(_facts(_trimestres()[:1]), {"Revenues"})
+    assert len(cierres) == 0

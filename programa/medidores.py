@@ -152,12 +152,25 @@ class Presentacion:
 # que está decidiendo. Los diecisiete van declarados uno a uno, y un test
 # comprueba que no falta ninguno: un KPI nuevo sin entrada aquí reventaría en
 # mitad de la página, con la lista a medio pintar.
+#
+# Ninguna etiqueta promete un periodo que su número no cubra. «Deuda neta /
+# EBITDA», «PER», «EV / EBITDA» y «Precio / flujo libre» van sin apellido
+# porque desde el arreglo de los múltiplos se calculan sobre doce meses
+# móviles, que es lo que esos cuatro nombres significan en cualquier sitio.
+# `roe` y `roic`, en cambio, siguen siendo el beneficio de **un** trimestre
+# sobre un saldo de balance, así que lo dicen: un ROE trimestral del 5% se lee
+# como un 5% anual cuando en realidad son cuatro veces más. Pasarlos también a
+# doce meses movería los números del pilar de calidad, y eso es una decisión del
+# dueño y no un arreglo de integridad; mientras no la tome, la etiqueta dice la
+# verdad de hoy, que es lo barato y lo honesto.
+# Los demás son cocientes de dos magnitudes del mismo periodo: el periodo se
+# cancela y no hay nada que aclarar.
 KPIS: dict[str, Presentacion] = {
     "margen_bruto": Presentacion("Margen bruto", PORCENTAJE),
     "margen_operativo": Presentacion("Margen operativo", PORCENTAJE),
     "margen_neto": Presentacion("Margen neto", PORCENTAJE),
-    "roe": Presentacion("ROE", PORCENTAJE),
-    "roic": Presentacion("ROIC", PORCENTAJE),
+    "roe": Presentacion("ROE trimestral", PORCENTAJE),
+    "roic": Presentacion("ROIC trimestral", PORCENTAJE),
     "deuda_neta_ebitda": Presentacion("Deuda neta / EBITDA", MULTIPLO),
     "cobertura_intereses": Presentacion("Cobertura de intereses", MULTIPLO),
     "razon_corriente": Presentacion("Razón corriente", MULTIPLO),

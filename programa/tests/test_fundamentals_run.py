@@ -8,7 +8,12 @@ import pytest
 from edgar.exceptions import CompanyNotFoundError
 
 from fundamentals.kpis import TODOS_LOS_KPIS
-from fundamentals.run import DIAS_HASTA_PRESENTACION, _precios_por_periodo, build_panel
+from fundamentals.run import (
+    DIAS_HASTA_PRESENTACION,
+    DIAS_HASTA_PRESENTACION_ANUAL,
+    _precios_por_periodo,
+    build_panel,
+)
 
 BASE = {
     "Revenues": 1000.0,
@@ -196,3 +201,86 @@ def test_the_price_is_taken_after_the_results_became_public():
     publicacion = trimestre[0] + pd.Timedelta(days=DIAS_HASTA_PRESENTACION)
     assert precios.iloc[0] == serie.asof(publicacion)
     assert precios.iloc[0] != serie.asof(trimestre[0])
+
+
+# ── El cierre de ejercicio se presenta mas tarde que un trimestre ─────────────
+
+def _panel_de_cierres() -> pd.DataFrame:
+    """Un panel de cierres diario con el numero de sesion como precio.
+
+    El precio es el ordinal de la sesion a proposito: asi el test puede afirmar
+    en que dia exacto se cotizo cada trimestre sin depender de ninguna serie.
+    """
+    fechas = pd.bdate_range("2024-01-01", periods=700)
+    return pd.DataFrame(
+        {("Close", "AAA"): np.arange(len(fechas), dtype="float64")},
+        index=fechas,
+        columns=pd.MultiIndex.from_tuples([("Close", "AAA")]),
+    )
+
+
+def test_an_annual_close_is_priced_after_the_ten_k_deadline_not_the_ten_q_one():
+    """El plazo del 10-K es de 60 dias, no los 40 del 10-Q.
+
+    Contrastado con las fechas de presentacion que las propias fichas traen
+    dentro: CPRT cerro el 2025-07-31 y presento su 10-K el 2025-09-26, 57 dias
+    despues; con 45 dias el motor cotizaba el 2025-09-14, doce dias ANTES de que
+    las cuentas existieran. Diez de las quince candidatas de la ultima corrida
+    usaban un precio anterior a la publicacion de sus cuentas.
+    """
+    panel = _panel_de_cierres()
+    cierre = pd.Timestamp("2025-07-31")
+    presentado = pd.Timestamp("2025-09-26")
+
+    with patch("research.loader.load_ohlcv", return_value=(panel, None)):
+        precios = _precios_por_periodo(
+            "AAA", pd.DatetimeIndex([cierre]), cierres_anuales=pd.DatetimeIndex([cierre])
+        )
+
+    serie = panel[("Close", "AAA")]
+    assert precios.iloc[0] == serie.asof(cierre + pd.Timedelta(days=DIAS_HASTA_PRESENTACION_ANUAL))
+    assert precios.iloc[0] >= serie.asof(presentado)
+
+
+def test_a_quarterly_close_keeps_the_shorter_lag():
+    """El 10-Q si llega a los 40 dias. Retrasar los cuatro trimestres al plazo
+    anual cotizaria tres de cada cuatro con veinte dias de rancio sin motivo."""
+    panel = _panel_de_cierres()
+    cierre = pd.Timestamp("2025-03-31")
+
+    with patch("research.loader.load_ohlcv", return_value=(panel, None)):
+        precios = _precios_por_periodo(
+            "AAA", pd.DatetimeIndex([cierre]), cierres_anuales=pd.DatetimeIndex([])
+        )
+
+    serie = panel[("Close", "AAA")]
+    assert precios.iloc[0] == serie.asof(cierre + pd.Timedelta(days=DIAS_HASTA_PRESENTACION))
+
+
+def test_the_download_window_reaches_the_latest_pricing_date():
+    """La ventana que se pide tiene que cubrir la fecha que luego se busca.
+
+    Si no, `asof` devuelve el ultimo cierre disponible en vez de nada, y el
+    precio sale rancio sin que nada lo diga — que es justo la clase de fallo
+    silencioso que este arreglo existe para quitar.
+    """
+    panel = _panel_de_cierres()
+    pedido = {}
+
+    def espiar(tickers, start, end, **kwargs):
+        pedido["start"], pedido["end"] = start, end
+        return panel, None
+
+    cierre = pd.Timestamp("2025-07-31")
+    with patch("research.loader.load_ohlcv", side_effect=espiar):
+        _precios_por_periodo(
+            "AAA", pd.DatetimeIndex([cierre]), cierres_anuales=pd.DatetimeIndex([cierre])
+        )
+
+    publicacion = cierre + pd.Timedelta(days=DIAS_HASTA_PRESENTACION_ANUAL)
+    assert pd.Timestamp(pedido["end"]) >= publicacion
+
+
+def test_the_annual_deadline_is_longer_than_the_quarterly_one():
+    """Una regresion que los igualase devolveria el look-ahead sin romper nada."""
+    assert DIAS_HASTA_PRESENTACION_ANUAL > DIAS_HASTA_PRESENTACION

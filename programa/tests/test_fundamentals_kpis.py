@@ -15,31 +15,44 @@ from fundamentals.kpis import (
 # Empresa sintetica: cada cifra elegida para que los KPIs salgan redondos.
 # Es el control negativo del motor — si un KPI no da su valor de aqui, el motor
 # esta mal, y ningun error puede disimularse en un promedio.
+# En millones de dolares, no en decenas. La guarda del gasto financiero es un
+# minimo **economico** —por debajo de un millon al trimestre no hay coste que
+# cubrir— asi que una empresa de juguete con 25 dolares de intereses la disparia
+# y el control negativo dejaria de medir lo que dice medir. Los cocientes salen
+# iguales a cualquier escala; el BPA no se escala, porque es por accion, y con
+# 50 millones de acciones cuadra con el beneficio: 100e6 / 50e6 = 2,00.
+M = 1e6
+
 EMPRESA = {
-    "ingresos": 1000.0,
-    "coste_de_ventas": 600.0,           # margen bruto = 40%
-    "beneficio_operativo": 200.0,       # margen operativo = 20%
-    "beneficio_neto": 100.0,            # margen neto = 10%
-    "depreciacion_amortizacion": 50.0,  # EBITDA = 250
-    "gasto_por_intereses": 25.0,        # cobertura = 200/25 = 8
-    "activos_totales": 2000.0,
-    "activos_corrientes": 500.0,
-    "pasivos_corrientes": 250.0,        # razon corriente = 2
-    "patrimonio_neto": 500.0,           # ROE = 100/500 = 20%
-    "deuda_total": 400.0,
-    "efectivo": 150.0,                  # deuda neta = 250; /EBITDA 250 = 1.0
-    "flujo_operativo": 180.0,
-    "capex": 60.0,                      # FCF = 120; margen 12%; FCF/BN = 1.2
+    "ingresos": 1000.0 * M,
+    "coste_de_ventas": 600.0 * M,           # margen bruto = 40%
+    "beneficio_operativo": 200.0 * M,       # margen operativo = 20%
+    "beneficio_neto": 100.0 * M,            # margen neto = 10%
+    "depreciacion_amortizacion": 50.0 * M,  # EBITDA = 250; TTM = 1000
+    "gasto_por_intereses": 25.0 * M,        # cobertura = 200/25 = 8
+    "activos_totales": 2000.0 * M,
+    "activos_corrientes": 500.0 * M,
+    "pasivos_corrientes": 250.0 * M,        # razon corriente = 2
+    "patrimonio_neto": 500.0 * M,           # ROE = 100/500 = 20%
+    "deuda_total": 400.0 * M,
+    "efectivo": 150.0 * M,                  # deuda neta = 250; /EBITDA TTM = 0.25
+    "flujo_operativo": 180.0 * M,
+    "capex": 60.0 * M,                      # FCF = 120; margen 12%; FCF/BN = 1.2
     "bpa_diluido": 2.0,
-    "acciones_diluidas": 50.0,
+    "acciones_diluidas": 50.0 * M,
 }
 
-FECHA = pd.Timestamp("2025-03-31")
+# Cuatro trimestres, no uno. Los multiplos de flujo se miden sobre doce meses
+# moviles, asi que una fila suelta no tiene TTM y la cuenta a mano no existiria.
+# Con cuatro trimestres identicos el TTM es cuatro veces la cifra trimestral, y
+# cada KPI sigue saliendo redondo a mano -- que es el punto de esta empresa.
+FECHAS = pd.date_range("2024-06-30", periods=4, freq="QE")
+FECHA = FECHAS[-1]
 
 
 def _lineas(**cambios) -> pd.DataFrame:
     datos = {**EMPRESA, **cambios}
-    return pd.DataFrame({k: [v] for k, v in datos.items()}, index=[FECHA])
+    return pd.DataFrame({k: [v] * len(FECHAS) for k, v in datos.items()}, index=FECHAS)
 
 
 def _serie(valores: list[float], columna: str) -> pd.DataFrame:
@@ -60,7 +73,8 @@ def _serie(valores: list[float], columna: str) -> pd.DataFrame:
         ("margen_neto", 0.10),
         ("roe", 0.20),
         ("roic", 100.0 / 750.0),      # BN / (patrimonio 500 + deuda 400 - efectivo 150)
-        ("deuda_neta_ebitda", 1.0),
+        # Deuda neta 250 sobre el EBITDA de doce meses, 4 x 250 = 1000.
+        ("deuda_neta_ebitda", 0.25),
         ("cobertura_intereses", 8.0),
         ("razon_corriente", 2.0),
         ("margen_fcf", 0.12),
@@ -95,9 +109,72 @@ def test_zero_revenue_yields_missing_margins():
     assert np.isnan(resultado.loc[FECHA, "margen_neto"])
 
 
-def test_negative_ebitda_still_produces_a_number():
-    """Un EBITDA negativo es informacion real, no un error: no debe suprimirse."""
-    assert compute_levels(_lineas(beneficio_operativo=-500.0)).loc[FECHA, "deuda_neta_ebitda"] < 0
+def test_negative_ebitda_yields_no_leverage_ratio():
+    """La guarda estaba en el lado equivocado del cociente.
+
+    Con EBITDA negativo, deuda/EBITDA sale negativa -- y el signo -1 del criterio
+    la premia como si fuese caja neta. En el panel real colapsaban las dos cosas
+    opuestas en 398 de 2.934 celdas: CSGP -670 y COIN -554 no tienen caja neta,
+    tienen EBITDA negativo con deuda encima. Un apalancamiento no se puede medir
+    contra un EBITDA que no existe; ausente es la unica lectura honesta.
+    """
+    assert np.isnan(
+        compute_levels(_lineas(beneficio_operativo=-500.0 * M)).loc[FECHA, "deuda_neta_ebitda"]
+    )
+
+
+def test_net_cash_still_shows_up_as_a_negative_leverage_ratio():
+    """Lo que si es caja neta se queda: una deuda menor que el efectivo es una
+    fortaleza real, y el signo -1 del criterio la recompensa con razon."""
+    resultado = compute_levels(_lineas(deuda_total=100.0 * M, efectivo=350.0 * M))
+    assert resultado.loc[FECHA, "deuda_neta_ebitda"] == pytest.approx(-0.25)
+
+
+def test_a_negligible_interest_expense_yields_no_coverage_ratio():
+    """1e-6 es una guarda numerica y las partidas van en dolares crudos.
+
+    ODFL declaro unos 2.000 dolares de gasto financiero en un trimestre y salio
+    con una cobertura de 169.027 veces, contra un p99 de 493 en todo el panel.
+    Eso no es una empresa solidisima: es una division por casi-cero con las
+    unidades del mundo real. Por debajo de un minimo economico el cociente mide
+    redondeo, no solvencia.
+    """
+    assert np.isnan(
+        compute_levels(_lineas(gasto_por_intereses=2000.0)).loc[FECHA, "cobertura_intereses"]
+    )
+
+
+def test_a_loss_yields_no_cash_conversion_ratio():
+    """Con beneficio negativo el cociente cambia de signo y miente al reves: una
+    empresa que quema caja perdiendo dinero sale con conversion positiva. Es el
+    mismo motivo por el que `_yoy` no crece desde una base negativa.
+    """
+    lineas = _lineas(beneficio_neto=-100.0 * M, flujo_operativo=10.0 * M, capex=60.0 * M)
+    assert np.isnan(compute_levels(lineas).loc[FECHA, "fcf_sobre_beneficio"])
+
+
+def test_the_leverage_ratio_is_measured_against_twelve_trailing_months():
+    """Mediana del universo con EBITDA de un trimestre: 7,24x. Real del S&P 500:
+    1,5-2,0x. `medidores.py` lo rotula «Deuda neta / EBITDA» y escribe «7,2x», o
+    sea que el usuario lee una empresa mediana como siete veces apalancada
+    cuando esta por debajo de dos.
+    """
+    trimestral = 250.0 / 250.0  # deuda neta 250 sobre el EBITDA de un trimestre
+    assert compute_levels(_lineas()).loc[FECHA, "deuda_neta_ebitda"] == pytest.approx(
+        trimestral / 4
+    )
+
+
+def test_the_first_quarters_have_no_trailing_twelve_month_ratio():
+    """Sumar los trimestres que haya subestimaria el denominador y dispararia el
+    multiplo. Un hueco declarado es preferible a un ano a medias."""
+    assert compute_levels(_lineas())["deuda_neta_ebitda"].iloc[:3].isna().all()
+
+
+def test_a_missing_quarter_breaks_the_trailing_year_rather_than_shrinking_it():
+    lineas = _lineas()
+    lineas.loc[FECHAS[1], "beneficio_operativo"] = np.nan
+    assert np.isnan(compute_levels(lineas).loc[FECHA, "deuda_neta_ebitda"])
 
 
 def test_zero_interest_expense_yields_missing_coverage():
@@ -161,17 +238,49 @@ def test_growth_on_an_empty_frame_yields_every_column():
 
 # ------------------------------------------------------------- valoracion
 
+def _precios(valor: float = 20.0) -> pd.Series:
+    return pd.Series([valor] * len(FECHAS), index=FECHAS)
+
+
 def test_each_valuation_kpi_matches_its_hand_computed_value():
-    """Precio 20, 50 acciones -> capitalizacion 1000. EV = 1000 + 400 - 150 = 1250."""
-    resultado = compute_valuation(_lineas(), pd.Series([20.0], index=[FECHA]))
-    assert resultado.loc[FECHA, "per"] == pytest.approx(10.0)                  # 20 / 2.0
+    """Precio 20, 50 acciones -> capitalizacion 1000. EV = 1000 + 400 - 150 = 1250.
+
+    Los denominadores de flujo van en doce meses moviles: BPA 4 x 2 = 8, EBITDA
+    4 x 250 = 1000, FCF 4 x 120 = 480. Los de balance -- patrimonio, deuda,
+    efectivo -- son instantaneas y entran tal cual.
+    """
+    resultado = compute_valuation(_lineas(), _precios())
+    assert resultado.loc[FECHA, "per"] == pytest.approx(2.5)                   # 20 / 8
     assert resultado.loc[FECHA, "precio_valor_libro"] == pytest.approx(2.0)    # 1000 / 500
-    assert resultado.loc[FECHA, "ev_ebitda"] == pytest.approx(5.0)             # 1250 / 250
-    assert resultado.loc[FECHA, "precio_fcf"] == pytest.approx(1000.0 / 120.0)
+    assert resultado.loc[FECHA, "ev_ebitda"] == pytest.approx(1.25)            # 1250 / 1000
+    assert resultado.loc[FECHA, "precio_fcf"] == pytest.approx(1000.0 / 480.0)
+
+
+def test_a_negative_enterprise_value_yields_no_ev_ebitda():
+    """`_solo_positivo` protegia el denominador y dejaba pasar el numerador.
+
+    LUV salio con -116,18 y CSGP con -46,00: con el signo -1 del criterio, un
+    -116 es la empresa mas barata de su sector. El propio docstring de
+    `_solo_positivo` dice que un EV/EBITDA negativo no ordena contra uno
+    positivo -- la guarda estaba en el lado equivocado del cociente.
+    """
+    lineas = _lineas(efectivo=5000.0 * M)  # caja muy por encima de la capitalizacion
+    assert np.isnan(compute_valuation(lineas, _precios()).loc[FECHA, "ev_ebitda"])
+
+
+def test_one_loss_quarter_no_longer_hides_behind_three_good_ones():
+    """`_solo_positivo` descarta el trimestre con BPA negativo, de modo que con el
+    multiplo trimestral quien pierde dinero un trimestre se puntuaba solo por sus
+    tres buenos. Sobre doce meses el trimestre malo entra en la cuenta.
+    """
+    lineas = _lineas()
+    lineas["bpa_diluido"] = [3.0, 3.0, 3.0, -8.0]
+    per = compute_valuation(lineas, _precios()).loc[FECHA, "per"]
+    assert per == pytest.approx(20.0)  # 20 / (3 + 3 + 3 - 8) = 20 / 1
 
 
 def test_every_declared_valuation_kpi_is_produced():
-    resultado = compute_valuation(_lineas(), pd.Series([20.0], index=[FECHA]))
+    resultado = compute_valuation(_lineas(), _precios())
     assert sorted(resultado.columns) == sorted(KPIS_VALORACION)
 
 
@@ -184,19 +293,19 @@ def test_a_quarter_without_a_price_yields_missing_valuation():
 
 def test_negative_earnings_yield_missing_pe():
     """Un PER negativo no ordena: -2 no es 'mas barato' que 10."""
-    resultado = compute_valuation(_lineas(bpa_diluido=-2.0), pd.Series([20.0], index=[FECHA]))
+    resultado = compute_valuation(_lineas(bpa_diluido=-2.0), _precios())
     assert np.isnan(resultado.loc[FECHA, "per"])
 
 
 def test_negative_free_cash_flow_yields_missing_price_to_fcf():
     resultado = compute_valuation(
-        _lineas(flujo_operativo=10.0, capex=60.0), pd.Series([20.0], index=[FECHA])
+        _lineas(flujo_operativo=10.0 * M, capex=60.0 * M), _precios()
     )
     assert np.isnan(resultado.loc[FECHA, "precio_fcf"])
 
 
 def test_zero_shares_outstanding_yields_missing_not_a_huge_multiple():
-    resultado = compute_valuation(_lineas(acciones_diluidas=0.0), pd.Series([20.0], index=[FECHA]))
+    resultado = compute_valuation(_lineas(acciones_diluidas=0.0), _precios())
     assert np.isnan(resultado.loc[FECHA, "precio_valor_libro"])
 
 
