@@ -209,6 +209,46 @@ def optimize_max_sharpe(
 
     rf_annual = rf_rate * periods_per_year
 
+    # **Sin prima no hay Sharpe que repartir, y aquí se decide antes de
+    # optimizar.** Una cartera es una combinación convexa, así que su retorno no
+    # puede superar al del mejor activo: si ni ése llega a las letras del
+    # Tesoro, ninguna cartera factible lo hace.
+    #
+    # El intento anterior fue maximizar el criterio de Israelsen --`exceso × σ`
+    # en la rama negativa-- y no basta. Ese producto tiende a cero por abajo
+    # linealmente en las DOS magnitudes, de modo que en cuanto un activo se
+    # acerca a la tasa libre de riesgo por debajo su producto gana a cualquier
+    # cartera tranquila: con medias (-0.20, -0.22, -0.02) y volatilidades
+    # (15 %, 24 %, 46 %) devolvía el 100 % en el activo del 46 %, que es
+    # exactamente el defecto que venía a corregir. Y peor: 0,02 puntos básicos
+    # de cambio en una media invertían la cartera entera, sobre una media cuyo
+    # error estándar es de 35 puntos porcentuales. Elegir ahí es elegir por
+    # ruido.
+    #
+    # Lo defendible es no elegir: si todas las carteras pierden contra las
+    # letras, no hay preferencia que los datos sostengan entre ellas salvo
+    # arriesgar lo menos posible. Se devuelve mínima varianza y se dice.
+    #
+    # La comparación es `<=` y no `<`: un retorno exactamente igual al de las
+    # letras tampoco es una prima, y con el estricto el aviso se apagaba justo
+    # en ese punto dejando la cartera al 100 % en el activo más volátil.
+    if float(np.max(mean_returns)) * periods_per_year <= rf_annual:
+        refugio = optimize_min_variance(
+            returns, rf_rate, periods_per_year, weight_bounds, allow_short,
+            shrinkage=shrinkage, pairwise=pairwise,
+        )
+        if refugio.get("converged"):
+            refugio = dict(refugio)
+            refugio["sin_prima"] = True
+            refugio["message"] = (
+                "Ningún activo supera a la tasa libre de riesgo en este "
+                "período, así que no hay prima de riesgo que repartir y el "
+                "cociente de Sharpe deja de ordenar carteras. Se reparte por "
+                "mínima varianza, que es lo único que los datos sostienen aquí: "
+                "arriesgar lo menos posible."
+            )
+        return refugio
+
     def _puntuacion(w: np.ndarray) -> float:
         port_return, port_vol, _ = portfolio_metrics(
             w, mean_returns, cov_matrix, rf_rate, periods_per_year
@@ -246,12 +286,10 @@ def optimize_max_sharpe(
 
     ret, vol, sharpe = portfolio_metrics(best_w, mean_returns, cov_matrix, rf_rate, periods_per_year)
 
-    # Que el óptimo salga con exceso negativo no es un detalle del ajuste: dice
-    # que **ninguna** cartera factible supera a las letras del Tesoro, porque si
-    # alguna lo hiciera el criterio la habría preferido (puntúa por encima de
-    # cero, y ésta no). Es la afirmación que la pantalla tiene que dar, y por eso
-    # viaja en el resultado en vez de deducirse otra vez arriba.
-    sin_prima = bool(ret - rf_annual < 0)
+    # Llegar aquí significa que algún activo supera a las letras, así que la
+    # rama sin prima ya se descartó arriba. Se conserva la clave porque la
+    # pantalla y el fichero guardado la leen siempre.
+    sin_prima = False
     return {
         "converged": True,
         "weights": best_w,
@@ -264,13 +302,7 @@ def optimize_max_sharpe(
         "mean": np.asarray(mean_returns, dtype=float),
         "cov": np.asarray(cov_matrix, dtype=float),
         "sin_prima": sin_prima,
-        "message": (
-            "Ningún activo supera la tasa libre de riesgo en este período: el "
-            "cociente de Sharpe deja de ordenar carteras y se ha maximizado el "
-            "criterio de Israelsen, que ahí penaliza la volatilidad en vez de "
-            "premiarla."
-            if sin_prima else "OK"
-        ),
+        "message": "OK",
     }
 
 

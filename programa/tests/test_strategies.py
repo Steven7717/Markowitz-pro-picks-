@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+import optimizer
 from optimizer import (
     STRATEGY_LABELS,
     equal_weight_portfolio,
@@ -403,3 +404,65 @@ def test_el_aviso_de_paridad_viaja_por_la_interfaz_comun():
         _dispares(), RF, PPY, (0.0, 0.34), False, strategy="risk_parity"
     )
     assert rp["erc_exacto"] is False
+
+
+# --- Sin prima no hay Sharpe que repartir -----------------------------------
+
+
+@pytest.mark.parametrize("medias", [
+    (-0.10, -0.12, -0.08),   # el caso que se midio al arreglarlo
+    (-0.10, -0.12, 0.01),    # y los que se le escaparon
+    (-0.10, -0.12, 0.03),
+    (-0.10, -0.12, 0.039),
+    (-0.20, -0.22, -0.02),
+    (-0.15, -0.18, 0.0),
+])
+def test_sin_prima_nunca_se_entrega_el_activo_mas_volatil(medias):
+    """El criterio de Israelsen no penaliza la volatilidad lo suficiente.
+
+    `exceso * sigma` tiende a cero por abajo **linealmente en las dos**, asi que
+    en cuanto un activo se acerca a la tasa libre de riesgo por debajo su
+    producto gana a cualquier cartera tranquila por muy tranquila que sea. El
+    arreglo anterior probaba un solo punto --el que se habia medido-- y los seis
+    de aqui caen del otro lado: con (-0.20, -0.22, -0.02), que es literalmente
+    el caso del que hablaba, salia el 100% en el activo del 46% de volatilidad.
+
+    Y hay un salto: 0,02 puntos basicos de cambio en una media estimada
+    invertian la cartera entera, sobre una media cuyo error estandar es de 35
+    puntos porcentuales. Elegir por ahi es elegir por ruido.
+    """
+    datos = _bajista(medias=medias)
+    r = optimizer.optimize_max_sharpe(
+        datos, RF_REAL, PPY, (0.0, 1.0), False, shrinkage=False
+    )
+    pesos = dict(zip(datos.columns, r["weights"]))
+
+    assert r["sin_prima"] is True, "no reconoce que no hay prima"
+    assert pesos["volatil"] < 0.5, f"entrega el activo mas volatil: {pesos}"
+
+
+def test_sin_prima_se_reparte_como_minima_varianza():
+    """Y se dice cual es: cuando no hay prima que ganar, lo unico defendible
+    es arriesgar lo menos posible. Inventar un orden entre carteras que todas
+    pierden es darle al usuario una preferencia que los datos no sostienen."""
+    datos = _bajista(medias=(-0.20, -0.22, -0.02))
+    sharpe = optimizer.optimize_max_sharpe(
+        datos, RF_REAL, PPY, (0.0, 1.0), False, shrinkage=False
+    )
+    minvar = optimizer.optimize_min_variance(
+        datos, RF_REAL, PPY, (0.0, 1.0), False, shrinkage=False
+    )
+
+    assert sharpe["annual_vol"] == pytest.approx(minvar["annual_vol"], abs=1e-4)
+
+
+def test_un_retorno_exactamente_igual_a_las_letras_tampoco_es_prima():
+    """`sin_prima` era un `< 0` estricto, asi que justo en la tasa libre de
+    riesgo el aviso se apagaba y la cartera se quedaba al 100% en el volatil."""
+    datos = _bajista(medias=(-0.10, -0.12, 0.04))
+
+    r = optimizer.optimize_max_sharpe(
+        datos, RF_REAL, PPY, (0.0, 1.0), False, shrinkage=False
+    )
+
+    assert r["sin_prima"] is True
