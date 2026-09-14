@@ -109,24 +109,48 @@ def tir(flujos: "list[tuple[date, float]]") -> float | None:
     - **Menos de 30 días.** Misma guarda que `anualizar`: la TIR *es* una tasa
       anual, así que en tres días no hay nada que dar.
     """
+    return tir_detallada(flujos)[0]
+
+
+def tir_detallada(flujos: "list[tuple[date, float]]") -> "tuple[float | None, str]":
+    """La TIR y **por que no la hay**, cuando no la hay.
+
+    `tir()` devolvia `None` para cuatro situaciones distintas, y una de ellas no
+    significa lo mismo que las otras tres: que la raiz se salga del intervalo
+    acotado no es «no hay respuesta», es «la respuesta no cabe en la escala».
+    La consecuencia se veia en pantalla: con 45 dias, una cartera que gano un
+    30% enseñaba 739,86% y otra que gano un **40% enseñaba «—»**, o sea que el
+    mejor de los dos resultados se leia como el unico inmedible.
+
+    El motivo es una de estas cadenas:
+
+    - `"ok"` — hay tasa, y va en el primer elemento.
+    - `"pocos_flujos"` — menos de dos. No hay ecuacion que resolver.
+    - `"periodo_corto"` — menos de 30 dias. La TIR *es* una tasa anual.
+    - `"mismo_signo"` — el valor actual nunca cruza el cero.
+    - `"sobre_escala"` / `"bajo_escala"` — la raiz existe pero queda fuera del
+      intervalo. La pantalla puede decir «por encima del 1.000% anual» en vez
+      de callarse, que es informacion y no ruido.
+    - `"sin_raiz"` — `brentq` no convergio. La red para lo que no previmos.
+    """
     if len(flujos) < 2:
-        return None
+        return None, "pocos_flujos"
 
     ordenados = sorted(flujos, key=lambda par: par[0])
     dias = (ordenados[-1][0] - ordenados[0][0]).days
     if dias < MINIMO_DIAS_ANUALIZAR:
-        return None
+        return None, "periodo_corto"
 
     importes = [importe for _, importe in ordenados]
     if not (any(v > 0 for v in importes) and any(v < 0 for v in importes)):
-        return None
+        return None, "mismo_signo"
 
     bajo = _valor_actual(ordenados, _SUELO_TIR)
     alto = _valor_actual(ordenados, _TECHO_TIR)
     if bajo == 0.0:
-        return _SUELO_TIR
+        return _SUELO_TIR, "ok"
     if alto == 0.0:
-        return _TECHO_TIR
+        return _TECHO_TIR, "ok"
     if (bajo > 0) == (alto > 0):
         # Sin cambio de signo no hay raíz dentro del intervalo. **Esta guarda no
         # cambia lo que se devuelve para ninguna entrada**: sin ella, `brentq`
@@ -136,12 +160,17 @@ def tir(flujos: "list[tuple[date, float]]") -> float | None:
         # queda como lo que debe ser — la red para lo que no supimos prever, no
         # el camino normal. Ningún test conductual puede pinzarla, y decirlo
         # aquí evita que alguien escriba uno creyendo que sí.
-        return None
+        #
+        # Y de que lado se sale SI se puede decir: el valor actual decrece con
+        # la tasa, asi que si en el techo sigue siendo positivo es que la raiz
+        # esta mas arriba.
+        return None, ("sobre_escala" if alto > 0 else "bajo_escala")
 
     try:
-        return float(brentq(lambda r: _valor_actual(ordenados, r), _SUELO_TIR, _TECHO_TIR))
+        tasa = brentq(lambda r: _valor_actual(ordenados, r), _SUELO_TIR, _TECHO_TIR)
     except (ValueError, RuntimeError):
-        return None
+        return None, "sin_raiz"
+    return float(tasa), "ok"
 
 
 @dataclass(frozen=True)

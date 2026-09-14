@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, timedelta
 
 import numpy as np
 import pandas as pd
@@ -398,3 +398,45 @@ def test_sin_historia_la_tabla_no_inventa_ninguna_accion_corporativa():
     linea = rendimiento.por_activo(libro_acme(), {"ACME": 50.0})["ACME"]
     assert linea.acciones == pytest.approx(5.0)
     assert linea.dividendos == pytest.approx(0.0)
+
+
+# --- La TIR que se sale de la escala no es una TIR que no existe -------------
+
+
+def _flujos(ganancia: float, dias: int = 45):
+    """40.000 el dia cero y el valor final `dias` despues."""
+    inicio = date(2026, 1, 5)
+    return [(inicio, -40000.0), (inicio + timedelta(days=dias), 40000.0 * (1 + ganancia))]
+
+
+def test_una_tir_por_encima_del_techo_se_distingue_de_no_tener_respuesta():
+    """La cartera que gano un 40% enseñaba «—» y la del 30% enseñaba 739%.
+
+    `tir()` devolvia `None` tanto cuando la ecuacion no tiene solucion como
+    cuando la raiz se sale del intervalo acotado, asi que el mejor resultado de
+    los dos se leia como el unico inmedible. Son dos cosas distintas y la
+    pantalla necesita poder decirlo.
+    """
+    valor_30, motivo_30 = rendimiento.tir_detallada(_flujos(0.30))
+    valor_40, motivo_40 = rendimiento.tir_detallada(_flujos(0.40))
+
+    assert motivo_30 == "ok" and valor_30 is not None
+    assert motivo_40 == "sobre_escala" and valor_40 is None
+
+
+def test_los_motivos_de_no_haber_tir_se_nombran_uno_a_uno():
+    inicio = date(2026, 1, 5)
+    casos = {
+        "pocos_flujos": [(inicio, -1000.0)],
+        "periodo_corto": [(inicio, -1000.0), (inicio + timedelta(days=10), 1100.0)],
+        "mismo_signo": [(inicio, -1000.0), (inicio + timedelta(days=90), -500.0)],
+    }
+    for esperado, flujos in casos.items():
+        valor, motivo = rendimiento.tir_detallada(flujos)
+        assert (valor, motivo) == (None, esperado), esperado
+
+
+def test_tir_sigue_devolviendo_solo_el_numero():
+    """Los que ya la llamaban no se enteran del cambio."""
+    assert rendimiento.tir(_flujos(0.30)) == rendimiento.tir_detallada(_flujos(0.30))[0]
+    assert rendimiento.tir(_flujos(0.40)) is None

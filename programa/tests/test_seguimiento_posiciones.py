@@ -389,3 +389,31 @@ def test_el_corte_por_fecha_tambien_corta_los_dividendos_automaticos():
     )
     estado = posiciones.estado([APORTA, COMPRA], hasta="2026-01-05", historia=h)
     assert estado.efectivo == pytest.approx(1999.0)
+
+
+def test_un_dividendo_apuntado_a_mano_cuenta_aunque_su_ticker_no_traiga_precios():
+    """La cabecera decia «Dividendos 0,00» y la tabla del mismo libro, 50,00.
+
+    El cobro entraba en caja siempre, pero solo se anotaba en el cuadro de
+    dividendos si el ticker tenia columna de precios --y `precios.desde_panel`
+    aparta los que vuelven vacios de la descarga, que el propio aviso de la
+    pantalla documenta que pasa con tickers perfectamente validos--. Asi que un
+    dividendo real desaparecia de la cifra de arriba sin desaparecer de la de
+    abajo: la misma contradiccion cabecera/tabla que el resto de este modulo
+    existe para haber eliminado.
+    """
+    h = historia({"ACME": [100.0, 100.0, 100.0]})
+    h = precios.Historia(cierres=h.cierres, dividendos=h.dividendos,
+                         splits=h.splits, sin_datos=["MUERTA"])
+    asientos = [
+        Asiento(id="ap", fecha="2026-01-05", tipo="aportacion", importe=1000.0),
+        Asiento(id="c1", fecha="2026-01-05", tipo="compra", ticker="MUERTA",
+                    acciones=10.0, precio=50.0, importe=500.0),
+        Asiento(id="d1", fecha="2026-01-06", tipo="dividendo", ticker="MUERTA",
+                    importe=50.0),
+    ]
+
+    marcha = posiciones.serie(asientos, h)
+
+    assert float(marcha.dividendos.sum().sum()) == pytest.approx(50.0)
+    assert marcha.efectivo.iloc[-1] == pytest.approx(550.0)

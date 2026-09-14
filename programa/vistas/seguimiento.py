@@ -738,11 +738,29 @@ with por_activo:
     # el detalle que las explica --lo que aporto cada activo, lo que pago cada
     # uno-- es la tabla de debajo.
     d1, d2, _ = st.columns(3)
-    d1.metric(
-        "TIR", cartera.formato_porcentaje(cab.tir),
-        help="Ponderada por dinero: lo que ganaste tú, con tu timing dentro. "
-             "Aparece «—» cuando no hay una respuesta defendible.",
-    )
+    # La TIR **es** una tasa anual, asi que sobre dos meses extrapola por seis.
+    # El TWR lleva desde siempre su desagravio --«sin anualizar, el periodo
+    # entero rindio X»-- y la TIR se quedaba sin el, con un 325% a pelo y la
+    # ayuda diciendo «lo que ganaste tu». Y un «—» tapaba dos cosas distintas.
+    if cab.motivo_tir == "sobre_escala":
+        _tir_texto, _tir_nota = "> 1.000%", "La tasa se sale de la escala por arriba."
+    elif cab.motivo_tir == "bajo_escala":
+        _tir_texto, _tir_nota = "< −99,9%", "La tasa se sale de la escala por abajo."
+    elif cab.motivo_tir == "periodo_corto":
+        _tir_texto, _tir_nota = "—", "Hacen falta al menos 30 días para anualizar."
+    elif cab.motivo_tir == "mismo_signo":
+        _tir_texto, _tir_nota = "—", "Todos los flujos van en el mismo sentido: no hay tasa que los anule."
+    elif cab.motivo_tir == "pocos_flujos":
+        _tir_texto, _tir_nota = "—", "Hace falta más de un movimiento de dinero."
+    else:
+        _tir_texto = cartera.formato_porcentaje(cab.tir)
+        _tir_nota = (
+            f"Anualizada desde {cab.dias} días de historia: extrapola lo que "
+            "pasó en ese tramo a un año entero."
+            if cab.dias and cab.dias < 365 else
+            "Ponderada por dinero: lo que ganaste tú, con tu timing dentro."
+        )
+    d1.metric("TIR", _tir_texto, help=_tir_nota)
     d2.metric("Dividendos", f"{cab.dividendos:,.2f}")
 
     # El denominador de los pesos sale de `composicion`, no de `cab.valor`: aquel

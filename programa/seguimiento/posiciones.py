@@ -351,7 +351,22 @@ def serie(asientos: "list[Asiento]", historia: Historia) -> Marcha:
     acciones = pd.DataFrame(0.0, index=calendario, columns=tickers)
     efectivo = pd.Series(0.0, index=calendario)
     flujos = pd.Series(0.0, index=calendario)
-    dividendos = pd.DataFrame(0.0, index=calendario, columns=tickers)
+    # Los dividendos llevan **una columna por cada ticker del libro**, no solo
+    # por cada uno con precios. El cobro entra en caja siempre, pero hasta que
+    # esto fue asi solo se anotaba aqui si el ticker tenia columna, y
+    # `precios.desde_panel` aparta los que vuelven vacios de la descarga --el
+    # aviso de la pantalla documenta que eso le pasa a tickers perfectamente
+    # validos--. Resultado: la cabecera decia «Dividendos 0,00» y la tabla del
+    # mismo libro decia 50,00. Un dividendo apuntado a mano es un hecho que el
+    # usuario registro; no depende de que la descarga de precios lo acompane.
+    #
+    # `acciones` no lleva esas columnas a proposito: sin precio no hay nada que
+    # valorar, y eso ya se cuenta aparte en `Historia.sin_datos`.
+    con_dividendo = sorted(
+        {a.ticker for a in vivos if a.tipo == "dividendo" and a.ticker}
+        | set(tickers)
+    )
+    dividendos = pd.DataFrame(0.0, index=calendario, columns=con_dividendo)
 
     # Los dividendos que el usuario apunto a mano, indexados para que el
     # calculado sepa cuando callarse.

@@ -41,6 +41,11 @@ class Cabecera:
     # cierre de ese dia deberia ser cero: lo que mide es la otra causa
     # posible de la brecha TWR/TIR, la de coste contra mercado, y medirla es
     # lo que permite dejar de suponerla. `None` si no hay serie valorada.
+    # Por que no hay TIR, cuando no la hay. Una raiz que se sale del techo
+    # del intervalo no es lo mismo que una ecuacion sin solucion, y la
+    # pantalla enseñaba «—» para las dos: la cartera que gano un 40% se leia
+    # como inmedible mientras la que gano un 30% enseñaba 739%.
+    motivo_tir: str = "ok"
     salto_inicial: "float | None" = None
     # Los flujos externos POSTERIORES al primer dia, en valor absoluto. Un
     # centimo es un «momento» pero no mueve una TIR ponderada por dinero.
@@ -127,7 +132,7 @@ def cabecera(marcha, vivos, sin_valorar: bool) -> Cabecera:
         )
     if flujos_tir and len(marcha.valor) and not sin_valorar:
         flujos_tir.append((marcha.valor.index[-1].date(), valor_hoy))
-    tasa_interna = rendimiento.tir(flujos_tir)
+    tasa_interna, motivo_tir = rendimiento.tir_detallada(flujos_tir)
 
     # Nada que valorar: las cifras que dependen del precio no existen todavia. Se
     # ponen a None y salen «—»; inventarlas con el precio al que se compro daria un
@@ -150,6 +155,7 @@ def cabecera(marcha, vivos, sin_valorar: bool) -> Cabecera:
         twr_periodo=None if sin_valorar else twr_periodo,
         twr_anual=twr_visible,
         tir=tir_visible,
+        motivo_tir=motivo_tir,
         dividendos=float(marcha.dividendos.sum().sum()),
         sin_valorar=sin_valorar,
         dias=dias,
