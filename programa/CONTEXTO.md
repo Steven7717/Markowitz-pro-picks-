@@ -1,7 +1,7 @@
 # Contexto del proyecto — para retomar en una sesión nueva
 
 **Última actualización:** 2026-09-15
-**Rama:** `master` · **Tests:** 1.662 pasando (`uv run pytest tests/ -q -m "not red"`), 4 omitidos —dos por permisos POSIX en Windows y dos sin `numpy_financial`— más 9 marcados `red`
+**Rama:** `master` · **Tests:** 1.679 pasando (`uv run pytest tests/ -q -m "not red"`), 4 omitidos —dos por permisos POSIX en Windows y dos sin `numpy_financial`— más 9 marcados `red`
 **Remoto:** `https://github.com/Steven7717/Markowitz-pro-picks-.git` — `master` es lo publicado
 **Estructura:** el programa vive en `programa/`; en la raíz sólo están los dos
 lanzadores y el `README.md`. Los comandos (`uv run pytest`, `uv run streamlit`)
@@ -51,6 +51,17 @@ Documentos:
 - [`docs/research/2026-08-06-diagnostico-puerta-b.md`](docs/research/2026-08-06-diagnostico-puerta-b.md) — análisis posterior de por qué el control aleatorio pasó la Puerta B.
 
 Hallazgo clave del diagnóstico: la Puerta B tiene un sesgo positivo de ~0.04 de Sharpe que viene de **dispersión de entradas** (repartir compras en días distintos baja la varianza de la canasta), no de habilidad. Leídas contra el control en vez de contra cero, **seis de las siete señales quedan por debajo del ruido**.
+
+El listón de la Puerta B ya tiene nombre: `research.timing.SIGMAS_PUERTA_B`, y
+escrito al lado por qué **no** es el `_SIGMAS_VEREDICTO` de la pantalla, que vale
+2. Aquí un falso positivo cuesta otro experimento; allí es un recuadro verde
+delante de alguien que va a repartir su dinero. Y sobre todo: el de la Puerta B
+está **pre-registrado**, así que no se mueve tampoco hacia arriba, por floja que
+se sepa 1σ. El informe escribe además `gate_b_sigmas` y `gate_b_threshold` junto
+a la medición, para que la columna «Puerta B» se recompruebe sin abrir el código
+—la misma lección que `oos_umbral_veredicto` del lado de la aplicación—. Queda
+con ese hueco la Puerta A: `report.py` aplica `MIN_IC`, `MIN_TSTAT`,
+`MIN_SUBPERIODS` y `FDR`, y tampoco los escribe.
 
 **No hace falta la fase 2** (universo point-in-time). Sólo era necesaria si algo salía positivo: el sesgo de supervivencia infla los resultados, así que un veredicto negativo con el sesgo a favor es más firme, no menos.
 
