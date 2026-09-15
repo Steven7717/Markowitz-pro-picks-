@@ -6,7 +6,7 @@ from research.evaluation import (
     GateAResult,
     benjamini_hochberg,
 )
-from research.timing import GateBResult
+from research.timing import SIGMAS_PUERTA_B, GateBResult
 
 
 def build_verdict(
@@ -51,6 +51,17 @@ def build_verdict(
         entry["gate_b"] = bool(b.passes) if b else False
         entry["gate_b_delta"] = b.delta if b else 0.0
         entry["gate_b_stderr"] = b.stderr if b else float("inf")
+        # El listón viaja con la medición, como en `validation.metricas_de_validacion`
+        # y por la misma razón: un `gate_b` suelto es un dogma —hay que creérselo—
+        # mientras que con el umbral al lado se recomprueba. Las sigmas van además
+        # del umbral porque son las que dicen bajo qué convenio se dictó; el umbral
+        # solo no distingue un listón de 1σ sobre 0,10 de uno de 2σ sobre 0,05.
+        #
+        # Se escriben aunque no haya medición: el listón es del criterio, no del
+        # experimento. Ahí el umbral sale infinito, que es exactamente lo que ya
+        # decía el error estándar ausente.
+        entry["gate_b_sigmas"] = SIGMAS_PUERTA_B
+        entry["gate_b_threshold"] = SIGMAS_PUERTA_B * entry["gate_b_stderr"]
         entry["edge"] = entry["gate_a"] and entry["gate_b"]
         entry["control_alarm"] = name == "random_control" and entry["gate_a"]
 
@@ -81,6 +92,12 @@ def to_markdown(verdict: dict[str, dict], coverage_summary: str, passive_sharpe:
 
     lines += [
         "## Resultados",
+        "",
+        # Sin esta línea la columna «Puerta B» hay que creérsela: el documento
+        # daba la medición y el veredicto, pero no el listón que los une.
+        f"**Criterio de la Puerta B:** una señal pasa si su Δ Sharpe supera "
+        f"{SIGMAS_PUERTA_B:.1f} × su propio error estándar. El listón está "
+        f"pre-registrado (§3.5 del criterio) y no se movió al ver los resultados.",
         "",
         "| Señal | Puerta A | Puerta B | Δ Sharpe | Error estándar | Ventaja |",
         "|---|---|---|---|---|---|",

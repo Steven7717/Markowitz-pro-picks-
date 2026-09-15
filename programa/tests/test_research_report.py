@@ -2,7 +2,7 @@ import pytest
 
 from research.evaluation import GateAResult
 from research.report import build_verdict, to_markdown
-from research.timing import GateBResult
+from research.timing import SIGMAS_PUERTA_B, GateBResult
 
 
 def _gate_a(signal="s", mean_ic=0.05, t_stat=3.0, p_value=0.001, spread_net=0.04, subperiods=4):
@@ -141,3 +141,53 @@ def test_the_markdown_report_shows_the_cost_sensitivity():
 def test_the_markdown_report_warns_when_the_control_passed():
     verdict = build_verdict([_gate_a(signal="random_control")], {"random_control": _gate_b()})
     assert "ALARMA" in to_markdown(verdict, coverage_summary="n/a", passive_sharpe=0.6)
+
+
+# ── El listón viaja con el veredicto ─────────────────────────────────────────
+
+def test_the_verdict_records_the_bar_gate_b_was_judged_against():
+    """Un veredicto sin su listón es un dogma: nadie puede recomprobarlo.
+
+    Es la lección que este repo ya pagó del lado de la aplicación, donde un
+    `beats_equal_weight` escrito con un listón viejo seguía pintando de verde
+    meses después. Aquí el informe escribía la medición —delta y error— pero no
+    contra qué se juzgó, así que `gate_b` había que creérselo.
+    """
+    entry = build_verdict([_gate_a()], {"s": _gate_b(delta=0.4, stderr=0.1)})["s"]
+    assert entry["gate_b_sigmas"] == SIGMAS_PUERTA_B
+    assert entry["gate_b_threshold"] == pytest.approx(SIGMAS_PUERTA_B * 0.1)
+
+
+def test_gate_b_can_be_recomputed_from_what_the_verdict_carries():
+    """La conclusión tiene que salir de los campos que la acompañan, no del código."""
+    for delta, stderr in ((0.4, 0.1), (0.01, 0.5), (0.1, 0.1)):
+        entry = build_verdict([_gate_a()], {"s": _gate_b(delta=delta, stderr=stderr)})["s"]
+        assert entry["gate_b"] == (entry["gate_b_delta"] > entry["gate_b_threshold"])
+
+
+def test_a_signal_without_a_gate_b_measurement_still_carries_the_bar():
+    """El listón es del criterio, no de la medición: existe aunque no se midiera.
+
+    El umbral sale infinito, que es lo que ya decía el error estándar ausente:
+    nada lo supera. Pero las sigmas siguen siendo las del criterio, porque no
+    dependen de que haya habido experimento.
+    """
+    entry = build_verdict([_gate_a()], {})["s"]
+    assert entry["gate_b_sigmas"] == SIGMAS_PUERTA_B
+    assert entry["gate_b_threshold"] == float("inf")
+    assert entry["gate_b"] is False
+
+
+def test_the_markdown_report_states_the_bar_gate_b_was_judged_against():
+    """Quien lee el documento tiene que poder comprobar la columna PASA sin el código."""
+    verdict = build_verdict([_gate_a()], {"s": _gate_b()})
+    text = to_markdown(verdict, coverage_summary="n/a", passive_sharpe=0.6)
+    # Excluyendo las filas de tabla: la cabecera ya dice "Puerta B" y "Error
+    # estándar" sin explicar nada, y es lo que este test tiene que NO aceptar.
+    criterio = [
+        l
+        for l in text.splitlines()
+        if not l.startswith("|") and "Puerta B" in l and "error est" in l.lower()
+    ]
+    assert criterio, text
+    assert f"{SIGMAS_PUERTA_B:.1f}" in criterio[0]
