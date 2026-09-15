@@ -1,7 +1,7 @@
 # Contexto del proyecto — para retomar en una sesión nueva
 
 **Última actualización:** 2026-09-15
-**Rama:** `master` · **Tests:** 1.682 pasando (`uv run pytest tests/ -q -m "not red"`), 4 omitidos —dos por permisos POSIX en Windows y dos sin `numpy_financial`— más 9 marcados `red`
+**Rama:** `master` · **Tests:** 1.698 pasando (`uv run pytest tests/ -q -m "not red"`), 4 omitidos —dos por permisos POSIX en Windows y dos sin `numpy_financial`— más 9 marcados `red`
 **Remoto:** `https://github.com/Steven7717/Markowitz-pro-picks-.git` — `master` es lo publicado
 **Estructura:** el programa vive en `programa/`; en la raíz sólo están los dos
 lanzadores y el `README.md`. Los comandos (`uv run pytest`, `uv run streamlit`)
@@ -12,6 +12,10 @@ se ejecutan desde `programa/`, no desde la raíz.
 > avance rápido, fusionada y empujada el 2026-09-15; la rama ya se borró.
 > Antes: F y G desde `seguimiento-cartera`, H desde `noticias-calendario`,
 > J desde `entrada-al-seguimiento` y K desde `panel-de-seguimiento`.
+>
+> **Sin fusionar:** el aviso de cobertura por activo, en
+> `claude/stoic-nightingale-b0b8dd`. Ver «El aviso que se calculaba y no se
+> enseñaba».
 >
 > **Lee la sección «La auditoría» antes de tocar nada.** No sólo por lo que
 > arregló: por el patrón que encontró, que este repositorio repitió cinco
@@ -1407,12 +1411,77 @@ Kendall 0,874 con el orden anterior.
    MNST, MU, NVDA. No lo arregla ninguna fórmula — es que 424 compuestos se
    apiñan alrededor del corte del puesto 15. **El sitio donde mirar es el tamaño
    del top.**
-4. **Las vistas siguen sin tests.** Doce ficheros, cero. Mucha lógica salió a
-   módulos probables durante este trabajo (`comparativa.py`, `vistas/libros.py`,
-   `validation.medida_veredicto`, `panel_ia.coste_peor_caso`), pero lo que queda
-   está verificado por lectura y por recorrido a mano. `streamlit.testing.v1.AppTest`
-   funciona.
+4. **Las vistas casi no tienen tests.** Doce ficheros; `perfil.py` y
+   `optimizador.py` tienen uno cada uno —leyendo su fuente— y los otros diez,
+   ninguno. Mucha lógica salió a módulos probables durante este trabajo
+   (`comparativa.py`, `vistas/libros.py`, `validation.medida_veredicto`,
+   `panel_ia.coste_peor_caso`), pero lo que queda está verificado por lectura y
+   por recorrido a mano. `streamlit.testing.v1.AppTest` funciona.
 5. **El `git pull` de los lanzadores ejecuta lo que baje sin verificar firma.**
+
+---
+
+## El aviso que se calculaba y no se enseñaba (2026-09-15)
+
+`data.py` medía desde el principio qué parte del horizonte trae la serie de cada
+ticker —`tickers_con_huecos`, con su umbral del 80 %, su docstring razonada y
+seis tests— y lo devolvía en el diccionario de `cargar_mercado` bajo su propia
+clave. **No lo leía nadie.** Un `grep` del nombre por todo el repositorio sólo
+encontraba `data.py` y su fichero de tests: ni una vista, ni un informe. Un
+activo con el 11 % de sus sesiones entraba en la optimización en silencio.
+
+Es el patrón de la auditoría con una vuelta de tuerca. Allí el razonamiento
+correcto estaba treinta líneas más arriba, en otro fichero, **sin cruzar**; aquí
+estaba cruzado a medias: medido, probado, guardado en su clave, y sin que nadie
+lo sacara a la pantalla. Un valor que se calcula y no se lee cuesta lo mismo de
+mantener que uno vivo y no protege de nada. **Conviene el `grep` del nombre
+cuando se cierra algo: no basta con que el cálculo exista y pase sus tests.**
+
+### Por qué se enseña, en vez de retirarlo
+
+`historial.escalera` ya avisa de esto en la misma pantalla, y mejor —nombra al
+activo que más historia cuesta y distingue por qué—, así que la pregunta real
+era si el cálculo sobraba. Medido: **no sobra, porque la escalera se calla en
+dos sitios**, y los dos son alcanzables.
+
+- **Con dos activos no culpa a nadie.** `_peldano` se para en seco cuando quitar
+  a alguien dejaría menos de dos, así que devuelve un único peldaño con `corta`
+  en None y el aviso no llega a pintarse. Dos activos es el mínimo que el
+  optimizador acepta: es el caso más corriente que existe.
+- **Con dos series rotas en las mismas fechas, tampoco.** Busca al culpable
+  quitándolos de uno en uno, y quitar a cualquiera de los dos no gana ni una
+  fecha.
+
+En los dos casos lo único que el usuario llegaba a leer era «datos
+insuficientes» —el síntoma— sin saber cuál de sus activos lo provocaba.
+
+### Y por qué no se enseña en crudo
+
+Pintar la cobertura tal cual reintroduce el aviso que `historial.py` existe para
+haber retirado: **PLTR cubre el 40 % de un horizonte de quince años y su serie
+está entera.** Llamar «incompleta» a una empresa que no cotizaba manda a buscar
+una avería donde no la hay. El aviso pasa por `historial.motivo_de`, que es
+quien sabe separar `arranque` de `interrumpida`, y sólo nombra lo que de verdad
+está roto.
+
+Lo que quedó: `historial.avisos_de_cobertura` decide y ordena —del que menos
+cubre al que más— y es la parte con tests; `vistas/optimizador._avisar_cobertura`
+sólo pinta, antes de los errores que la falta de datos provoca, igual que
+`_avisar_omitidos`.
+
+### El defecto de al lado
+
+`_MOTIVOS["interrumpida"]` decía «la fuente deja de dar precios suyos; los
+últimos son de **{desde}**», y `desde` es la **primera** cotización. Con AVB
+anunciaba el 17 de julio como día del último precio cuando el último era del 24
+de agosto: mandaba a comprobarlo al mes equivocado. `Escalon` lleva ahora
+`hasta`, y el `format` recibe las dos fechas.
+
+**`vistas/optimizador.py` pasa a ser la segunda vista con tests**
+(`tests/test_vistas_optimizador.py`), por el camino de `test_vistas_perfil.py`:
+se lee su fuente con `ast`, que es lo que se puede hacer con un guion de
+Streamlit. Cinco tests, y el que importa es el que falla si alguien vuelve a
+dejar el aviso calculado y sin llamar.
 
 ---
 
@@ -1471,7 +1540,7 @@ Trabajo posterior anotado, por orden de valor:
 
 ```bash
 # Todos estos se ejecutan desde programa/, no desde la raiz del repo.
-pytest tests/ -q -m "not red"       # 1.222 tests, sin red
+pytest tests/ -q -m "not red"       # 1.678 tests, sin red
 python -m research.run              # correr el estudio (~5 min, luego caché)
 streamlit run app.py                # la app: optimizador + pagina de revision
 python scripts/bootstrap_universe.py   # regenerar el snapshot del universo

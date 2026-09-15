@@ -162,7 +162,7 @@ with st.container(border=True):
 
 _MOTIVOS = {
     "arranque": "sólo hay precios desde {desde}",
-    "interrumpida": "la fuente deja de dar precios suyos; los últimos son de {desde}",
+    "interrumpida": "la fuente deja de dar precios suyos; los últimos son de {hasta}",
     "huecos": "le faltan fechas dentro de su propio historial",
     "sin datos": "no ha devuelto ningún precio",
 }
@@ -182,7 +182,8 @@ def _mostrar_escalera(peldanos: list, n_obs: int) -> None:
     if cabeza.corta is None:
         return
 
-    motivo = _MOTIVOS.get(cabeza.motivo, "recorta la muestra").format(desde=cabeza.desde)
+    motivo = _MOTIVOS.get(cabeza.motivo, "recorta la muestra").format(
+        desde=cabeza.desde, hasta=cabeza.hasta)
     mejor = peldanos[-1]
     st.warning(
         f"**{cabeza.corta} decide el historial de toda la cartera**: {motivo}. "
@@ -255,6 +256,53 @@ def _avisar_omitidos(market: dict) -> None:
     )
 
 
+# Si el aviso de cobertura ya se ha pintado en ESTA re-ejecución. Mismo alcance
+# y mismo motivo que `_omitidos_avisados`, justo encima.
+_cobertura_avisada = False
+
+
+def _avisar_cobertura(market: dict) -> None:
+    """Los activos cuya serie está rota, nombrados uno a uno y con su cifra.
+
+    `data.tickers_con_huecos` medía esto desde el principio —qué parte del
+    horizonte trae cada serie— y **no lo leía nadie**: ni una vista, ni un
+    informe. El cálculo, la clave del diccionario y sus tests existían, y un
+    activo con el 11% de sus sesiones entraba en el reparto en silencio.
+
+    La escalera de aquí abajo cubre el caso corriente, pero se calla con dos
+    activos y con dos series rotas a la vez (el porqué, en
+    `historial.avisos_de_cobertura`) — que es justo cuando esto hace más falta:
+    lo único que el usuario llega a leer entonces es «datos insuficientes», el
+    síntoma, sin saber cuál de sus activos lo provoca.
+
+    Lo que **no** se avisa es al activo joven. Su cobertura también es baja y su
+    serie está entera; de ése habla la escalera, como el compromiso que es.
+    """
+    global _cobertura_avisada
+    if _cobertura_avisada:
+        return
+    avisos = historial.avisos_de_cobertura(
+        market.get("precios", pd.DataFrame()),
+        market.get("tickers_con_huecos", {}),
+    )
+    if not avisos:
+        return
+    _cobertura_avisada = True
+    st.warning(
+        "**Series incompletas, y entran igual en el reparto:**\n\n"
+        + "\n".join(
+            f"- **{a.ticker}** sólo trae precio en el {a.cobertura:.0%} de las "
+            f"fechas del horizonte: "
+            + _MOTIVOS.get(a.motivo, "su serie recorta la muestra").format(
+                desde=a.desde, hasta=a.hasta)
+            + "."
+            for a in avisos
+        )
+        + "\n\nSe descartan las fechas en las que falte algún precio, así que "
+        "lo que les falta se lo quitan también a los demás."
+    )
+
+
 def _ejecutar() -> dict | None:
     """Fetch, optimise and validate. Returns None once it has explained a stop.
 
@@ -272,8 +320,10 @@ def _ejecutar() -> dict | None:
         market = fetch_market_data(tuple(tickers), horizon)
 
     # Lo primero que se pinta, porque es la causa de casi todo lo que puede
-    # fallar debajo.
+    # fallar debajo. El que no existe, y luego el que existe pero llega roto:
+    # los dos van antes que los errores que provocan.
     _avisar_omitidos(market)
+    _avisar_cobertura(market)
 
     valid_tickers = market["valid_tickers"]
     if len(valid_tickers) < 2:
@@ -463,6 +513,7 @@ n_obs = market["n_obs"]
 # descargar-- lo dice aquí, para que el aviso no desaparezca mientras los
 # resultados que lo necesitan siguen en pantalla.
 _avisar_omitidos(market)
+_avisar_cobertura(market)
 if not market.get("rf_available", True):
     st.warning(
         f"^IRX no disponible. Se usa una tasa libre de riesgo de referencia: "

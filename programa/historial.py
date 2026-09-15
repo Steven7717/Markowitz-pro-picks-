@@ -77,7 +77,20 @@ class Escalon:
     # Quién manda en este peldaño, o None si ya nadie recorta nada.
     corta: str | None
     motivo: str | None
+    # Entre qué fechas cotizó quien corta. `hasta` existe porque «la fuente deja
+    # de dar precios suyos» sólo se puede decir con el día en que dejó de
+    # darlos, y la pantalla venía pintando ahí `desde` —el día en que la serie
+    # empezó—: con AVB anunciaba el 17 de julio cuando el último precio era del
+    # 24 de agosto, y mandaba a comprobarlo al mes equivocado.
     desde: str | None
+    hasta: str | None
+
+
+def _fecha(marca) -> str | None:
+    """La fecha como la lee un humano, venga como venga del índice."""
+    if marca is None:
+        return None
+    return str(marca.date()) if hasattr(marca, "date") else str(marca)
 
 
 def _comunes(prices: pd.DataFrame, columnas: list[str]) -> int:
@@ -98,17 +111,17 @@ def _peldano(prices: pd.DataFrame, dentro: list[str], fuera: tuple[str, ...]) ->
             culpable, ganancia = t, sin_el - comunes
 
     if culpable is None:
-        return Escalon(fuera, len(dentro), comunes, None, None, None)
+        return Escalon(fuera, len(dentro), comunes, None, None, None, None)
 
     serie = prices[culpable]
-    primera = serie.first_valid_index()
     return Escalon(
         fuera=fuera,
         activos=len(dentro),
         observaciones=comunes,
         corta=culpable,
         motivo=motivo_de(serie, prices.index[-1]),
-        desde=str(primera.date()) if hasattr(primera, "date") else str(primera),
+        desde=_fecha(serie.first_valid_index()),
+        hasta=_fecha(serie.last_valid_index()),
     )
 
 
@@ -140,3 +153,78 @@ def escalera(prices: pd.DataFrame, minimo_activos: int = 2) -> list[Escalon]:
         escalones.append(_peldano(prices, dentro, fuera))
 
     return escalones
+
+
+@dataclass(frozen=True)
+class Cobertura:
+    """Un activo cuya serie está tan incompleta que hay que nombrarlo."""
+
+    ticker: str
+    # Fracción de las fechas del horizonte con precio, tal como la midió
+    # `data.tickers_con_huecos`. No se recalcula aquí a propósito: un solo sitio
+    # decide qué cuenta como poca cobertura, y es el que tiene el umbral.
+    cobertura: float
+    motivo: str
+    desde: str | None
+    hasta: str | None
+
+
+def avisos_de_cobertura(
+    prices: pd.DataFrame,
+    coberturas: dict[str, float],
+) -> list[Cobertura]:
+    """Las series rotas que hay que nombrar una a una, sin contar a las jóvenes.
+
+    La escalera ya nombra a quien más historia cuesta, y en el caso corriente
+    con eso basta. Pero **se calla en dos sitios**, los dos alcanzables:
+
+    - Con dos activos no culpa a nadie, porque `_peldano` se para en seco cuando
+      quitar a alguien dejaría menos de dos. Dos activos es el mínimo que el
+      optimizador acepta, o sea el caso más corriente que existe.
+    - Con dos series rotas en las mismas fechas, quitar a cualquiera de ellas no
+      gana ni una fecha, así que tampoco hay culpable y el aviso entero
+      desaparece — con las dos series igual de rotas.
+
+    En los dos casos el usuario sólo llega a leer «datos insuficientes», que es
+    el síntoma, sin saber cuál de sus activos lo provoca.
+
+    El filtro por `motivo_de` no es un detalle de presentación: una cobertura
+    baja **no** es una avería cuando la empresa no cotizaba. PLTR cubre el 40%
+    de un horizonte de quince años y su serie está entera; llamarla «incompleta»
+    manda a buscar un fallo donde no lo hay, y es exactamente el aviso que se
+    retiró de esta pantalla. De ese caso ya habla la escalera como lo que es
+    —un compromiso entre llevar el activo y tener historial—, y aquí sólo se
+    nombra lo que de verdad está roto.
+
+    Args:
+        prices: precios de los activos válidos, con las fechas por índice.
+        coberturas: `{ticker: cobertura}` de los que bajan del mínimo, tal cual
+            sale de `data.tickers_con_huecos`.
+
+    Returns:
+        Un aviso por activo roto, del que menos cubre al que más.
+    """
+    if prices.empty:
+        return []
+
+    ultima_fecha = prices.index[-1]
+    avisos = []
+    for ticker, cobertura in coberturas.items():
+        # Los que no traen ni una fila ya los aparta `invalid_tickers`, que se
+        # dice por separado y antes que esto.
+        if ticker not in prices.columns:
+            continue
+        serie = prices[ticker]
+        motivo = motivo_de(serie, ultima_fecha)
+        if motivo in ("arranque", "completa"):
+            continue
+        avisos.append(Cobertura(
+            ticker=str(ticker),
+            cobertura=float(cobertura),
+            motivo=motivo,
+            desde=_fecha(serie.first_valid_index()),
+            hasta=_fecha(serie.last_valid_index()),
+        ))
+
+    # El peor primero: si el usuario sólo lee una línea, que sea la que más duele.
+    return sorted(avisos, key=lambda c: (c.cobertura, c.ticker))
