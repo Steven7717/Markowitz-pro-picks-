@@ -1,17 +1,21 @@
 # Contexto del proyecto — para retomar en una sesión nueva
 
-**Última actualización:** 2026-09-09
-**Rama:** `master` · **Tests:** 1.222 pasando (`uv run pytest tests/ -q -m "not red"`), 4 omitidos —dos por permisos POSIX en Windows y dos sin `numpy_financial`— más 9 marcados `red`
+**Última actualización:** 2026-09-15
+**Rama:** `master` · **Tests:** 1.662 pasando (`uv run pytest tests/ -q -m "not red"`), 4 omitidos —dos por permisos POSIX en Windows y dos sin `numpy_financial`— más 9 marcados `red`
 **Remoto:** `https://github.com/Steven7717/Markowitz-pro-picks-.git` — `master` es lo publicado
 **Estructura:** el programa vive en `programa/`; en la raíz sólo están los dos
 lanzadores y el `README.md`. Los comandos (`uv run pytest`, `uv run streamlit`)
 se ejecutan desde `programa/`, no desde la raíz.
 
-> **Al retomar:** todo está en `master`, incluido K. F y G entraron desde
-> `seguimiento-cartera`, H desde `noticias-calendario`, J desde
-> `entrada-al-seguimiento` y K desde `panel-de-seguimiento`, todas en avance
-> rápido —F, G y H el 2026-09-08; J y K el 2026-09-09—. Las cuatro ramas
-> quedaron en el mismo commit que `master` y ya no hacen falta.
+> **Al retomar:** todo está en `master` y publicado. Lo último que entró fue
+> la auditoría del 2026-09-13/14 desde `arreglos-auditoria`, 19 commits en
+> avance rápido, fusionada y empujada el 2026-09-15; la rama ya se borró.
+> Antes: F y G desde `seguimiento-cartera`, H desde `noticias-calendario`,
+> J desde `entrada-al-seguimiento` y K desde `panel-de-seguimiento`.
+>
+> **Lee la sección «La auditoría» antes de tocar nada.** No sólo por lo que
+> arregló: por el patrón que encontró, que este repositorio repitió cinco
+> veces y que va a volver a aparecer.
 
 ---
 
@@ -1275,6 +1279,130 @@ no haberlo arreglado.**
   pintándose sin pulsar, las dos marcas de respaldo, el archivo roto avisando y
   sobreviviendo—, pero pulsar el botón gasta saldo y se dejó al dueño de la clave.
 
+## La auditoría (2026-09-13/14) — y el patrón que encontró
+
+Auditoría completa en seis frentes, arreglo, y **re-auditoría con agentes que no
+sabían cómo se había arreglado nada**. 19 commits, de 1.325 a 1.662 tests.
+
+**La re-auditoría es lo que hizo que esto valiera la pena**, y ésa es la lección
+que hay que llevarse: encontró que **tres de los arreglos habían introducido
+fallos**, uno de ellos peor que el defecto original. Los tres pasaban sus
+propios tests. Si se hubiera dado por bueno el primer arreglo de cada cosa, el
+programa habría quedado peor en tres sitios de lo que estaba.
+
+### El patrón: arreglar el punto medido, no la clase de fallo
+
+Apareció **cinco veces**, y siempre igual: el razonamiento correcto ya estaba
+escrito treinta líneas más arriba, en otro fichero, sin cruzar. Un commit llegó
+a decirlo en su propio título (`8d2016b`).
+
+- **Máximo Sharpe en mercado bajista.** El primer arreglo maximizaba el criterio
+  de Israelsen. Pasaba el caso que se había medido y **fallaba con otras medias**:
+  `exceso × σ` tiende a cero por abajo linealmente en las dos magnitudes, así que
+  un activo cerca de la tasa libre de riesgo por debajo gana a cualquier cartera
+  tranquila. Lo que quedó: si ninguna cartera factible supera a las letras, no se
+  elige — se reparte por mínima varianza y se dice.
+- **El eco del reintento** devolvía al modelo su propio texto sin vallar, cuando
+  `interprete/contexto.py` ya neutralizaba exactamente eso por la otra mitad.
+- **El coste anunciado** se arregló en la pantalla de candidatos y no en la de
+  noticias, que tenía el mismo defecto con el mismo disparador.
+- **El temporal de nombre fijo** se arregló en `libro.py` y quedó en `cartera.py`,
+  `preferencias.py` y `credenciales.py` — el fichero de la clave de API.
+- **La contradicción cabecera/tabla** se cerró en la presentación y se abrió en
+  la escritura: `estado()` pasó a cobrar los dividendos automáticos y `anadir` se
+  quedó sin verlos, así que el programa **escribía en el libro una aportación que
+  el usuario nunca hizo**.
+
+**Al arreglar algo aquí, busca el resto de su clase antes de cerrarlo.**
+
+### Los cinco críticos, cerrados y verificados
+
+1. **La tabla por activo contradecía a la cabecera** en cuanto había un split:
+   +70,00 arriba y −450,00 abajo, del mismo activo. `por_activo` no recibía la
+   `Historia`. La referencia «repartir por igual» además se hundía el día del
+   split, siempre a favor del usuario.
+2. **«Anotar lo que ejecuté» registraba en el libro equivocado.** Los tres
+   selectores iban sin `key`. Hay ahora un helper único, `vistas/libros.py`.
+3. **En mercado bajista la cartera «óptima» era la más volátil** (ver arriba).
+4. **El programa escuchaba en `0.0.0.0`.** Cualquiera en la wifi abría la app,
+   veía las posiciones y gastaba la clave de Anthropic. `[server] address` en
+   `.streamlit/config.toml`, y ningún lanzador puede revertirlo.
+5. **La cadena de conceptos XBRL abandonaba a 233 de 502 empresas.** Se fijaba un
+   concepto para todo el panel en vez de resolverlo fila a fila.
+
+### Lo que cambió en los datos, y por qué importa
+
+Los múltiplos eran **trimestrales con nombre de anuales**: la mediana del
+universo salía con 7,24× de deuda sobre EBITDA cuando el S&P 500 está a menos de
+dos, y 58× de EV/EBITDA cuando está a quince. Ahora son TTM: 1,80× y 15,9×.
+
+Debajo había tres defectos que los envenenaban: el recuento de acciones se
+descumulaba como si fuera un flujo (no lo es, es una media ponderada), McDonald's
+declara sus acciones en millones y **la columna `unit` no lo delata** —se detecta
+por la identidad `beneficio ÷ BPA = acciones`—, y los precios vienen ajustados
+por splits mientras los recuentos XBRL vienen tal como se declararon, lo que le
+daba a Booking Holdings un PER de 1,17.
+
+### La enmienda del criterio (E1 y E2)
+
+`ranking/criterio.py` sigue intacto. Lo que se enmendó vive en
+`ranking/score.py` y `fundamentals/sectors.py`, está **fechado y argumentado en
+`docs/superpowers/specs/2026-08-12-agentes-analisis-ranking-design.md`**, y salió
+de una medición que dio la vuelta a la sospecha inicial.
+
+No eran los atípicos: **los KPIs que faltan no faltan al azar.**
+`cobertura_intereses` es NaN sin gasto financiero y `deuda_neta_ebitda` sin
+EBITDA positivo, así que las 78 empresas con solidez de un solo KPI eran *las que
+no tienen deuda*, y el KPI que les sobrevivía era la razón corriente — alta
+precisamente porque tienen caja. El motor premiaba «no publica línea de deuda»
+con un pilar entero: +0,475 desviaciones de sesgo y el doble de varianza, con una
+cuota que subía monótona del 18 % del universo al 40 % del top 15.
+
+**Las dos soluciones obvias eran peores que el problema, y está medido:**
+winsorizar **sube** la cuota de pilar manco al 47 % (±3) y al 60 % (±2,5), porque
+un pilar de un solo z recortado vale exactamente el tope; y la estandarización
+robusta *fabrica* colas —el p99 del z pasa de 4,07 a 17,12 y el máximo a 963—.
+
+Lo aplicado: el KPI ausente cuenta como la media de su sector, y el z se recorta
+a ±3 **sólo en los KPIs, no en el compuesto** (ahí capaba el orden justo donde se
+decide el ranking). Efecto: cuota de pilar manco en el top 15 del 40 % al 20 %,
+concentración máxima del 94,6 % al 61,5 %, CPRT del puesto 1 al 15, y τ de
+Kendall 0,874 con el orden anterior.
+
+### La honestidad que se añadió a la pantalla
+
+- **Los pesos no están identificados por los datos** y ahora se dice, con cifras,
+  encima de la tabla y la tarta. Los intervalos del 90 % cubrían 67 puntos de una
+  región de 100 y en el 54 % de los remuestreos mandaba otro activo.
+- **El veredicto viaja con su listón** (`oos_umbral_veredicto`,
+  `oos_sigmas_veredicto`): se guarda la medición, nunca la conclusión, porque el
+  umbral ya pasó de 1σ a 2σ una vez.
+- **El retorno esperado lleva su ±**, y la TIR dice desde cuántos días se
+  anualiza y por qué falta cuando falta.
+
+### Lo que la re-auditoría dejó abierto
+
+1. **Un KPI ausente *por ser bueno* no es lo mismo que uno ausente por falta de
+   dato**, y hoy `fundamentals/kpis.py` los devuelve iguales. Por eso E1 tuvo que
+   elegir entre dos sesgos en vez de eliminarlos. Es el arreglo de fondo.
+2. **Quedan múltiplos con denominador casi nulo.** Cinco grupos
+   sector-trimestre-KPI de magnitud «Camden» (EL 204×, EQIX 163×, EXPE 85×), y en
+   el **40,7 %** de los grupos quitar un solo valor mueve el z de algún par más de
+   una desviación. Reestimar sin el punto más lejano cambiaría 5 de 15 nombres.
+3. **La lista rota con la fórmula.** Entre seis variantes de normalización el top
+   15 cambia entre 2 y 9 nombres, y sólo cinco sobreviven a todas: CPRT, DECK,
+   MNST, MU, NVDA. No lo arregla ninguna fórmula — es que 424 compuestos se
+   apiñan alrededor del corte del puesto 15. **El sitio donde mirar es el tamaño
+   del top.**
+4. **Las vistas siguen sin tests.** Doce ficheros, cero. Mucha lógica salió a
+   módulos probables durante este trabajo (`comparativa.py`, `vistas/libros.py`,
+   `validation.medida_veredicto`, `panel_ia.coste_peor_caso`), pero lo que queda
+   está verificado por lectura y por recorrido a mano. `streamlit.testing.v1.AppTest`
+   funciona.
+5. **El `git pull` de los lanzadores ejecuta lo que baje sin verificar firma.**
+
+---
+
 ## Lo siguiente
 
 El sistema está completo de punta a punta: A ingiere, B ordena y razona, C
@@ -1308,11 +1436,21 @@ Trabajo posterior anotado, por orden de valor:
    puerta fallan las empresas que fallan** (¿levantan desde `to_dataframe()`, o
    `get_company_facts` devuelve `None` antes?). Sin eso, cualquier arreglo es
    maquinaria para un escenario que puede no existir.
-2. **Los z-scores no están acotados.** El |z| máximo del panel es 8,62 y el primer clasificado lo es en buena parte por un único KPI a +6,37. Es el primer candidato a revisar cuando se reabra el criterio de B — que hoy está congelado por pre-registro.
+2. ~~**Los z-scores no están acotados.**~~ **Hecho el 2026-09-14**, y no como
+   se esperaba: al medirlo resultó que el problema no eran los atípicos sino
+   que el KPI ausente no penalizaba, y que **winsorizar solo lo empeoraba**.
+   Enmiendas E1 y E2, fechadas en el diseño de B. Ver «La auditoría». Lo que
+   queda de esa familia son los múltiplos con denominador casi nulo, que es
+   otro problema: está en la lista de abierto de esa misma sección.
 3. **Validar los pesos empíricamente.** Requiere ampliar el panel a ~40 trimestres con universo point-in-time.
-4. **¿Cuántas acciones debería tener el portafolio final?** Sigue sin responder, e interactúa con que Markowitz concentra pesos: 15 candidatos no son 15 posiciones.
-
-Sigue sin responder: **¿cuántas acciones debería tener el portafolio final?** Interactúa con que Markowitz concentra pesos, así que 15 candidatos no son 15 posiciones.
+4. **¿Cuántas acciones debería tener el portafolio final?** Sigue sin
+   responder, e interactúa con que Markowitz concentra pesos: 15 candidatos no
+   son 15 posiciones. **La auditoría añadió un dato que empuja la pregunta**:
+   entre seis fórmulas de normalización el top 15 rota entre 2 y 9 nombres y
+   sólo cinco sobreviven a todas, porque 424 compuestos se apiñan alrededor
+   del corte. Un top más corto sería más estable; uno más largo, más honesto
+   sobre lo poco que separa al puesto 14 del 18. Hoy el 15 no está elegido por
+   ninguna de las dos razones.
 
 ---
 
