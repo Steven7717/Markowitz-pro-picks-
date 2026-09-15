@@ -156,6 +156,23 @@ def neutralizar_marcas(texto: str) -> str:
     rechazara, porque `verificar_cita` compara contra la fuente sin tocar. Es
     el lado barato de la asimetria de siempre --una cita real rechazada, nunca
     una inventada aceptada-- y en prosa legal una tirada asi no aparece.
+
+    **Lo que NO toca, a proposito: los parecidos.** `＞＞＞` (U+FF1E), `〉`,
+    `»`, `›`, `❯` y `﹥` pasan intactos, y el titulo de arriba no promete otra
+    cosa: lo que se separa son las marcas de valla, que son `<<<` y `>>>` en
+    ASCII y nada mas.
+
+    La razon de dejarlos es la misma que hace que la valla funcione. Un bloque
+    no lo cierra un caracter que se parezca a la marca, lo cierra **la marca
+    con su sufijo**, y el sufijo sale de un hash del texto que encierra: un
+    homoglifo no acerca a nadie a esa preimagen. O sea que lo unico que puede
+    hacer es parecerse a una marca, y a cambio de neutralizarlo se pagaria lo
+    de siempre, pero peor: `»` aparece de verdad en prosa financiera en
+    castellano --cierra una cita-- asi que separarlo rechazaria citas
+    legitimas a cambio de nada.
+
+    Esto esta escrito porque sin escribirlo el docstring prometia mas de lo que
+    hace, y el siguiente que lo leyera confiaria en una cobertura que no hay.
     """
     return _MARCAS_SUELTAS.sub(lambda hallado: " ".join(hallado.group()), texto)
 

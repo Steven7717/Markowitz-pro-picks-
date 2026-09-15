@@ -13,7 +13,9 @@ mismo nombre.
 """
 
 import json
+import os
 import re
+import tempfile
 from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime
 from pathlib import Path
@@ -240,10 +242,46 @@ def reetiquetar(portafolio: Portafolio, ruta: Path,
     nuevo = replace(portafolio, nombre=normalizar_nombre(nombre), nota=nota)
     ruta = Path(ruta)
     texto = json.dumps(asdict(nuevo), ensure_ascii=False, indent=2, allow_nan=False)
-    tmp = ruta.with_suffix(".tmp")
-    tmp.write_text(texto, encoding="utf-8")
-    tmp.replace(ruta)
+    _escribir_encima(ruta, texto)
     return nuevo
+
+
+def _escribir_encima(ruta: Path, texto: str) -> None:
+    """Reescribir un fichero que ya existe, sin que dos pasadas se pisen.
+
+    **Un nombre único por escritura, no `ruta.with_suffix(".tmp")`.** Es el
+    razonamiento de `seguimiento/libro.py:actualizar` palabra por palabra, y
+    aquí aplica igual: con el nombre fijo, dos ventanas de Portafolios
+    reetiquetando el mismo fichero escriben en el MISMO temporal, y si un
+    `replace` cae mientras la otra está a mitad de su escritura, lo que
+    aterriza en el destino es JSON truncado. Lo que se pierde es un portafolio
+    guardado, que es una fotografía que puede que ya estés siguiendo en un
+    libro.
+
+    En el MISMO directorio que el destino, y ese detalle es la mitad del
+    patrón: `replace` sólo es atómico dentro del mismo volumen, así que un
+    temporal en la carpeta de temporales del sistema convertiría el reemplazo
+    atómico en una copia a medias. `mkstemp` además abre con O_EXCL, de modo
+    que ni siquiera dos procesos pueden coincidir en el nombre.
+
+    `guardar` no pasa por aquí y hace bien: **nunca sobrescribe**, así que su
+    temporal de nombre fijo no puede pisar el de nadie. La diferencia no es de
+    estilo, es de si hay una segunda escritura sobre el mismo destino.
+    """
+    descriptor, provisional = tempfile.mkstemp(
+        dir=ruta.parent, prefix=f".{ruta.stem}-", suffix=".tmp"
+    )
+    tmp = Path(provisional)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as destino:
+            destino.write(texto)
+        tmp.replace(ruta)
+    except BaseException:
+        # El temporal se limpia sólo cuando el fallo ocurre ANTES del
+        # `replace`; después ya no existe con ese nombre. `missing_ok` es lo
+        # que hace que las dos situaciones se puedan escribir en una línea.
+        tmp.unlink(missing_ok=True)
+        raise
 
 
 def nombres_usados(directorio: "Path | None" = None) -> "set[str]":

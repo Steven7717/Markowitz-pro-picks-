@@ -14,6 +14,8 @@ desconocido sólo significa que hay que elegir otro.
 """
 
 import json
+import os
+import tempfile
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 
@@ -141,16 +143,43 @@ def cargar(ruta: Path | None = None) -> tuple[Preferencias, list[str]]:
 
 
 def guardar(preferencias: Preferencias, ruta: Path | None = None) -> Path:
-    """Write the preferences atomically, creating the folder if needed."""
+    """Write the preferences atomically, creating the folder if needed.
+
+    **Un nombre único por escritura, no `ruta.with_suffix(".tmp")`.** Es el
+    razonamiento de `seguimiento/libro.py:actualizar` palabra por palabra, y
+    aquí aplica igual: hay un solo fichero —`~/.markowitz-pro-picks/
+    preferencias.json`— y esto siempre lo sobrescribe, así que dos ventanas de
+    Perfil guardando a la vez escriben en el MISMO temporal. Si un `replace`
+    cae mientras la otra está a mitad de su escritura, en el destino queda JSON
+    truncado.
+
+    Lo que se pierde es menos que un libro —unas preferencias se vuelven a
+    poner— pero el usuario no se entera de que se perdieron: `cargar` trata el
+    fichero ilegible como un aviso y devuelve los valores de fábrica, así que
+    el optimizador arranca otro día con ajustes que nadie eligió.
+
+    En el MISMO directorio que el destino, y ese detalle es la mitad del
+    patrón: `replace` sólo es atómico dentro del mismo volumen. `mkstemp`
+    además abre con O_EXCL, así que ni dos procesos coinciden en el nombre.
+    """
     ruta = Path(ruta or RUTA)
     ruta.parent.mkdir(parents=True, exist_ok=True)
     limpias, _ = preferencias.saneadas()
-    tmp = ruta.with_suffix(".tmp")
-    tmp.write_text(
-        json.dumps(asdict(limpias), ensure_ascii=False, indent=2, allow_nan=False),
-        encoding="utf-8",
+    texto = json.dumps(asdict(limpias), ensure_ascii=False, indent=2, allow_nan=False)
+
+    descriptor, provisional = tempfile.mkstemp(
+        dir=ruta.parent, prefix=f".{ruta.stem}-", suffix=".tmp"
     )
-    tmp.replace(ruta)
+    tmp = Path(provisional)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as destino:
+            destino.write(texto)
+        tmp.replace(ruta)
+    except BaseException:
+        # El temporal se limpia sólo cuando el fallo ocurre ANTES del
+        # `replace`; después ya no existe con ese nombre.
+        tmp.unlink(missing_ok=True)
+        raise
     return ruta
 
 

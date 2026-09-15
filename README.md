@@ -24,7 +24,7 @@ Son tres clics y una espera. Lo que sí necesitas:
 | **Espacio en disco** | Algo más de 1,5 GB (medido: 635 MB el entorno del programa, 134 MB el Python, y una copia de las librerías que la caché de uv conserva y que en Windows no se puede evitar) |
 
 **Opcional:** una clave de [Anthropic](https://platform.claude.com) si quieres
-la mitad con IA. Cuesta dinero tuyo — alrededor de **1,55 $** por cada análisis
+la mitad con IA. Cuesta dinero tuyo — alrededor de **1,60 $** por cada análisis
 completo del S&P 500. Sin ella el programa funciona igual, sólo que sin las
 fichas redactadas.
 
@@ -317,8 +317,8 @@ El programa funciona en dos mitades:
 
 | Qué | Cuánto |
 |---|---|
-| Análisis completo del S&P 500 con fichas | ~**1,55 $** (estimado al alza a propósito: es el peor caso, con un reintento en las quince fichas). El programa se planta solo en 2,50 $ |
-| Interpretar las noticias de tu cartera | ~**0,10 $** por pulsación |
+| Análisis completo del S&P 500 con fichas | hasta **1,60 $** (es el peor caso, con un reintento en las quince fichas). El programa se planta solo en 2,50 $ |
+| Interpretar las noticias de tu cartera | ~**0,12 $** de media, hasta **0,26 $** por pulsación. El programa se planta solo en 0,50 $ |
 | Comentar una propuesta de rebalanceo | menos de **0,01 $** |
 
 Las pantallas que cuestan dinero **avisan antes de gastarlo y dicen lo que
@@ -359,8 +359,8 @@ clave, se prueba, y falla sin que se entienda por qué.
 4. Escribe la cantidad y confirma.
 
 El saldo **está disponible al momento**. Con 5 $ tienes de sobra para probar:
-el análisis completo cuesta alrededor de 1,55 $ y las pulsaciones de la parte de
-seguimiento, céntimos.
+el análisis completo cuesta hasta 1,60 $ y las pulsaciones de la parte de
+seguimiento, unos céntimos cada una.
 
 > **Ojo a dos cosas:** los créditos **caducan al año** de comprarlos y **no se
 > devuelven**. Compra poco y ve recargando.

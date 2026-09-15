@@ -31,8 +31,10 @@ PRECIO_SALIDA = 10.00
 # disparador del reintento lo controla el texto del filing, que lo escribe un
 # tercero.
 #
-# 2,50 $ es holgado a proposito. El peor caso medido de una corrida de quince
-# fichas con un reintento en todas es 1,54 $ (ver `COSTE_APROXIMADO_USD` en
+# 2,50 $ es holgado a proposito. El peor caso de una corrida de quince fichas
+# con un reintento en todas es 1,57 $ --decia 1,54 mientras el ratio de
+# caracteres por token era el supuesto y no el medido de `ranking/filings.py`--
+# (ver `COSTE_APROXIMADO_USD` en
 # `aprobacion/generacion.py`), asi que esto no puede saltar en una corrida
 # normal: si salta, algo se salio de lo previsto y lo correcto es dejar de
 # gastar y entregar fichas de plantilla, que es la degradacion que este modulo
@@ -53,7 +55,14 @@ TOPE_USD_POR_CORRIDA = 2.50
 # exactamente un cambio de la politica de reintento --la unica clase de cambio
 # que el hash no puede ver-- asi que se sube aqui a mano, como dice el parrafo
 # de arriba.
-VERSION_PROMPT = "b2"
+#
+# b3: el eco del reintento dejo de mandar la cita del modelo a pelo y pasa a ir
+# vallada (ver `_reintento`). Es otro cambio de la misma clase --el hash mira
+# `_prompt`, no `_reintento`--, y aqui ademas hay una razon para invalidar y no
+# solo una regla: una ficha cacheada pudo escribirse en una corrida donde el
+# segundo turno llevaba dentro una orden que el filing colo por ahi. Esas son
+# justo las que hay que rehacer.
+VERSION_PROMPT = "b3"
 MAX_RIESGOS = 3
 
 # Cuanto del filing se vuelve a mandar en el reintento, y solo cuando el
@@ -250,12 +259,32 @@ def _reintento(
     sin_afirmacion: list[Riesgo],
 ) -> str:
     """Each paragraph names a failure only if that failure actually happened —
-    never a fixed template that complains about something that was fine."""
+    never a fixed template that complains about something that was fine.
+
+    **El listado de citas va vallado, no pegado a pelo.** Una cita que falla es
+    texto que escribio el modelo copiando del documento, asi que es texto de un
+    tercero dentro de un turno que el modelo lee como del programa. Y hay un
+    camino concreto que lo explota: el sufijo del bloque `contexto` es el mismo
+    en los dos turnos --el contexto no cambia, asi que su hash tampoco--, de
+    modo que el modelo VE esa marca de cierre escrita en el turno uno y al
+    filing le basta con convencerle de copiarla dentro de una `cita`. Esa cita
+    no verifica por construccion --no esta en el filing-- asi que cae en
+    `fallidas` y se le devolvia cruda, con lo que viniera detras leyendose como
+    texto del programa.
+
+    `vallar` neutraliza las marcas de dentro y pone una propia cuyo sufijo sale
+    del listado, asi que cerrarla desde dentro exigiria una preimagen de
+    SHA-256. Es la misma linea que `interprete/contexto.py:leidos` ya escribio
+    para el `que_dice` guardado, «escrito bajo el defecto de ayer, o por un
+    modelo al que se le convencio de copiarla»: aqui faltaba.
+    """
     partes = []
     if fallidas:
-        listado = "\n".join(f"- {riesgo.cita}" for riesgo in fallidas)
+        listado = vallar("\n".join(f"- {riesgo.cita}" for riesgo in fallidas))
         partes.append(
-            "Estas citas no aparecen literalmente en el texto entregado:\n"
+            "Estas citas no aparecen literalmente en el texto entregado. Es "
+            "texto que copiaste del documento, asi que va dentro de una valla "
+            "y se lee como tal:\n"
             f"{listado}\n"
             "Vuelve a escribir esos riesgos usando sólo citas que puedas copiar "
             "del texto. Si un riesgo no tiene respaldo literal, elimínalo."

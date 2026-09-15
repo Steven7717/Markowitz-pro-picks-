@@ -21,6 +21,23 @@ MAX_TOKENS = 2000
 PRECIO_ENTRADA = 2.00
 PRECIO_SALIDA = 10.00
 
+# El tope duro de una pulsacion, en dolares.
+#
+# `ranking/llm.py` tiene el suyo --`TOPE_USD_POR_CORRIDA`-- desde que se vio
+# que nada impedia que quince fichas se convirtieran en treinta llamadas. Este
+# camino no tenia ninguno, y es el que mas se pulsa: Noticias y Rebalanceo van
+# a diario, mientras que el ranking se genera de uvas a peras. El disparador es
+# el mismo y lo controla el mismo tercero: al documento le basta con inducir un
+# digito o una cita que no verifique para que el segundo turno salga siempre.
+#
+# 0,50 $ es holgado a proposito, igual que el 2,50 de la corrida. El peor caso
+# de una pulsacion de seis hechos son 0,27 $ --ver
+# `vistas/panel_ia.py:coste_peor_caso`--, asi que esto no puede saltar en una
+# pulsacion normal: si salta, algo se salio de lo previsto y lo correcto es
+# dejar de gastar y entregar lo que ya se tiene, que es exactamente la
+# degradacion que las dos mitades ya saben hacer cuando el reintento se agota.
+TOPE_USD_POR_PULSACION = 0.50
+
 
 @dataclass(frozen=True)
 class Respuesta:
@@ -45,6 +62,22 @@ class Respuesta:
 def coste(entrada_tokens: int, salida_tokens: int) -> float:
     """Lo que cuesta una llamada, en dolares."""
     return (entrada_tokens * PRECIO_ENTRADA + salida_tokens * PRECIO_SALIDA) / 1_000_000
+
+
+def dentro_del_tope(entrada_tokens: int, salida_tokens: int) -> bool:
+    """Si a lo gastado en esta pulsacion le queda margen para otra llamada.
+
+    Se pregunta **antes** de llamar y no despues, por la misma razon que en
+    `ranking/llm.py:redactar`: despues ya se gasto. Quien llama lleva su propia
+    cuenta de tokens --las dos mitades la llevan ya, porque la `Lectura` y el
+    `Comentario` la ensenan en pantalla-- y aqui solo se decide.
+
+    Es una funcion y no una comparacion escrita en cada mitad porque son dos:
+    `noticias.leer` y `ajuste.comentar` tienen el mismo bucle de dos turnos, y
+    dos copias de una decision de gasto se separan igual de facil que dos
+    copias de cualquier otra.
+    """
+    return coste(entrada_tokens, salida_tokens) < TOPE_USD_POR_PULSACION
 
 
 def hay_clave() -> bool:

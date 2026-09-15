@@ -10,17 +10,25 @@ from dataclasses import dataclass
 
 from ranking import llm
 from ranking.criterio import TAMANO_TOP
+from ranking.filings import CARACTERES_POR_TOKEN
 
 # Medido con count_tokens contra la API real el 2026-08-16, no estimado: el
 # peor caso son 24.231 tokens de entrada por ficha (ver la enmienda 4 del
 # diseño de B).
 TOKENS_POR_FICHA = 24_231
 
-# Mismo ratio que `vistas/panel_ia.py:_CARACTERES_POR_TOKEN`, y por la misma
-# razón: el reintento se recorta en caracteres y se cobra en tokens, así que
-# alguna conversión hace falta. Cuatro caracteres por token es lo que sale en
-# prosa legal en inglés, que es exactamente lo que se manda.
-CARACTERES_POR_TOKEN = 4
+# El ratio se **importa** de `ranking/filings.py`, que es donde se midió.
+#
+# Aquí había un 4 escrito a mano, justificado con que «cuatro caracteres por
+# token es lo que sale en prosa legal en inglés, que es exactamente lo que se
+# manda» — y el fichero que produce ese mismo texto lo midió con count_tokens
+# contra la API y le salió 3,30, con la nota de que «la regla de tres se
+# quedaba corta en un 21%». La estimación estaba escrita al lado de la medida y
+# no la había leído. `vistas/panel_ia.py` llevaba la tercera copia del mismo 4.
+#
+# El test que ataba la cifra anunciada al peor caso pasaba igual, porque los
+# dos lados de la comparación usaban el número malo: un ratio equivocado no
+# rompe una igualdad consigo mismo.
 
 # Lo que se anuncia antes de pulsar. **Es el peor caso, no el caso típico.**
 #
@@ -32,14 +40,20 @@ CARACTERES_POR_TOKEN = 4
 # gasto del usuario por un factor de dos.
 #
 # Ahora el reintento ya no reenvía los ochenta mil caracteres del filing (ver
-# `ranking/llm.py:MAX_CARACTERES_REINTENTO`) y el peor caso baja a 1,54 $. Se
-# anuncia 1,55: redondeado hacia arriba a propósito, como antes — quien lee
+# `ranking/llm.py:MAX_CARACTERES_REINTENTO`) y el peor caso baja a 1,57 $. Se
+# anuncia 1,60: redondeado hacia arriba a propósito, como antes — quien lee
 # esto está a punto de decidir si gastar, y una estimación optimista en ese
 # sitio es peor que no dar ninguna.
 #
+# Decía 1,55 hasta que el ratio de arriba pasó a ser el medido en vez del
+# supuesto. Con 3,30 caracteres por token el mismo recorte del filing son más
+# tokens, el peor caso sube a 1,5687 $ y el 1,55 anunciado se quedaba **por
+# debajo** — que es el lado caro del error, justo el defecto que esta constante
+# existe para no repetir.
+#
 # Hay un test que lo ata a `coste_peor_caso()` por los dos lados: ni por debajo
 # del peor caso, ni tan por encima que deje de servir para decidir.
-COSTE_APROXIMADO_USD = 1.55
+COSTE_APROXIMADO_USD = 1.60
 
 
 def coste_peor_caso(fichas: int = TAMANO_TOP) -> float:
@@ -57,7 +71,7 @@ def coste_peor_caso(fichas: int = TAMANO_TOP) -> float:
     quince filings hostiles pueden forzar quince.
     """
     entrada_reintento = (
-        llm.MAX_CARACTERES_REINTENTO // CARACTERES_POR_TOKEN
+        int(llm.MAX_CARACTERES_REINTENTO / CARACTERES_POR_TOKEN)
         # El eco de la respuesta anterior, que el reintento sí sigue mandando:
         # enseñarle al modelo su propio turno es lo que le permite corregirlo.
         + llm.MAX_TOKENS

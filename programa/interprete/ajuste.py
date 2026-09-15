@@ -24,7 +24,12 @@ SIN_PROPUESTA = "sin_propuesta"
 FALLO = "fallo"
 HECHO = "hecho"
 
-VERSION_PROMPT = "i1"
+# i2: el turno de usuario cambio --`contexto.operaciones` y `contexto.cartera`
+# ya no dejan que un ticker traiga un salto de linea ni una marca de valla-- y
+# el segundo turno dejo de pedirse cuando la pulsacion se pasa del tope. No es
+# una clave de cache, como en `noticias.py`: es la procedencia que se anota con
+# cada comentario, y un comentario dice con que prompt se escribio.
+VERSION_PROMPT = "i2"
 
 SISTEMA = """Eres un analista que revisa un plan de rebalanceo ya calculado. El \
 reparto sale de la aritmetica de los pesos objetivo que el usuario fijo: no lo \
@@ -161,7 +166,15 @@ def comentar(
         # observaciones son independientes, y tirar las buenas mas la llamada ya
         # pagada por una mala es peor que tirar la mala. Es el mismo arreglo que
         # `noticias.py`, que se hizo en una mitad y no en la otra.
-        if not con_digitos or intento == 1:
+        #
+        # Y el tope se mira **antes** de pedir el segundo turno, no despues:
+        # despues ya se gasto. Mismo motivo que en `noticias.leer`, aunque aqui
+        # el disparador no sea un documento sino un digito que el modelo puede
+        # repetir: el reintento reenvia el turno entero, y nada acotaba lo que
+        # una pulsacion podia costar.
+        if not con_digitos or intento == 1 or not cliente_mod.dentro_del_tope(
+            entrada_tokens, salida_tokens
+        ):
             limpias = [o for o in validas if sin_digitos(o.dice)]
             descartadas += len(validas) - len(limpias)
             en_conjunto, conjunto_descartado = _limpiar_conjunto(

@@ -17,6 +17,10 @@ import cartera
 import configuracion
 import preferencias as preferencias_mod
 import tema
+from aprobacion import acta as acta_mod
+from aprobacion import carga as carga_mod
+from interprete import archivo as archivo_mod
+from seguimiento import libro as libro_mod
 from credenciales import (
     RUTA as RUTA_CREDENCIALES,
     CredencialInvalida,
@@ -235,17 +239,32 @@ with datos_tab:
     st.markdown(
         "Nada de esto se envía a ningún sitio. Todo son ficheros en tu ordenador."
     )
+    # La tabla promete listarlo TODO, y se dejaba fuera justo el fichero que
+    # más importa: el libro es lo que el README describe como «cuánto dinero
+    # tienes y en qué», y sus interpretaciones son lo único que se pagó con la
+    # clave del usuario. Una pantalla que dice «todo son ficheros en tu
+    # ordenador» y omite dos de ellos no está informando de menos: está
+    # diciendo que no existen. Las rutas se interpolan desde las constantes que
+    # de verdad las fijan, y no escritas a mano, para que mover una carpeta
+    # mueva también lo que esta pantalla promete.
     st.markdown(
         f"""
 | Qué | Dónde | Se puede borrar |
 |---|---|---|
 | Credenciales | `{RUTA_CREDENCIALES}` | Sí, desde la pestaña Credenciales |
 | Preferencias | `{preferencias_mod.RUTA}` | Sí, con el botón de arriba |
+| Libros de seguimiento | `{libro_mod.DIRECTORIO}/` | Sí, uno a uno — es el historial de lo que compraste |
+| Interpretaciones de la IA | `{libro_mod.DIRECTORIO}/{archivo_mod.SUBCARPETA}/` | Sí, pero volver a leerlas cuesta dinero |
 | Portafolios guardados | `{cartera.DIRECTORIO}/` | Sí, uno a uno |
-| Actas de aprobación | `actas/` | Se dejan a propósito: son el registro |
-| Candidatos generados | `salidas/` | Sí, se regeneran |
+| Actas de aprobación | `{acta_mod.ACTAS}/` | Se dejan a propósito: son el registro |
+| Candidatos generados | `{carga_mod.SALIDAS}/` | Sí, se regeneran |
 | Caché de descargas | `fundamentals/.cache/`, `ranking/.cache/` | Sí, se vuelven a bajar |
 """
+    )
+    st.caption(
+        "Los libros son lo que no se regenera: un portafolio guardado se "
+        "vuelve a optimizar y una caché se vuelve a bajar, pero lo que "
+        "compraste y a qué precio sólo está ahí."
     )
     st.caption(
         "Las credenciales y las preferencias viven en tu carpeta personal y no "

@@ -1,6 +1,9 @@
 import json
 import os
 import stat
+from pathlib import Path
+
+import credenciales
 
 import pytest
 
@@ -327,3 +330,41 @@ def test_guardar_sin_nada_relleno_no_escribe_un_fichero_de_nulls(tmp_path):
     with pytest.raises(CredencialInvalida):
         guardar(Credenciales(), ruta)
     assert not ruta.exists()
+
+
+def test_dos_guardados_a_la_vez_no_comparten_el_fichero_temporal(tmp_path, monkeypatch):
+    """`.tmp` de nombre fijo, y este fichero es la clave de la API.
+
+    El programa admite dos ventanas de Perfil. Con un nombre compartido y
+    `O_TRUNC`, una puede truncar el temporal mientras la otra lo escribe, y lo
+    que aterriza sobre `credenciales.json` es JSON a medias: la clave y el
+    correo perdidos, y el usuario sin saber por que. Es el mismo razonamiento
+    que `seguimiento/libro.py` escribio para el libro, y aqui aplica igual.
+
+    El `O_TRUNC` estaba puesto a proposito para que un `.tmp` rancio no
+    bloqueara el guardado para siempre. Con un nombre unico por escritura ese
+    problema no puede darse, asi que la razon desaparece en vez de romperse.
+    """
+    ruta = tmp_path / "credenciales.json"
+    vistos = []
+    real = credenciales.tempfile.mkstemp
+
+    def espiar(*args, **kwargs):
+        descriptor, nombre = real(*args, **kwargs)
+        vistos.append(nombre)
+        return descriptor, nombre
+
+    monkeypatch.setattr(credenciales.tempfile, "mkstemp", espiar)
+
+    credenciales.guardar(
+        credenciales.Credenciales(api_key="sk-ant-uno", edgar_identity="a@b.c"), ruta
+    )
+    credenciales.guardar(
+        credenciales.Credenciales(api_key="sk-ant-dos", edgar_identity="a@b.c"), ruta
+    )
+
+    assert len(vistos) == 2 and vistos[0] != vistos[1], "comparten el temporal"
+    # En el mismo volumen que el destino: `replace` solo es atomico ahi.
+    assert all(Path(v).parent == ruta.parent for v in vistos)
+    assert list(tmp_path.iterdir()) == [ruta], "queda basura"
+    assert json.loads(ruta.read_text(encoding="utf-8"))["api_key"] == "sk-ant-dos"

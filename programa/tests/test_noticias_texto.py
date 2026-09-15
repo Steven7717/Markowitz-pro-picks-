@@ -30,8 +30,11 @@ HOSTIL = "Consulta [el aviso oficial](https://sec-alertas.example/XYZ) y $1000M.
 
 def test_el_texto_hostil_del_filing_sale_inerte():
     salido = texto.plano(HOSTIL)
+    # El guion de "sec-alertas" tambien sale escapado desde que `ESPECIALES`
+    # cubre los caracteres de bloque: `-` abre vineta y raya horizontal al
+    # principio de una linea, y el escapado se pinta como el guion de siempre.
     assert salido == (
-        r"Consulta \[el aviso oficial\](https://sec-alertas.example/XYZ) y \$1000M."
+        r"Consulta \[el aviso oficial\](https://sec\-alertas.example/XYZ) y \$1000M."
     )
 
 
@@ -132,3 +135,95 @@ def test_el_saboteador_de_ese_test_lo_tumba():
     el de arriba sabe ver el defecto que existia de verdad."""
     antes = "st.markdown(f\"> {' '.join(riesgo['cita'].split())}\")"
     assert len(_sin_escapar(ast.parse(antes))) == 1
+
+
+# --- La url, lo unico de una noticia que no se escapaba ----------------------
+#
+# El `url` sale de yfinance (`noticias/prensa.py`: `canonicalUrl.url`, sin
+# validar ni el esquema) y de EDGAR. El destino va entre `<>` desde que las
+# urls con parentesis cortaban el enlace a la mitad, pero un `>` dentro de la
+# url cierra ese destino antes de tiempo y lo que viene detras se pinta como un
+# SEGUNDO enlace pulsable -- justo al lado de «Cita literal del documento de la
+# empresa» y debajo de cada titular.
+
+
+def test_un_cierre_dentro_de_la_url_no_planta_un_segundo_enlace():
+    salido = texto.enlace("ver el expediente", "https://www.sec.gov/a.htm>")
+    assert salido == "[ver el expediente](<https://www.sec.gov/a.htm%3E>)"
+    # Un solo destino, y por tanto un solo enlace.
+    assert salido.count("](<") == 1
+
+
+def test_una_url_con_parentesis_sigue_entera():
+    """Lo que motivo los `<>` en su dia: las urls de prensa traen parentesis y
+    sin ellos el enlace se corta a la mitad. Eso no se pierde al arreglar el
+    `>`."""
+    salido = texto.enlace("titular", "https://medio.example/nota_(2026)")
+    assert "nota_(2026)" in salido
+
+
+def test_un_esquema_que_no_es_http_no_se_pinta_como_enlace():
+    """`canonicalUrl.url` llega sin validar. Un `javascript:` o un `data:` con
+    pinta de noticia es un enlace que el usuario pulsa porque el titular se lo
+    pide."""
+    assert texto.enlace("Pulsa aqui", "javascript:alert(1)") == "Pulsa aqui"
+    assert texto.enlace("Pulsa aqui", "data:text/html,<h1>hola") == "Pulsa aqui"
+
+
+def test_una_url_relativa_o_rota_tampoco_se_pinta_como_enlace():
+    """Un enlace que no lleva a ninguna parte invita a pulsarlo igual. Es la
+    misma razon por la que la url vacia ya devolvia el texto solo."""
+    assert texto.enlace("titular", "/Archives/edgar/data/1/a.htm") == "titular"
+    assert texto.enlace("titular", "   ") == "titular"
+
+
+def test_una_url_con_un_salto_de_linea_no_parte_la_linea():
+    salido = texto.enlace("titular", "https://medio.example/a\nb")
+    assert "\n" not in salido
+
+
+# --- Lo que markdown se seguia quedando en `plano` --------------------------
+
+
+def test_un_encabezado_del_modelo_no_se_pinta_como_encabezado():
+    """Un salto de linea seguido de `# TITULO` dentro de un `que_dice` salia
+    como encabezado de seccion, con el tamano y el peso de los que pone el
+    programa."""
+    salido = texto.plano("Dice algo.\n# TITULO FALSO")
+    assert salido == "Dice algo.\n" + r"\# TITULO FALSO"
+
+
+def test_un_autoenlace_no_sale_pulsable():
+    """`<https://…>` es un autoenlace en commonmark: se pinta pulsable sin
+    necesidad de corchetes, y una imagen remota confirma que la ficha se
+    abrio."""
+    assert texto.plano("<https://evil.tld/pixel>") == r"\<https://evil.tld/pixel\>"
+
+
+def test_una_vineta_del_modelo_no_se_convierte_en_lista():
+    assert texto.plano("Uno.\n- dos\n+ tres") == "Uno.\n" + r"\- dos" + "\n" + r"\+ tres"
+
+
+def test_una_tabla_y_una_entidad_tampoco_se_interpretan():
+    assert texto.plano("a | b &amp; c") == r"a \| b \&amp; c"
+
+
+def test_una_exclamacion_antes_de_un_corchete_no_es_una_imagen():
+    assert texto.plano("![x](https://evil.tld/p.png)") == (
+        r"\!\[x\](https://evil.tld/p.png)"
+    )
+
+
+def test_un_subrayado_setext_no_asciende_el_parrafo_a_titulo():
+    """Un `===` en la linea siguiente convierte el parrafo entero en un
+    encabezado de nivel uno, sin que el caracter este al principio de la linea
+    del texto que se lleva."""
+    assert texto.plano("Dice algo.\n===") == "Dice algo.\n" + r"\=\=\="
+
+
+def test_lo_que_ya_se_escapaba_se_sigue_escapando():
+    """El saboteador de la lista: reescribir ESPECIALES a mano y perder uno de
+    los de siempre no lo notaria nadie."""
+    salido = texto.plano(HOSTIL)
+    assert r"\[el aviso oficial\]" in salido
+    assert r"\$1000M" in salido

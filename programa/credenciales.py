@@ -12,6 +12,7 @@ dentro, porque nunca estuvo ahí. `.gitignore` protege de git, no de un ZIP.
 import json
 import os
 import re
+import tempfile
 from dataclasses import dataclass, replace
 from pathlib import Path
 
@@ -145,16 +146,29 @@ def guardar(credenciales: Credenciales, ruta: Path | None = None) -> Path:
         indent=2,
         allow_nan=False,
     )
-    tmp = ruta.with_suffix(".tmp")
-    # O_TRUNC y no O_EXCL: un guardado que falló antes puede haber dejado un
-    # .tmp suelto, y O_EXCL haría que el siguiente intento fallara para
-    # siempre. En Windows el modo se ignora salvo el bit de sólo lectura.
-    descriptor = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    # El modo de os.open sólo se aplica al CREAR el fichero: un .tmp que dejó
-    # un guardado reventado conserva los suyos, y el secreto caería dentro con
-    # los permisos viejos. fchmod actúa sobre el descriptor y no sobre la ruta,
-    # así que no hay ventana entre comprobar y cambiar, y cubre los dos casos.
-    # En Windows os.fchmod no existe; allí la protección son los permisos de la
+    # Un nombre ÚNICO por escritura, en el directorio del destino. Antes era
+    # `ruta.with_suffix(".tmp")`, compartido por todas las pasadas, y este
+    # programa admite dos ventanas de Perfil: con el nombre fijo, una podía
+    # truncar el temporal mientras la otra lo escribía, y lo que aterrizaba
+    # sobre `credenciales.json` era JSON a medias — la clave y el correo
+    # perdidos, sin que nada lo dijera.
+    #
+    # El `O_TRUNC` que había estaba puesto a propósito, para que un `.tmp`
+    # rancio de un guardado reventado no bloqueara el siguiente para siempre.
+    # Con un nombre único esa colisión no puede darse, así que la razón
+    # desaparece en vez de romperse. Y `mkstemp` abre con `O_EXCL`, que es la
+    # garantía que `O_TRUNC` no daba.
+    #
+    # En el MISMO directorio que el destino: `replace` sólo es atómico dentro
+    # del mismo volumen. Mismo patrón que `seguimiento/libro.py:actualizar`, y
+    # por la misma razón.
+    descriptor, provisional = tempfile.mkstemp(
+        dir=ruta.parent, prefix=f".{ruta.stem}-", suffix=".tmp"
+    )
+    tmp = Path(provisional)
+    # `mkstemp` ya crea con 0600, pero se vuelve a fijar sobre el DESCRIPTOR y
+    # no sobre la ruta, así que no hay ventana entre comprobar y cambiar. En
+    # Windows `os.fchmod` no existe; allí la protección son los permisos de la
     # carpeta de usuario. Un OSError puede venir de un sistema de ficheros que
     # no admite chmod -- un pendrive exFAT, un montaje CIFS --; ahí tampoco se
     # podría proteger el fichero de ninguna otra forma, y negarse a guardar
@@ -163,9 +177,16 @@ def guardar(credenciales: Credenciales, ruta: Path | None = None) -> Path:
         os.fchmod(descriptor, 0o600)
     except (AttributeError, OSError):
         pass
-    with os.fdopen(descriptor, "w", encoding="utf-8") as fichero:
-        fichero.write(texto)
-    tmp.replace(ruta)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as fichero:
+            fichero.write(texto)
+        tmp.replace(ruta)
+    except BaseException:
+        # Sólo queda algo que limpiar si el fallo fue ANTES del `replace`;
+        # después ya no existe con ese nombre. Un secreto a medias tirado en la
+        # carpeta del usuario es peor que no haber guardado.
+        tmp.unlink(missing_ok=True)
+        raise
     return ruta
 
 

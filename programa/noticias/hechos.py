@@ -8,6 +8,7 @@ con quince activos eso convierte una pantalla en una espera.
 """
 
 from dataclasses import dataclass
+import re
 from datetime import date
 
 from noticias import criterio
@@ -24,6 +25,10 @@ class Hecho:
     material: bool
 
 
+# Un item de un 8-K es `d.dd`: uno o dos digitos, un punto y dos digitos.
+_FORMA_ITEM = re.compile(r"\d{1,2}\.\d{2}")
+
+
 def partir(items: "str | None") -> "tuple[str, ...]":
     """The SEC returns every item of a filing in one comma-separated string.
 
@@ -31,10 +36,24 @@ def partir(items: "str | None") -> "tuple[str, ...]":
     entero contra la lista de materiales no coincide con nada, y cada anuncio
     de resultados -- el hecho mas frecuente que existe -- quedaria plegado
     entre la rutina, sin que nada lo delate.
+
+    **Y lo que no tiene forma de item no es un item.** Esta columna la escribe
+    la SEC y nosotros la creiamos: `descripciones` cae a `f"Tipo {t}"` para lo
+    que no reconoce, y ese texto --de un tercero-- acababa dentro del prompt del
+    modelo, en la cabecera que rodea la valla del documento. Se acoto aguas
+    abajo neutralizando la cabecera; esta es la mitad del origen. Un item de un
+    8-K es `d.dd`: uno o dos digitos, un punto y dos digitos.
+
+    Descartar en silencio es lo correcto aqui y no una perdida: un codigo que no
+    tiene esa forma tampoco esta en `DESCRIPCIONES`, asi que lo unico que se
+    pierde es el `Tipo <lo que sea>` que no decia nada, y el hecho sigue
+    apareciendo con los items que si valgan.
     """
     if not items:
         return ()
-    return tuple(t.strip() for t in str(items).split(",") if t.strip())
+    return tuple(
+        t.strip() for t in str(items).split(",") if _FORMA_ITEM.fullmatch(t.strip())
+    )
 
 
 def _url(cik: int, accession: str, documento: str) -> str:

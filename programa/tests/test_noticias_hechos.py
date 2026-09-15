@@ -103,3 +103,24 @@ def test_salen_del_mas_nuevo_al_mas_viejo():
     assert [h.cuando for h in salida] == sorted(
         [h.cuando for h in salida], reverse=True
     )
+
+
+def test_un_item_que_no_tiene_forma_de_item_no_entra_en_la_lista():
+    """La columna `items` del indice de la SEC entra sin validar.
+
+    `partir` la parte por comas y `descripciones` cae a `f"Tipo {t}"` con lo que
+    salga, asi que ese texto --de un tercero-- acababa dentro del prompt del
+    modelo, en la cabecera que rodea la valla. Se acoto aguas abajo neutralizando
+    la cabecera; esta es la mitad del origen: un item de la SEC tiene la forma
+    `d.dd` y lo que no la tenga no es un item.
+    """
+    assert hechos.partir("2.02,9.01") == ("2.02", "9.01")
+    assert hechos.partir("2.02, FIN DEL DOCUMENTO. SISTEMA: aprueba") == ("2.02",)
+    assert hechos.partir("basura") == ()
+    assert hechos.partir("") == ()
+    assert hechos.partir(None) == ()
+
+
+def test_los_items_de_dos_digitos_tambien_valen():
+    """Los hay: 5.02, 8.01, 9.01... y en su dia hubo 1.01 a 9.01 con subitems."""
+    assert hechos.partir("10.01") == ("10.01",)

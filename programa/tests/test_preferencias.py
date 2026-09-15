@@ -125,3 +125,41 @@ def test_borrar_vuelve_a_los_valores_de_fabrica(tmp_path):
     guardadas, _ = preferencias.cargar(ruta)
     assert guardadas == Preferencias()
     preferencias.borrar(ruta)  # borrar lo que ya no esta tampoco falla
+
+
+# --- El temporal de la escritura --------------------------------------------
+
+
+def test_dos_guardados_no_comparten_el_nombre_del_temporal(tmp_path, monkeypatch):
+    """Mismo razonamiento que `seguimiento/libro.py:actualizar`, y aqui aplica
+    igual: dos ventanas de Perfil guardan sobre el mismo
+    `~/.markowitz-pro-picks/preferencias.json`, y con el temporal de nombre fijo
+    las dos escriben en el MISMO fichero.
+
+    Lo que se pierde no es historial --unas preferencias se vuelven a poner--
+    pero si es un fichero que el usuario no espera encontrar roto, y `cargar`
+    lo trata como corrupto y vuelve a fabrica sin que nadie sepa por que.
+    """
+    from pathlib import Path
+
+    ruta = tmp_path / "preferencias.json"
+    usados = []
+    original = Path.replace
+
+    def anotando(self, destino):
+        usados.append(Path(self))
+        return original(self, destino)
+
+    monkeypatch.setattr(Path, "replace", anotando)
+    preferencias.guardar(Preferencias(), ruta)
+    preferencias.guardar(Preferencias(), ruta)
+
+    assert len(usados) == 2
+    assert usados[0] != usados[1]
+    assert {p.parent for p in usados} == {ruta.parent}
+
+
+def test_un_guardado_no_deja_el_temporal_detras(tmp_path):
+    ruta = tmp_path / "preferencias.json"
+    preferencias.guardar(Preferencias(), ruta)
+    assert [p.name for p in tmp_path.iterdir()] == [ruta.name]

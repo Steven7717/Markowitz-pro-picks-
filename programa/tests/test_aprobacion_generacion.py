@@ -117,3 +117,31 @@ def test_el_tope_de_la_corrida_deja_pasar_una_corrida_normal():
     este programa evita en todas partes. El tope esta para lo que se salga de
     lo previsto, no para lo previsto."""
     assert llm.TOPE_USD_POR_CORRIDA > generacion.coste_peor_caso(TAMANO_TOP)
+
+
+def test_el_peor_caso_usa_el_ratio_medido_y_no_la_regla_de_tres():
+    """`ranking/filings.py` midio 3,30 caracteres por token contra la API real
+    y dejo escrito que «la regla de tres se quedaba corta en un 21%». Aqui se
+    asumian 4,0 «que es lo que sale en prosa legal en inglés» -- sobre el mismo
+    texto que alli se midio. El test de arriba pasaba porque los dos lados
+    usaban el mismo numero malo."""
+    from ranking import filings
+
+    assert generacion.CARACTERES_POR_TOKEN == filings.CARACTERES_POR_TOKEN
+    assert filings.CARACTERES_POR_TOKEN < 4
+
+
+def test_el_reintento_cuenta_mas_tokens_con_el_ratio_medido():
+    """La direccion del error importa: con menos caracteres por token, el mismo
+    recorte del filing son MAS tokens y el peor caso sube. Anunciar de menos en
+    la pantalla donde se decide gastar es el lado caro."""
+    con_el_medido = generacion.coste_peor_caso()
+    con_la_regla_de_tres = (
+        llm.MAX_CARACTERES_REINTENTO // 4 + llm.MAX_TOKENS
+    )
+    entrada_mala = TAMANO_TOP * (generacion.TOKENS_POR_FICHA + con_la_regla_de_tres)
+    salida = TAMANO_TOP * 2 * llm.MAX_TOKENS
+    peor_con_el_malo = (
+        entrada_mala * llm.PRECIO_ENTRADA + salida * llm.PRECIO_SALIDA
+    ) / 1_000_000
+    assert con_el_medido > peor_con_el_malo

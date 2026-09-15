@@ -13,25 +13,74 @@ from interprete import archivo as archivo_mod
 from interprete import cliente as cliente_mod
 from interprete import documentos, noticias as interprete_noticias
 from noticias import texto
+from ranking.filings import CARACTERES_POR_TOKEN
 
 # Media medida sobre diecisiete expedientes materiales el 2026-09-10: 28.291
 # caracteres, con un tope duro de 30.000 por hecho. Sirve para avisar **antes**
 # de bajar nada; lo que se cobra de verdad se dice despues, con los tokens que
 # la API devuelve.
 _CARACTERES_POR_HECHO = 28_291
-_CARACTERES_POR_TOKEN = 4
+
+# La proporcion es la **medida** de `ranking/filings.py`, importada y no
+# copiada. Aqui habia un 4 escrito a mano y en `aprobacion/generacion.py` otro,
+# los dos con el mismo comentario diciendo que era lo que sale en prosa legal
+# en inglés -- y el mismo fichero que dice eso mide 3,30 contra la API real y
+# deja escrito que «la regla de tres se quedaba corta en un 21%». Dos copias de
+# una constante de coste se separan de la medida igual de facil que dos copias
+# de cualquier otra cosa.
+
+
+def _tokens_de_entrada(caracteres: int) -> int:
+    return int(caracteres / CARACTERES_POR_TOKEN)
 
 
 def coste_estimado(cuantos_hechos: int) -> float:
     """Lo que costaria leer esos hechos, antes de bajar ninguno.
 
-    Es una estimacion y se dice como tal en pantalla. La media viene de una
-    medida real, no de un calculo: los documentos van de 3.037 a 112.913
-    caracteres, asi que la cifra de una pulsacion concreta puede alejarse.
+    **Es la estimacion del caso normal, no un tope**, y hace falta decirlo asi
+    donde se pinte: la media viene de una medida real, pero los documentos van
+    de 3.037 a 112.913 caracteres, y ademas esto cuenta un solo turno. Para lo
+    que puede llegar a costar esta `coste_peor_caso`, que es lo que la pantalla
+    anuncia como «como mucho».
     """
     caracteres = cuantos_hechos * min(_CARACTERES_POR_HECHO, documentos.TOPE_CARACTERES)
-    entrada = caracteres // _CARACTERES_POR_TOKEN
-    return cliente_mod.coste(entrada, cliente_mod.MAX_TOKENS)
+    return cliente_mod.coste(_tokens_de_entrada(caracteres), cliente_mod.MAX_TOKENS)
+
+
+def coste_peor_caso(cuantos_hechos: int) -> float:
+    """Lo mas que puede costar una pulsacion. **Es el peor caso, no la media.**
+
+    La pantalla decia «cuesta unos X $ **como mucho**» con la cifra de
+    `coste_estimado`, que es la media y un solo turno. Pero `interprete/
+    noticias.py` reenvia el turno de usuario entero en el reintento, y el
+    reintento no es mala suerte: lo dispara de forma determinista un documento
+    hostil, al que le basta con inducir un digito o una cita que no verifique.
+    O sea que el texto de un tercero decidia el gasto por un factor de dos y
+    medio sobre lo anunciado.
+
+    Es el mismo defecto que ya se cerro en la pantalla hermana --ver
+    `aprobacion/generacion.py:coste_peor_caso`-- y se calcula igual: de las
+    constantes que de verdad producen el gasto, y no de una cifra prudente
+    escrita a mano. Por eso vive como funcion: quien cambie la politica de
+    reintento en `interprete/noticias.py` mueve esto con ella.
+
+    Tres diferencias con `coste_estimado`, y las tres van en la misma
+    direccion:
+
+    1. **El tope duro por hecho**, no la media. Una media sirve para estimar;
+       para un tope no, porque lo unico que ningun hecho puede pasarse es
+       `documentos.TOPE_CARACTERES`.
+    2. **Los dos turnos**, y el segundo lleva ademas el eco de la respuesta
+       anterior, que como mucho son `MAX_TOKENS`.
+    3. **Las dos respuestas** a `MAX_TOKENS`, que es el techo duro de cada una.
+    """
+    entrada_por_turno = _tokens_de_entrada(
+        cuantos_hechos * documentos.TOPE_CARACTERES
+    )
+    if not cuantos_hechos:
+        return 0.0
+    entrada = entrada_por_turno * 2 + cliente_mod.MAX_TOKENS
+    return cliente_mod.coste(entrada, 2 * cliente_mod.MAX_TOKENS)
 
 
 def preparar(hechos, guardado):

@@ -58,6 +58,47 @@ from ranking.verificacion import neutralizar_marcas, vallar
 
 _SIN_OBJETIVO = "sin objetivo en el plan"
 
+# Lo que cabe de un dato ajeno en una linea de cabecera. Las descripciones
+# reales son etiquetas --«Resultados», «Acuerdo material»-- y hasta un
+# expediente que comunique media docena de items se queda muy por debajo. El
+# tope no defiende por si solo, porque media frase de prosa cabe de sobra: lo
+# que hace es acotar cuanto texto ajeno puede viajar en una linea que el modelo
+# lee como escrita por el programa.
+_MAX_CABECERA = 200
+
+
+def _en_una_linea(valor: object) -> str:
+    """Un dato ajeno, apto para una linea que va **fuera** de la valla.
+
+    Las cabeceras de `hechos` y de `operaciones`, y las filas de `cartera`, no
+    van dentro de ninguna valla y no pueden ir: la letra y el ticker son lo que
+    despues valida las respuestas, y dentro del documento serian una letra y un
+    ticker que elige el documento. Pero el resto de esa linea tampoco lo
+    escribe este programa: la `etiqueta` sale de `descripciones`, que
+    `noticias/hechos.py` rellena con `f"Tipo {t}"` cuando el codigo de item no
+    esta en la lista, y `t` es la columna `items` del indice de la SEC.
+
+    Con un salto de linea dentro, esa descripcion se colocaba en una linea
+    aparte y el modelo la leia como una instruccion del programa, por encima de
+    la valla y sin nada que dijera lo contrario. Dos cosas la desarman:
+
+    1. **Se colapsa todo el blanco.** Una cabecera es una linea, y aqui deja de
+       poder ser dos. Es la mitad que de verdad cierra el agujero.
+    2. **Se neutralizan las marcas de valla**, como en `leidos`, por si la
+       descripcion trae una y el modelo la lee como el final de un bloque.
+
+    Lo que **no** arregla: media frase de prosa en una sola linea sigue
+    colandose. Eso no se arregla aqui sino en el origen, validando el codigo de
+    item antes de escribir `f"Tipo {t}"` -- `noticias/hechos.py`, que es donde
+    vive el fallback. Lo de aqui es la mitad que si se puede hacer desde este
+    lado, y es la misma que `noticias/texto.py:linea_de_hecho` ya hacia para
+    **pintar** esas mismas descripciones: solo el prompt las dejaba crudas.
+    """
+    plano = neutralizar_marcas(" ".join(str(valor).split()))
+    if len(plano) <= _MAX_CABECERA:
+        return plano
+    return plano[:_MAX_CABECERA] + "…"
+
 
 def etiquetas(cuantos: int) -> "tuple[str, ...]":
     """`A`, `B`, `C`...
@@ -109,7 +150,7 @@ def cartera(pesos: "tuple[tuple[str, float, float | None], ...]") -> str:
     filas = []
     for ticker, peso, objetivo in pesos:
         destino = _SIN_OBJETIVO if objetivo is None else f"objetivo {_pct(objetivo)}"
-        filas.append(f"- {ticker}: pesa {_pct(peso)}, {destino}")
+        filas.append(f"- {_en_una_linea(ticker)}: pesa {_pct(peso)}, {destino}")
     return "\n".join(filas)
 
 
@@ -133,7 +174,12 @@ def operaciones(
     for letra, (ticker, accion, parte, viable) in zip(letras, propuestas):
         mapa[letra] = ticker
         juicio = "compensa su coste" if viable else "no compensa lo que cuesta"
-        filas.append(f"[{letra}] {accion} {ticker}, {_pct(parte)} de la cartera — {juicio}")
+        # Ni el ticker ni la accion los escribe este programa, y esta linea va
+        # fuera de toda valla: misma puerta que la cabecera de `hechos`.
+        filas.append(
+            f"[{letra}] {_en_una_linea(accion)} {_en_una_linea(ticker)}, "
+            f"{_pct(parte)} de la cartera — {juicio}"
+        )
     return "\n".join(filas), mapa
 
 
@@ -164,9 +210,15 @@ def leidos(entradas: "tuple[tuple[str, object, tuple, tuple, str], ...]") -> str
     """
     if not entradas:
         return ""
+    # La cabecera de cada fila pasa por `_en_una_linea` igual que la de
+    # `hechos`, aunque esto si vaya dentro de una valla: lo que se gana no es
+    # cerrar el bloque --eso ya lo impide el sufijo-- sino que una fila siga
+    # siendo una fila. Un ticker con un salto dentro partia la lista en dos y
+    # dejaba media entrada haciendose pasar por otra.
     filas = [
-        f"- {ticker} ({', '.join(descripciones) or ', '.join(tipos)}, {cuando}): "
-        f"{neutralizar_marcas(texto)}"
+        f"- {_en_una_linea(ticker)} "
+        f"({_en_una_linea(', '.join(descripciones) or ', '.join(tipos))}, "
+        f"{_en_una_linea(cuando)}): {neutralizar_marcas(texto)}"
         for ticker, cuando, tipos, descripciones, texto in entradas
     ]
     # Vallado entero, y no fila a fila: no hay letras que dejar fuera --esto va
@@ -194,6 +246,12 @@ def hechos(
     La cabecera --letra, ticker, etiqueta y fecha-- va **fuera**. La letra es lo
     que despues valida las respuestas, y dentro de la valla seria una letra que
     elige el documento.
+
+    Pero de esos cuatro campos la letra es el unico que escribe este programa, y
+    por eso los otros tres pasan por `_en_una_linea`: la `etiqueta` sale del
+    indice de la SEC --`f"Tipo {t}"` cuando el codigo de item no esta en la
+    lista-- y con un salto de linea dentro se colocaba en una linea propia, por
+    encima de la valla, donde el modelo la lee como texto del programa.
     """
     letras = etiquetas(len(entradas))
     mapa = {}
@@ -202,7 +260,8 @@ def hechos(
         mapa[letra] = ticker
         etiqueta = ", ".join(descripciones) or ", ".join(tipos)
         bloques.append(
-            f"[{letra}] {ticker} — {etiqueta} — presentado el {cuando}\n"
+            f"[{letra}] {_en_una_linea(ticker)} — {_en_una_linea(etiqueta)} — "
+            f"presentado el {_en_una_linea(cuando)}\n"
             f"{vallar(texto)}"
         )
     return "\n\n".join(bloques), mapa

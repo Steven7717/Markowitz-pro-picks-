@@ -85,3 +85,56 @@ def test_nombres_usados_ve_los_repetidos(tmp_path):
     cartera.guardar(_portafolio("Otra"), tmp_path)
     assert cartera.nombres_usados(tmp_path) == {"Mi cartera", "Otra"}
     assert len(list(tmp_path.glob("*.json"))) == 3, "guardar sigue sin sobrescribir"
+
+
+# --- El temporal de la reescritura ------------------------------------------
+
+
+def _escrito_en(directorio):
+    """Un portafolio ya guardado en disco, listo para reetiquetar en su sitio."""
+    import dataclasses
+    import json
+
+    ruta = directorio / "2026-09-10-090000-mi-cartera.json"
+    ruta.write_text(
+        json.dumps(dataclasses.asdict(_portafolio()), ensure_ascii=False),
+        encoding="utf-8",
+    )
+    return ruta
+
+
+def test_dos_reetiquetados_no_comparten_el_nombre_del_temporal(tmp_path, monkeypatch):
+    """El razonamiento de `seguimiento/libro.py:actualizar` palabra por palabra:
+    con `ruta.with_suffix(".tmp")` dos ventanas de Portafolios escriben en el
+    MISMO fichero, y si un `replace` cae mientras la otra esta a mitad de su
+    escritura, lo que aterriza en el destino es JSON truncado.
+
+    `guardar` nunca sobrescribe y por eso el suyo si esta justificado. Esto si
+    sobrescribe: es una reescritura en su sitio.
+    """
+    from pathlib import Path
+
+    ruta = _escrito_en(tmp_path)
+
+    usados = []
+    original = Path.replace
+
+    def anotando(self, destino):
+        usados.append(Path(self))
+        return original(self, destino)
+
+    monkeypatch.setattr(Path, "replace", anotando)
+    cartera.reetiquetar(_portafolio(), ruta, "Uno", "")
+    cartera.reetiquetar(_portafolio(), ruta, "Dos", "")
+
+    assert len(usados) == 2
+    assert usados[0] != usados[1]
+    # En el mismo directorio que el destino: `replace` solo es atomico dentro
+    # del mismo volumen, que es lo unico que este patron compra.
+    assert {p.parent for p in usados} == {ruta.parent}
+
+
+def test_un_reetiquetado_no_deja_el_temporal_detras(tmp_path):
+    ruta = _escrito_en(tmp_path)
+    cartera.reetiquetar(_portafolio(), ruta, "Uno", "")
+    assert [p.name for p in tmp_path.iterdir()] == [ruta.name]

@@ -18,6 +18,20 @@ CACHE_DIR = Path(__file__).parent / ".cache" / "riesgos"
 # MAX_CARACTERES.
 MAX_CARACTERES = 80_000
 
+# La proporción de arriba, como constante y no sólo como comentario.
+#
+# Vivía escrita en prosa aquí mientras las dos pantallas que anuncian coste
+# —`aprobacion/generacion.py` y `vistas/panel_ia.py`— asumían 4,0 cada una por
+# su cuenta, «que es lo que sale en prosa legal en inglés». No lo es: es lo que
+# supuso el diseño, y la medida contra `count_tokens` dice 3,30. El peor caso
+# anunciado salía un 21% por debajo del real, y el test que lo protegía pasaba
+# sólo porque los dos lados usaban el mismo número malo.
+#
+# Vive aquí y no en cada pantalla porque aquí es donde se midió: quien vuelva a
+# medirla mueve las dos cifras anunciadas con ella, y los tests que las atan a
+# su peor caso se lo dicen.
+CARACTERES_POR_TOKEN = 3.30
+
 SECCION = "Item 1A"
 
 

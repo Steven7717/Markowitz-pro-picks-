@@ -1120,11 +1120,18 @@ with noticias:
             f"Interpretar estos hechos ({len(_nuevos)} nuevos)"
             if _nuevos else "Volver a interpretar (ninguno nuevo)"
         )
+        # «Como mucho» tiene que ir pegado a un tope de verdad. Decía eso con
+        # la cifra de `coste_estimado`, que es la media de un solo turno —y el
+        # documento puede forzar el segundo cuando quiera—, así que lo
+        # anunciado se quedaba en menos de la mitad de lo que podía costar.
+        # Ahora se dan las dos cifras y cada una dice lo que es.
+        _cuantos = len(_nuevos) or len(_a_leer)
         st.caption(
-            f"Leer {len(_nuevos) or len(_a_leer)} documentos cuesta unos "
-            f"**{panel_ia.coste_estimado(len(_nuevos) or len(_a_leer)):.2f} $** "
-            "como mucho. Es una estimación: lo que costó de verdad se dice al "
-            "terminar."
+            f"Leer {_cuantos} documentos cuesta como mucho "
+            f"**{panel_ia.coste_peor_caso(_cuantos):.2f} $**, y normalmente "
+            f"alrededor de **{panel_ia.coste_estimado(_cuantos):.2f} $**. El "
+            "tope cuenta el reintento, que lo dispara el propio documento. Lo "
+            "que costó de verdad se dice al terminar."
         )
         if st.button(_etiqueta, icon=":material/auto_awesome:"):
             with st.spinner("Bajando los documentos y leyéndolos…"):
