@@ -86,8 +86,55 @@ def puntuaciones_por_pilar(medias: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataF
     con_signo = medias.mul(pd.Series(SIGNOS), axis=1)
     bloques = {pilar: con_signo[list(kpis)] for pilar, kpis in PILARES.items()}
 
+    # **Enmienda fechada del 2026-09-14: un KPI ausente cuenta como la media de
+    # su sector, no desaparece del denominador.**
+    #
+    # Hasta aquí esto era `bloque.mean(axis=1)`, que promedia sólo los KPIs
+    # presentes. La intención era buena --un pilar apoyado en dos KPIs es una
+    # afirmación más débil que uno apoyado en siete, y por eso se devuelve el
+    # recuento-- pero el efecto medido sobre el universo era el contrario: no
+    # reportar no penalizaba, amplificaba.
+    #
+    # Las cifras que motivan la enmienda, medidas sobre el panel del 2026-09-14:
+    # las 78 empresas cuya solidez se apoyaba en un solo KPI tenían el pilar
+    # **+0,475 desviaciones por encima** de las que lo tenían con tres, y con el
+    # doble de varianza (1,342 contra 0,637). Su cuota subía de forma monótona
+    # con el puesto: 18 % del universo, 20 % del top 200, 27 % del top 100 y
+    # **40 % del top 50, del top 25 y del top 15**.
+    #
+    # Y los ausentes no faltan al azar, que es lo que lo convierte en un sesgo y
+    # no en ruido: `cobertura_intereses` es NaN cuando no hay gasto financiero y
+    # `deuda_neta_ebitda` cuando no hay EBITDA positivo, así que las empresas con
+    # solidez manca son **las que no tienen deuda**, y el KPI que les sobrevive
+    # es `razon_corriente` en 78 de 83 casos --alta precisamente porque tienen
+    # caja--. El motor premiaba «no publica línea de deuda» con un pilar entero.
+    #
+    # Se descartaron dos alternativas, las dos medidas:
+    #   - Winsorizar el z lo EMPEORA. Recortar a ±3 sube la cuota de pilar manco
+    #     en el top 15 del 40 % al 47 %; a ±2,5, al 60 %. Es aritmético: un pilar
+    #     de un solo z recortado vale exactamente el tope, uno de tres casi nunca.
+    #   - La estandarización robusta (mediana/MAD) fabrica colas en vez de
+    #     quitarlas: el p99 del z pasa de 4,07 a 17,12 y el máximo a 963.
+    #
+    # Imputar 0 es una afirmación, no una neutralidad: dice «la media de su
+    # sector mientras no se demuestre otra cosa», y a una empresa genuinamente
+    # sin deuda le quita un mérito que sí tiene. Se acepta porque el sesgo que
+    # sustituye está medido y es grande, y porque 0 es la media del grupo y no
+    # un castigo. El arreglo de fondo --distinguir «ausente por ser bueno» de
+    # «ausente por falta de dato»-- es de diseño de KPI y queda pendiente.
+    #
+    # `conteo` no cambia: sigue diciendo cuántos KPIs había de verdad, que es lo
+    # que leen las guardas y la ficha. La enmienda deja de usarlo como
+    # denominador, no lo elimina.
     pilares = pd.DataFrame(
-        {pilar: bloque.mean(axis=1) for pilar, bloque in bloques.items()},
+        {
+            # Sobre los KPIs DECLARADOS del pilar, con los ausentes a 0. Un
+            # pilar sin ni un solo dato se queda en NaN: ahí no hay nada que
+            # matizar, y un 0 se leería como «exactamente en la media», que es
+            # una afirmación y no una ausencia.
+            pilar: bloque.fillna(0.0).mean(axis=1).where(bloque.notna().any(axis=1))
+            for pilar, bloque in bloques.items()
+        },
         index=medias.index,
     )
     conteo = pd.DataFrame(
@@ -177,8 +224,14 @@ def compuesto(
     bruto = (pilares[list(pesos.index)] * pesos).sum(axis=1, min_count=len(pesos))
     bruto = bruto.mask(motivos.reindex(bruto.index).notna())
 
+    # `tope=None`: el recorte de la enmienda E2 es para los KPIs, que son
+    # cocientes sin techo. El compuesto ya es una suma de cuatro pilares
+    # hechos de z recortados, asi que sus colas estan acotadas por
+    # construccion; recortarlo otra vez destruye orden justo donde se decide
+    # el ranking --con el tope puesto, MU y NVDA empataban en 3,000 en los
+    # puestos 1 y 2--.
     normalizado = zscore_within_sector(
-        bruto.to_frame("compuesto"), sectores.reindex(bruto.index)
+        bruto.to_frame("compuesto"), sectores.reindex(bruto.index), tope=None
     )
     return normalizado["compuesto"]
 

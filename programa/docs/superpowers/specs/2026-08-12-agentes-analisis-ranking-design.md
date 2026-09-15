@@ -584,3 +584,100 @@ referencias cruzadas y los términos compuestos.
 accionable, y bajarlo recortaría más texto del que ya se pierde — que la enmienda
 3 midió en un 31%. Queda anotado como lo primero que hay que ajustar si el test
 empieza a fallar.
+
+---
+
+## Enmiendas al criterio
+
+`ranking/criterio.py` se congeló con el sub-proyecto B y su docstring dice que
+cambiarlo «exige una enmienda fechada en el documento de diseño, nunca una
+edición silenciosa». Esta sección es ese registro. **El fichero congelado sigue
+sin tocarse**: los pilares, los pesos 25/25/25/25, los signos y los umbrales son
+palabra por palabra los de entonces. Lo que las enmiendas cambian vive en
+`ranking/score.py` y `fundamentals/sectors.py`, pero afecta al orden que produce
+el criterio, y por eso se anota aquí.
+
+### E1 — El KPI ausente cuenta como la media de su sector (2026-09-14)
+
+**Qué hacía el código:** `ranking/score.py:90` promediaba cada pilar con
+`bloque.mean(axis=1)`, es decir **sólo sobre los KPIs presentes**. La intención
+era buena y está escrita en su propio docstring: un pilar apoyado en dos KPIs es
+una afirmación más débil que uno apoyado en siete, y por eso la función devuelve
+también el recuento.
+
+**Qué se midió** (panel del 2026-09-14, 502 empresas, 424 supervivientes):
+
+| solidez sostenida por | n | media del pilar | sd del pilar |
+|---|---|---|---|
+| 1 KPI | 78 | **+0,425** | 1,342 |
+| 2 KPIs | 110 | +0,058 | 0,759 |
+| 3 KPIs | 236 | −0,050 | 0,637 |
+
+Medio sigma de pilar de sesgo al alza y el doble de varianza. Y su cuota sube de
+forma **monótona** con el puesto: 18 % del universo superviviente, 20 % del top
+200, 27 % del top 100, y **40 % del top 50, del top 25 y del top 15**. Ocho de
+las quince elegidas tenían más de la mitad de su nota bruta en un solo z; CPRT
+el 84,3 % y PLTR el 98,2 %.
+
+**Por qué es un sesgo y no ruido:** los ausentes no faltan al azar.
+`cobertura_intereses` es NaN cuando el gasto financiero no llega al mínimo
+económico, y `deuda_neta_ebitda` cuando el EBITDA TTM no es positivo — o sea que
+las 78 empresas con solidez manca son **las que no tienen deuda**, y el KPI que
+les sobrevive es `razon_corriente` en 78 de 83 casos, alta precisamente porque
+tienen caja. El motor premiaba «no publica línea de deuda» con un pilar entero.
+
+**Qué se cambia:** el promedio pasa a ser sobre los KPIs **declarados** del
+pilar, con los ausentes contando 0 — la media de su sector. Un pilar sin ni un
+solo dato se queda en NaN, no en 0: ahí no hay nada que matizar, y un 0 se leería
+como «exactamente en la media», que es una afirmación y no una ausencia. El
+recuento no cambia y las guardas siguen leyéndolo.
+
+**Efecto medido:** la cuota de pilar manco en el top 15 cae del 40 % al **20 %**,
+que es la tasa base del universo (18 %). Kendall τ = 0,874 con el orden anterior:
+no es una reescritura del ranking, es quitarle un sesgo. Los 424 supervivientes
+son los mismos.
+
+**Dirección del efecto:** conservadora. Imputar 0 es una afirmación, no una
+neutralidad: dice «la media de su sector mientras no se demuestre otra cosa», y a
+una empresa genuinamente sin deuda le quita un mérito que sí tiene. Se acepta
+porque el sesgo que sustituye está medido y es grande, y porque 0 es la media del
+grupo y no un castigo. **Queda pendiente** el arreglo de fondo, que es de diseño
+de KPI y no de puntuación: hoy `fundamentals/kpis.py` devuelve igual un KPI
+ausente por ser bueno (no hay intereses que cubrir) que uno ausente por falta de
+dato.
+
+### E2 — El z-score se recorta a ±3 desviaciones (2026-09-14)
+
+**Qué hacía el código:** `fundamentals/sectors.py:zscore_within_sector`
+estandarizaba con media y desviación típica del sector, sin acotar.
+
+**Por qué:** muchos de estos KPIs son cocientes acotados por abajo y sin techo
+—una razón corriente no puede bajar de cero y puede subir a diez— así que la
+estandarización clásica produce colas que un z-score no representa. En el panel
+del 2026-09-14 el p99 del z era 4,07 y el máximo 8,50.
+
+**Qué se descartó, con números:**
+
+- **Winsorizar como único cambio lo empeora.** Recortar a ±3 **sube** la cuota de
+  pilar manco en el top 15 del 40 % al 47 %; a ±2,5, al 60 %. Es aritmético: un
+  pilar de un solo z recortado vale exactamente el tope, uno de tres recortados
+  casi nunca. Por eso E2 no va sola: va detrás de E1.
+- **La estandarización robusta (mediana/MAD) fabrica colas en vez de quitarlas.**
+  El MAD de un grupo sector-trimestre es diminuto y el cociente explota: el p99
+  del z pasa de 4,07 a **17,12** y el máximo a **963**. La concentración mediana
+  de la nota sube del 51 % al 83 %.
+- **±2,5 en lugar de ±3** daba el mismo top 15 y bajaba el máximo de
+  concentración sólo del 61,5 % al 57,1 %, saturando más celdas. Tres satura
+  menos y basta.
+
+**Efecto medido, con E1:** el máximo de concentración de la nota baja del 94,6 %
+al **61,5 %**, los casos por encima del 50 % de 5 a 3, y CPRT del 84,3 % al
+55,9 %. Sólo un 2,15 % de las celdas llega a tocar el tope, así que se conserva
+la resolución necesaria para ordenar 424 nombres.
+
+**Lo que esta enmienda NO arregla, y conviene no confundir:** el top 15 sigue
+rotando entre 2 y 9 nombres según la fórmula de normalización que se elija
+(media 5,1 sobre las seis variantes medidas), y sólo cinco nombres —CPRT, DECK,
+MNST, MU, NVDA— sobreviven a las seis. Eso no es un defecto de normalización: es
+que 424 compuestos se apiñan alrededor del corte del puesto 15. Si se quiere una
+lista estable, el sitio donde mirar es el tamaño del top, no la fórmula del z.

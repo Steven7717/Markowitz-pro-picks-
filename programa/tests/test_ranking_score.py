@@ -2,6 +2,9 @@ import numpy as np
 import pandas as pd
 
 from fundamentals.kpis import TODOS_LOS_KPIS
+import pytest
+
+from ranking import criterio, score
 from ranking.criterio import PILARES
 from ranking.score import (
     aplicar_guardas,
@@ -143,21 +146,31 @@ def medias_falsas(por_ticker: dict[str, dict[str, float]]) -> pd.DataFrame:
 def test_un_multiplo_alto_penaliza_en_vez_de_premiar():
     # PER con z = +2 significa caro. Sin invertir el signo, el pilar de
     # valoración saldría +2 y el ranking premiaría lo caro.
+    #
+    # El pilar de valoración son cuatro KPIs y aquí sólo hay uno, así que desde
+    # la enmienda del 2026-09-14 los otros tres cuentan como 0: −2,0 / 4.
     medias = medias_falsas({"AAA": {"per": 2.0}})
     pilares, _ = puntuaciones_por_pilar(medias)
-    assert pilares.loc["AAA", "valoracion"] == -2.0
+    assert pilares.loc["AAA", "valoracion"] == pytest.approx(-0.5)
 
 
 def test_la_deuda_alta_penaliza_en_solidez():
+    # (−1,0 + 1,0 + 0,0 del ausente) / 3 sigue siendo 0: el signo es lo que se
+    # comprueba aquí, y la enmienda no lo toca.
     medias = medias_falsas({"AAA": {"deuda_neta_ebitda": 1.0, "razon_corriente": 1.0}})
     pilares, _ = puntuaciones_por_pilar(medias)
-    assert pilares.loc["AAA", "solidez"] == 0.0
+    assert pilares.loc["AAA", "solidez"] == pytest.approx(0.0)
 
 
-def test_promedia_solo_los_kpis_con_dato_del_pilar():
+def test_promedia_sobre_los_kpis_declarados_del_pilar_no_sobre_los_presentes():
+    # Este test afirmaba lo contrario --promedio sobre los presentes, 3,0-- y lo
+    # afirmaba como la regla correcta. La enmienda del 2026-09-14 la cambió: no
+    # reportar dejaba de penalizar y pasaba a amplificar, y los KPIs que faltan
+    # no faltan al azar. Calidad son siete KPIs: (2,0 + 4,0) / 7.
     medias = medias_falsas({"AAA": {"roe": 2.0, "roic": 4.0}})
     pilares, conteo = puntuaciones_por_pilar(medias)
-    assert pilares.loc["AAA", "calidad"] == 3.0
+    assert pilares.loc["AAA", "calidad"] == pytest.approx(6.0 / 7.0)
+    # El recuento no cambia: lo leen las guardas y la ficha.
     assert conteo.loc["AAA", "calidad"] == 2
 
 
@@ -189,8 +202,9 @@ def test_cada_empresa_se_puntua_por_separado():
     pilares, conteo = puntuaciones_por_pilar(medias)
     assert conteo.loc["AAA", "calidad"] == 2
     assert conteo.loc["BBB", "calidad"] == 1
-    assert pilares.loc["AAA", "calidad"] == 3.0
-    assert pilares.loc["BBB", "calidad"] == 1.0
+    # Calidad son siete KPIs, y desde la enmienda los ausentes cuentan 0.
+    assert pilares.loc["AAA", "calidad"] == pytest.approx(6.0 / 7.0)
+    assert pilares.loc["BBB", "calidad"] == pytest.approx(1.0 / 7.0)
 
 
 PILARES_CRECIMIENTO = PILARES["crecimiento"]
@@ -402,3 +416,53 @@ def test_compuesto_y_motivos_vacios_no_revientan():
     assert puntos.empty and resultado.empty
     assert puntos.index.name == "ticker"
     assert puntos.name == "compuesto"
+
+
+# --- Enmienda 2026-09-14: el KPI ausente deja de ser gratis -----------------
+
+
+def test_un_kpi_ausente_cuenta_como_la_media_del_sector_y_no_desaparece():
+    """Antes se promediaba solo sobre los presentes, asi que no reportar no
+    penalizaba: amplificaba. Medido sobre el universo: las 78 empresas cuya
+    solidez se apoyaba en un solo KPI tenian el pilar +0,475 sd por encima de
+    las que lo tenian con tres, y su cuota subia del 18% del universo al 40%
+    del top 15. Y no era casualidad: los KPIs que faltan son los de deuda
+    --`cobertura_intereses` es NaN sin gasto financiero y `deuda_neta_ebitda`
+    sin EBITDA positivo-- asi que el motor premiaba "no publica linea de deuda".
+    """
+    medias = pd.DataFrame(
+        # Solidez son tres KPIs: deuda_neta_ebitda, cobertura_intereses,
+        # razon_corriente. La manca solo declara el ultimo.
+        {"razon_corriente": [3.0, 3.0],
+         "cobertura_intereses": [np.nan, 3.0],
+         "deuda_neta_ebitda": [np.nan, -3.0]},
+        index=["MANCA", "COMPLETA"],
+    )
+    faltan = [k for k in criterio.SIGNOS if k not in medias.columns]
+    for k in faltan:
+        medias[k] = np.nan
+
+    pilares, conteo = score.puntuaciones_por_pilar(medias)
+
+    # La completa promedia 3,0 sobre tres KPIs -> 3,0. La manca tiene un 3,0 y
+    # dos ausentes que ahora valen 0 -> 1,0.
+    assert pilares.loc["COMPLETA", "solidez"] == pytest.approx(3.0)
+    assert pilares.loc["MANCA", "solidez"] == pytest.approx(1.0)
+    # Y el recuento sigue diciendo la verdad: lo usan las guardas y la ficha.
+    assert conteo.loc["MANCA", "solidez"] == 1
+    assert conteo.loc["COMPLETA", "solidez"] == 3
+
+
+def test_un_pilar_sin_ningun_kpi_sigue_siendo_ausente_y_no_cero():
+    """Imputar 0 dice «la media de su sector mientras no se demuestre otra
+    cosa». Sin un solo dato no hay nada que matizar, y un 0 ahi se leeria como
+    «exactamente en la media», que es una afirmacion y no una ausencia. Las
+    guardas cuentan con que sea NaN."""
+    medias = pd.DataFrame(
+        {k: [np.nan] for k in criterio.SIGNOS}, index=["SIN_NADA"]
+    )
+
+    pilares, conteo = score.puntuaciones_por_pilar(medias)
+
+    assert pilares.loc["SIN_NADA"].isna().all()
+    assert (conteo.loc["SIN_NADA"] == 0).all()
