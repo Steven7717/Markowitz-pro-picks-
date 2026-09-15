@@ -2,7 +2,13 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from research.timing import GateBResult, block_bootstrap_stderr, compare_entry_timing
+from research.timing import (
+    SIGMAS_PUERTA_B,
+    GateBResult,
+    block_bootstrap_stderr,
+    compare_entry_timing,
+)
+from validation import _SIGMAS_VEREDICTO, veredicto
 
 FIELDS = ["Open", "High", "Low", "Close", "Volume"]
 
@@ -97,7 +103,39 @@ def test_a_delta_larger_than_its_own_noise_passes():
 
 def test_passing_is_decided_solely_by_delta_against_stderr(panel):
     result = compare_entry_timing("always", _always, panel, n_dates=60, seed=5)
-    assert result.passes == (result.delta > result.stderr)
+    assert result.passes == (result.delta > SIGMAS_PUERTA_B * result.stderr)
+
+
+# ── El listón de la Puerta B ──────────────────────────────────────────────────
+
+def test_gate_b_keeps_the_preregistered_one_standard_error():
+    """El listón es UN error estándar porque así se congeló antes de correr nada.
+
+    Está escrito en §3.5 de `docs/research/criterio-preregistrado.md`, que se
+    cerró antes de que existiera este módulo. Moverlo después de ver los
+    resultados —hacia arriba o hacia abajo— es exactamente lo que un
+    pre-registro existe para impedir, así que este número no es una opinión
+    revisable: es parte del contrato del estudio.
+    """
+    assert SIGMAS_PUERTA_B == 1.0
+
+
+def test_gate_b_is_a_lower_bar_than_the_verdict_on_screen():
+    """Una mejora de 1,5σ pasa la criba, y aun así la pantalla se callaría.
+
+    Los dos listones miden lo MISMO —una diferencia contra su propio error— y
+    a propósito no valen lo mismo. Aquí un falso positivo cuesta otro
+    experimento y perder un candidato real cuesta una idea; allí es un recuadro
+    verde delante de alguien que va a repartir su dinero. Si algún día alguien
+    «unifica» los dos números por coherencia, que sea rompiendo este test y
+    leyendo el porqué, no de un plumazo.
+    """
+    delta, stderr = 1.5, 1.0
+    puerta_b = GateBResult("s", 0.50, 0.50 + delta, delta, stderr, 100, 0, 63)
+
+    assert SIGMAS_PUERTA_B < _SIGMAS_VEREDICTO
+    assert puerta_b.passes is True
+    assert veredicto(delta, stderr) is None
 
 
 # ── Bootstrap por bloques ─────────────────────────────────────────────────────
