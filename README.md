@@ -67,7 +67,8 @@ Mover o copiar la carpeta más adelante no rompe nada: el programa detecta el
 cambio y rehace su entorno solo, en un par de segundos y sin volver a
 descargar nada. (La única excepción es una carpeta que ya hubieras movido
 *antes* de actualizar a esta versión: esa vez verás un error en inglés que
-menciona `Failed to spawn`, y basta con volver a abrir el programa.) Dentro hay otra
+menciona `Failed to spawn`, y basta con volver a abrir el programa — la segunda
+vez ya se rehace solo.) Dentro hay otra
 carpeta con el mismo nombre; entra hasta ver estos archivos:
 
 ```
@@ -475,15 +476,21 @@ número. Por orden:
 Recarga con **F5**. Recargar no apaga el programa ni pierde nada de lo que
 tengas guardado.
 
-Si sigue en blanco, cierra la pestaña, espera dos minutos —el programa se apaga
-solo cuando lleva minuto y medio sin ninguna pestaña abierta— y vuelve a abrirlo.
+Si sigue en blanco, cierra la pestaña y vuelve a abrir el programa. **Si lo
+abriste desde el acceso directo del Escritorio**, espera dos minutos antes: se
+apaga solo cuando lleva minuto y medio sin ninguna pestaña abierta. Si lo
+abriste con `Iniciar App.bat` o en Mac, eso no pasa — usa el botón «Salir del
+programa» o cierra la ventana negra.
 
 ### Windows pregunta si permitir el acceso a través del Firewall
 
-Sale la primera vez. **Puedes decir que no sin miedo.** El programa sólo lo usas
-desde este mismo ordenador, y eso funciona igual con el cortafuegos cerrado.
-Decir que no es además la opción más discreta: impide que nadie más de tu red
-pueda abrirlo.
+Sale la primera vez, si sale. **Puedes decir que no sin miedo**, y el programa
+funciona igual: sólo lo usas desde este mismo ordenador.
+
+Lo que no depende de lo que contestes es quién puede abrirlo. El programa
+escucha **únicamente en tu propio ordenador** —está fijado así en su
+configuración, no es una opción—, así que nadie de tu red puede entrar, hayas
+dicho lo que hayas dicho en ese diálogo.
 
 ### El antivirus borra o bloquea `Iniciar App.bat`
 

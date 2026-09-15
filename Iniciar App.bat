@@ -272,7 +272,29 @@ rem el que decide si el .vbs considera que el arranque fue bien.
 set "SALIDA_APP=%ERRORLEVEL%"
 
 rem La marca de donde vive este entorno, para el arranque de la proxima vez.
-if exist ".venv\Scripts\streamlit.exe" > "%CD%\.venv\.ruta-de-origen" echo %CD%
+rem
+rem Dos cosas que este bloque hizo mal y ahora no:
+rem
+rem 1. `echo %CD%` parte la ruta en el primer `&`. En "C:\Trabajo & Ocio" el
+rem    `echo` escribe "C:\Trabajo" y cmd intenta ejecutar "Ocio" como un
+rem    comando, asi que la marca queda truncada y NUNCA vuelve a coincidir: el
+rem    arranque siguiente cree que la carpeta se ha movido y rehace los 635 MB
+rem    del entorno. En cada arranque, para siempre. Con expansion retardada la
+rem    ruta viaja entera, que es lo que el bloque del atajo ya hacia bien mas
+rem    arriba.
+rem
+rem 2. La marca se escribia aunque la app no hubiera llegado a arrancar, y
+rem    `streamlit.exe` sigue existiendo cuando el entorno esta roto por un
+rem    movimiento de carpeta. O sea que a quien movio la carpeta ANTES de que
+rem    esta comprobacion existiera se le grababa la ruta actual sobre un
+rem    entorno roto, y a partir de ahi la marca coincidia siempre: el fallo
+rem    quedaba fijado en vez de curarse. Solo se marca lo que arranco bien.
+if not "%SALIDA_APP%"=="0" goto :sin_marca
+if not exist ".venv\Scripts\streamlit.exe" goto :sin_marca
+setlocal enabledelayedexpansion
+> "!CD!\.venv\.ruta-de-origen" echo !CD!
+endlocal
+:sin_marca
 
 call :esperar
 exit /b %SALIDA_APP%
