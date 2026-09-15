@@ -139,6 +139,19 @@ st.caption(
     f"{criterio.BANDA_RELATIVA:.0%} relativo, lo que ocurra primero."
 )
 
+# La premisa de todo lo que viene debajo: qué dice hoy la corrida del objetivo
+# sobre si vale la pena perseguirlo. **Se re-dicta al leerlo** —por
+# `veredicto_vigente`—, porque el `beats_equal_weight` que el libro guarda se
+# dictó cuando bastaba un error estándar y hoy hacen falta dos.
+#
+# Va aquí arriba porque lo que sigue cuesta dinero: la deriva, el reparto y la
+# factura de comisiones proponen acercarse a esos pesos. Qué se dice en cada
+# caso, y por qué sólo uno sube a recuadro, está en `nota_del_veredicto`.
+_nota = mod.nota_del_veredicto(actual.objetivo)
+if _nota is not None:
+    _nivel, _texto = _nota
+    (st.caption if _nivel == "caption" else st.warning)(_texto)
+
 # --- Precios y estado --------------------------------------------------------
 
 vivos = posiciones.vigentes(actual.asientos)

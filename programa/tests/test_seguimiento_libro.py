@@ -10,7 +10,9 @@ from seguimiento.libro import (
     Objetivo,
     derivar,
     validar,
+    CAMPOS_VEREDICTO,
     veredicto_de,
+    veredicto_vigente,
 )
 
 HOY = date(2026, 9, 2)
@@ -586,7 +588,31 @@ def test_vender_la_posicion_entera_sobrevive_al_redondeo():
     assert len(libro.asientos) == 4
 
 
-def test_el_veredicto_se_extrae_de_las_metricas_guardadas():
+def test_el_libro_se_lleva_exactamente_lo_que_el_portafolio_escribe():
+    """`CAMPOS_VEREDICTO` y `validation.metricas_de_validacion` declaran lo mismo.
+
+    Aqui habia un test que comparaba `veredicto_de(metricas)` con un
+    diccionario escrito a mano con esos mismos campos. Era un espejo del
+    codigo: cuando `CAMPOS_VEREDICTO` recortaba el umbral y las sigmas, al
+    diccionario del test le faltaban tambien, asi que la igualdad se cumplia y
+    el test estuvo en verde todo el tiempo que duro el defecto. Solo podia
+    saltar si alguien anadia un campo a los dos sitios menos a el, que es una
+    alarma sobre el test y no sobre el programa.
+
+    Lo que si habria saltado en el momento exacto es esto. Quien escribe la
+    medicion en el portafolio --`metricas_de_validacion`-- y quien la copia
+    dentro del libro --`CAMPOS_VEREDICTO`-- son las dos mitades del mismo
+    contrato, y cuando la primera empezo a escribir `oos_umbral_veredicto` y
+    `oos_sigmas_veredicto`, la segunda se quedo atras y los tiraba justo cuando
+    el portafolio ya los traia. Un campo nuevo que solo se anada a un lado deja
+    este test en rojo el mismo dia.
+    """
+    from validation import metricas_de_validacion
+
+    assert set(CAMPOS_VEREDICTO) == set(metricas_de_validacion(None))
+
+    # Y los valores llegan intactos, que es lo unico que el test anterior
+    # comprobaba de verdad.
     metricas = {
         "oos_sharpe": 0.41,
         "oos_equal_weight_sharpe": 0.55,
@@ -630,7 +656,11 @@ def test_el_veredicto_sobrevive_al_viaje_por_el_objetivo():
         fecha="2026-09-02", base="equal_weight", portafolio={},
         veredicto=veredicto_de({"oos_sharpe": 0.41, "oos_windows": 12}),
     )
+    # El campo viaja con su hueco, y quien lo lea pasa por `veredicto_vigente`.
+    # Sin el error de la diferencia no hay veredicto que dictar, y `None` --no
+    # `False`-- es lo que sale por los dos lados.
     assert objetivo.veredicto["beats_equal_weight"] is None
+    assert veredicto_vigente(objetivo) is None
 
 
 # --- Guardar y leer el libro en disco -----------------------------------------
@@ -695,7 +725,11 @@ def test_un_libro_desde_un_portafolio_copia_los_pesos_dentro(tmp_path):
                                  ahora=AHORA)
     assert nuevo.objetivo.base == "estrategia"
     assert nuevo.objetivo.portafolio["posiciones"][0]["ticker"] == "AAPL"
+    # La medicion viaja dentro; el veredicto NO se lee de ahi. Este portafolio
+    # es anterior a `oos_gap_stderr`, asi que no se puede recomprobar, y
+    # `veredicto_vigente` lo dice en vez de repetir el False guardado.
     assert nuevo.objetivo.veredicto["beats_equal_weight"] is False
+    assert mod.veredicto_vigente(nuevo.objetivo) is None
     # Copiado dentro, no referenciado: el fichero de portafolios/ se puede
     # borrar desde su pantalla, y el libro se quedaria apuntando a nada.
     assert "ruta" not in nuevo.objetivo.portafolio
@@ -1049,3 +1083,102 @@ def test_un_portafolio_sin_el_liston_sigue_dando_un_veredicto_leible():
 
     assert guardado["oos_umbral_veredicto"] is None
     assert guardado["oos_sigmas_veredicto"] is None
+
+
+# --- Leer el veredicto que el libro se llevo dentro ---------------------------
+#
+# `veredicto_de` es la mitad de ida del contrato: copia la MEDICION dentro del
+# objetivo. Estos prueban la mitad de vuelta -- que al leerla se vuelve a
+# dictar, y no se lee el `beats_equal_weight` congelado.
+
+
+def _objetivo_con(**metricas) -> Objetivo:
+    """Un objetivo cualquiera cuyo interes esta entero en sus metricas."""
+    return Objetivo(
+        fecha="2026-09-02", base="estrategia",
+        portafolio={"posiciones": [{"ticker": "AAPL", "peso": 1.0}]},
+        veredicto=veredicto_de(metricas),
+    )
+
+
+def test_el_libro_re_dicta_el_veredicto_en_vez_de_leer_el_booleano_guardado():
+    """Un True dictado a un error estandar no puede seguir siendo True hoy.
+
+    Es el mismo defecto que se acaba de cerrar en las tres pantallas, una capa
+    mas abajo: el objetivo del libro guarda `beats_equal_weight` y quien lo lea
+    a pelo se lleva la conclusion de entonces contra el liston de entonces. El
+    hueco de +0,35 con error de +-0,20 pasaba de uno y no pasa de dos, asi que
+    hoy la respuesta es «no se distingue», y hay que DECIR que el fichero
+    guarda otra cosa en vez de cambiarla en silencio.
+    """
+    objetivo = _objetivo_con(
+        oos_sharpe=2.42, oos_equal_weight_sharpe=2.07,
+        oos_gap_stderr=0.20, oos_windows=4,
+        beats_equal_weight=True,
+        oos_umbral_veredicto=0.20, oos_sigmas_veredicto=1.0,
+    )
+
+    dictamen = mod.veredicto_vigente(objetivo)
+
+    assert objetivo.veredicto["beats_equal_weight"] is True
+    assert dictamen["estado"] is None
+    assert dictamen["discrepa"] is True
+    assert dictamen["umbral"] == pytest.approx(0.40)
+
+
+def test_un_objetivo_sin_el_error_de_la_diferencia_no_afirma_ningun_veredicto():
+    """Los libros anteriores a `oos_gap_stderr` no se pueden recomprobar.
+
+    Devolver el booleano guardado seria afirmar un resultado que nadie puede
+    volver a obtener; inventarle un False afirmaria uno que nadie obtuvo. None
+    es la unica respuesta cierta, y es la que `veredicto_guardado` ya da.
+    """
+    viejo = _objetivo_con(
+        oos_sharpe=2.42, oos_equal_weight_sharpe=2.07,
+        oos_windows=4, beats_equal_weight=True,
+    )
+
+    assert mod.veredicto_vigente(viejo) is None
+
+
+def test_un_libro_sin_objetivo_no_tiene_veredicto_que_dictar():
+    # Misma forma que `pesos_objetivo` e `importe_previsto`: recibe el campo
+    # opcional y devuelve el valor neutro, para que quien pinte no tenga que
+    # preguntar dos veces.
+    assert VACIO.objetivo is None
+    assert mod.veredicto_vigente(None) is None
+    assert mod.veredicto_vigente(Objetivo(
+        fecha="2026-09-02", base="equal_weight", portafolio={},
+    )) is None
+
+
+def test_el_veredicto_se_vuelve_a_dictar_despues_de_pasar_por_el_disco(tmp_path):
+    """El JSON tiene que llevar la medicion, no solo la conclusion.
+
+    Si `CAMPOS_VEREDICTO` recortase el umbral o las sigmas, esto seguiria
+    pasando; lo que no sobrevive al viaje es el hueco y su error, y sin ellos
+    `veredicto_vigente` devolveria None aqui. Por eso se comprueba contra el
+    fichero y no contra el objeto en memoria.
+    """
+    import cartera
+    portafolio = cartera.desde_corrida(
+        nombre="Mi cartera", tickers=["AAPL", "MSFT"], pesos=[0.6, 0.4],
+        horizonte="1 Mes", estrategia="max_sharpe", peso_min=0.0, peso_max=1.0,
+        permitir_cortos=False, shrinkage=True,
+        metricas={
+            "oos_sharpe": 2.42, "oos_equal_weight_sharpe": 2.07,
+            "oos_gap_stderr": 0.20, "oos_windows": 4,
+            "beats_equal_weight": True,
+            "oos_umbral_veredicto": 0.20, "oos_sigmas_veredicto": 1.0,
+        },
+        ahora=AHORA,
+    )
+    nuevo = mod.desde_portafolio("Seguimiento", portafolio, base="estrategia",
+                                 ahora=AHORA)
+
+    vuelto = mod.cargar(mod.guardar(nuevo, tmp_path))
+
+    dictamen = mod.veredicto_vigente(vuelto.objetivo)
+    assert dictamen["estado"] is None
+    assert dictamen["discrepa"] is True
+    assert dictamen["titular"] == "Indistinguible de repartir por igual"

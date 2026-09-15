@@ -22,6 +22,7 @@ from datetime import date, datetime
 from pathlib import Path
 
 import cartera
+import validation
 
 TIPOS = frozenset(
     {"aportacion", "retiro", "compra", "venta", "dividendo", "split", "anulacion"}
@@ -498,6 +499,114 @@ def veredicto_de(metricas: dict) -> dict:
     `cartera.formato_cifra` escribe "—" y nunca un 0,00.
     """
     return {campo: metricas.get(campo) for campo in CAMPOS_VEREDICTO}
+
+
+def veredicto_vigente(objetivo: Objetivo | None) -> dict | None:
+    """El veredicto del objetivo, vuelto a dictar hoy. None si no se puede.
+
+    La mitad de vuelta de `veredicto_de`, y la única forma en que se debe leer
+    `Objetivo.veredicto`. **Se re-dicta, no se lee.** Lo que el objetivo guarda
+    es la MEDICIÓN —el hueco, su error y el listón de entonces—, no la
+    conclusión: `_SIGMAS_VEREDICTO` pasó de uno a dos errores estándar, así que
+    un `beats_equal_weight` escrito hace un mes es un True dictado contra un
+    listón derogado. Leerlo a pelo pintaría de verde una cartera que hoy no se
+    distingue de repartir por igual, que es exactamente el defecto que se cerró
+    en Portafolios, Estrenar y el PDF.
+
+    Se apoya en `validation.veredicto_guardado` y no vuelve a dictar aquí
+    porque el color, el titular y la frase tienen que salir del mismo `estado`
+    en las cuatro superficies; una copia de la regla en este módulo es una
+    quinta que puede desincronizarse. El `discrepa` que devuelve es lo que deja
+    avisar de que el fichero guarda otro veredicto en vez de cambiarlo en
+    silencio.
+
+    Recibe el campo opcional y devuelve el valor neutro, igual que
+    `pesos_objetivo` e `importe_previsto`. None cubre tres casos que la pantalla
+    pinta igual —sin objetivo, un objetivo hecho a mano en `vistas/estrenar.py`
+    que nunca tuvo corrida detrás, y un libro anterior a `oos_gap_stderr`—: en
+    los tres no hay veredicto que enseñar, y ninguno merece un False inventado.
+    """
+    if objetivo is None:
+        return None
+    return validation.veredicto_guardado(objetivo.veredicto or {})
+
+
+def nota_del_veredicto(objetivo: Objetivo | None) -> tuple[str, str] | None:
+    """Lo que Rebalanceo escribe bajo la fecha del objetivo. None si nada.
+
+    Devuelve `(nivel, texto)`, con `nivel` en `{"caption", "aviso"}`, y no toca
+    Streamlit: `vistas/rebalanceo.py` es un guion que no se puede importar, así
+    que la decisión y la redacción viven aquí —donde un test las lee— y allí
+    sólo queda el despacho. Mismo reparto que `pesos_objetivo` e
+    `importe_previsto`, y el que `vistas/libros.py` deja escrito.
+
+    **Por qué esta pantalla y no sólo Portafolios.** Allí el veredicto se
+    enseña; aquí se cobra. Todo lo que viene debajo —la deriva, el reparto del
+    dinero nuevo y la factura de comisiones— propone acercar la cartera a los
+    pesos del objetivo. Si esos pesos hoy no se distinguen de repartir por
+    igual, la propuesta es coste cierto a cambio de una ventaja no demostrada,
+    y eso se lee antes de la tabla o no sirve de nada.
+
+    Tres silencios, y ninguno es por comodidad:
+
+    - Sin objetivo no hay nada contra lo que medir, y la pantalla ya se detiene
+      antes con su propio mensaje.
+    - Con `base != "estrategia"` el libro reparte por igual: `pesos_objetivo`
+      le devuelve 1/N e ignora los pesos guardados. El dictamen juzga una
+      optimización que este libro no está siguiendo, y ponerlo aquí invita a
+      leerlo como un juicio sobre el rebalanceo que el usuario va a hacer.
+    - Sin `oos_sharpe` no hubo corrida fuera de muestra. La «mezcla de hoy» de
+      `vistas/estrenar.py` también nace con `base="estrategia"`, y son los
+      pesos que el usuario ya tenía: decirle que le falta el error de la
+      diferencia sería falso —no llegó tarde, es que nunca hubo walk-forward—
+      y le sugeriría que le falta una evidencia que no le corresponde. Es la
+      misma frontera que usa `exporter.notas_pdf`.
+
+    De los casos que sí hablan, **sólo uno sube a recuadro**: el que cambia lo
+    que el usuario debería hacer a continuación. Un `st.success` verde por
+    ganar competiría con el recuadro de «dentro / fuera de banda», que es el
+    veredicto que esta pantalla existe para dar; éste es su premisa, y va en el
+    mismo gris que la fecha del objetivo.
+    """
+    if objetivo is None or objetivo.base != "estrategia":
+        return None
+
+    guardado = objetivo.veredicto or {}
+    if guardado.get("oos_sharpe") is None:
+        return None
+
+    dictamen = veredicto_vigente(objetivo)
+    if dictamen is None:
+        return (
+            "caption",
+            "Este libro es anterior a que el programa midiera el error de la "
+            "diferencia contra repartir por igual, así que no se puede decir si "
+            "estos pesos le ganaban.",
+        )
+
+    # Se dice que el listón cambió; no se cambia el veredicto en silencio. El
+    # usuario recuerda lo que leyó el día que guardó el portafolio, y la misma
+    # coletilla está en Portafolios y en Estrenar.
+    coletilla = (
+        " El libro guarda otro veredicto, dictado con el listón de entonces."
+        if dictamen["discrepa"] else ""
+    )
+
+    if dictamen["estado"] is True:
+        return (
+            "caption",
+            f"Fuera de muestra, estos pesos superaban a repartir por igual. "
+            f"{dictamen['medida']}{coletilla}",
+        )
+
+    # `frase` ya distingue «queda por debajo» de «no se distinguen», que no son
+    # lo mismo: repetir el juicio aquí sería arriesgarse a decirlo distinto.
+    return (
+        "aviso",
+        f"{dictamen['frase']} Lo que sigue propone acercar la cartera a esos "
+        f"pesos: la deriva y el coste son reales, la ventaja que persiguen no "
+        f"está demostrada.{coletilla}",
+    )
 
 
 DIRECTORIO = Path("libros")
