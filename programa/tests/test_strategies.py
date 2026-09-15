@@ -466,3 +466,54 @@ def test_un_retorno_exactamente_igual_a_las_letras_tampoco_es_prima():
     )
 
     assert r["sin_prima"] is True
+
+
+# ── R7 · La tolerancia de la paridad no puede ser absoluta ────────────────────
+#
+# «La peor aportación se separa menos de un punto porcentual de su objetivo» es
+# un listón cuyo significado depende de cuántos activos haya: con 5 activos el
+# objetivo es el 20% de la varianza y un punto es el 5% de él, pero con 20 el
+# objetivo es el 5% y el mismo punto es el 20%. El error relativo que la
+# tolerancia tapa crecía con el número de activos, y ahí una cartera con un
+# activo aportando un 10% más de lo que le tocaba salía con `erc_exacto=True`
+# y sin una sola palabra en pantalla.
+
+def _muchos(n: int, seed: int = 11, n_obs: int = 1500) -> pd.DataFrame:
+    """Un mercado con un factor común y volatilidades muy repartidas."""
+    rng = np.random.default_rng(seed)
+    vols = np.linspace(0.006, 0.030, n)
+    factor = rng.normal(0.0, 0.008, (n_obs, 1))
+    betas = np.linspace(0.4, 1.6, n).reshape(1, -1)
+    datos = factor @ betas + rng.normal(0, 1, (n_obs, n)) * vols
+    return pd.DataFrame(datos, columns=[f"A{i}" for i in range(n)])
+
+
+def test_con_veinte_activos_medio_punto_ya_no_es_paridad():
+    """Medido: 0,52 puntos de desviación es el 10,5% del objetivo con n=20."""
+    resultado = optimize_risk_parity(_muchos(20), RF, PPY, (0.0, 0.10), False)
+    assert resultado["converged"] is True
+    objetivo = 1.0 / 20
+    assert resultado["erc_desviacion"] > 0.05 * objetivo
+    assert resultado["erc_exacto"] is False
+    assert "peso máximo" in resultado["message"]
+
+
+@pytest.mark.parametrize("n", [4, 5, 8, 20])
+def test_lo_que_se_llama_paridad_lo_es_en_terminos_relativos(n):
+    """El contrato, sea cual sea el número de activos.
+
+    Si la cartera se declara exacta, la peor aportación no puede separarse más
+    de un 5% de su objetivo — que es lo que el punto porcentual de siempre
+    significaba con los cinco activos del caso por defecto.
+    """
+    resultado = optimize_risk_parity(_muchos(n), RF, PPY, (0.0, 1.0), False)
+    assert resultado["converged"] is True
+    if resultado.get("erc_exacto"):
+        assert resultado["erc_desviacion"] <= 0.05 * (1.0 / n) + 1e-12
+
+
+def test_con_cinco_activos_el_liston_sigue_siendo_el_punto_porcentual_de_siempre():
+    """El caso por defecto de la aplicación no se mueve: 5% de 1/5 es 1 punto."""
+    assert optimizer._tolerancia_erc(5) == pytest.approx(0.01)
+    assert optimizer._tolerancia_erc(4) == pytest.approx(0.01), "nunca más flojo que antes"
+    assert optimizer._tolerancia_erc(20) == pytest.approx(0.0025)

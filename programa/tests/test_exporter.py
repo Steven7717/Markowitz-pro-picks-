@@ -143,3 +143,97 @@ def test_el_informe_sale_aunque_le_metan_caracteres_imposibles():
     df = _weights_df().rename(columns={"Ticker": "Ticker — símbolo"})
     datos = to_pdf(df, _metrics() | {"strategy": "Prueba “rara” —"}, [])
     assert datos.startswith(b"%PDF")
+
+
+# ── R5 y R6 · El informe es el documento que el usuario enseña a terceros ─────
+#
+# Con las métricas reales de `portafolios/2026-09-10-105238-prueba-1.json` el
+# informe imprimía «Sharpe fuera de muestra 2.2389» con cuatro decimales sobre
+# un número cuyo propio fichero guarda un error estándar de ±2,10, sin una
+# palabra del veredicto contra repartir por igual y sin decir que los pesos de
+# la tabla de al lado no están identificados. Las tres cosas caben.
+
+from exporter import notas_pdf  # noqa: E402
+
+# Copiadas del fichero, tal cual, incluido el `beats_equal_weight` nulo y la
+# ausencia de `oos_gap_stderr`: es un portafolio guardado antes de que el
+# programa midiera el error de la diferencia, y el informe tiene que salir.
+_REALES = {
+    "sharpe": 1.8593187647949108,
+    "annual_return": 0.5414827645535594,
+    "annual_vol": 0.2698863723109198,
+    "rf_rate": 0.03967796815344062,
+    "horizon": "1 Mes",
+    "strategy": "Máximo Sharpe (Markowitz)",
+    "n_obs": 501.0,
+    "oos_sharpe": 2.2389269445873863,
+    "oos_equal_weight_sharpe": 2.0706922569408923,
+    "oos_windows": 4.0,
+    "oos_sharpe_stderr": 2.101918203407456,
+    "beats_equal_weight": None,
+}
+
+_MEDICION_PESOS = {
+    "ident_mejor": "MSFT",
+    "ident_peor": "AMZN",
+    "ident_brecha": 0.21,
+    "ident_stderr": 0.31,
+    "ident_anos": 2.0,
+}
+
+
+def test_el_sharpe_fuera_de_muestra_no_se_imprime_a_cuatro_decimales():
+    """«2.2389» promete una precisión de 1 entre 10.000 sobre un ±2,10."""
+    valor = dict(kpi_rows(_REALES))["Sharpe fuera de muestra"]
+    assert "2.2389" not in valor
+    assert "2.24" in valor
+
+
+def test_el_sharpe_fuera_de_muestra_lleva_la_barra_que_el_fichero_ya_guardaba():
+    valor = dict(kpi_rows(_REALES))["Sharpe fuera de muestra"]
+    assert "±" in valor and "2.10" in valor
+
+
+def test_el_informe_escribe_el_veredicto_contra_repartir_por_igual():
+    assert "ndistinguible de repartir por igual" in " ".join(notas_pdf(_REALES))
+
+
+def test_un_fichero_sin_el_error_de_la_diferencia_dice_que_no_se_recomprueba():
+    """El veredicto guardado se enseña, pero marcado como no recomprobable."""
+    assert "recomprobar" in " ".join(notas_pdf(_REALES))
+
+
+def test_con_el_error_de_la_diferencia_el_veredicto_se_vuelve_a_dictar():
+    """Y lleva el listón ya multiplicado, no el error estándar suelto."""
+    notas = " ".join(notas_pdf({**_REALES, "oos_gap_stderr": 0.05}))
+    assert "Supera a repartir por igual" in notas
+    assert "0,10" in notas
+    assert "recomprobar" not in notas
+
+
+def test_el_informe_avisa_de_que_los_pesos_de_la_tabla_no_estan_identificados():
+    notas = " ".join(notas_pdf({**_REALES, **_MEDICION_PESOS}))
+    assert "MSFT" in notas and "AMZN" in notas
+    assert "no están identificados" in notas
+
+
+def test_un_informe_sin_esa_medicion_no_se_inventa_el_aviso():
+    """Los portafolios guardados antes de R6 no la llevan, y ahí no se afirma nada."""
+    assert not any("identificad" in nota for nota in notas_pdf(_REALES))
+
+
+def test_el_pdf_sale_entero_con_el_veredicto_y_el_aviso_dentro():
+    """Las frases son largas y van en `multi_cell`, no en una celda de 80mm."""
+    completas = {**_REALES, **_MEDICION_PESOS, "oos_gap_stderr": 0.9}
+    assert len(to_pdf(_weights_df(), completas, [])) > 0
+
+
+def test_los_recuentos_del_informe_no_llevan_decimales():
+    """Un portafolio guardado vuelve con `4.0` ventanas y `501.0` observaciones.
+
+    `cartera._serializable` pasa por `float()` todo lo que no es texto ni
+    booleano, y el informe imprimía el decimal. No hay media ventana.
+    """
+    filas = dict(kpi_rows(_REALES))
+    assert filas["Ventanas de validación"] == "4"
+    assert filas["Observaciones usadas"] == "501"

@@ -28,6 +28,22 @@ def _base_layout(**extra) -> dict:
     )
 
 
+def _etiqueta(nombre: str, punto: dict, sin_prima: bool) -> str:
+    """El nombre de un punto en la leyenda, con la cifra que de verdad lo ordena.
+
+    **Sin prima, la leyenda no puede prometer un Sharpe.** Cuando ningún activo
+    supera a la tasa libre de riesgo, `optimize_max_sharpe` devuelve la cartera
+    de mínima varianza, y escribir «Máximo Sharpe (Markowitz) (Sharpe: -1,16)»
+    debajo de una estrella elegida por su volatilidad es prometer un criterio
+    que no se usó. Y el número que promete es además el que la nube contradice:
+    medido, el 98,1% de los 10.000 puntos simulados tenía un Sharpe mayor que
+    esa estrella. Ahí se escribe la volatilidad, que es lo que sí decidió.
+    """
+    if sin_prima:
+        return f"{nombre} (vol {punto['annual_vol']:.1%} · sin prima)"
+    return f"{nombre} (Sharpe: {punto.get('sharpe', 0):.2f})"
+
+
 def plot_efficient_frontier(
     sim_df: pd.DataFrame,
     optimal: dict,
@@ -36,6 +52,28 @@ def plot_efficient_frontier(
     tickers: list[str],
     strategy_label: str = "Óptimo",
 ) -> go.Figure:
+    """La nube de carteras simuladas y los puntos que se quieren comparar.
+
+    **El color de la nube es el criterio con el que se eligió la estrella, y no
+    el cociente de Sharpe.** Los dos coinciden mientras haya prima de riesgo
+    —que es el caso normal— pero se separan justo donde importa:
+
+    * Con prima, se colorea por `criterio_sharpe`, que es Sharpe en el tramo de
+      exceso positivo y `exceso × σ` en el negativo. Las carteras que pierden
+      contra las letras dejan de premiarse por ser volátiles: con el cociente a
+      secas, un -2% anual repartido en un 46% de volatilidad (Sharpe -0,043)
+      salía por delante de un -1% en un 12% (Sharpe -0,083), porque agrandar el
+      denominador de un número negativo lo acerca a cero.
+    * Sin prima —`optimal["sin_prima"]`— la cartera se ha elegido por mínima
+      varianza, así que el color pasa a ser la volatilidad con la escala
+      invertida: menos es mejor. Así la estrella cae necesariamente en el punto
+      más brillante de la nube, que es la coherencia que faltaba.
+
+    La columna `criterio` la escribe `simulate_portfolios` y aquí se exige: un
+    respaldo silencioso a `sharpe` devolvería el gráfico al fallo de origen sin
+    que nadie se enterase.
+    """
+    sin_prima = bool(optimal.get("sin_prima", False))
     fig = go.Figure()
 
     fig.add_trace(go.Scatter(
@@ -43,11 +81,14 @@ def plot_efficient_frontier(
         y=sim_df["ret"],
         mode="markers",
         marker=dict(
-            color=sim_df["sharpe"],
+            color=sim_df["vol"] if sin_prima else sim_df["criterio"],
             colorscale="Viridis",
+            # `reversescale` y no una columna en negativo: la barra de color
+            # sigue enseñando volatilidades legibles en vez de «-0,46».
+            reversescale=sin_prima,
             size=3,
             opacity=0.5,
-            colorbar=dict(title="Sharpe"),
+            colorbar=dict(title="Volatilidad" if sin_prima else "Sharpe"),
         ),
         name="Portafolios simulados",
         hovertemplate="Vol: %{x:.2%}<br>Ret: %{y:.2%}<extra></extra>",
@@ -58,7 +99,7 @@ def plot_efficient_frontier(
         y=[equal_weight["annual_return"]],
         mode="markers",
         marker=dict(symbol="circle", size=13, color=_BLUE, line=dict(color="white", width=1)),
-        name=f"Equal Weight (Sharpe: {equal_weight['sharpe']:.2f})",
+        name=_etiqueta("Equal Weight", equal_weight, sin_prima),
         hovertemplate="Equal Weight<br>Vol: %{x:.2%}<br>Ret: %{y:.2%}<extra></extra>",
     ))
 
@@ -68,7 +109,7 @@ def plot_efficient_frontier(
             y=[benchmark["annual_return"]],
             mode="markers",
             marker=dict(symbol="triangle-up", size=15, color=_ORANGE, line=dict(color="white", width=1)),
-            name=f"S&P 500 (Sharpe: {benchmark.get('sharpe', 0):.2f})",
+            name=_etiqueta("S&P 500", benchmark, sin_prima),
             hovertemplate="S&P 500<br>Vol: %{x:.2%}<br>Ret: %{y:.2%}<extra></extra>",
         ))
 
@@ -77,12 +118,19 @@ def plot_efficient_frontier(
         y=[optimal["annual_return"]],
         mode="markers",
         marker=dict(symbol="star", size=20, color=_GREEN, line=dict(color="white", width=1)),
-        name=f"{strategy_label} (Sharpe: {optimal['sharpe']:.2f})",
+        name=_etiqueta(strategy_label, optimal, sin_prima),
         hovertemplate=f"{strategy_label}<br>Vol: %{{x:.2%}}<br>Ret: %{{y:.2%}}<extra></extra>",
     ))
 
     fig.update_layout(
-        title="Frontera Eficiente",
+        # El porqué del cambio de escala va en el título y no en la leyenda:
+        # una leyenda con la explicación dentro se corta por la mitad, y el
+        # usuario tiene que entender el color antes de mirar ningún punto.
+        title=(
+            "Frontera Eficiente — sin prima de riesgo: el color es la "
+            "volatilidad (menos es mejor), no el Sharpe"
+            if sin_prima else "Frontera Eficiente"
+        ),
         xaxis=dict(title="Volatilidad Anual", tickformat=".0%"),
         yaxis=dict(title="Retorno Anual Esperado", tickformat=".0%"),
         **_base_layout(),

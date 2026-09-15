@@ -45,7 +45,15 @@ from optimizer import (
     simulate_portfolios,
     validate_constraints,
 )
-from validation import medida_veredicto, retorno_stderr, walk_forward_comparison
+from validation import (
+    frase_identificabilidad,
+    identificabilidad,
+    medida_veredicto,
+    metricas_de_identificabilidad,
+    metricas_de_validacion,
+    retorno_stderr,
+    walk_forward_comparison,
+)
 
 TICKERS_POR_DEFECTO = "AAPL, MSFT, GOOGL, AMZN, NVDA"
 
@@ -507,6 +515,17 @@ _mu_usada = np.asarray(optimal["mean"], dtype=float) * periods_per_year
 _vol_usada = np.sqrt(np.diag(np.asarray(optimal["cov"], dtype=float))) * np.sqrt(
     periods_per_year
 )
+# **¿Estos datos identifican este reparto?** La tabla de abajo escribe los pesos
+# con dos decimales, la tarta los dibuja y el PDF los imprime, y sobre el caso
+# por defecto un bootstrap de 300 remuestreos con reoptimización completa da
+# intervalos al 90% de 67 puntos de ancho: en el 54% de ellos manda un activo
+# distinto del que la pantalla pone primero. El guardarraíl de muestra corta no
+# se dispara ahí —100 observaciones por activo contra un umbral de 30— así que
+# nada avisaba. Esto es la versión barata de esa comprobación; el porqué de
+# preferirla a pagar el bootstrap en cada corrida está en
+# `validation.identificabilidad`.
+_identificabilidad = identificabilidad(_serie_de, periods_per_year)
+
 weights_df = pd.DataFrame({
     "Ticker": valid_tickers,
     "Peso Óptimo (%)": [f"{w:.2%}" for w in optimal["weights"]],
@@ -526,19 +545,19 @@ metrics = {
     "cov_shrinkage": optimal["cov_shrinkage"],
     "mean_shrinkage": optimal["mean_shrinkage"],
     "n_obs": n_obs,
-    "oos_sharpe": wf["out_of_sample_sharpe"] if wf else None,
-    "oos_equal_weight_sharpe": wf["equal_weight_sharpe"] if wf else None,
-    "oos_windows": wf["n_windows"] if wf else 0,
-    # Sin el error estandar, los dos Sharpe de arriba no permiten reconstruir el
-    # veredicto: no dicen si la diferencia entre ellos cabe dentro del ruido.
-    # `beats_equal_weight` es de tres estados a proposito -- None significa "no
-    # hay ventanas suficientes para distinguirlo", que no es lo mismo que False.
-    "oos_sharpe_stderr": wf["sharpe_stderr"] if wf else None,
-    # El que justifica el veredicto es este, no el de arriba: el de arriba dice
-    # con que precision se conoce el Sharpe, y la afirmacion es sobre la
-    # distancia a 1/N, que se mide sobre las mismas fechas y mucho mas fina.
-    "oos_gap_stderr": wf["gap_stderr"] if wf else None,
-    "beats_equal_weight": wf["beats_equal_weight"] if wf else None,
+    # **El recorrido entero, escrito por quien lo produjo.** Este diccionario
+    # copiaba a mano seis campos de `wf` y se dejaba fuera los dos que dicen
+    # contra qué listón se dictó el veredicto —`umbral_veredicto` y
+    # `sigmas_veredicto`— así que el fichero guardaba una conclusión que nadie
+    # podía recomprobar. De ahí los dos defectos de las otras pantallas: una
+    # pintaba el color con el `beats_equal_weight` viejo junto a un texto
+    # recalculado con el listón nuevo, y otra leía ese veredicto sin barra de
+    # error ni umbral. Ahora la ida y la vuelta viven juntas en `validation`.
+    **metricas_de_validacion(wf),
+    # Y la medición que sostiene —o no— el reparto de la tabla, para que el
+    # informe y la pantalla de portafolios puedan repetir el aviso sin tener
+    # delante los retornos con los que se calculó.
+    **metricas_de_identificabilidad(_identificabilidad),
 }
 
 # Las figuras se construyen una vez, antes de las pestañas, y se pintan con una
@@ -698,6 +717,16 @@ with resumen:
             f"Alta concentración: **{arriba}** recibe **{peso_max_real:.1%}** del "
             "portafolio. Considera bajar el peso máximo por activo."
         )
+
+    # **El aviso va ANTES de la tabla y de la tarta, no debajo.** Puesto
+    # detrás lo lee quien ya se ha quedado con «MSFT 45,8%», y el decimal es
+    # justo lo que hay que desmentir.
+    if _identificabilidad is not None:
+        _frase = frase_identificabilidad(_identificabilidad)
+        if _identificabilidad["identificada"]:
+            st.caption(_frase)
+        else:
+            st.warning(_frase)
 
     tabla, tarta = st.columns([3, 2])
     with tabla:

@@ -479,6 +479,12 @@ CAMPOS_VEREDICTO = (
     "oos_gap_stderr",
     "beats_equal_weight",
     "oos_windows",
+    # El liston contra el que se dicto. Sin el, `beats_equal_weight` es una
+    # conclusion sin su premisa: el umbral paso de uno a dos errores estandar,
+    # asi que un booleano suelto de hace un mes no se puede volver a leer. Los
+    # ficheros anteriores no los traen y salen `None`, que es la verdad.
+    "oos_umbral_veredicto",
+    "oos_sigmas_veredicto",
 )
 
 

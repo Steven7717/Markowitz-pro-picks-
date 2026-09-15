@@ -6,7 +6,11 @@ import streamlit as st
 import cartera
 import tema
 from optimizer import STRATEGY_LABELS
-from validation import frase_veredicto
+from validation import (
+    frase_identificabilidad,
+    identificabilidad_guardada,
+    veredicto_guardado,
+)
 
 st.markdown(
     tema.cabecera(
@@ -186,20 +190,31 @@ for entrada in entradas:
         )
         m4.metric("Volatilidad anual", cartera.formato_porcentaje(metricas.get("annual_vol")))
 
-        # **El veredicto guardado, impreso.** El fichero ya llevaba
-        # `oos_gap_stderr` y `beats_equal_weight`, y esta pantalla no escribía
-        # ninguno de los dos: dejaba «Sharpe fuera de muestra 2,24» en grande
-        # mientras el JSON decía «2,24 ± 2,10, indistinguible de repartir por
-        # igual». El número grande sin su barra es el que se recuerda.
+        # **El color y el texto salen del MISMO dictamen.** El color se
+        # pintaba con el `beats_equal_weight` GUARDADO —dictado cuando bastaba
+        # un error estándar— y la frase de al lado se recalculaba con el listón
+        # de hoy, que son dos: un hueco de +0,350 con un error de ±0,20 salía en
+        # VERDE con «estos datos no distinguen esta cartera de repartir por
+        # igual» escrito dentro. Un recuadro no puede decir dos cosas, así que
+        # `veredicto_guardado` dicta una sola vez y devuelve las dos.
         _oos = metricas.get("oos_sharpe")
         _ew = metricas.get("oos_equal_weight_sharpe")
-        _gap_se = metricas.get("oos_gap_stderr")
-        if _oos is not None and _ew is not None and _gap_se is not None:
-            _frase = frase_veredicto(_oos - _ew, _gap_se)
+        _dictamen = veredicto_guardado(metricas)
+        if _dictamen is not None:
             _pintar = {True: st.success, False: st.warning}.get(
-                metricas.get("beats_equal_weight"), st.info
+                _dictamen["estado"], st.info
             )
-            _pintar(f"{_frase} (Equal Weight: {cartera.formato_cifra(_ew)}.)")
+            _texto = f"{_dictamen['frase']} (Equal Weight: {cartera.formato_cifra(_ew)}.)"
+            if _dictamen["discrepa"]:
+                # Cambiar el veredicto en silencio sería peor que el defecto que
+                # se está arreglando: el usuario recuerda lo que leyó el día que
+                # lo guardó, y tiene derecho a saber que el listón cambió.
+                _texto += (
+                    " Este fichero guarda otro veredicto, dictado con el listón "
+                    "de entonces —un error estándar en vez de dos—; arriba está "
+                    "el de hoy."
+                )
+            _pintar(_texto)
         elif _oos is not None:
             st.info(
                 "Este fichero es anterior al error de la diferencia contra 1/N, "
@@ -208,6 +223,17 @@ for entrada in entradas:
             )
 
         with st.expander(f"Pesos de {p.nombre}"):
+            # El mismo aviso que vio quien optimizó, re-dictado a partir de la
+            # medición que el fichero guarda. Los portafolios anteriores a esto
+            # no la llevan y ahí no se afirma nada: `identificabilidad_guardada`
+            # devuelve None y no se escribe línea alguna.
+            _identificabilidad = identificabilidad_guardada(metricas)
+            if _identificabilidad is not None:
+                _frase = frase_identificabilidad(_identificabilidad)
+                if _identificabilidad["identificada"]:
+                    st.caption(_frase)
+                else:
+                    st.warning(_frase)
             st.dataframe(
                 pd.DataFrame({
                     "Ticker": p.tickers,

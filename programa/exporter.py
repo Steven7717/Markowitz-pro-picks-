@@ -9,6 +9,13 @@ from fpdf import FPDF
 from fpdf.enums import XPos, YPos
 import plotly.graph_objects as go
 
+from validation import (
+    frase_identificabilidad,
+    identificabilidad_guardada,
+    titular_veredicto,
+    veredicto_guardado,
+)
+
 
 # Lo único del castellano que Helvetica NO puede escribir.
 #
@@ -53,6 +60,22 @@ def to_excel(weights_df: pd.DataFrame, metrics: dict) -> bytes:
     return buf.getvalue()
 
 
+def _conteo(valor) -> str:
+    """Un recuento, escrito como recuento.
+
+    `cartera._serializable` pasa por `float()` todo lo que no es texto ni
+    booleano para que `json.dumps` no reviente con un `numpy.int64`, así que un
+    portafolio guardado vuelve con `oos_windows: 4.0` y `n_obs: 501.0`. El
+    informe los imprimía tal cual —«Ventanas de validación: 4.0»,
+    «Observaciones usadas: 501.0»— y un decimal sobre algo que se cuenta con
+    los dedos no significa nada: no hay media ventana.
+    """
+    try:
+        return str(int(float(valor)))
+    except (TypeError, ValueError):
+        return str(valor)
+
+
 def kpi_rows(metrics: dict) -> list[tuple[str, str]]:
     """Build the metric table for the report.
 
@@ -74,18 +97,73 @@ def kpi_rows(metrics: dict) -> list[tuple[str, str]]:
     if oos is None:
         rows.append(("Sharpe fuera de muestra", "No disponible (historial insuficiente)"))
     else:
-        rows.append(("Sharpe fuera de muestra", f"{oos:.4f}"))
+        # **Con su barra y a dos decimales.** El informe imprimía «2.2389»
+        # mientras el mismo fichero guardaba que ese número se conoce con un
+        # error estándar de ±2,10: cuatro decimales prometen una precisión de 1
+        # entre 10.000 sobre una cifra que no distingue el 2 del 4. Y el ± ya
+        # estaba guardado, así que no costaba nada.
+        error = metrics.get("oos_sharpe_stderr")
+        rows.append((
+            "Sharpe fuera de muestra",
+            f"{oos:.2f} ± {error:.2f}" if error is not None else f"{oos:.2f}",
+        ))
         benchmark = metrics.get("oos_equal_weight_sharpe")
         if benchmark is not None:
-            rows.append(("Sharpe Equal Weight (fuera de muestra)", f"{benchmark:.4f}"))
-        rows.append(("Ventanas de validación", str(metrics.get("oos_windows", 0))))
+            rows.append(("Sharpe Equal Weight (fuera de muestra)", f"{benchmark:.2f}"))
+        # El veredicto en la tabla, en tres palabras; la medición que lo
+        # sostiene va entera en `notas_pdf`, que sí tiene sitio para una frase.
+        dictamen = veredicto_guardado(metrics)
+        rows.append((
+            "Veredicto contra repartir por igual",
+            dictamen["titular"] if dictamen is not None
+            else titular_veredicto(metrics.get("beats_equal_weight")),
+        ))
+        rows.append(("Ventanas de validación", _conteo(metrics.get("oos_windows", 0))))
 
     if "shrinkage" in metrics:
         rows.append(("Estimación robusta (shrinkage)", str(metrics["shrinkage"])))
     if metrics.get("n_obs"):
-        rows.append(("Observaciones usadas", str(metrics["n_obs"])))
+        rows.append(("Observaciones usadas", _conteo(metrics["n_obs"])))
 
     return rows
+
+
+def notas_pdf(metrics: dict) -> list[str]:
+    """Lo que el informe tiene que decir y no cabe en una celda de 80 milímetros.
+
+    El PDF es el documento que el usuario enseña a terceros, y salía con los dos
+    Sharpe fuera de muestra a cuatro decimales y ni una palabra sobre si la
+    diferencia entre ellos cabía dentro del error, ni sobre si los pesos de la
+    tabla de al lado están sostenidos por los datos. Las dos frases se dictan en
+    `validation`, las mismas que ve la pantalla, para que el papel y el monitor
+    no puedan decir cosas distintas del mismo portafolio.
+    """
+    notas: list[str] = []
+
+    dictamen = veredicto_guardado(metrics)
+    if dictamen is not None:
+        notas.append(f"Veredicto contra repartir por igual: {dictamen['frase']}")
+    elif metrics.get("oos_sharpe") is not None:
+        # Un portafolio anterior a `oos_gap_stderr`: la conclusión guardada es
+        # todo lo que hay, y se enseña marcada como lo que es. Callarla dejaría
+        # el Sharpe grande solo en la página, que es el defecto de origen;
+        # darla por buena escondería que se dictó con otro listón.
+        notas.append(
+            f"Veredicto contra repartir por igual: "
+            f"{titular_veredicto(metrics.get('beats_equal_weight')).lower()}, "
+            "según el veredicto guardado el día de la corrida. No se puede "
+            "recomprobar: este portafolio es anterior a que el programa midiera "
+            "el error de la diferencia contra 1/N."
+        )
+
+    identificabilidad = identificabilidad_guardada(metrics)
+    if identificabilidad is not None:
+        notas.append(
+            f"Identificabilidad de los pesos: "
+            f"{frase_identificabilidad(identificabilidad)}"
+        )
+
+    return notas
 
 
 def to_pdf(
@@ -121,6 +199,16 @@ def to_pdf(
         pdf.cell(100, 7, texto_pdf(label), border=1)
         pdf.cell(80, 7, texto_pdf(value), border=1, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
     pdf.ln(4)
+
+    # `multi_cell` y no `cell`: estas frases pasan de los 200 caracteres y en
+    # una celda de 80 milímetros se saldrían por el borde derecho de la hoja.
+    notas = notas_pdf(metrics)
+    if notas:
+        pdf.set_font("Helvetica", "", 9)
+        for nota in notas:
+            pdf.multi_cell(0, 5, texto_pdf(nota))
+            pdf.ln(1)
+        pdf.ln(3)
 
     # Weights table
     pdf.set_font("Helvetica", "B", 11)

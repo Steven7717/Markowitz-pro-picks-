@@ -656,3 +656,236 @@ def test_una_sola_ventana_hace_coincidir_los_dos_estimadores():
     )
     assert r["n_windows"] == 1
     assert r["out_of_sample_sharpe_medio"] == pytest.approx(r["out_of_sample_sharpe"])
+
+
+# ── R4 · Lo que un portafolio guardado tiene que llevarse del recorrido ───────
+#
+# `_componer` produce `umbral_veredicto` y `sigmas_veredicto` y el diccionario
+# que se guardaba en el JSON no llevaba ninguno de los dos: un fichero no podía
+# decir contra qué listón se dictó su propio veredicto. De ahí salían los dos
+# defectos de pantalla —el color de un recuadro dictado a 1σ junto a un texto
+# recalculado a 2σ, y otra vista escribiendo el veredicto viejo sin barra de
+# error— así que el contrato de ida y de vuelta vive en un solo sitio.
+
+from validation import (  # noqa: E402
+    _SIGMAS_VEREDICTO,
+    frase_identificabilidad,
+    identificabilidad,
+    metricas_de_validacion,
+    veredicto_guardado,
+)
+
+
+def _recorrido(n_obs: int = 1200) -> dict:
+    return walk_forward_validation(_noise(n_obs), 0.0, 252, (0.0, 1.0), False)
+
+
+def test_lo_guardado_incluye_el_umbral_contra_el_que_se_dicto():
+    guardado = metricas_de_validacion(_recorrido())
+    assert guardado["oos_umbral_veredicto"] is not None
+    assert guardado["oos_sigmas_veredicto"] == _SIGMAS_VEREDICTO
+
+
+def test_el_umbral_guardado_es_el_del_recorrido_y_no_se_recalcula():
+    wf = _recorrido()
+    assert metricas_de_validacion(wf)["oos_umbral_veredicto"] == wf["umbral_veredicto"]
+
+
+def test_sin_recorrido_se_guardan_los_huecos_y_no_un_cero():
+    """None es «no se midió» y 0 sería «se midió y salió cero»."""
+    guardado = metricas_de_validacion(None)
+    assert guardado["oos_sharpe"] is None
+    assert guardado["oos_umbral_veredicto"] is None
+    assert guardado["beats_equal_weight"] is None
+    assert guardado["oos_windows"] == 0
+
+
+# ── R2 y R3 · El veredicto se re-dicta, no se lee del fichero ─────────────────
+
+def _fichero(gap: float, gap_stderr: float, guardado, **extra) -> dict:
+    return {
+        "oos_sharpe": 2.0 + gap,
+        "oos_equal_weight_sharpe": 2.0,
+        "oos_gap_stderr": gap_stderr,
+        "beats_equal_weight": guardado,
+        **extra,
+    }
+
+
+def test_un_fichero_viejo_sin_error_de_la_diferencia_no_se_puede_juzgar():
+    assert veredicto_guardado({"oos_sharpe": 2.24}) is None
+    assert veredicto_guardado({}) is None
+
+
+def test_el_veredicto_guardado_a_un_sigma_no_pinta_de_verde_hoy():
+    """El caso medido: hueco +0,350 con un error de ±0,20.
+
+    El fichero dice `beats_equal_weight=True` porque se dictó cuando bastaba un
+    error estándar. Con el listón de hoy —dos— ese hueco no llega, y el texto ya
+    lo decía mientras el recuadro seguía saliendo verde.
+    """
+    dictamen = veredicto_guardado(_fichero(0.350, 0.20, True))
+    assert dictamen["estado"] is None
+    assert "no distinguen" in dictamen["frase"]
+    assert dictamen["discrepa"] is True
+
+
+def test_el_estado_y_la_frase_del_mismo_dictamen_nunca_se_contradicen():
+    for gap, se in [(0.35, 0.20), (1.20, 0.20), (-1.20, 0.20), (0.0, 0.10)]:
+        dictamen = veredicto_guardado(_fichero(gap, se, None))
+        assert dictamen["frase"] == frase_veredicto(dictamen["gap"], se)
+        assert dictamen["estado"] == veredicto(dictamen["gap"], se)
+
+
+def test_el_dictamen_lleva_el_liston_ya_multiplicado():
+    dictamen = veredicto_guardado(_fichero(0.35, 0.20, None))
+    assert dictamen["umbral"] == pytest.approx(0.40)
+    assert "0,40" in dictamen["frase"]
+
+
+def test_un_fichero_dictado_con_el_liston_de_hoy_no_marca_discrepancia():
+    dictamen = veredicto_guardado(
+        _fichero(0.35, 0.20, None, oos_sigmas_veredicto=_SIGMAS_VEREDICTO)
+    )
+    assert dictamen["discrepa"] is False
+
+
+def test_lo_que_se_guarda_se_vuelve_a_leer_con_el_mismo_veredicto():
+    """La ida y la vuelta tienen que cerrar: es todo el punto de guardarlo."""
+    wf = _recorrido()
+    dictamen = veredicto_guardado(metricas_de_validacion(wf))
+    assert dictamen["estado"] == wf["beats_equal_weight"]
+    assert dictamen["umbral"] == pytest.approx(wf["umbral_veredicto"])
+    assert dictamen["discrepa"] is False
+
+
+# ── R6 · Los pesos no están identificados y hay que decirlo ───────────────────
+#
+# Caso por defecto de la aplicación (5 activos, 501 observaciones diarias, tope
+# del 100%, estimación robusta). Un bootstrap de 300 remuestreos con
+# reoptimización completa da intervalos al 90% de 67,3 puntos de ancho medio
+# sobre una región factible de 100, y en el 54% de los remuestreos manda un
+# activo distinto del que la pantalla escribe con un decimal.
+
+def _par(mu_a: float, mu_b: float, vol: float, anos: float = 2.0,
+         seed: int = 3) -> pd.DataFrame:
+    """Dos activos con medias y volatilidad anuales dadas."""
+    n_obs = int(anos * 252)
+    rng = np.random.default_rng(seed)
+    return pd.DataFrame({
+        "AAA": rng.normal(mu_a / 252, vol / np.sqrt(252), n_obs),
+        "BBB": rng.normal(mu_b / 252, vol / np.sqrt(252), n_obs),
+    })
+
+
+def test_dos_activos_que_rentan_casi_lo_mismo_no_identifican_ningun_reparto():
+    dato = identificabilidad(_par(0.20, 0.22, 0.30), 252)
+    assert dato["identificada"] is False
+    assert dato["t"] < _SIGMAS_VEREDICTO
+
+
+def test_la_brecha_que_si_se_mide_deja_los_pesos_identificados():
+    dato = identificabilidad(_par(0.02, 0.40, 0.05), 252)
+    assert dato["identificada"] is True
+    assert dato["anos_necesarios"] <= dato["anos"]
+
+
+def test_dice_cuantos_anos_de_historial_harian_falta_para_sostener_el_reparto():
+    """La precisión crece con la raíz del tiempo, así que el listón son (σ/t)².
+
+    El número concreto de años no se puede fijar aquí, y eso es parte de lo que
+    se está midiendo: `anos_necesarios` sale de la brecha MUESTRAL, que entre
+    estos dos activos es casi todo ruido —tanto que la muestra pone a AAA por
+    delante cuando quien renta más de verdad es BBB— y se mueve un orden de
+    magnitud de un remuestreo a otro. Clavar «1.800 años» sería clavar una
+    tirada de dados. Lo que sí es un teorema es la dirección: mientras el hueco
+    no llegue al listón hace falta más historial del que hay, y con el hueco por
+    debajo de un error estándar, al menos cuatro veces más.
+    """
+    dato = identificabilidad(_par(0.20, 0.22, 0.30), 252)
+    esperado = dato["anos"] * (_SIGMAS_VEREDICTO / dato["t"]) ** 2
+    assert dato["anos_necesarios"] == pytest.approx(esperado)
+    assert dato["t"] < 1.0
+    assert dato["anos_necesarios"] > 4 * dato["anos"]
+
+
+def test_nombra_el_activo_que_mas_promete_y_el_que_menos():
+    dato = identificabilidad(_par(0.02, 0.40, 0.05), 252)
+    assert (dato["mejor"], dato["peor"]) == ("BBB", "AAA")
+
+
+def test_la_brecha_y_su_error_estan_en_unidades_anuales():
+    dato = identificabilidad(_par(0.02, 0.40, 0.05), 252)
+    assert dato["brecha"] == pytest.approx(0.38, abs=0.08)
+    assert dato["stderr"] == pytest.approx(dato["brecha"] / dato["t"])
+
+
+def test_sin_historial_suficiente_no_se_inventa_una_medida():
+    assert identificabilidad(_par(0.2, 0.2, 0.3, anos=0.004), 252) is None
+
+
+def test_la_frase_dice_lo_que_el_usuario_tiene_que_saber_antes_de_leer_un_peso():
+    frase = frase_identificabilidad(identificabilidad(_par(0.20, 0.22, 0.30), 252))
+    assert "AAA" in frase and "BBB" in frase
+    assert "no" in frase.lower()
+    assert "años" in frase
+
+
+def test_cuando_la_brecha_se_sostiene_la_frase_no_grita():
+    frase = frase_identificabilidad(identificabilidad(_par(0.02, 0.40, 0.05), 252))
+    assert "sostiene" in frase.lower()
+
+
+# ── R6 · Lo que un fichero se lleva del aviso, y cómo vuelve ──────────────
+#
+# La misma regla que el veredicto: se guarda la MEDICIÓN —quién promete más,
+# quién menos, cuánto los separa, con qué error y sobre cuánto historial— y la
+# conclusión se vuelve a dictar al leer. Guardar «identificada: False» dejaría
+# un fichero que no se puede recomprobar cuando el listón cambie, que es
+# exactamente el defecto que R2 y R3 destaparon en el veredicto.
+
+from validation import (  # noqa: E402
+    identificabilidad_guardada,
+    metricas_de_identificabilidad,
+    titular_veredicto,
+)
+
+
+def test_lo_guardado_basta_para_repetir_el_aviso_sin_los_retornos():
+    dato = identificabilidad(_par(0.20, 0.22, 0.30), 252)
+    vuelta = identificabilidad_guardada(metricas_de_identificabilidad(dato))
+    assert vuelta["identificada"] == dato["identificada"]
+    assert vuelta["t"] == pytest.approx(dato["t"])
+    assert vuelta["anos_necesarios"] == pytest.approx(dato["anos_necesarios"])
+    assert frase_identificabilidad(vuelta) == frase_identificabilidad(dato)
+
+
+def test_un_fichero_viejo_no_finge_un_aviso_que_nadie_midio():
+    """Los portafolios guardados antes de esto no llevan la medición."""
+    assert identificabilidad_guardada({}) is None
+    assert identificabilidad_guardada({"oos_sharpe": 2.24}) is None
+
+
+def test_sin_medicion_los_huecos_se_guardan_vacios_y_no_a_cero():
+    guardado = metricas_de_identificabilidad(None)
+    assert set(guardado) == {
+        "ident_mejor", "ident_peor", "ident_brecha", "ident_stderr", "ident_anos"
+    }
+    assert all(v is None for v in guardado.values())
+
+
+def test_lo_guardado_es_json_plano_y_no_un_diccionario_anidado():
+    """`cartera._serializable` aplana a `str(...)` lo que no sabe serializar."""
+    guardado = metricas_de_identificabilidad(
+        identificabilidad(_par(0.02, 0.40, 0.05), 252)
+    )
+    assert all(isinstance(v, (str, float, int)) for v in guardado.values()), guardado
+    assert all(np.isfinite(guardado[c])
+               for c in ("ident_brecha", "ident_stderr", "ident_anos"))
+
+
+def test_el_titular_corto_dice_lo_mismo_que_la_frase_larga():
+    """La tabla del PDF no tiene sitio para la frase entera; el titular sí."""
+    assert titular_veredicto(True) == "Supera a repartir por igual"
+    assert titular_veredicto(False) == "Queda por debajo de repartir por igual"
+    assert "ndistinguible" in titular_veredicto(None)

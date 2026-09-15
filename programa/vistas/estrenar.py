@@ -27,6 +27,7 @@ import streamlit as st
 import cartera
 import tema
 from seguimiento import alta, libro as mod, precios
+from validation import veredicto_guardado
 
 # Cinco días naturales hacia atrás, y no uno: un fin de semana o un festivo
 # dejan el último cierre fuera de una ventana de un día, y entonces la
@@ -110,24 +111,32 @@ def _base_del_objetivo(pendiente) -> str | None:
     algo, y la pregunta es lo que se hace con ella. Separarlas dejaría la
     pregunta sin su motivo delante.
     """
-    veredicto = mod.veredicto_de(pendiente.metricas or {})
-    if veredicto["beats_equal_weight"] is True:
-        st.success(
-            "Fuera de muestra, la optimización superó a repartir por igual: "
-            f"{veredicto['oos_sharpe']:.2f} frente a "
-            f"{veredicto['oos_equal_weight_sharpe']:.2f}."
-        )
-    elif veredicto["beats_equal_weight"] is False:
-        st.warning(
-            "Fuera de muestra, la optimización quedó **por debajo** de repartir "
-            f"por igual: {veredicto['oos_sharpe']:.2f} frente a "
-            f"{veredicto['oos_equal_weight_sharpe']:.2f}."
+    metricas = pendiente.metricas or {}
+    # **Se vuelve a dictar, no se lee.** Esta pantalla escribía «Fuera de
+    # muestra, la optimización superó a repartir por igual: 2,24 frente a 2,07»
+    # a partir del `beats_equal_weight` guardado, sin barra de error, sin umbral
+    # y sin recálculo — y es la pantalla desde la que se decide contra qué pesos
+    # se medirá la deriva de aquí en adelante. Un veredicto dictado con un
+    # listón derogado no puede tomar esa decisión.
+    dictamen = veredicto_guardado(metricas)
+    if dictamen is None:
+        st.info(
+            "Este portafolio se guardó antes de que el programa midiera el error "
+            "de la diferencia contra repartir por igual, así que no hay veredicto "
+            "que enseñar: no se puede decir si la optimización aportó algo. "
+            "Repartir por igual es la opción que menos supone."
         )
     else:
-        st.info(
-            "Con estos datos no se pudo distinguir la optimización de repartir "
-            "por igual. La diferencia cabía dentro del error de medición."
+        _pintar = {True: st.success, False: st.warning}.get(dictamen["estado"], st.info)
+        _cifras = (
+            f"Fuera de muestra: {metricas['oos_sharpe']:.2f} frente a "
+            f"{metricas['oos_equal_weight_sharpe']:.2f} de repartir por igual."
         )
+        _aviso = (
+            " El fichero guarda otro veredicto, dictado con el listón de entonces."
+            if dictamen["discrepa"] else ""
+        )
+        _pintar(f"**{dictamen['titular']}.** {dictamen['medida']} {_cifras}{_aviso}")
 
     # Sin índice por defecto, como en el resto del proyecto: un valor
     # preseleccionado convertiría el veredicto de arriba en un clic que nadie

@@ -335,3 +335,47 @@ def test_optimizer_reports_the_shrinkage_intensities_it_used():
 def test_optimizer_defaults_to_no_shrinkage(synthetic_returns):
     result = optimize_max_sharpe(synthetic_returns, 0.0001, 252, (0.0, 1.0), False)
     assert result["cov_shrinkage"] == 0.0
+
+
+# ── La nube simulada tiene que llevar el criterio, no sólo el cociente ────────
+#
+# El gráfico coloreaba los 10.000 puntos por el Sharpe clásico mientras el
+# optimizador elegía por otro criterio, y en mercado bajista los dos ordenan al
+# revés. Que la columna la escriba quien simula —y no la reconstruya el
+# gráfico— es lo que impide que las dos definiciones se separen con el tiempo.
+
+def test_la_simulacion_publica_el_criterio_con_el_que_se_elige(synthetic_returns):
+    df = simulate_portfolios(
+        synthetic_returns, rf_rate=0.0001, periods_per_year=252,
+        weight_bounds=(0.0, 1.0), allow_short=False,
+    )
+    assert "criterio" in df.columns
+
+
+def test_con_prima_el_criterio_simulado_es_exactamente_el_sharpe(synthetic_returns):
+    """Los dos tramos se pegan en cero: donde hay exceso positivo, no cambia nada."""
+    df = simulate_portfolios(
+        synthetic_returns, rf_rate=0.0, periods_per_year=252,
+        weight_bounds=(0.0, 1.0), allow_short=False,
+    )
+    positivos = df[df["sharpe"] >= 0]
+    assert len(positivos) > 0
+    assert np.allclose(positivos["criterio"], positivos["sharpe"])
+
+
+def test_entre_las_que_pierden_el_criterio_castiga_a_la_mas_volatil(synthetic_returns):
+    """Una tasa libre de riesgo imposible mete a toda la nube en el tramo malo.
+
+    Ahí el cociente de Sharpe ordena al revés —acercarse a cero por abajo se
+    consigue agrandando el denominador— y el criterio tiene que dar la vuelta a
+    ese orden.
+    """
+    df = simulate_portfolios(
+        synthetic_returns, rf_rate=1.0, periods_per_year=252,
+        weight_bounds=(0.0, 1.0), allow_short=False,
+    )
+    assert (df["sharpe"] < 0).all()
+    tranquila = int(df["vol"].idxmin())
+    volatil = int(df["vol"].idxmax())
+    assert df["sharpe"][volatil] > df["sharpe"][tranquila], "el cociente premiaba la volatilidad"
+    assert df["criterio"][volatil] < df["criterio"][tranquila]

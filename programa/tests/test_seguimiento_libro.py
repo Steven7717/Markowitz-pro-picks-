@@ -594,6 +594,8 @@ def test_el_veredicto_se_extrae_de_las_metricas_guardadas():
         "oos_gap_stderr": 0.03,
         "beats_equal_weight": False,
         "oos_windows": 12,
+        "oos_umbral_veredicto": 0.06,
+        "oos_sigmas_veredicto": 2.0,
     }
     assert veredicto_de(metricas) == metricas
 
@@ -1014,3 +1016,36 @@ def test_sin_historia_el_guardarrail_sigue_siendo_el_conservador():
 
     with pytest.raises(AsientoInvalido):
         anadir(libro, retiro, hoy=date(2026, 1, 9))
+
+
+def test_el_veredicto_del_libro_conserva_el_liston_contra_el_que_se_dicto():
+    """`CAMPOS_VEREDICTO` recortaba los dos campos nuevos justo cuando el
+    portafolio ya los traia.
+
+    Guardar `beats_equal_weight` sin el umbral contra el que se dicto es
+    guardar una conclusion sin su premisa: el liston paso de uno a dos errores
+    estandar, asi que un booleano suelto no se puede volver a leer. Es el mismo
+    defecto que se acaba de cerrar en la pantalla de portafolios, una capa mas
+    abajo.
+    """
+    metricas = {
+        "oos_sharpe": 2.24, "oos_equal_weight_sharpe": 2.07,
+        "oos_sharpe_stderr": 2.10, "oos_gap_stderr": 0.20,
+        "beats_equal_weight": True, "oos_windows": 4,
+        "oos_umbral_veredicto": 0.40, "oos_sigmas_veredicto": 2.0,
+        "sharpe": 1.13,  # no es del veredicto: no debe colarse
+    }
+
+    guardado = veredicto_de(metricas)
+
+    assert guardado["oos_umbral_veredicto"] == 0.40
+    assert guardado["oos_sigmas_veredicto"] == 2.0
+    assert "sharpe" not in guardado
+
+
+def test_un_portafolio_sin_el_liston_sigue_dando_un_veredicto_leible():
+    """Los guardados antes de que el umbral viajara no traen los campos."""
+    guardado = veredicto_de({"oos_sharpe": 2.24, "beats_equal_weight": None})
+
+    assert guardado["oos_umbral_veredicto"] is None
+    assert guardado["oos_sigmas_veredicto"] is None

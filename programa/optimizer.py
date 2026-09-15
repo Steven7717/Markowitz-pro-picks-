@@ -12,11 +12,32 @@ _MINIMO_POR_ACTIVO = 3
 _N_RANDOM_STARTS = 12
 
 # Cuánto puede separarse de su objetivo la peor aportación al riesgo antes de
-# que «paridad de riesgo» deje de describir la cartera. Un punto porcentual de
-# la varianza total: por debajo de eso la diferencia no cambia ninguna decisión,
-# y por encima empieza a haber un activo mandando. Los casos medidos que fallaban
-# iban del 2,5% al 47%, así que el listón no está fino de más.
-_TOLERANCIA_ERC = 0.01
+# que «paridad de riesgo» deje de describir la cartera. Un 5% de lo que a cada
+# activo le toca, y no un punto porcentual absoluto: por debajo de eso la
+# diferencia no cambia ninguna decisión, y por encima empieza a haber un activo
+# mandando. Los casos medidos que fallaban iban del 2,5% al 47% del objetivo,
+# así que el listón no está fino de más.
+#
+# **Relativo, porque el objetivo depende del número de activos.** El punto
+# porcentual absoluto de antes era el 5% del objetivo con los cinco activos del
+# caso por defecto, pero el 20% con veinte: el error que la tolerancia tapaba
+# crecía con la cartera, y con veinte activos y un tope del 10% salía
+# `erc_exacto=True` sobre una cartera cuyo peor activo aportaba un 10,5% menos
+# de riesgo del que le tocaba, sin una palabra en pantalla.
+_TOLERANCIA_ERC_RELATIVA = 0.05
+
+
+def _tolerancia_erc(n: int) -> float:
+    """Lo que puede desviarse la peor aportación con `n` activos en la cartera.
+
+    El `min` con el punto porcentual de siempre es deliberado: el criterio
+    relativo se afloja por debajo de cinco activos (con cuatro daría 1,25
+    puntos) y aquí sólo se quiere apretar. Ninguna cartera que hoy se declara
+    desigual pasa a declararse exacta por este cambio.
+    """
+    if n <= 0:
+        return 0.01
+    return min(0.01, _TOLERANCIA_ERC_RELATIVA / n)
 
 
 def portfolio_metrics(
@@ -160,6 +181,7 @@ def simulate_portfolios(
     moments = estimate_moments(returns, shrinkage=shrinkage, pairwise=pairwise)
     mean_returns, cov_matrix = moments["mean"], moments["cov"]
     lb, ub = effective_bounds(weight_bounds, allow_short)
+    rf_annual = rf_rate * periods_per_year
     rng = np.random.default_rng(42)
     rows = []
 
@@ -170,6 +192,16 @@ def simulate_portfolios(
             "ret": ret,
             "vol": vol,
             "sharpe": sharpe,
+            # **El criterio con el que se elige de verdad, para que el gráfico
+            # pueda colorear por él.** La nube salía coloreada por el cociente
+            # de Sharpe mientras la estrella se elegía por otra cosa, y en el
+            # tramo de exceso negativo los dos ordenan al revés: el 98,1% de
+            # estos 10.000 puntos tenía un Sharpe «mejor» que la cartera
+            # elegida, y el más brillante era el del 46% de volatilidad. Se
+            # calcula aquí, con `criterio_sharpe`, y no en `charts`: dos
+            # definiciones del mismo criterio se separan en cuanto alguien
+            # toca una.
+            "criterio": criterio_sharpe(ret, vol, rf_annual),
             "min_weight": float(w.min()),
             "max_weight": float(w.max()),
         })
@@ -409,7 +441,7 @@ def _resolver_erc(
             mejor_w, mejor_d = w, d
         # La inversa de la volatilidad es el primer arranque y resuelve casi
         # todos los casos; en cuanto uno iguala, los otros veinte no se pagan.
-        if mejor_d <= _TOLERANCIA_ERC:
+        if mejor_d <= _tolerancia_erc(n):
             break
 
     return mejor_w, float(mejor_d)
@@ -480,7 +512,7 @@ def optimize_risk_parity(
             "message": "SLSQP no encontró una cartera factible para igualar el riesgo",
         }
 
-    if desviacion <= _TOLERANCIA_ERC:
+    if desviacion <= _tolerancia_erc(n):
         return _result(mejor, moments, rf_rate, periods_per_year) | {
             "erc_exacto": True,
             "erc_desviacion": desviacion,
@@ -494,7 +526,7 @@ def optimize_risk_parity(
     libre, desviacion_libre = _resolver_erc(cov, n, 0.0, 1.0)
     tope_manda = (
         libre is not None
-        and desviacion_libre <= _TOLERANCIA_ERC
+        and desviacion_libre <= _tolerancia_erc(n)
         and (libre.max() > ub + 1e-9 or libre.min() < lb - 1e-9)
     )
     if not tope_manda:

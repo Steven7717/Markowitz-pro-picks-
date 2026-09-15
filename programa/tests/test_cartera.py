@@ -180,3 +180,83 @@ def test_la_fecha_ilegible_se_muestra_cruda_en_vez_de_reventar():
         shrinkage=True,
     )
     assert portafolio.fecha_legible == "ayer por la tarde"
+
+
+# ── R4 y R6 · Lo que el fichero se lleva tiene que volver entero ──────────────
+#
+# Un portafolio guardado es una fotografía, y hasta ahora la fotografía no
+# incluía contra qué listón se había dictado su propio veredicto ni si sus
+# pesos estaban identificados. Las dos cosas se escriben planas —campos
+# sueltos, no diccionarios anidados— porque `_serializable` convierte a
+# `str(...)` todo lo que no sabe serializar, y un dict volvería del JSON como
+# la cadena "{'mejor': 'MSFT', ...}".
+
+from validation import (  # noqa: E402
+    identificabilidad_guardada,
+    metricas_de_identificabilidad,
+    metricas_de_validacion,
+    veredicto_guardado,
+)
+
+RECORRIDO = {
+    "out_of_sample_sharpe": 0.91,
+    "equal_weight_sharpe": 0.77,
+    "sharpe_stderr": 0.42,
+    "gap_stderr": 0.05,
+    "umbral_veredicto": 0.10,
+    "sigmas_veredicto": 2.0,
+    "beats_equal_weight": True,
+    "n_windows": 9,
+}
+
+MEDICION_PESOS = {
+    "mejor": "MSFT", "peor": "AMZN", "brecha": 0.21, "stderr": 0.31, "anos": 2.0,
+}
+
+
+def test_el_umbral_y_las_sigmas_sobreviven_al_viaje_por_el_disco(tmp_path):
+    """Sin ellos, `beats_equal_weight` es un dogma que nadie puede recomprobar."""
+    metricas = {**METRICAS, **metricas_de_validacion(RECORRIDO)}
+    vuelto = cartera.cargar(cartera.guardar(ejemplo(metricas=metricas), tmp_path))
+    assert vuelto.metricas["oos_umbral_veredicto"] == pytest.approx(0.10)
+    assert vuelto.metricas["oos_sigmas_veredicto"] == pytest.approx(2.0)
+
+
+def test_el_veredicto_se_vuelve_a_dictar_igual_despues_de_ir_al_disco(tmp_path):
+    metricas = {**METRICAS, **metricas_de_validacion(RECORRIDO)}
+    vuelto = cartera.cargar(cartera.guardar(ejemplo(metricas=metricas), tmp_path))
+    assert veredicto_guardado(vuelto.metricas)["estado"] is True
+    assert veredicto_guardado(vuelto.metricas)["discrepa"] is False
+
+
+def test_la_medicion_de_los_pesos_vuelve_como_numeros_y_no_como_texto(tmp_path):
+    metricas = {**METRICAS, **metricas_de_identificabilidad(MEDICION_PESOS)}
+    vuelto = cartera.cargar(cartera.guardar(ejemplo(metricas=metricas), tmp_path))
+    assert vuelto.metricas["ident_mejor"] == "MSFT"
+    assert vuelto.metricas["ident_brecha"] == pytest.approx(0.21)
+    assert identificabilidad_guardada(vuelto.metricas)["identificada"] is False
+
+
+def test_un_portafolio_viejo_sin_los_campos_nuevos_se_sigue_leyendo(tmp_path):
+    """Los ficheros de `portafolios/` son de antes: no pueden dejar de abrirse."""
+    viejo = {
+        "nombre": "prueba 1",
+        "fecha": "2026-09-10T10:52:38",
+        "posiciones": [{"ticker": "AAPL", "peso": 0.6}, {"ticker": "MSFT", "peso": 0.4}],
+        "horizonte": "1 Mes",
+        "estrategia": "max_sharpe",
+        "peso_min": 0.0,
+        "peso_max": 1.0,
+        "permitir_cortos": False,
+        "shrinkage": True,
+        "metricas": {"sharpe": 1.86, "oos_sharpe": 2.2389, "oos_windows": 4.0},
+        "nota": "",
+    }
+    ruta = tmp_path / "viejo.json"
+    ruta.write_text(json.dumps(viejo), encoding="utf-8")
+
+    cargado = cartera.cargar(ruta)
+    assert cargado.metricas["oos_sharpe"] == pytest.approx(2.2389)
+    # Y ni se inventa un veredicto ni se inventa un aviso sobre los pesos.
+    assert veredicto_guardado(cargado.metricas) is None
+    assert identificabilidad_guardada(cargado.metricas) is None

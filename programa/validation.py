@@ -530,3 +530,312 @@ def walk_forward_comparison(
         "train_size": train_size,
         "test_size": test_size,
     }
+
+
+# ══ Lo que un portafolio guardado se lleva, y cómo vuelve ═════════════════════
+#
+# Dos pantallas y un PDF leen un portafolio guardado, y las tres escribían el
+# veredicto de su propia manera: una pintaba el color con el `beats_equal_weight`
+# GUARDADO —dictado a 1σ— y el texto de al lado lo recalculaba a 2σ, de modo que
+# el recuadro salía verde encima de la frase «estos datos no distinguen esta
+# cartera de repartir por igual»; otra se limitaba a leer el veredicto viejo sin
+# barra de error ni listón; y el PDF no lo escribía en absoluto.
+#
+# La causa común era que el fichero no guardaba contra qué listón se había
+# dictado su propio veredicto, así que nadie podía recomprobarlo. De ahí las dos
+# mitades de este contrato: `metricas_de_validacion` escribe la MEDICIÓN entera
+# —incluidos el umbral y las sigmas— y `veredicto_guardado` vuelve a dictar la
+# conclusión al leer, en un solo sitio, para las tres vistas.
+
+
+_DE_RECORRIDO_A_FICHERO = {
+    "oos_sharpe": "out_of_sample_sharpe",
+    "oos_equal_weight_sharpe": "equal_weight_sharpe",
+    "oos_sharpe_stderr": "sharpe_stderr",
+    # El que justifica el veredicto: el error de la DIFERENCIA, medida sobre las
+    # mismas fechas, entre 3 y 12 veces más fino que el del nivel de arriba.
+    "oos_gap_stderr": "gap_stderr",
+    # Los dos que faltaban. Sin ellos un fichero no puede decir contra qué se
+    # juzgó, y `beats_equal_weight` se convierte en un dogma: un True escrito
+    # hace meses con otro listón sigue pintando de verde hoy.
+    "oos_umbral_veredicto": "umbral_veredicto",
+    "oos_sigmas_veredicto": "sigmas_veredicto",
+    "beats_equal_weight": "beats_equal_weight",
+}
+
+
+def metricas_de_validacion(wf: dict | None) -> dict:
+    """Los campos del recorrido que un portafolio guardado tiene que llevarse.
+
+    Vive aquí y no en la vista del optimizador porque el contrato de ida —qué se
+    escribe— y el de vuelta —`veredicto_guardado`— son el mismo contrato, y
+    separarlos es como se perdieron el umbral y las sigmas.
+
+    Sin recorrido se escriben huecos, nunca ceros: `None` significa «no se midió»
+    y `0` significaría «se midió y salió cero». La única excepción es el recuento
+    de ventanas, donde cero ventanas es literalmente cierto.
+    """
+    guardado = {
+        fichero: (wf[recorrido] if wf else None)
+        for fichero, recorrido in _DE_RECORRIDO_A_FICHERO.items()
+    }
+    guardado["oos_windows"] = wf["n_windows"] if wf else 0
+    return guardado
+
+
+# El veredicto en tres palabras, para una celda de tabla. El caso «no se sabe»
+# se redacta distinto en `frase_veredicto` —«estos datos no distinguen…», que es
+# una oración y aquí no cabe— pero los tres salen del MISMO `estado`, que es lo
+# que impide que el titular y la frase se separen.
+_TITULAR_VEREDICTO = {
+    True: "Supera a repartir por igual",
+    False: "Queda por debajo de repartir por igual",
+    None: "Indistinguible de repartir por igual",
+}
+
+
+def titular_veredicto(estado: bool | None) -> str:
+    """El veredicto en una celda, sin la medición que lo sostiene."""
+    return _TITULAR_VEREDICTO[estado]
+
+
+def veredicto_guardado(metricas: dict) -> dict | None:
+    """Vuelve a dictar el veredicto de un portafolio guardado. None si no se puede.
+
+    **El color, el titular y la frase salen de aquí, los tres del mismo
+    `estado`.** El defecto que esto cierra era exactamente ese: el recuadro de
+    `vistas/portafolios.py` se pintaba con el `beats_equal_weight` del fichero y
+    el texto de dentro se recalculaba, así que un hueco de +0,350 con un error de
+    ±0,20 —dictado «gana» cuando bastaba un error estándar— salía en verde con la
+    frase «estos datos no distinguen esta cartera de repartir por igual» dentro.
+
+    Se re-dicta en vez de leerse porque el listón es una decisión viva
+    —`_SIGMAS_VEREDICTO` pasó de 1 a 2— y un fichero es una fotografía de la
+    medición, no de la conclusión. `discrepa` dice si la conclusión de hoy
+    difiere de la que el fichero lleva escrita, para que la pantalla pueda avisar
+    en vez de cambiar el veredicto en silencio.
+
+    Devuelve None cuando el fichero no trae el error de la diferencia: sin él no
+    hay veredicto posible, y los portafolios anteriores a `oos_gap_stderr` no lo
+    traen. Inventarles un False afirmaría un resultado que nadie obtuvo.
+    """
+    oos = metricas.get("oos_sharpe")
+    equal_weight = metricas.get("oos_equal_weight_sharpe")
+    gap_stderr = metricas.get("oos_gap_stderr")
+    if oos is None or equal_weight is None or gap_stderr is None:
+        return None
+
+    gap_stderr = float(gap_stderr)
+    if not np.isfinite(gap_stderr) or gap_stderr < 0:
+        return None
+
+    gap = float(oos) - float(equal_weight)
+    estado = veredicto(gap, gap_stderr)
+
+    # `bool(...)` a los dos lados porque un JSON puede devolver 1.0 donde se
+    # escribió True, y eso no es una discrepancia: es el mismo veredicto.
+    anterior = metricas.get("beats_equal_weight")
+    if anterior is None or estado is None:
+        discrepa = (anterior is None) != (estado is None)
+    else:
+        discrepa = bool(anterior) != bool(estado)
+
+    return {
+        "gap": gap,
+        "gap_stderr": gap_stderr,
+        "umbral": _SIGMAS_VEREDICTO * gap_stderr,
+        "sigmas": _SIGMAS_VEREDICTO,
+        "estado": estado,
+        "titular": titular_veredicto(estado),
+        "frase": frase_veredicto(gap, gap_stderr),
+        "medida": medida_veredicto(gap, gap_stderr),
+        "discrepa": discrepa,
+    }
+
+
+# ══ ¿Estos datos identifican un reparto, o cualquiera vale igual? ═════════════
+#
+# El caso por defecto de la aplicación —cinco activos, 501 observaciones
+# diarias, tope del 100%, estimación robusta— escribe «MSFT 45,8%» con un
+# decimal, con tarta, con tabla y con PDF. Un bootstrap de 300 remuestreos con
+# reoptimización completa sobre ese mismo caso da intervalos al 90% de 67,3
+# puntos de ancho medio sobre una región factible de 100 —AAPL [0,0%, 77,2%],
+# MSFT [0,0%, 76,4%], GOOGL [0,0%, 88,5%]— y en el 54% de los remuestreos manda
+# un activo distinto del que la pantalla pone primero. El guardarraíl de muestra
+# corta no se dispara: hay 100 observaciones por activo contra un umbral de 30.
+# Ese decimal no existía y ninguna vista lo decía.
+
+_MINIMO_IDENTIFICABILIDAD = 3
+
+
+def _dictamen_identificabilidad(
+    mejor: str,
+    peor: str,
+    brecha: float,
+    stderr: float,
+    anos: float,
+    sigmas: float = _SIGMAS_VEREDICTO,
+) -> dict | None:
+    """La conclusión, dictada a partir de la medición y del listón de hoy."""
+    brecha, stderr, anos = float(brecha), float(stderr), float(anos)
+    if not np.isfinite(stderr) or stderr <= 0 or not np.isfinite(brecha):
+        return None
+
+    t = abs(brecha) / stderr
+    # La precisión de una media crece con la raíz del tiempo, así que para
+    # multiplicar t por k hace falta k² veces más historial. De ahí (σ/t)².
+    necesarios = anos * (sigmas / t) ** 2 if t > 0 else float("inf")
+    return {
+        "mejor": mejor,
+        "peor": peor,
+        "brecha": brecha,
+        "stderr": stderr,
+        "anos": anos,
+        "t": t,
+        "anos_necesarios": necesarios,
+        "sigmas": sigmas,
+        "identificada": bool(t > sigmas),
+    }
+
+
+def identificabilidad(
+    returns: pd.DataFrame,
+    periods_per_year: int,
+    sigmas: float = _SIGMAS_VEREDICTO,
+) -> dict | None:
+    """¿Hay señal para preferir un reparto a otro? El test más barato que es honesto.
+
+    **Mide la brecha de retorno esperado entre el activo que más promete y el
+    que menos, y la compara con su propio error estándar.** Si ni siquiera la
+    brecha más ancha de la cartera se distingue del ruido, ningún orden de las
+    medias está sostenido, y por tanto ningún reparto media-varianza puede
+    defenderse frente a otro: los intervalos anchos del bootstrap son el SÍNTOMA
+    y esto es la causa. La media es además el estadístico peor medido de toda la
+    optimización —por eso `estimators` la encoge mucho más que la covarianza— así
+    que es también donde el problema vive.
+
+    **Por qué esto y no el bootstrap.** El bootstrap con reoptimización mide lo
+    mismo mucho mejor —da el intervalo de cada peso, no sólo un sí/no— pero
+    cuesta 300 optimizaciones completas por pantalla, decenas de segundos en el
+    caso por defecto, y esta aplicación reoptimiza en cada interacción de
+    Streamlit. Un aviso que se paga con una pantalla inusable se acaba
+    desactivando, y entonces vuelve el decimal sin advertencia. Esto cuesta dos
+    medias y una desviación típica sobre la matriz que ya está en memoria
+    —microsegundos— y contesta la única pregunta que cambia lo que el usuario
+    debe hacer: si puede leer los pesos al decimal o no.
+
+    Y es el MISMO estadístico del veredicto fuera de muestra —una diferencia
+    contra su error, juzgada a `_SIGMAS_VEREDICTO`— así que la pantalla no
+    enseña dos varas de medir distintas.
+
+    Lo que no hace: no dice cuánto se mueve cada peso, no mira la covarianza
+    —que está muchísimo mejor estimada que las medias— ni pretende sustituir al
+    bootstrap si alguna vez se quiere pagar. Es la advertencia, no el intervalo.
+
+    Devuelve None cuando no hay ni dos activos ni observaciones suficientes para
+    una desviación típica: ahí no se inventa una medida.
+    """
+    if returns is None or getattr(returns, "shape", (0, 0))[1] < 2:
+        return None
+
+    medias = returns.mean(skipna=True).dropna()
+    if medias.size < 2:
+        return None
+
+    mejor, peor = str(medias.idxmax()), str(medias.idxmin())
+    # Sobre las fechas en que cotizan LOS DOS: una diferencia con un NaN dentro
+    # no es un número, y el error de la brecha se mide sobre la serie pareada.
+    diferencia = (returns[mejor] - returns[peor]).dropna().to_numpy(dtype=float)
+    if diferencia.size < _MINIMO_IDENTIFICABILIDAD:
+        return None
+
+    n_obs = int(diferencia.size)
+    vol_anual = float(diferencia.std(ddof=1) * np.sqrt(periods_per_year))
+    return _dictamen_identificabilidad(
+        mejor,
+        peor,
+        float(diferencia.mean() * periods_per_year),
+        retorno_stderr(vol_anual, n_obs, periods_per_year),
+        n_obs / periods_per_year,
+        sigmas,
+    )
+
+
+# Se guarda la MEDICIÓN y no la conclusión, por la misma razón que el veredicto:
+# `identificada` depende de `_SIGMAS_VEREDICTO`, que es una decisión viva. Y se
+# guarda plano —cinco campos sueltos, no un diccionario anidado— porque
+# `cartera._serializable` convierte a `str(...)` lo que no sabe serializar, y un
+# dict anidado volvería del JSON como la cadena "{'mejor': 'MSFT', ...}".
+_CAMPOS_IDENTIFICABILIDAD = ("mejor", "peor", "brecha", "stderr", "anos")
+
+
+def metricas_de_identificabilidad(dato: dict | None) -> dict:
+    """Los cinco campos que un fichero necesita para repetir el aviso."""
+    return {
+        f"ident_{campo}": (dato[campo] if dato else None)
+        for campo in _CAMPOS_IDENTIFICABILIDAD
+    }
+
+
+def identificabilidad_guardada(metricas: dict) -> dict | None:
+    """El aviso de un portafolio guardado, re-dictado. None si no se midió."""
+    crudo = {c: metricas.get(f"ident_{c}") for c in _CAMPOS_IDENTIFICABILIDAD}
+    if any(crudo[c] is None for c in ("brecha", "stderr", "anos")):
+        return None
+    return _dictamen_identificabilidad(**crudo)
+
+
+def _pct(x: float, decimales: int = 1) -> str:
+    """Un porcentaje con la coma decimal que usa el resto de la aplicación."""
+    return f"{x:.{decimales}%}".replace(".", ",")
+
+
+def _anos(x: float) -> str:
+    """Un número de años con la precisión que merece, y ni una cifra más."""
+    if not np.isfinite(x):
+        return "incontables años"
+    if x >= 1000:
+        return f"unos {int(round(x / 100.0) * 100):,}".replace(",", ".") + " años"
+    if x >= 10:
+        return f"unos {int(round(x))} años"
+    return f"unos {_es(x, 1)} años"
+
+
+def frase_identificabilidad(dato: dict | None) -> str:
+    """El aviso que el usuario tiene que leer ANTES de mirar un peso.
+
+    Dice la brecha, su error, cuánto historial haría falta y qué hacer con los
+    números de abajo. Lo último es lo que lo hace útil: «no están identificados»
+    sin una instrucción es un adorno.
+
+    El estado se re-dicta desde `t` y el listón de hoy, nunca desde el
+    `identificada` que venga en el diccionario, para que un fichero viejo no
+    pueda imponer una conclusión con un listón derogado.
+    """
+    if not dato:
+        return (
+            "No hay historial suficiente para decir si estos datos identifican "
+            "un reparto concreto; léelos como una propuesta, no como una medida."
+        )
+
+    sigmas = dato.get("sigmas", _SIGMAS_VEREDICTO)
+    medida = (
+        f"la diferencia de retorno esperado entre {dato['mejor']} y "
+        f"{dato['peor']} es {_pct(dato['brecha'])} ± {_pct(dato['stderr'])} "
+        f"anual ({_es(dato['t'], 1)} errores estándar"
+    )
+
+    if dato["t"] > sigmas:
+        return (
+            f"El orden de los pesos se sostiene sobre estos datos: {medida}, y "
+            f"hacen falta {_es(sigmas, 0)}), medidos sobre {_anos(dato['anos'])} "
+            "de historial."
+        )
+
+    return (
+        f"Estos pesos no están identificados: {medida} frente a los "
+        f"{_es(sigmas, 0)} que hacen falta), y para sostener este orden harían "
+        f"falta {_anos(dato['anos_necesarios'])} de historial cuando hay "
+        f"{_anos(dato['anos'])}. Léelos como uno de los muchos repartos "
+        "compatibles con los datos, no como cifras al decimal."
+    )
