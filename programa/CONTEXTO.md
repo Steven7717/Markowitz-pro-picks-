@@ -1,7 +1,7 @@
 # Contexto del proyecto — para retomar en una sesión nueva
 
 **Última actualización:** 2026-09-15
-**Rama:** `master` · **Tests:** 1.679 pasando (`uv run pytest tests/ -q -m "not red"`), 4 omitidos —dos por permisos POSIX en Windows y dos sin `numpy_financial`— más 9 marcados `red`
+**Rama:** `master` · **Tests:** 1.682 pasando (`uv run pytest tests/ -q -m "not red"`), 4 omitidos —dos por permisos POSIX en Windows y dos sin `numpy_financial`— más 9 marcados `red`
 **Remoto:** `https://github.com/Steven7717/Markowitz-pro-picks-.git` — `master` es lo publicado
 **Estructura:** el programa vive en `programa/`; en la raíz sólo están los dos
 lanzadores y el `README.md`. Los comandos (`uv run pytest`, `uv run streamlit`)
@@ -59,9 +59,11 @@ delante de alguien que va a repartir su dinero. Y sobre todo: el de la Puerta B
 está **pre-registrado**, así que no se mueve tampoco hacia arriba, por floja que
 se sepa 1σ. El informe escribe además `gate_b_sigmas` y `gate_b_threshold` junto
 a la medición, para que la columna «Puerta B» se recompruebe sin abrir el código
-—la misma lección que `oos_umbral_veredicto` del lado de la aplicación—. Queda
-con ese hueco la Puerta A: `report.py` aplica `MIN_IC`, `MIN_TSTAT`,
-`MIN_SUBPERIODS` y `FDR`, y tampoco los escribe.
+—la misma lección que `oos_umbral_veredicto` del lado de la aplicación—. La
+Puerta A lleva los suyos en cada fila del detalle, que son **cinco** y no cuatro:
+el quinto era el `spread_net > 0.0` escrito a mano, ahora `MIN_SPREAD_NET`. Los
+dos criterios los escribe además el documento en prosa, encima de la tabla que
+cada uno explica.
 
 **No hace falta la fase 2** (universo point-in-time). Sólo era necesaria si algo salía positivo: el sesgo de supervivencia infla los resultados, así que un veredicto negativo con el sesgo a favor es más firme, no menos.
 

@@ -1,6 +1,7 @@
 from research.evaluation import (
     FDR,
     MIN_IC,
+    MIN_SPREAD_NET,
     MIN_SUBPERIODS,
     MIN_TSTAT,
     GateAResult,
@@ -26,7 +27,7 @@ def build_verdict(
             result.mean_ic >= MIN_IC
             and result.t_stat >= MIN_TSTAT
             and bh_ok
-            and result.spread_net > 0.0
+            and result.spread_net > MIN_SPREAD_NET
             and result.subperiods_passed >= MIN_SUBPERIODS
         )
         entry = per_signal.setdefault(
@@ -42,6 +43,16 @@ def build_verdict(
             "spread_net_by_scenario": dict(result.spread_net_by_scenario),
             "turnover": result.turnover,
             "subperiods_passed": result.subperiods_passed,
+            # Los cinco listones contra los que se dicto ese `passes`, por la
+            # misma razon que los de la Puerta B van con su delta: sin ellos las
+            # columnas del detalle son medidas sueltas y el veredicto un acto de
+            # fe. Se repiten en cada fila a proposito --cada horizonte se audita
+            # solo, sin tener que mirar otra parte del documento.
+            "min_ic": MIN_IC,
+            "min_t_stat": MIN_TSTAT,
+            "fdr": FDR,
+            "min_spread_net": MIN_SPREAD_NET,
+            "min_subperiods": MIN_SUBPERIODS,
             "passes": passed,
         }
         entry["gate_a"] = entry["gate_a"] or passed
@@ -113,6 +124,13 @@ def to_markdown(verdict: dict[str, dict], coverage_summary: str, passive_sharpe:
     lines += [
         "",
         "## Detalle por horizonte",
+        "",
+        f"**Criterio de la Puerta A:** un horizonte pasa si cumple **las cuatro** "
+        f"condiciones de §3.4 — IC medio ≥ {MIN_IC:.3f}; t-stat ≥ {MIN_TSTAT:.1f} "
+        f"(Newey-West) *y* supervivencia a Benjamini-Hochberg con FDR = {FDR:.0%}, "
+        f"que son acumulativas; spread neto > {MIN_SPREAD_NET:.3f}; y al menos "
+        f"{MIN_SUBPERIODS} de 4 sub-periodos. Una señal pasa la Puerta A si lo "
+        f"logra en algún horizonte.",
         "",
         "| Señal | Horizonte | IC medio | t-stat | Sobrevive BH | Spread bruto | Spread neto | Rotación | Sub-periodos |",
         "|---|---|---|---|---|---|---|---|---|",

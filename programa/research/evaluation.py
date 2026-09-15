@@ -19,6 +19,14 @@ MIN_SUBPERIODS = 3
 FDR = 0.10
 N_QUANTILES = 5
 
+# El quinto liston de la Puerta A, que vivia como un `> 0.0` escrito a mano en
+# `report.py`. A diferencia de los cuatro de arriba no es un numero elegido: la
+# condicion 3 de §3.4 pide que el spread sea «positivo neto de costes», y cero es
+# lo que significa positivo. Tiene nombre igualmente para que el informe pueda
+# escribirlo junto a los otros cuatro: un criterio del que cuatro quintos viajan
+# y el quinto no, sigue sin poder recomprobarse.
+MIN_SPREAD_NET = 0.0
+
 
 @dataclass(frozen=True)
 class GateAResult:

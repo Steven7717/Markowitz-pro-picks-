@@ -1,6 +1,13 @@
 import pytest
 
-from research.evaluation import GateAResult
+from research.evaluation import (
+    FDR,
+    MIN_IC,
+    MIN_SPREAD_NET,
+    MIN_SUBPERIODS,
+    MIN_TSTAT,
+    GateAResult,
+)
 from research.report import build_verdict, to_markdown
 from research.timing import SIGMAS_PUERTA_B, GateBResult
 
@@ -191,3 +198,67 @@ def test_the_markdown_report_states_the_bar_gate_b_was_judged_against():
     ]
     assert criterio, text
     assert f"{SIGMAS_PUERTA_B:.1f}" in criterio[0]
+
+
+# ── Y el de la Puerta A, que son cinco ───────────────────────────────────────
+
+def _recomputar_puerta_a(stats: dict) -> bool:
+    """Las cinco condiciones de §3.4, leídas SOLO de lo que el informe escribe."""
+    return bool(
+        stats["mean_ic"] >= stats["min_ic"]
+        and stats["t_stat"] >= stats["min_t_stat"]
+        and stats["survives_bh"]
+        and stats["spread_net"] > stats["min_spread_net"]
+        and stats["subperiods_passed"] >= stats["min_subperiods"]
+    )
+
+
+def test_the_verdict_records_the_bars_gate_a_was_judged_against():
+    """Cinco condiciones, cinco listones. El quinto era un `> 0.0` escrito a mano."""
+    stats = build_verdict([_gate_a()], {"s": _gate_b()})["s"]["horizons"][21]
+    assert stats["min_ic"] == MIN_IC
+    assert stats["min_t_stat"] == MIN_TSTAT
+    assert stats["min_subperiods"] == MIN_SUBPERIODS
+    assert stats["fdr"] == FDR
+    assert stats["min_spread_net"] == MIN_SPREAD_NET
+
+
+def test_gate_a_can_be_recomputed_from_what_the_verdict_carries():
+    """Cada condición, incumplida por separado, tiene que poder rehacerse desde el dict.
+
+    Si una sola de las cinco no viajara, alguno de estos casos saldría distinto
+    al recomputarlo y el informe estaría pidiendo un acto de fe.
+    """
+    # Casos EN EL BORDE de cada listón, uno a cada lado. Con casos lejanos el
+    # test sólo comprobaría coherencia interna: un `min_ic` mal escrito en el
+    # dict caería del mismo lado que el de verdad y no se notaría.
+    casos = [
+        _gate_a(),
+        _gate_a(mean_ic=MIN_IC - 0.001),
+        _gate_a(mean_ic=MIN_IC + 0.001),
+        _gate_a(t_stat=MIN_TSTAT - 0.1),
+        _gate_a(t_stat=MIN_TSTAT + 0.1),
+        _gate_a(p_value=0.50),
+        _gate_a(spread_net=MIN_SPREAD_NET - 0.001),
+        _gate_a(spread_net=MIN_SPREAD_NET + 0.001),
+        _gate_a(subperiods=MIN_SUBPERIODS - 1),
+        _gate_a(subperiods=MIN_SUBPERIODS),
+    ]
+    for caso in casos:
+        stats = build_verdict([caso], {"s": _gate_b()})["s"]["horizons"][21]
+        assert stats["passes"] == _recomputar_puerta_a(stats), stats
+
+
+def test_the_markdown_report_states_the_bars_gate_a_was_judged_against():
+    """Las tres columnas del detalle tambien habia que creerselas."""
+    verdict = build_verdict([_gate_a()], {"s": _gate_b()})
+    text = to_markdown(verdict, coverage_summary="n/a", passive_sharpe=0.6)
+    criterio = [
+        l
+        for l in text.splitlines()
+        if not l.startswith("|") and "Puerta A" in l and "IC medio" in l
+    ]
+    assert criterio, text
+    assert f"{MIN_IC:.3f}" in criterio[0]
+    assert f"{MIN_TSTAT:.1f}" in criterio[0]
+    assert f"{MIN_SUBPERIODS}" in criterio[0]
