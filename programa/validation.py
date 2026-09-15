@@ -179,7 +179,8 @@ def veredicto(
     liston entre 3 y 12 veces más bajo, y lo que antes casi nunca se superaba
     empezó a superarse por azar.
 
-    Y sí, `research/timing.py:passes` se queda en 1σ, a sabiendas. Aquello es
+    Y sí, `research/timing.py::SIGMAS_PUERTA_B` se queda en 1σ, a sabiendas
+    —y además pre-registrado, así que ahí el número ni se toca—. Aquello es
     una criba interna: un falso positivo cuesta otro experimento, y perder un
     candidato real cuesta una idea. Esto es un recuadro verde en la pantalla de
     alguien que va a repartir su dinero según lo que lea, y ahí el coste de los

@@ -17,6 +17,29 @@ SEED = 20260805
 # See enmienda E1 in docs/research/criterio-preregistrado.md.
 BOOTSTRAP_BLOCK = 8
 
+# Cuántos errores estándar tiene que medir la mejora de Sharpe antes de que la
+# Puerta B dé una señal por buena. Lo fija §3.5 de
+# `docs/research/criterio-preregistrado.md`, que se cerró antes de que existiera
+# este módulo: moverlo después de ver los resultados —arriba o abajo— es justo
+# lo que un pre-registro existe para impedir. Va pública, como los listones de
+# la Puerta A (`evaluation.MIN_IC`, `evaluation.MIN_TSTAT`), porque es un
+# parámetro del criterio y no un detalle interno de este módulo.
+#
+# Y NO es `validation._SIGMAS_VEREDICTO`, que vale 2. Es el mismo estadístico
+# —una diferencia contra su propio error estándar— con un coste de equivocarse
+# que no se parece en nada. Esto es una criba interna: un falso positivo cuesta
+# otro experimento y descartar un candidato real cuesta una idea. Aquello es el
+# recuadro verde que lee alguien a punto de repartir su dinero según lo que
+# diga. El mismo listón para las dos cosas sería la coherencia equivocada; el
+# argumento entero está en el docstring de `validation.veredicto`.
+#
+# Que 1σ es flojo se sabe y está medido: el control aleatorio pasó esta puerta
+# (`docs/research/2026-08-06-diagnostico-puerta-b.md`). Pero el arreglo que ese
+# diagnóstico propone no es subir las sigmas, sino cambiar el nulo —exigir que
+# la mejora se distinga del control aleatorio y no de cero— en una fase 2 que
+# congele su propio criterio antes de correr nada.
+SIGMAS_PUERTA_B = 1.0
+
 
 @dataclass(frozen=True)
 class GateBResult:
@@ -31,7 +54,7 @@ class GateBResult:
 
     @property
     def passes(self) -> bool:
-        return self.delta > self.stderr
+        return self.delta > SIGMAS_PUERTA_B * self.stderr
 
 
 def block_bootstrap_stderr(
