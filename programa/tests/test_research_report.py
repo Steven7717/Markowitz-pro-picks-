@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pytest
 
 from research.evaluation import (
@@ -10,6 +12,8 @@ from research.evaluation import (
 )
 from research.report import build_verdict, to_markdown
 from research.timing import SIGMAS_PUERTA_B, GateBResult
+
+RAIZ_DOCS = Path(__file__).resolve().parent.parent / "docs" / "research"
 
 
 def _gate_a(signal="s", mean_ic=0.05, t_stat=3.0, p_value=0.001, spread_net=0.04, subperiods=4):
@@ -262,3 +266,29 @@ def test_the_markdown_report_states_the_bars_gate_a_was_judged_against():
     assert f"{MIN_IC:.3f}" in criterio[0]
     assert f"{MIN_TSTAT:.1f}" in criterio[0]
     assert f"{MIN_SUBPERIODS}" in criterio[0]
+
+
+# -- El documento publicado, no solo el generador -----------------------------
+
+def test_every_published_report_states_the_bars_it_was_judged_against():
+    """Los listones tienen que estar en el DOCUMENTO, no solo en `to_markdown`.
+
+    `research/run.py` escribe `<fecha>-veredicto-senales-tecnicas.md`: cada
+    corrida crea un fichero nuevo con su propia fecha, asi que mejorar el
+    generador no alcanza a los informes ya publicados. El del 2026-08-06 se
+    quedo sin las dos lineas de criterio durante todo el tiempo que duro el
+    defecto, y es el que `CONTEXTO.md` enlaza como «resultados».
+
+    Se comprueba que la linea EXISTE, no que sus numeros sean los de hoy: un
+    informe lleva el liston contra el que se dicto, que es el suyo y no el
+    vigente. Si algun dia se mueve `MIN_IC`, el documento viejo sigue diciendo
+    la verdad y este test sigue en verde.
+    """
+    informes = sorted(RAIZ_DOCS.glob("*-veredicto-senales-tecnicas.md"))
+    assert informes, "no hay ningun informe publicado que comprobar"
+    for informe in informes:
+        texto = informe.read_text(encoding="utf-8")
+        for puerta in ("A", "B"):
+            assert f"**Criterio de la Puerta {puerta}:**" in texto, (
+                f"{informe.name} no dice contra que liston se dicto su Puerta {puerta}"
+            )

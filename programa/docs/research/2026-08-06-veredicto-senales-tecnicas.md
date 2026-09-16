@@ -6,6 +6,8 @@
 
 ## Resultados
 
+**Criterio de la Puerta B:** una señal pasa si su Δ Sharpe supera 1.0 × su propio error estándar. El listón está pre-registrado (§3.5 del criterio) y no se movió al ver los resultados.
+
 | Señal | Puerta A | Puerta B | Δ Sharpe | Error estándar | Ventaja |
 |---|---|---|---|---|---|
 | `mom_12_1` | no | no | 0.031 | 0.047 | no |
@@ -18,6 +20,8 @@
 | `random_control` | no | PASA | 0.042 | 0.028 | no |
 
 ## Detalle por horizonte
+
+**Criterio de la Puerta A:** un horizonte pasa si cumple **las cuatro** condiciones de §3.4 — IC medio ≥ 0.030; t-stat ≥ 2.0 (Newey-West) *y* supervivencia a Benjamini-Hochberg con FDR = 10%, que son acumulativas; spread neto > 0.000; y al menos 3 de 4 sub-periodos. Una señal pasa la Puerta A si lo logra en algún horizonte.
 
 | Señal | Horizonte | IC medio | t-stat | Sobrevive BH | Spread bruto | Spread neto | Rotación | Sub-periodos |
 |---|---|---|---|---|---|---|---|---|
