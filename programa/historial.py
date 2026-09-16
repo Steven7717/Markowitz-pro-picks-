@@ -35,6 +35,23 @@ _COBERTURA_INTERNA = 0.95
 _COLA_TOLERADA = 2
 
 
+def cobertura_interna(serie: pd.Series) -> float:
+    """Qué parte de su PROPIO tramo cotizado trae la serie, de 0 a 1.
+
+    Entre su primera y su última cotización, y no sobre el horizonte: es la
+    cuenta que distingue «le faltan fechas» de «no cotizaba». Vive suelta
+    porque la usan dos: `motivo_de`, para decidir si la serie tiene huecos, y
+    el aviso por activo, para decir cuántos. Calcularla dos veces dejaría que
+    un activo etiquetado con huecos enseñase una cifra por encima del umbral
+    que le puso la etiqueta.
+    """
+    vivos = serie.dropna()
+    if vivos.empty:
+        return 0.0
+    tramo = serie.loc[vivos.index[0]:vivos.index[-1]]
+    return len(vivos) / len(tramo)
+
+
 def motivo_de(serie: pd.Series, ultima_fecha) -> str:
     """Por qué esta serie recorta la muestra común, si es que la recorta.
 
@@ -53,8 +70,7 @@ def motivo_de(serie: pd.Series, ultima_fecha) -> str:
         return "sin datos"
 
     primera, ultima = vivos.index[0], vivos.index[-1]
-    tramo = serie.loc[primera:ultima]
-    if len(vivos) / len(tramo) < _COBERTURA_INTERNA:
+    if cobertura_interna(serie) < _COBERTURA_INTERNA:
         return "huecos"
 
     # El orden importa: una serie puede empezar tarde Y cortarse, y entonces lo
@@ -164,6 +180,14 @@ class Cobertura:
     # `data.tickers_con_huecos`. No se recalcula aquí a propósito: un solo sitio
     # decide qué cuenta como poca cobertura, y es el que tiene el umbral.
     cobertura: float
+    # Y la misma fracción sobre su propio tramo cotizado. Las dos, porque
+    # responden a preguntas distintas: la de arriba dice cuánta historia le
+    # quita a los demás —y es la que lo mete en esta lista—; ésta dice cuánto
+    # le falta de lo suyo, que es lo único que sostiene un motivo `huecos`. A
+    # una empresa joven con algún hueco las dos le salen muy distintas, y
+    # enseñar la del horizonte detrás de «le faltan fechas dentro de su propio
+    # historial» le atribuye como avería todo lo que sólo es no haber existido.
+    cobertura_interna: float
     motivo: str
     desde: str | None
     hasta: str | None
@@ -221,6 +245,7 @@ def avisos_de_cobertura(
         avisos.append(Cobertura(
             ticker=str(ticker),
             cobertura=float(cobertura),
+            cobertura_interna=cobertura_interna(serie),
             motivo=motivo,
             desde=_fecha(serie.first_valid_index()),
             hasta=_fecha(serie.last_valid_index()),

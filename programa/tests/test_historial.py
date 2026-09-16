@@ -184,7 +184,7 @@ def test_perder_las_ultimas_fechas_ya_cuenta_como_interrumpida():
 # ── El aviso por activo, donde la escalera no llega ───────────────────────────
 
 from data import tickers_con_huecos
-from historial import Cobertura, avisos_de_cobertura
+from historial import _COBERTURA_INTERNA, Cobertura, avisos_de_cobertura
 
 
 def test_una_fuente_rota_se_avisa_aunque_la_escalera_calle_por_ser_dos_activos():
@@ -262,7 +262,8 @@ def test_un_ticker_que_no_esta_en_los_precios_no_avisa():
 
 
 def test_el_aviso_es_inmutable():
-    c = Cobertura(ticker="X", cobertura=0.1, motivo="huecos", desde=None, hasta=None)
+    c = Cobertura(ticker="X", cobertura=0.1, cobertura_interna=0.5,
+                  motivo="huecos", desde=None, hasta=None)
     with pytest.raises(Exception):
         c.cobertura = 0.9
 
@@ -301,3 +302,47 @@ def test_el_escalon_dice_hasta_cuando_cotizo_el_que_corta():
     assert esc[0].motivo == "interrumpida"
     assert esc[0].desde == str(FECHAS[150].date())
     assert esc[0].hasta == str(FECHAS[159].date())
+
+
+def test_a_la_empresa_joven_con_huecos_se_le_mide_su_propio_tramo():
+    """El 60% que le falta por no cotizar no son huecos, y no se cuentan juntos.
+
+    La cobertura que trae `data.py` es sobre el HORIZONTE, y para una empresa
+    joven casi todo lo que le falta es de antes de existir. Pegar ese numero a
+    «le faltan fechas dentro de su propio historial» multiplica por cinco el
+    defecto que se le atribuye y manda a buscar una averia mucho mayor de la
+    que hay -- que es el mismo error por el que al activo joven y limpio no se
+    le avisa en absoluto.
+
+    `cobertura_interna` es la cifra que de verdad sostiene el motivo: la misma
+    que `motivo_de` usa para decidir que hay huecos.
+    """
+    fechas = pd.bdate_range("2025-01-01", periods=200)
+    joven = pd.Series(np.nan, index=fechas)
+    joven.iloc[120:] = np.linspace(10, 20, 80)
+    joven.iloc[[125, 130, 135, 140, 145, 150, 155, 160, 165, 170]] = np.nan
+    p = pd.DataFrame({"AAA": pd.Series(np.linspace(1, 2, 200), index=fechas),
+                      "JOV": joven})
+
+    aviso, = avisos_de_cobertura(p, tickers_con_huecos(p))
+    assert aviso.motivo == "huecos"
+    # Del horizonte cubre poco, y eso es lo que la mete en la lista.
+    assert aviso.cobertura == pytest.approx(70 / 200)
+    # Pero de SU tramo cubre casi todo: 70 de las 80 fechas desde que cotiza.
+    assert aviso.cobertura_interna == pytest.approx(70 / 80)
+    assert aviso.cobertura_interna > aviso.cobertura
+
+
+def test_la_cifra_interna_es_la_misma_con_la_que_se_dicto_el_motivo():
+    """Un solo sitio la calcula, o el aviso y la etiqueta pueden discrepar.
+
+    Si `motivo_de` dice «huecos» por debajo del 95% y el aviso ensenara otra
+    cuenta, habria un activo etiquetado con huecos ensenando un 97%. Se
+    comprueba contra el umbral, que es lo que une a los dos.
+    """
+    for aviso in avisos_de_cobertura(
+        _precios(AAA=_serie(), ROTA=_serie(huecos=range(0, 200, 4))),
+        {"ROTA": 0.5},
+    ):
+        if aviso.motivo == "huecos":
+            assert aviso.cobertura_interna < _COBERTURA_INTERNA

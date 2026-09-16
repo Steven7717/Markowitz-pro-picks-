@@ -261,6 +261,37 @@ def _avisar_omitidos(market: dict) -> None:
 _cobertura_avisada = False
 
 
+def _linea_cobertura(a) -> str:
+    """Una línea del aviso, con la cifra que de verdad sostiene su motivo.
+
+    Para `huecos` la cifra de cabecera es la de **su propio tramo**, no la del
+    horizonte. Una empresa joven a la que además le faltan fechas cubre poco
+    del horizonte porque no cotizaba, y eso no es una avería: poner ese número
+    detrás de «le faltan fechas dentro de su propio historial» le atribuye como
+    hueco todo lo que sólo es no haber existido —un 12% real leído como un
+    65%— y manda a buscar un fallo mucho mayor del que hay. Es la misma
+    distinción por la que al activo joven y limpio no se le avisa en absoluto.
+
+    Las dos cifras van igualmente en la frase, porque contestan preguntas
+    distintas: cuánto le falta de lo suyo, y cuánta historia les quita a los
+    demás —que es lo que lo mete en esta lista y lo que explica el cierre del
+    aviso—.
+    """
+    if a.motivo == "huecos":
+        return (
+            f"- **{a.ticker}** tiene huecos dentro de su propio historial: trae "
+            f"el {a.cobertura_interna:.0%} de las fechas entre {a.desde} y "
+            f"{a.hasta}, y sólo el {a.cobertura:.0%} de las del horizonte."
+        )
+    return (
+        f"- **{a.ticker}** sólo trae precio en el {a.cobertura:.0%} de las "
+        f"fechas del horizonte: "
+        + _MOTIVOS.get(a.motivo, "su serie recorta la muestra").format(
+            desde=a.desde, hasta=a.hasta)
+        + "."
+    )
+
+
 def _avisar_cobertura(market: dict) -> None:
     """Los activos cuya serie está rota, nombrados uno a uno y con su cifra.
 
@@ -290,14 +321,7 @@ def _avisar_cobertura(market: dict) -> None:
     _cobertura_avisada = True
     st.warning(
         "**Series incompletas, y entran igual en el reparto:**\n\n"
-        + "\n".join(
-            f"- **{a.ticker}** sólo trae precio en el {a.cobertura:.0%} de las "
-            f"fechas del horizonte: "
-            + _MOTIVOS.get(a.motivo, "su serie recorta la muestra").format(
-                desde=a.desde, hasta=a.hasta)
-            + "."
-            for a in avisos
-        )
+        + "\n".join(_linea_cobertura(a) for a in avisos)
         + "\n\nSe descartan las fechas en las que falte algún precio, así que "
         "lo que les falta se lo quitan también a los demás."
     )

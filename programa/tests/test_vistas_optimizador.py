@@ -72,3 +72,23 @@ def test_el_aviso_sobrevive_a_las_reejecuciones():
 def test_el_aviso_no_se_repite_dentro_de_la_misma_reejecucion():
     """Las dos llamadas coinciden en la corrida recien lanzada."""
     assert "_cobertura_avisada" in _cuerpo("_avisar_cobertura")
+
+
+def test_a_la_serie_con_huecos_se_le_ensena_la_cobertura_de_su_propio_tramo():
+    """El 65% que le falta a una joven por no cotizar no son huecos.
+
+    La cifra que trae `data.py` es sobre el horizonte. Detras de «le faltan
+    fechas dentro de su propio historial» convierte un 12% real en un 65%
+    aparente y manda a buscar una averia mucho mayor de la que hay --el mismo
+    error por el que al activo joven y limpio no se le avisa en absoluto--.
+    """
+    cuerpo = _cuerpo("_linea_cobertura")
+    assert 'a.motivo == "huecos"' in cuerpo
+    assert "a.cobertura_interna" in cuerpo
+    # Y la del horizonte no se pierde: es la que lo mete en la lista.
+    assert "a.cobertura:" in cuerpo
+
+
+def test_la_vista_no_arma_la_linea_dos_veces():
+    """Una sola redaccion, para que las dos cifras no puedan divergir."""
+    assert "_linea_cobertura(a)" in _cuerpo("_avisar_cobertura")
