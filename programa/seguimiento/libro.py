@@ -551,10 +551,21 @@ def nota_del_veredicto(objetivo: Objetivo | None) -> tuple[str, str] | None:
 
     - Sin objetivo no hay nada contra lo que medir, y la pantalla ya se detiene
       antes con su propio mensaje.
-    - Con `base != "estrategia"` el libro reparte por igual: `pesos_objetivo`
+    - Con `base == "equal_weight"` el libro reparte por igual: `pesos_objetivo`
       le devuelve 1/N e ignora los pesos guardados. El dictamen juzga una
       optimización que este libro no está siguiendo, y ponerlo aquí invita a
       leerlo como un juicio sobre el rebalanceo que el usuario va a hacer.
+
+      La pregunta se escribe contra `equal_weight`, y **no** contra
+      `!= "estrategia"`, porque tiene que ser la misma que la de
+      `pesos_objetivo`: las dos sólo coinciden mientras `base` valga uno de
+      los dos valores conocidos, y no siempre vale. `cargar` construye con
+      `Objetivo(**o)` desde el JSON sin validar `base` —quien lo valida contra
+      `BASES` es `desde_portafolio`—, así que un libro editado a mano puede
+      traer un tercero. Con él `pesos_objetivo` cae a su `return` final y
+      devuelve los pesos OPTIMIZADOS, o sea que la pantalla propone
+      perseguirlos; preguntar por `!= "estrategia"` callaba el aviso justo
+      ahí, que es este mismo defecto entrando por la puerta de atrás.
     - Sin `oos_sharpe` no hubo corrida fuera de muestra. La «mezcla de hoy» de
       `vistas/estrenar.py` también nace con `base="estrategia"`, y son los
       pesos que el usuario ya tenía: decirle que le falta el error de la
@@ -568,7 +579,7 @@ def nota_del_veredicto(objetivo: Objetivo | None) -> tuple[str, str] | None:
     veredicto que esta pantalla existe para dar; éste es su premisa, y va en el
     mismo gris que la fecha del objetivo.
     """
-    if objetivo is None or objetivo.base != "estrategia":
+    if objetivo is None or objetivo.base == "equal_weight":
         return None
 
     guardado = objetivo.veredicto or {}

@@ -12,7 +12,12 @@ repartir por igual convierte esa propuesta en coste cierto a cambio de una
 ventaja no demostrada, y eso hay que decirlo antes de la tabla, no despues.
 """
 
-from seguimiento.libro import Objetivo, nota_del_veredicto, veredicto_de
+from seguimiento.libro import (
+    Objetivo,
+    nota_del_veredicto,
+    pesos_objetivo,
+    veredicto_de,
+)
 
 # El caso del defecto: hueco de +0,35 con error de +-0,20. Pasaba de un error
 # estandar --y por eso el fichero guarda True-- y no pasa de dos, que es el
@@ -136,3 +141,28 @@ def test_un_objetivo_hecho_a_mano_no_finge_tener_una_corrida_detras():
     # Y un portafolio del optimizador al que no le corrio el walk-forward
     # tampoco: `metricas_de_validacion(None)` deja `oos_sharpe` en None.
     assert nota_del_veredicto(objetivo({"oos_windows": 0})) is None
+
+
+def test_una_base_desconocida_no_apaga_el_aviso():
+    """La condicion de callarse tiene que ser la misma que la de repartir 1/N.
+
+    `pesos_objetivo` reparte por igual cuando la base es `equal_weight`, y en
+    cualquier otro caso devuelve los pesos GUARDADOS --el `return` final--. El
+    aviso preguntaba al reves, por `!= "estrategia"`, y las dos condiciones solo
+    coinciden mientras la base sea uno de los dos valores conocidos.
+
+    No siempre lo es: `cargar` construye con `Objetivo(**o)` directamente desde
+    el JSON y no valida `base` --solo lo valida `desde_portafolio` contra
+    `BASES`--, asi que un libro editado a mano puede traer un tercer valor. Con
+    el, la pantalla propone perseguir unos pesos optimizados y se callaba justo
+    ahi: el defecto que esta funcion existe para cerrar, entrando por la puerta
+    de atras.
+    """
+    raro = objetivo(JUSTITO, base="estrategia-v2")
+
+    # La premisa: con una base desconocida se persiguen los pesos guardados.
+    assert pesos_objetivo(raro) == {"AAPL": 1.0}
+
+    nivel, texto = nota_del_veredicto(raro)
+    assert nivel == "aviso"
+    assert "no distinguen" in texto
