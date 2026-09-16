@@ -1,21 +1,19 @@
 # Contexto del proyecto — para retomar en una sesión nueva
 
-**Última actualización:** 2026-09-15
-**Rama:** `master` · **Tests:** 1.698 pasando (`uv run pytest tests/ -q -m "not red"`), 4 omitidos —dos por permisos POSIX en Windows y dos sin `numpy_financial`— más 9 marcados `red`
+**Última actualización:** 2026-09-16
+**Rama:** `master` · **Tests:** 1.704 pasando (`uv run pytest tests/ -q -m "not red"`), 4 omitidos —dos por permisos POSIX en Windows y dos sin `numpy_financial`— más 9 marcados `red`
 **Remoto:** `https://github.com/Steven7717/Markowitz-pro-picks-.git` — `master` es lo publicado
 **Estructura:** el programa vive en `programa/`; en la raíz sólo están los dos
 lanzadores y el `README.md`. Los comandos (`uv run pytest`, `uv run streamlit`)
 se ejecutan desde `programa/`, no desde la raíz.
 
-> **Al retomar:** todo está en `master` y publicado. Lo último que entró fue
-> la auditoría del 2026-09-13/14 desde `arreglos-auditoria`, 19 commits en
-> avance rápido, fusionada y empujada el 2026-09-15; la rama ya se borró.
+> **Al retomar:** todo está en `master` y publicado, y no queda nada sin
+> fusionar. Lo último que entró fue el aviso de cobertura por activo —ver «El
+> aviso que se calculaba y no se enseñaba»— junto con los listones de las dos
+> Puertas del estudio, el 2026-09-15; la rama ya se borró. Antes, la auditoría
+> del 2026-09-13/14 desde `arreglos-auditoria`, 19 commits en avance rápido.
 > Antes: F y G desde `seguimiento-cartera`, H desde `noticias-calendario`,
 > J desde `entrada-al-seguimiento` y K desde `panel-de-seguimiento`.
->
-> **Sin fusionar:** el aviso de cobertura por activo, en
-> `claude/stoic-nightingale-b0b8dd`. Ver «El aviso que se calculaba y no se
-> enseñaba».
 >
 > **Lee la sección «La auditoría» antes de tocar nada.** No sólo por lo que
 > arregló: por el patrón que encontró, que este repositorio repitió cinco
@@ -68,6 +66,22 @@ Puerta A lleva los suyos en cada fila del detalle, que son **cinco** y no cuatro
 el quinto era el `spread_net > 0.0` escrito a mano, ahora `MIN_SPREAD_NET`. Los
 dos criterios los escribe además el documento en prosa, encima de la tabla que
 cada uno explica.
+
+Y los lleva el **documento publicado**, no sólo el generador. Es una distinción
+con consecuencia: `research/run.py` escribe
+`<fecha>-veredicto-senales-tecnicas.md`, o sea que cada corrida crea un fichero
+nuevo con su propia fecha y mejorar `to_markdown` no alcanza a lo ya publicado.
+El informe del 2026-08-06 —el que enlaza este documento como «resultados»— se
+quedó sin las dos líneas, que es justo el defecto que se creía cerrado. Se le
+añadieron a mano, y se pudo porque ningún listón se había movido desde aquella
+corrida: `MIN_IC`, `MIN_TSTAT`, `MIN_SUBPERIODS` y `FDR` no han cambiado desde
+el commit que los introdujo, `MIN_SPREAD_NET` sólo pone nombre al `> 0.0` que
+ya estaba, y `SIGMAS_PUERTA_B = 1.0` es exactamente el `delta > stderr` de
+antes. `test_every_published_report_states_the_bars_it_was_judged_against`
+impide que vuelva a separarse: comprueba que la línea **existe** en cada
+informe, no que sus números sean los de hoy — un informe lleva su propio
+listón, y si mañana se mueve `MIN_IC` el documento viejo sigue diciendo la
+verdad.
 
 **No hace falta la fase 2** (universo point-in-time). Sólo era necesaria si algo salía positivo: el sesgo de supervivencia infla los resultados, así que un veredicto negativo con el sesgo a favor es más firme, no menos.
 
@@ -1476,6 +1490,21 @@ sólo pinta, antes de los errores que la falta de datos provoca, igual que
 anunciaba el 17 de julio como día del último precio cuando el último era del 24
 de agosto: mandaba a comprobarlo al mes equivocado. `Escalon` lleva ahora
 `hasta`, y el `format` recibe las dos fechas.
+
+Y un segundo, del mismo tipo: **la cifra que acompañaba al motivo no era la que
+lo sostiene**. `motivo_de` mira `huecos` antes que `arranque`, así que una
+empresa joven a la que además le faltan fechas sale etiquetada «huecos» — y el
+aviso le pegaba detrás la cobertura del HORIZONTE, que para una joven es baja
+casi toda por no haber cotizado. Medido: una serie con el 88 % de su propio
+tramo se anunciaba como «el 35 % ... le faltan fechas dentro de su propio
+historial», un 12 % real leído como un 65 %, mandando a buscar una avería cinco
+veces mayor de la que hay. Es el mismo error por el que al activo joven y limpio
+no se le avisa en absoluto, colándose por el otro lado. `Cobertura` lleva ahora
+`cobertura_interna` y la vista enseña **las dos**, cada una con lo que explica:
+cuánto le falta de lo suyo, y cuánta historia les quita a los demás. La cuenta
+la hace `historial.cobertura_interna`, que es la misma que usa `motivo_de` para
+poner la etiqueta — calcularla dos veces dejaría que un activo marcado con
+huecos enseñara una cifra por encima del umbral que se la puso.
 
 **`vistas/optimizador.py` pasa a ser la segunda vista con tests**
 (`tests/test_vistas_optimizador.py`), por el camino de `test_vistas_perfil.py`:
