@@ -16,3 +16,12 @@
 # Ajustes de las herramientas con las que se trabaja el repositorio, no del
 # programa: quien lo clone traera las suyas, y no tienen por que ser estas.
 /.superpowers/
+/.obsidian/
+
+# El vault de Obsidian abre la raiz del repo, para que las notas puedan
+# enlazar al README y a lo que hay en programa/docs/. La configuracion cae
+# arriba, en /.obsidian/, junto a los demas ajustes de herramientas; las notas
+# caen aqui. Son apuntes personales, del mismo orden que actas/ o portafolios/
+# dentro de programa/: no describen el programa y no tienen por que viajar con
+# el. Quien clone el repo abrira su propio vault, y el suyo no sera este.
+/notas/
