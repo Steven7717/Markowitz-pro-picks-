@@ -192,13 +192,26 @@ with preferencias_tab:
             format_func=lambda k: STRATEGY_LABELS[k],
             index=list(STRATEGY_LABELS).index(actuales.estrategia),
             horizontal=True,
+            help="**Máximo Sharpe:** el mejor retorno por unidad de riesgo. "
+            "**Mínima varianza:** la cartera que menos se mueve. "
+            "**Paridad de riesgo:** cada activo aporta la misma parte del "
+            "riesgo total.",
         )
         col_min, col_max = st.columns(2)
         peso_min = col_min.slider("Peso mínimo por activo (%)", 0, 20, actuales.peso_min)
         peso_max = col_max.slider("Peso máximo por activo (%)", 20, 100, actuales.peso_max)
         col_cortos, col_shrink = st.columns(2)
-        cortos = col_cortos.toggle("Ventas en corto", value=actuales.permitir_cortos)
-        shrink = col_shrink.toggle("Estimación robusta", value=actuales.shrinkage)
+        cortos = col_cortos.toggle(
+            "Ventas en corto", value=actuales.permitir_cortos,
+            help="Permite pesos negativos: apostar a que un activo baje. Sin "
+            "esto todos los pesos son positivos y la cartera sólo compra.",
+        )
+        shrink = col_shrink.toggle(
+            "Estimación robusta", value=actuales.shrinkage,
+            help="No fiarse del todo de la muestra: con pocos datos exagera, y "
+            "el estimador empuja medias y covarianzas hacia un valor de "
+            "referencia en vez de creérselas enteras.",
+        )
 
         if st.form_submit_button("Guardar preferencias", type="primary",
                                  icon=":material/save:"):

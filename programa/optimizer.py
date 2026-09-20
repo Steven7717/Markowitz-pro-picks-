@@ -566,7 +566,7 @@ def optimize_risk_parity(
 STRATEGY_LABELS: dict[str, str] = {
     "max_sharpe": "Máximo Sharpe (Markowitz)",
     "min_variance": "Mínima varianza",
-    "risk_parity": "Paridad de riesgo (ERC)",
+    "risk_parity": "Paridad de riesgo",
 }
 
 _STRATEGIES = {

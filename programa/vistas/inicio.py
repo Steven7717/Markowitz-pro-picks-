@@ -56,11 +56,14 @@ with tres:
     with st.container(border=True):
         st.markdown("#### 3 · Optimización")
         st.markdown(
-            "Con los aprobados se reparte el capital: máximo Sharpe, mínima "
-            "varianza o paridad de riesgo.\n\n"
-            "Y después se comprueba **fuera de muestra** si esa optimización "
-            "le gana a repartir por igual. Muchas veces no lo hace, y el "
-            "programa lo dice."
+            "Con los aprobados se reparte el capital, de tres formas: "
+            "**máximo Sharpe** (el mejor retorno por unidad de riesgo), "
+            "**mínima varianza** (la cartera que menos se mueve) o "
+            "**paridad de riesgo** (que ningún activo aporte más riesgo que "
+            "los demás).\n\n"
+            "Y después se comprueba **fuera de muestra** —con datos que el "
+            "cálculo no llegó a ver— si esa optimización le gana a repartir "
+            "por igual. Muchas veces no lo hace, y el programa lo dice."
         )
         if st.button("Ir al optimizador", use_container_width=True,
                      type="primary", icon=":material/insights:"):
@@ -91,9 +94,10 @@ with cinco:
     with st.container(border=True):
         st.markdown("#### 5 · Rebalanceo")
         st.markdown(
-            "Cuánto se ha separado cada activo de su objetivo, dónde poner el "
-            "dinero nuevo —comprar corrige deriva sin vender nada ni realizar "
-            "plusvalías— y qué costaría corregir el resto.\n\n"
+            "La **deriva** es cuánto se ha separado cada activo del peso que "
+            "le tocaba. Aquí ves esa deriva, dónde poner el dinero nuevo "
+            "—comprar la corrige sin vender nada ni realizar plusvalías— y "
+            "qué costaría corregir el resto.\n\n"
             "Aquí no se registra nada: son **propuestas**. Las que el coste se "
             "come salen igualmente, con el motivo escrito."
         )
@@ -129,7 +133,8 @@ with st.container(border=True):
 with st.container(border=True):
     st.markdown(
         "**La lista corta llega con un sesgo sectorial que nadie eligió.** Los "
-        "filtros exigen deuda sobre EBITDA, cobertura de intereses y razón "
+        "filtros exigen deuda sobre **EBITDA** —el beneficio antes de "
+        "intereses, impuestos y amortizaciones—, cobertura de intereses y razón "
         "corriente, y un banco no publica ninguna de las tres: no publica "
         "EBITDA, su gasto por intereses es materia prima y su balance no se "
         "clasifica en corriente y no corriente. Dos de cada tres bancos quedan "
@@ -140,7 +145,8 @@ with st.container(border=True):
 with st.container(border=True):
     st.markdown(
         "**El Sharpe que ves al optimizar está inflado.** Se mide sobre los "
-        "mismos datos con los que se optimizó, así que es una cota superior. El "
+        "mismos datos con los que se optimizó, así que es una cota superior: un "
+        "techo, no lo que cabe esperar. El "
         "número honesto es el de la pestaña de validación, que aparta datos, "
         "optimiza sin verlos y luego los usa para medir. Si ese número no le "
         "gana a repartir por igual, la optimización no está aportando nada."

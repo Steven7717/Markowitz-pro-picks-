@@ -319,7 +319,10 @@ for ficha in candidatos.fichas:
         aprobados.add(ticker)
 
     with st.expander(f"Ver la ficha completa de {ticker}"):
-        st.markdown("**Los cuatro pilares**, frente a sus pares del sector")
+        st.markdown(
+            "**Los cuatro pilares** —calidad, crecimiento, valoración y "
+            "solidez—, frente a sus pares del sector"
+        )
         st.markdown(medidores.medidores_pilares(ficha), unsafe_allow_html=True)
         # `.get` y no indexación directa, como hacen `medidores.tarjeta_candidato`
         # y `medidores._nota_pilar` con estos mismos campos: `_CAMPOS_FICHA`
@@ -329,7 +332,10 @@ for ficha in candidatos.fichas:
         # salidas_ejemplo trae `kpis_con_dato` pero no `kpis_por_pilar`.
         _con_dato = kpis_con_dato(ficha)
         if _con_dato is None:
-            st.caption("Sin cobertura registrada: esta ficha es de una versión anterior")
+            st.caption(
+                "No consta cuántos indicadores tenían dato: esta ficha es de "
+                "una versión anterior"
+            )
         else:
             st.markdown(
                 medidores.medidor_cobertura(_con_dato), unsafe_allow_html=True

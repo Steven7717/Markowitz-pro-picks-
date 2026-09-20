@@ -92,7 +92,7 @@ def test_kpi_rows_accept_a_metrics_dict_without_the_new_fields():
 
 
 def test_kpi_rows_name_the_strategy_that_produced_the_weights():
-    rows = dict(kpi_rows({**_validated_metrics(), "strategy": "Paridad de riesgo (ERC)"}))
+    rows = dict(kpi_rows({**_validated_metrics(), "strategy": "Paridad de riesgo"}))
     assert any("Paridad de riesgo" in v for v in rows.values())
 
 
@@ -116,7 +116,7 @@ def test_las_etiquetas_del_informe_llevan_tildes():
     etiquetas = [e for e, _ in kpi_rows(completas)]
     assert "Retorno Anual Esperado (aritmético)" in etiquetas
     assert "Ventanas de validación" in etiquetas
-    assert "Estimación robusta (shrinkage)" in etiquetas
+    assert "Estimación robusta" in etiquetas
 
 
 def test_helvetica_acepta_de_verdad_el_castellano():

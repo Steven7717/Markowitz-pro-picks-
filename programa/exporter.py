@@ -121,7 +121,7 @@ def kpi_rows(metrics: dict) -> list[tuple[str, str]]:
         rows.append(("Ventanas de validación", _conteo(metrics.get("oos_windows", 0))))
 
     if "shrinkage" in metrics:
-        rows.append(("Estimación robusta (shrinkage)", str(metrics["shrinkage"])))
+        rows.append(("Estimación robusta", str(metrics["shrinkage"])))
     if metrics.get("n_obs"):
         rows.append(("Observaciones usadas", _conteo(metrics["n_obs"])))
 
@@ -243,8 +243,10 @@ def to_pdf(
         texto_pdf(
             "El Sharpe 'en muestra' se mide sobre los mismos datos con los que se "
             "optimizó el portafolio, por lo que sobrestima el desempeño esperado. El "
-            "Sharpe 'fuera de muestra' proviene de una validación walk-forward y es la "
-            "referencia relevante. Este reporte es de carácter informativo y no "
+            "Sharpe 'fuera de muestra' se mide sobre datos que el cálculo no llegó a "
+            "ver: se optimiza en una ventana, se mantienen los pesos fijos en la "
+            "siguiente y se repite (validación walk-forward). Es la referencia "
+            "relevante. Este reporte es de carácter informativo y no "
             "constituye asesoramiento financiero. Los resultados pasados no garantizan "
             "rendimientos futuros."
         ),

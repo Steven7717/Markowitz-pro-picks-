@@ -147,6 +147,8 @@ def _base_del_objetivo(pendiente) -> str | None:
     return st.radio(
         "¿Contra qué pesos quieres medir la deriva?",
         options=opciones,
+        help="La **deriva** es cuánto se separa cada activo del peso que le "
+        "tocaba. Aquí eliges cuál es ese peso «que le tocaba».",
         format_func=lambda b: (
             "Los pesos de la estrategia" if b == "estrategia"
             else "Repartir por igual (1/N)"

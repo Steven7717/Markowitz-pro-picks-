@@ -430,6 +430,60 @@ cita `cbe71a0` sí sigue vigente y su comentario sigue en su sitio.
 
 ---
 
+## Registro del texto: para quién está escrita la aplicación
+
+Fijado el 2026-09-20, después de inventariar los 467 textos de cara al usuario
+(36.817 caracteres en catorce ficheros) y clasificar la jerga que aparecía.
+
+**El lector.** Alguien de nivel medio en finanzas: conoce los conceptos básicos
+y algo de los avanzados. Ni un principiante al que haya que explicarle qué es
+una acción, ni un profesional al que sobre toda explicación.
+
+**La regla, que es lo que faltaba:**
+
+> **Glosar la identidad, no sólo el comportamiento.**
+
+El texto de la aplicación explicaba muy bien *qué le pasa* a una métrica y *cómo
+puede engañarte*, y casi nunca *qué es*. El caso testigo era el Sharpe: la
+pantalla enseñaba que «un Sharpe negativo no ordena» —una advertencia avanzada y
+correcta— sobre una métrica que en dieciséis apariciones no se definía ni una
+vez.
+
+**El patrón, que ya estaba inventado en el propio código** (`vistas/optimizador.py`,
+la métrica `Equal Weight (1/N)`): jerga en la etiqueta, glosa llana e inmediata
+en el `help`. No se reescribe lo que ya estaba bien; se antepone la frase que
+dice qué es y se conserva literal la que dice qué le pasa.
+
+**Los tres niveles:**
+
+| Nivel | Qué se hace | Términos |
+|---|---|---|
+| **1** | Se asumen, nunca se explican | cartera, portafolio, activo, sector, peso, riesgo, rentabilidad, retorno, dividendo, volatilidad, SEC, comprar/vender, plusvalía |
+| **2** | Se usan, con glosa **la primera vez en cada pantalla** | Sharpe, fuera de muestra, deriva, rebalanceo, z-score, pilares, EBITDA, tasa libre de riesgo, ventas en corto |
+| **3** | Nunca desnudos: o glosa en línea, o se renombran | paridad de riesgo, mínima varianza, shrinkage, Ledoit-Wolf, Bayes-Stein, covarianza, cota superior, error estándar, walk-forward |
+
+«La primera vez en cada pantalla» y no «una vez en la aplicación»: nadie entra
+siempre por la portada, y una glosa que vive tres pantallas más allá no existe.
+
+**Dos cosas que conviene saber antes de tocar texto:**
+
+- **`tema.cabecera` escapa el HTML.** El subtítulo de una pantalla no admite
+  markdown: un `**negrita**` ahí sale con los asteriscos a la vista. Las glosas
+  de cabecera van en prosa llana.
+- **Cambiar `SISTEMA` en `ranking/llm.py` invalida la caché de fichas.**
+  `clave_cache` hashea el prompt renderizado y `SISTEMA`, así que un retoque de
+  redacción obliga a regenerar todas las fichas a precio completo. Si el
+  registro del prompt hay que alinearlo con esta convención, se hace de una sola
+  vez y al final, no iterando palabra a palabra.
+
+**Fuera de esta convención, a propósito:** `validation.py` (los veredictos),
+`medidores.py` (las etiquetas de KPI), `ranking/informe.py` y
+`aprobacion/carga.py`. Tienen texto de usuario, pero está afinado y acoplado a
+tests con aserciones exactas sobre las frases; reescribirlo en una pasada de
+estilo es donde más fácil se rompe algo.
+
+---
+
 ## Arranque sin ventana de consola
 
 Hecho el 2026-09-01, a continuación del rediseño.

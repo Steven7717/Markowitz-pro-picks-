@@ -61,8 +61,9 @@ st.markdown(
     tema.cabecera(
         "Optimizador de portafolio",
         "Reparte el capital entre los activos que elijas y contrasta el "
-        "resultado fuera de muestra. Todo lo que sale de aquí es una "
-        "asignación calculada sobre datos pasados, no una previsión.",
+        "resultado fuera de muestra —con datos que el cálculo no llegó a "
+        "ver—. Todo lo que sale de aquí es una asignación calculada sobre "
+        "datos pasados, no una previsión.",
     ),
     unsafe_allow_html=True,
 )
@@ -114,11 +115,18 @@ with st.container(border=True):
             format_func=lambda k: STRATEGY_LABELS[k],
             key=CLAVES["estrategia"],
             horizontal=True,
-            help="Mínima varianza y paridad de riesgo NO usan retornos esperados, "
-            "que es donde vive casi todo el error de estimación.",
+            help="**Máximo Sharpe:** el mejor retorno por unidad de riesgo. "
+            "**Mínima varianza:** la cartera que menos se mueve. "
+            "**Paridad de riesgo:** cada activo aporta la misma parte del "
+            "riesgo total.\n\n"
+            "Las dos últimas NO usan retornos esperados, que es donde vive "
+            "casi todo el error de estimación.",
         )
 
-        col_min, col_max, col_cortos = st.columns([2, 2, 1])
+        # La tercera columna se ensanchó al darle ayuda al interruptor: el icono
+        # ocupa sitio en la misma línea que la etiqueta, y con [2, 2, 1] en una
+        # ventana estrecha «Ventas en corto» se partía en tres renglones.
+        col_min, col_max, col_cortos = st.columns([2, 2, 1.4])
         weight_min = col_min.slider(
             "Peso mínimo por activo (%)", 0, 20, key=CLAVES["peso_min"],
             help="No aplica con ventas en corto: el límite pasa a ser simétrico "
@@ -128,12 +136,21 @@ with st.container(border=True):
             "Peso máximo por activo (%)", 20, 100, key=CLAVES["peso_max"],
             help="Con ventas en corto, limita el tamaño absoluto de cada posición (±).",
         ) / 100
-        allow_short = col_cortos.toggle("Ventas en corto", key=CLAVES["cortos"])
+        allow_short = col_cortos.toggle(
+            "Ventas en corto", key=CLAVES["cortos"],
+            help="Permite pesos negativos: apostar a que un activo baje. Sin "
+            "esto todos los pesos son positivos y la cartera sólo compra.",
+        )
 
         use_shrinkage = st.toggle(
-            "Estimación robusta (shrinkage Ledoit-Wolf + Bayes-Stein)",
+            "Estimación robusta — no fiarse del todo de la muestra",
             key=CLAVES["shrinkage"],
             help=(
+                "Con pocos datos la muestra exagera: unas medias salen demasiado "
+                "altas y otras demasiado bajas sólo por azar. El **shrinkage** "
+                "(Ledoit-Wolf para las covarianzas, Bayes-Stein para las medias) "
+                "las empuja hacia un valor de referencia en vez de creérselas "
+                "enteras.\n\n"
                 "Corrige el sesgo optimista de Markowitz. Con medias y covarianzas "
                 "muestrales crudas el optimizador maximiza el error de estimación, no "
                 "el Sharpe: sobre activos de puro ruido (retorno esperado real = 0) "
@@ -146,7 +163,8 @@ with st.container(border=True):
             "Aprovechar la historia que no comparten todos (covarianza por pares)",
             key=CLAVES["pares"],
             help=(
-                "Cada covarianza se estima con las fechas que comparte ESE par, "
+                "La **covarianza** mide cuánto se mueven dos activos a la vez. "
+                "Aquí cada una se estima con las fechas que comparte ESE par, "
                 "no las que comparten todos. Con un activo recién salido a bolsa "
                 "la pareja AAPL-MSFT deja de pagar su juventud. Las medias siguen "
                 "saliendo de la ventana común a propósito, así que ayuda sobre "
@@ -540,8 +558,8 @@ _avisar_omitidos(market)
 _avisar_cobertura(market)
 if not market.get("rf_available", True):
     st.warning(
-        f"^IRX no disponible. Se usa una tasa libre de riesgo de referencia: "
-        f"{RF_FALLBACK:.1%} anual."
+        f"La letra del Tesoro a tres meses (^IRX) no está disponible. Se usa "
+        f"una tasa libre de riesgo de referencia: {RF_FALLBACK:.1%} anual."
     )
 obs_per_asset = n_obs / len(valid_tickers)
 if obs_per_asset < 30 and not corrida["pares"]:
@@ -669,9 +687,13 @@ with resumen:
     # invitan a restarlos, que es de donde salía la degradación imposible.
     k1.metric(
         "Sharpe del ajuste único", f"{optimal['sharpe']:.2f}",
-        help=f"Un solo ajuste sobre las {n_obs} observaciones, medido sobre los "
-        "mismos datos con los que se optimizó. Es una cota superior, no una "
-        "expectativa: el número que importa está en la pestaña de validación, y "
+        help="El **Sharpe** es cuánto retorno consigue la cartera por cada "
+        "unidad de riesgo que asume: cuanto más alto, mejor pagado está el "
+        "riesgo.\n\n"
+        f"Un solo ajuste sobre las {n_obs} observaciones, medido sobre los "
+        "mismos datos con los que se optimizó. Es una cota superior —un techo—, "
+        "no una expectativa: el número que importa está en la pestaña de "
+        "validación, y "
         "el «Sharpe medio en muestra» de allí es otro estimador —la media de las "
         "ventanas— que no se puede comparar con éste.",
     )
@@ -688,14 +710,17 @@ with resumen:
         f"{optimal['annual_return']:.1%} ± {_se_retorno:.1%}",
         help="Media aritmética anualizada (μ×períodos), la convención de Markowitz. "
         "No es un CAGR: no es la tasa a la que capitaliza una inversión. El ± es un "
-        f"error estándar sobre {n_obs} observaciones; el intervalo al 95% son dos, "
+        "error estándar —cuánto bailaría esta cifra si la midieras sobre otra "
+        f"muestra— sobre {n_obs} observaciones; el intervalo al 95% son dos, "
         f"o sea de {optimal['annual_return'] - 2 * _se_retorno:.1%} a "
         f"{optimal['annual_return'] + 2 * _se_retorno:.1%}.",
     )
     k3.metric("Volatilidad anual", f"{optimal['annual_vol']:.2%}")
     k4.metric(
         "Tasa libre de riesgo", f"{rf_anual:.2%}",
-        help="Promedio de ^IRX sobre el período de estimación, no el último dato.",
+        help="Lo que renta el dinero sin asumir riesgo, que es contra lo que se "
+        "compara cualquier cartera. Aquí es la letra del Tesoro a tres meses "
+        "(^IRX), promediada sobre el período de estimación y no el último dato.",
     )
 
     # El veredicto de fuera de muestra sube al resumen a proposito: es la

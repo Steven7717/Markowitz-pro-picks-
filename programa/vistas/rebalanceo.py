@@ -96,9 +96,10 @@ def _titulo_del_dinero(efectivo: float, nuevo: float, moneda: str) -> str:
 st.markdown(
     tema.cabecera(
         "Rebalanceo",
-        "Cuánto se ha separado tu cartera del objetivo, dónde poner el dinero "
-        "nuevo, y qué costaría corregir el resto. Aquí no se registra nada: "
-        "esto son propuestas, y lo que ejecutes lo anotas en Seguimiento.",
+        "La deriva es cuánto se ha separado tu cartera del objetivo. Esta "
+        "pantalla la mide, propone dónde poner el dinero nuevo y calcula qué "
+        "costaría corregir el resto. Aquí no se registra nada: esto son "
+        "propuestas, y lo que ejecutes lo anotas en Seguimiento.",
     ),
     unsafe_allow_html=True,
 )

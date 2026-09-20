@@ -167,8 +167,10 @@ for entrada in entradas:
         m1.metric(
             "Sharpe del ajuste único",
             cartera.formato_cifra(metricas.get("sharpe")),
-            help="Medido sobre los mismos datos con los que se optimizó ese día. "
-            "Es una cota superior, no una expectativa.",
+            help="El **Sharpe** es cuánto retorno consigue la cartera por cada "
+            "unidad de riesgo que asume.\n\nMedido sobre los mismos datos con "
+            "los que se optimizó ese día. Es una cota superior —un techo—, no "
+            "una expectativa.",
         )
         m2.metric(
             "Sharpe fuera de muestra",
@@ -186,7 +188,8 @@ for entrada in entradas:
             help="Media aritmética anualizada (μ×períodos) sobre la muestra con la "
             "que se optimizó, la convención de Markowitz. No es un CAGR ni una "
             "previsión: sobre unos pocos meses de datos esta cifra se dispara con "
-            "facilidad, y su error estándar es de varios puntos porcentuales.",
+            "facilidad, y su error estándar —cuánto bailaría si la midieras "
+            "sobre otra muestra— es de varios puntos porcentuales.",
         )
         m4.metric("Volatilidad anual", cartera.formato_porcentaje(metricas.get("annual_vol")))
 
