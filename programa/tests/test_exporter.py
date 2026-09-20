@@ -237,3 +237,78 @@ def test_los_recuentos_del_informe_no_llevan_decimales():
     filas = dict(kpi_rows(_REALES))
     assert filas["Ventanas de validación"] == "4"
     assert filas["Observaciones usadas"] == "501"
+
+
+# ── La estrategia se guarda por su clave y se traduce AQUÍ ────────────────────
+#
+# `cartera.Portafolio.estrategia` guarda `max_sharpe` y explica por qué: la
+# etiqueta es texto de pantalla y puede reescribirse en cualquier momento, así
+# que guardarla ataría un fichero en disco a una decisión de redacción. El
+# diccionario `metricas` que viaja al lado esquivaba esa regla y metía la
+# etiqueta, y de ahí salía a `portafolios/*.json` y, copiado entero, a
+# `libros/*.json`.
+#
+# No es hipotético: en septiembre de 2026 se le quitó el sufijo «(ERC)» a
+# «Paridad de riesgo (ERC)», y cualquier fichero guardado con esa estrategia se
+# habría quedado con el texto viejo dentro para siempre.
+#
+# El informe es el único que lee ese campo, así que la traducción vive aquí,
+# con el mismo `.get(clave, clave)` que ya usan `vistas/comparar.py` y
+# `vistas/portafolios.py`.
+
+from optimizer import STRATEGY_LABELS  # noqa: E402
+
+
+def test_el_informe_traduce_la_clave_guardada_a_su_etiqueta():
+    """Contra `STRATEGY_LABELS`, nunca contra el texto. Y esto ya se cobró una.
+
+    La primera versión de este test escribía «Paridad de riesgo (ERC)» a mano.
+    Lo tumbó `b8ec37b`, que quitó ese sufijo el mismo día — o sea, el cambio de
+    redacción del que trata todo este arreglo, cazando de paso al test que lo
+    probaba. Un test que copia texto de pantalla tiene el mismo defecto que
+    denuncia; el que recorre el diccionario no puede tenerlo.
+    """
+    for clave, etiqueta in STRATEGY_LABELS.items():
+        filas = dict(kpi_rows({**_validated_metrics(), "strategy": clave}))
+        assert filas["Estrategia"] == etiqueta
+        # Y la clave en crudo no llega al papel, que es la regresión que se
+        # evita: el fichero guarda `risk_parity` y el informe no lo imprime.
+        assert clave not in filas["Estrategia"]
+
+
+def test_un_fichero_que_guardo_la_etiqueta_se_sigue_leyendo():
+    """La tolerancia, para lo que no pase por la migración.
+
+    `scripts/migrar_estrategia_guardada.py` deja en clave los ficheros de esta
+    máquina, pero una copia de seguridad, un portafolio traído de otro sitio o
+    un fichero editado a mano pueden seguir trayendo la etiqueta dentro. Un
+    valor que no está entre las claves se trata como lo que es: una etiqueta ya
+    escrita, que se imprime tal cual. `_REALES` está copiado de un fichero de
+    verdad y es exactamente ese caso.
+    """
+    assert dict(kpi_rows(_REALES))["Estrategia"] == "Máximo Sharpe (Markowitz)"
+
+
+def test_el_excel_escribe_la_etiqueta_y_no_la_clave():
+    """`to_excel` vuelca el diccionario entero, así que traduce igual que el PDF.
+
+    Sin esto, guardar la clave arreglaría el fichero y estropearía la hoja: la
+    pestaña «Métricas» pasaría de «Mínima varianza» a «min_variance».
+    """
+    libro = openpyxl.load_workbook(io.BytesIO(
+        to_excel(_weights_df(), {**_metrics(), "strategy": "min_variance"})
+    ))
+    valores = [c.value for fila in libro["Métricas"].iter_rows() for c in fila]
+    assert "Mínima varianza" in valores
+    assert "min_variance" not in valores
+
+
+def test_el_excel_de_un_libro_de_seguimiento_no_gana_una_columna():
+    """`vistas/seguimiento.py` pasa por aquí su propio diccionario, sin estrategia.
+
+    La traducción no puede inventarse el campo: la hoja saldría con una columna
+    «strategy» vacía que no significa nada.
+    """
+    libro = openpyxl.load_workbook(io.BytesIO(to_excel(_weights_df(), _metrics())))
+    cabecera = [c.value for c in next(libro["Métricas"].iter_rows())]
+    assert cabecera == list(_metrics())

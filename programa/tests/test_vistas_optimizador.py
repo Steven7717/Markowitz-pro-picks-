@@ -92,3 +92,74 @@ def test_a_la_serie_con_huecos_se_le_ensena_la_cobertura_de_su_propio_tramo():
 def test_la_vista_no_arma_la_linea_dos_veces():
     """Una sola redaccion, para que las dos cifras no puedan divergir."""
     assert "_linea_cobertura(a)" in _cuerpo("_avisar_cobertura")
+
+
+# ── Lo que la pantalla escribe en disco ───────────────────────────────────────
+#
+# El diccionario `metrics` no es solo del informe: se le pasa a
+# `cartera.desde_corrida(metricas=...)`, que lo escribe en `portafolios/*.json`,
+# y `seguimiento/libro.py:desde_portafolio` lo copia entero a `libros/*.json`.
+# O sea que todo lo que entre aqui acaba en un fichero, y le aplica la regla que
+# `cartera.Portafolio.estrategia` ya documenta: se guarda la CLAVE de la
+# estrategia, no su etiqueta, porque la etiqueta es texto de pantalla y puede
+# reescribirse en cualquier momento.
+#
+# `metrics["strategy"]` era `STRATEGY_LABELS[...]` y esquivaba la regla por el
+# lado de al lado. La traduccion vive ahora en `exporter.py`, que es quien
+# presenta.
+
+from optimizer import STRATEGY_LABELS  # noqa: E402
+
+
+def _diccionario_asignado(nombre: str) -> ast.Dict:
+    """El diccionario literal que el guion asigna a `nombre` en el modulo."""
+    return next(
+        n.value for n in ARBOL.body
+        if isinstance(n, ast.Assign) and isinstance(n.value, ast.Dict)
+        and any(isinstance(d, ast.Name) and d.id == nombre for d in n.targets)
+    )
+
+
+def _valor_de(diccionario: ast.Dict, clave: str) -> str:
+    return next(
+        ast.get_source_segment(FUENTE, v)
+        for k, v in zip(diccionario.keys, diccionario.values)
+        if isinstance(k, ast.Constant) and k.value == clave
+    )
+
+
+def test_lo_que_se_guarda_no_lleva_ninguna_etiqueta_de_pantalla():
+    """La regla, comprobada sobre los VALORES y no sobre el texto del fichero.
+
+    Sobre el texto crudo sale mas corto y esta mal, y se vio: el diccionario
+    lleva comentarios dentro, y uno de ellos nombra «Paridad de riesgo (ERC)»
+    para contar por que existe la regla -- que contiene la etiqueta de hoy como
+    subcadena, asi que el test se caia solo al documentarse. Un comentario no se
+    escribe en disco. Lo que se escribe es lo que se evalua, y es lo que se mira
+    aqui: ni un `STRATEGY_LABELS` en las expresiones, ni una etiqueta a mano.
+    """
+    for valor in _diccionario_asignado("metrics").values:
+        for nodo in ast.walk(valor):
+            assert not (isinstance(nodo, ast.Name) and nodo.id == "STRATEGY_LABELS")
+            if isinstance(nodo, ast.Constant) and isinstance(nodo.value, str):
+                assert nodo.value not in STRATEGY_LABELS.values()
+
+
+def test_la_estrategia_se_guarda_por_su_clave():
+    """La misma fuente que el campo `estrategia` del portafolio, sin traducir.
+
+    Es lo que hace que los dos no puedan discrepar: el fichero guardaba
+    `estrategia: "max_sharpe"` y, dos lineas mas abajo, `metricas.strategy`
+    con la etiqueta de ese dia.
+    """
+    guardado = _diccionario_asignado("metrics")
+    assert _valor_de(guardado, "strategy") == 'corrida["estrategia"]'
+
+
+def test_la_pantalla_si_sigue_traduciendo_para_mirarla():
+    """La etiqueta no desaparece: deja de escribirse, se sigue enseniando.
+
+    Sin esto, «guardar la clave» se podria cumplir dejando `max_sharpe` en la
+    cabecera de la pantalla y en la leyenda de la frontera eficiente.
+    """
+    assert "STRATEGY_LABELS[corrida[\"estrategia\"]]" in FUENTE

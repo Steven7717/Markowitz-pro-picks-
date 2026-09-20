@@ -9,6 +9,7 @@ from fpdf import FPDF
 from fpdf.enums import XPos, YPos
 import plotly.graph_objects as go
 
+from optimizer import STRATEGY_LABELS
 from validation import (
     frase_identificabilidad,
     identificabilidad_guardada,
@@ -52,11 +53,49 @@ def texto_pdf(texto: str) -> str:
     return limpio.encode("latin-1", "replace").decode("latin-1")
 
 
+def etiqueta_estrategia(guardado) -> str:
+    """La estrategia, escrita para leerse. En el fichero viaja su clave.
+
+    `cartera.Portafolio.estrategia` dice por qué en disco va `max_sharpe` y no
+    «Máximo Sharpe (Markowitz)»: la etiqueta es texto de pantalla y puede
+    reescribirse en cualquier momento, así que guardarla ataría un fichero a
+    una decisión de redacción. El diccionario `metricas` que se escribe al lado
+    esquivaba esa regla, y este informe es el único que lee ese campo — de modo
+    que la traducción vive aquí, con el mismo `.get(clave, clave)` que ya usan
+    `vistas/comparar.py` y `vistas/portafolios.py`.
+
+    **La tolerancia no es pereza, es el resto del contrato.** Los ficheros
+    escritos antes de esto llevan la etiqueta dentro;
+    `scripts/migrar_estrategia_guardada.py` alcanza los de esta instalación,
+    pero no una copia de seguridad, uno traído de otra máquina ni uno editado a
+    mano. Un valor que no está entre las claves es lo que parece —una etiqueta
+    ya escrita— y se imprime tal cual, con la redacción de aquel día, que es
+    exactamente lo que ese fichero guardó.
+    """
+    return STRATEGY_LABELS.get(guardado, str(guardado))
+
+
+def _presentables(metrics: dict) -> dict:
+    """Las métricas tal y como se enseñan. Hoy sólo la estrategia se traduce.
+
+    La hoja vuelca el diccionario entero, así que sin esto la pestaña
+    «Métricas» habría pasado de «Mínima varianza» a «min_variance» el día que
+    el fichero empezó a guardar la clave: el arreglo del fichero habría roto la
+    exportación. `vistas/seguimiento.py` pasa por `to_excel` su propio
+    diccionario, que no tiene `strategy`, y ahí no se inventa la columna.
+    """
+    if "strategy" not in metrics:
+        return metrics
+    return {**metrics, "strategy": etiqueta_estrategia(metrics["strategy"])}
+
+
 def to_excel(weights_df: pd.DataFrame, metrics: dict) -> bytes:
     buf = io.BytesIO()
     with pd.ExcelWriter(buf, engine="openpyxl") as writer:
         weights_df.to_excel(writer, sheet_name="Pesos", index=False)
-        pd.DataFrame([metrics]).to_excel(writer, sheet_name="Métricas", index=False)
+        pd.DataFrame([_presentables(metrics)]).to_excel(
+            writer, sheet_name="Métricas", index=False
+        )
     return buf.getvalue()
 
 
@@ -85,7 +124,7 @@ def kpi_rows(metrics: dict) -> list[tuple[str, str]]:
     """
     rows = []
     if metrics.get("strategy"):
-        rows.append(("Estrategia", str(metrics["strategy"])))
+        rows.append(("Estrategia", etiqueta_estrategia(metrics["strategy"])))
     rows += [
         ("Sharpe del ajuste único (en muestra)", f"{metrics['sharpe']:.4f}"),
         ("Retorno Anual Esperado (aritmético)", f"{metrics['annual_return']:.2%}"),

@@ -1,23 +1,35 @@
 # Contexto del proyecto — para retomar en una sesión nueva
 
-**Última actualización:** 2026-09-16
-**Rama:** `master` · **Tests:** 1.704 pasando (`uv run pytest tests/ -q -m "not red"`), 4 omitidos —dos por permisos POSIX en Windows y dos sin `numpy_financial`— más 9 marcados `red`
+**Última actualización:** 2026-09-20
+**Rama:** `master` · **Tests:** 1.734 pasando (`uv run pytest tests/ -q -m "not red"`), 4 omitidos —dos por permisos POSIX en Windows y dos sin `numpy_financial`— más 9 marcados `red`
 **Remoto:** `https://github.com/Steven7717/Markowitz-pro-picks-.git` — `master` es lo publicado
 **Estructura:** el programa vive en `programa/`; en la raíz sólo están los dos
 lanzadores y el `README.md`. Los comandos (`uv run pytest`, `uv run streamlit`)
 se ejecutan desde `programa/`, no desde la raíz.
 
 > **Al retomar:** todo está en `master` y publicado, y no queda nada sin
-> fusionar. Lo último que entró fue el aviso de cobertura por activo —ver «El
-> aviso que se calculaba y no se enseñaba»— junto con los listones de las dos
-> Puertas del estudio, el 2026-09-15; la rama ya se borró. Antes, la auditoría
+> fusionar. Lo último que entró fue la clave de la estrategia en `metricas` —ver
+> «La etiqueta de pantalla que se guardaba en disco»—, desde
+> `claude/nostalgic-feynman-8d4252`, el 2026-09-20 en avance rápido sobre la
+> glosa de las métricas de ese mismo día; la rama ya se borró. **Lleva una
+> migración que ya se ejecutó sobre los datos de esta máquina**: los seis
+> ficheros de `portafolios/` y `libros/` están en clave y volver a pasar el
+> script no hace nada. En otra instalación habría que pasarlo una vez, y
+> **antes** de retocar ninguna etiqueta — el porqué está en la cabecera del
+> script.
+>
+> Lo anterior que entró fue el aviso de cobertura por activo —ver «El aviso que
+> se calculaba y no se enseñaba»— junto con los listones de las dos Puertas del
+> estudio, el 2026-09-15; la rama ya se borró. Antes, la auditoría
 > del 2026-09-13/14 desde `arreglos-auditoria`, 19 commits en avance rápido.
 > Antes: F y G desde `seguimiento-cartera`, H desde `noticias-calendario`,
 > J desde `entrada-al-seguimiento` y K desde `panel-de-seguimiento`.
 >
 > **Lee la sección «La auditoría» antes de tocar nada.** No sólo por lo que
 > arregló: por el patrón que encontró, que este repositorio repitió cinco
-> veces y que va a volver a aparecer.
+> veces y que va a volver a aparecer. **Y volvió**, dos veces desde entonces:
+> ver «El aviso que se calculaba y no se enseñaba» y «La etiqueta de pantalla
+> que se guardaba en disco».
 
 ---
 
@@ -1568,6 +1580,103 @@ dejar el aviso calculado y sin llamar.
 
 ---
 
+## La etiqueta de pantalla que se guardaba en disco (2026-09-20)
+
+`vistas/optimizador.py` armaba el diccionario `metrics` con
+`"strategy": STRATEGY_LABELS[corrida["estrategia"]]` — la **etiqueta**
+castellana, «Máximo Sharpe (Markowitz)», y no la clave. Y ese diccionario no es
+sólo del informe: se le pasa a `cartera.desde_corrida(metricas=...)`, que lo
+escribe en `portafolios/*.json`, y `seguimiento/libro.py:desde_portafolio` lo
+copia entero a `libros/*.json`. O sea que el texto de pantalla acababa en disco.
+
+**La regla que eso rompe estaba escrita, y en el objeto de destino.**
+`cartera.Portafolio.estrategia` lleva su comentario desde el principio: se
+guarda la clave, «porque la etiqueta es texto de pantalla y puede reescribirse
+en cualquier momento; guardarla sería atar un fichero en disco a una decisión de
+redacción». Ese campo la respetaba. El diccionario que viaja dentro del mismo
+JSON, unas líneas más abajo, la esquivaba.
+
+Es **el patrón de la auditoría otra vez**, apretado un punto más: allí el
+razonamiento correcto estaba treinta líneas más arriba y en otro fichero; aquí
+estaba en la misma clase, en el campo de al lado. «Buscar el resto de su clase»
+incluye mirar qué más se escribe en el mismo fichero.
+
+### El ejemplo se volvió real a media faena
+
+Esto empezó como una advertencia hipotética —«si alguien reescribe una
+etiqueta…»— y dejó de serlo durante el propio arreglo. `b8ec37b`, el mismo
+2026-09-20, **le quitó el sufijo «(ERC)» a «Paridad de riesgo (ERC)»**: la rama
+salió de `c959f2d`, ese commit entró en `master` mientras tanto, y al rebasar
+aparecieron tres tests rojos. Todo fichero guardado con esa estrategia se habría
+quedado con el texto viejo dentro para siempre, sin que nada lo dijera.
+
+Y el rojo enseñó algo más, porque **no cayeron los tres de la misma familia**.
+El que recorre `STRATEGY_LABELS.items()` pasó sin enterarse; los que copiaban
+«Paridad de riesgo (ERC)» a mano se rompieron. Un test que duplica texto de
+pantalla tiene exactamente el defecto que estaba probando, y aquí se vio en la
+misma tarde. Los tres se reescribieron contra el diccionario. **El caso «una
+etiqueta retirada» de la migración pasa a usar “(ERC)”**, que ya es justo eso.
+
+### Por qué se arregla algo que hoy no rompía nada
+
+**No lo leía nadie.** Medido antes de tocar: `exporter.py` es el único lector de
+`metrics["strategy"]`, y `to_pdf`/`to_excel` sólo se llaman desde el optimizador
+con el diccionario recién construido. «Cargar en el optimizador» pasa por
+`configuracion.sembrar`, que resiembra el formulario y obliga a volver a correr.
+Hoy no existe ningún camino que re-exporte un portafolio guardado, así que la
+etiqueta congelada era **dato muerto**.
+
+Se arregla por lo que cuesta después. Cuando esto se escribió había seis
+ficheros y los seis con la misma estrategia: la migración era una línea por
+fichero. Cada corrida que se guarde la encarece, y el día que alguien añada el
+botón de re-exportar desde `portafolios/` —que es el botón que falta— el defecto
+deja de ser latente sin que nadie lo haya tocado.
+
+### Qué pasa con los ficheros ya escritos: las dos cosas
+
+No es una o la otra; cada una cubre lo que la otra no alcanza.
+
+- **Tolerancia al leer**, en `exporter.etiqueta_estrategia`: el mismo
+  `STRATEGY_LABELS.get(clave, clave)` que ya usaban `vistas/comparar.py` y
+  `vistas/portafolios.py`. Un valor que no está entre las claves es lo que
+  parece —una etiqueta ya escrita— y se imprime tal cual. Es lo único que cubre
+  una copia de seguridad, un fichero traído de otra máquina o uno editado a mano.
+- **Migración**, `scripts/migrar_estrategia_guardada.py`: deja en clave los
+  ficheros de una instalación, para que la tolerancia sea red de seguridad y no
+  lo que sostiene los datos del usuario. **Ya se ejecutó en esta máquina el
+  2026-09-20**: seis ficheros, una línea cambiada en cada uno, y una segunda
+  pasada dice «ya estaba». No reescribe lo que no cambia, para no mover seis
+  fechas por nada, y reusa `cartera._escribir_encima` en vez de dejar una
+  tercera copia del `mkstemp`+`replace` — de esa familia ya salió un crítico de
+  la auditoría.
+
+Una etiqueta que ya **no** figura en `STRATEGY_LABELS` —el caso «(ERC)»— se
+queda como está y el script lo informa. Adivinar a qué clave pertenece sería
+reescribir el pasado a ojo, y la tolerancia ya la imprime por lo que es: la
+redacción de aquel día.
+
+`to_excel` traduce igual que el PDF, y eso no era opcional: vuelca el
+diccionario entero, así que sin ello arreglar el fichero habría convertido la
+pestaña «Métricas» en `min_variance`. **Arreglar el disco no puede romper la
+exportación.** El diccionario que `vistas/seguimiento.py` pasa por ahí no lleva
+`strategy`, y no se le inventa la columna.
+
+### El test que fija la regla
+
+En `tests/test_vistas_optimizador.py`, por el camino `ast` que esa vista ya
+usaba: se saca el diccionario `metrics` que el guion asigna y se comprueba que
+no contiene `STRATEGY_LABELS` **ni ninguna de sus etiquetas**. Enunciar la regla
+sobre *lo que se escribe*, y no sobre una llamada concreta, es lo que la hace
+sobrevivir a la siguiente forma de escribirlo mal. Al lado, otro que falla si la
+etiqueta deja de enseñarse **en pantalla**: «guardar la clave» no puede
+cumplirse dejando `max_sharpe` en la cabecera.
+
+Verificado además en la app arrancada con los ficheros ya migrados: «Portafolios
+guardados» abre los tres con «Máximo Sharpe (Markowitz)», sus métricas y sus
+veredictos, y «Seguimiento» abre el libro.
+
+---
+
 ## Lo siguiente
 
 El sistema está completo de punta a punta: A ingiere, B ordena y razona, C
@@ -1623,11 +1732,12 @@ Trabajo posterior anotado, por orden de valor:
 
 ```bash
 # Todos estos se ejecutan desde programa/, no desde la raiz del repo.
-pytest tests/ -q -m "not red"       # 1.678 tests, sin red
+pytest tests/ -q -m "not red"       # 1.734 tests, sin red
 python -m research.run              # correr el estudio (~5 min, luego caché)
 streamlit run app.py                # la app: optimizador + pagina de revision
 python scripts/bootstrap_universe.py   # regenerar el snapshot del universo
 python scripts/bootstrap_sectors.py    # regenerar la tabla de sectores GICS
+python scripts/migrar_estrategia_guardada.py --simular   # ya ejecutado aqui el 2026-09-20; solo hace falta en otra instalacion
 python -c "from ranking.run import construir_ranking, guardar; guardar(construir_ranking(con_llm=False), 'salidas')"   # ranking sin LLM (~2 min)
 ```
 

@@ -70,6 +70,18 @@ class Portafolio:
     peso_max: float
     permitir_cortos: bool
     shrinkage: bool
+    # **La regla de `estrategia` alcanza también a lo que viaja aquí dentro.**
+    # Y durante un tiempo se esquivó justo por aquí: `metricas["strategy"]`
+    # traía la ETIQUETA, así que el mismo fichero guardaba la clave en un campo
+    # y el texto de pantalla en el de al lado, y encima se copiaba entero a
+    # `libros/*.json`. Hoy lo escribe `vistas/optimizador.py` en clave y lo
+    # traduce `exporter.etiqueta_estrategia` al imprimir.
+    #
+    # Los ficheros escritos antes pueden seguir trayendo la etiqueta.
+    # `scripts/migrar_estrategia_guardada.py` migra los de una instalación; lo
+    # que ese script no alcanza —una copia de seguridad, un fichero de otra
+    # máquina— lo cubre la tolerancia del exportador, que trata un valor ajeno
+    # a las claves como la etiqueta que ya es.
     metricas: dict = field(default_factory=dict)
     nota: str = ""
 

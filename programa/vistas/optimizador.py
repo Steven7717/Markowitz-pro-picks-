@@ -633,7 +633,18 @@ metrics = {
     "annual_vol": optimal["annual_vol"],
     "rf_rate": rf_anual,
     "horizon": corrida["horizonte"],
-    "strategy": STRATEGY_LABELS[corrida["estrategia"]],
+    # **La clave, no la etiqueta.** Este diccionario no es sólo del informe:
+    # `cartera.desde_corrida(metricas=...)` lo escribe en `portafolios/*.json`
+    # y `seguimiento/libro.py:desde_portafolio` lo copia entero a
+    # `libros/*.json`. O sea que le aplica la regla que
+    # `cartera.Portafolio.estrategia` documenta para el campo de al lado —en
+    # disco va la clave— y aquí se esquivaba por un costado: la etiqueta es
+    # texto de pantalla. Y esto no es hipotético ni antiguo: `b8ec37b` le quitó
+    # el sufijo a «Paridad de riesgo (ERC)» el 2026-09-20, el mismo día que se
+    # escribió esta línea. Todo fichero guardado con esa estrategia se habría
+    # quedado con el texto viejo dentro para siempre.
+    # `exporter.py` la traduce al imprimir, que es donde se presenta.
+    "strategy": corrida["estrategia"],
     "shrinkage": "Sí" if corrida["shrinkage"] else "No",
     "cov_shrinkage": optimal["cov_shrinkage"],
     "mean_shrinkage": optimal["mean_shrinkage"],
