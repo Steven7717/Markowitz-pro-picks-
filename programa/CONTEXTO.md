@@ -1675,6 +1675,30 @@ Verificado además en la app arrancada con los ficheros ya migrados: «Portafoli
 guardados» abre los tres con «Máximo Sharpe (Markowitz)», sus métricas y sus
 veredictos, y «Seguimiento» abre el libro.
 
+### Lo que queda de esta clase
+
+Preguntado como manda la lección de la auditoría —«busca el resto de su clase
+antes de cerrarlo»— e inventariado campo por campo lo que `metricas` escribe.
+Salieron tres cosas, y sólo una es del mismo tamaño:
+
+- **`shrinkage` es el mismo par exacto, y sigue ahí.** `metrics` escribe
+  `"shrinkage": "Sí" if corrida["shrinkage"] else "No"` —un booleano renderizado
+  a castellano— mientras `Portafolio.shrinkage` guarda al lado el bool de
+  verdad, en el mismo JSON. Reescribir ese «Sí» a «Activada» dejaría los
+  ficheros viejos con el texto de hoy congelado, igual que `(ERC)`.
+  `exporter.kpi_rows` lo imprime con `str(...)`. Barato hoy, y se encarece con
+  cada corrida guardada — exactamente el argumento de arriba.
+- **`horizon` es de otra clase y peor.** No hay par clave/etiqueta: la cadena de
+  pantalla **es** la identidad, porque son las claves de `HORIZON_CONFIG` («1
+  Mes», «6 Meses»). `configuracion.sembrar` recarga el portafolio comparando esa
+  cadena, así que reescribirla no rompería la re-exportación sino **la
+  recarga**. Más grave, más caro, y no se hace de refilón.
+- **`verdict` era falsa alarma, y de las buenas.** No existe tal clave: el
+  veredicto se guarda como `beats_equal_weight` más sus listones
+  (`oos_umbral_veredicto`, `oos_sigmas_veredicto`) y la prosa la re-dicta
+  `validation.veredicto_guardado` al leer. El patrón correcto ya estaba
+  inventado **dentro del mismo diccionario** que tenía el defecto.
+
 ---
 
 ## Lo siguiente
@@ -1725,6 +1749,12 @@ Trabajo posterior anotado, por orden de valor:
    del corte. Un top más corto sería más estable; uno más largo, más honesto
    sobre lo poco que separa al puesto 14 del 18. Hoy el 15 no está elegido por
    ninguna de las dos razones.
+5. **`shrinkage` guarda «Sí»/«No» en disco**, que es el mismo defecto que se
+   acaba de cerrar para la estrategia, en el campo de al lado y con el bool
+   correcto guardado junto a él. Va el último de la lista por tamaño, no por
+   dificultad: es el más barato de los cinco y el único cuyo coste crece solo.
+   El inventario que lo encontró está en «La etiqueta de pantalla que se
+   guardaba en disco».
 
 ---
 
