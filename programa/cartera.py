@@ -70,18 +70,21 @@ class Portafolio:
     peso_max: float
     permitir_cortos: bool
     shrinkage: bool
-    # **La regla de `estrategia` alcanza también a lo que viaja aquí dentro.**
-    # Y durante un tiempo se esquivó justo por aquí: `metricas["strategy"]`
-    # traía la ETIQUETA, así que el mismo fichero guardaba la clave en un campo
-    # y el texto de pantalla en el de al lado, y encima se copiaba entero a
-    # `libros/*.json`. Hoy lo escribe `vistas/optimizador.py` en clave y lo
-    # traduce `exporter.etiqueta_estrategia` al imprimir.
+    # **La regla de `estrategia` alcanza también a lo que viaja aquí dentro**, y
+    # durante un tiempo se esquivó justo por aquí, dos veces:
+    # `metricas["strategy"]` traía la ETIQUETA y `metricas["shrinkage"]` traía
+    # «Sí»/«No». O sea que el mismo fichero guardaba el dato en un campo tipado
+    # y su forma de pantalla en el de al lado —`estrategia` y `shrinkage` están
+    # ahí arriba— y encima se copiaba entero a `libros/*.json`. Hoy
+    # `vistas/optimizador.py` escribe los dos datos y `exporter.py` los redacta
+    # al imprimir.
     #
-    # Los ficheros escritos antes pueden seguir trayendo la etiqueta.
-    # `scripts/migrar_estrategia_guardada.py` migra los de una instalación; lo
-    # que ese script no alcanza —una copia de seguridad, un fichero de otra
-    # máquina— lo cubre la tolerancia del exportador, que trata un valor ajeno
-    # a las claves como la etiqueta que ya es.
+    # Los ficheros escritos antes pueden seguir trayendo el texto.
+    # `scripts/migrar_metricas_guardadas.py` migra los de una instalación —y lo
+    # hace copiando de estos campos de aquí arriba, que es lo que lo libra de
+    # depender de ninguna redacción—; lo que ese script no alcanza —una copia
+    # de seguridad, un fichero de otra máquina— lo cubre la tolerancia del
+    # exportador, que trata un valor que no es un dato como el texto que ya es.
     metricas: dict = field(default_factory=dict)
     nota: str = ""
 

@@ -1,22 +1,22 @@
 # Contexto del proyecto — para retomar en una sesión nueva
 
 **Última actualización:** 2026-09-20
-**Rama:** `master` · **Tests:** 1.734 pasando (`uv run pytest tests/ -q -m "not red"`), 4 omitidos —dos por permisos POSIX en Windows y dos sin `numpy_financial`— más 9 marcados `red`
+**Rama:** `master` · **Tests:** 1.750 pasando (`uv run pytest tests/ -q -m "not red"`), 4 omitidos —dos por permisos POSIX en Windows y dos sin `numpy_financial`— más 9 marcados `red`
 **Remoto:** `https://github.com/Steven7717/Markowitz-pro-picks-.git` — `master` es lo publicado
 **Estructura:** el programa vive en `programa/`; en la raíz sólo están los dos
 lanzadores y el `README.md`. Los comandos (`uv run pytest`, `uv run streamlit`)
 se ejecutan desde `programa/`, no desde la raíz.
 
 > **Al retomar:** todo está en `master` y publicado, y no queda nada sin
-> fusionar. Lo último que entró fue la clave de la estrategia en `metricas` —ver
-> «La etiqueta de pantalla que se guardaba en disco»—, desde
-> `claude/nostalgic-feynman-8d4252`, el 2026-09-20 en avance rápido sobre la
-> glosa de las métricas de ese mismo día; la rama ya se borró. **Lleva una
-> migración que ya se ejecutó sobre los datos de esta máquina**: los seis
-> ficheros de `portafolios/` y `libros/` están en clave y volver a pasar el
-> script no hace nada. En otra instalación habría que pasarlo una vez, y
-> **antes** de retocar ninguna etiqueta — el porqué está en la cabecera del
-> script.
+> fusionar. Lo último que entró fue el texto de pantalla que se guardaba en los
+> ficheros de datos —ver «La etiqueta de pantalla que se guardaba en disco»—, en
+> dos tandas del 2026-09-20: primero la estrategia, y luego el resto de su clase
+> (`shrinkage`, y el formulario que se quedaba en blanco). Las dos ramas ya se
+> borraron. **Lleva una migración que ya se ejecutó sobre los datos de esta
+> máquina**: los seis ficheros de `portafolios/` y `libros/` están en su forma
+> de dato y volver a pasar el script no hace nada. En otra instalación hay que
+> pasarlo una vez, y da igual cuándo: copia del campo tipado de al lado, no del
+> texto.
 >
 > Lo anterior que entró fue el aviso de cobertura por activo —ver «El aviso que
 > se calculaba y no se enseñaba»— junto con los listones de las dos Puertas del
@@ -1641,7 +1641,7 @@ No es una o la otra; cada una cubre lo que la otra no alcanza.
   `vistas/portafolios.py`. Un valor que no está entre las claves es lo que
   parece —una etiqueta ya escrita— y se imprime tal cual. Es lo único que cubre
   una copia de seguridad, un fichero traído de otra máquina o uno editado a mano.
-- **Migración**, `scripts/migrar_estrategia_guardada.py`: deja en clave los
+- **Migración**, `scripts/migrar_metricas_guardadas.py`: deja en clave los
   ficheros de una instalación, para que la tolerancia sea red de seguridad y no
   lo que sostiene los datos del usuario. **Ya se ejecutó en esta máquina el
   2026-09-20**: seis ficheros, una línea cambiada en cada uno, y una segunda
@@ -1675,29 +1675,95 @@ Verificado además en la app arrancada con los ficheros ya migrados: «Portafoli
 guardados» abre los tres con «Máximo Sharpe (Markowitz)», sus métricas y sus
 veredictos, y «Seguimiento» abre el libro.
 
-### Lo que queda de esta clase
+### El resto de la clase, buscado y cerrado
 
 Preguntado como manda la lección de la auditoría —«busca el resto de su clase
 antes de cerrarlo»— e inventariado campo por campo lo que `metricas` escribe.
-Salieron tres cosas, y sólo una es del mismo tamaño:
+Salieron tres cosas, y ninguna era la que se esperaba.
 
-- **`shrinkage` es el mismo par exacto, y sigue ahí.** `metrics` escribe
-  `"shrinkage": "Sí" if corrida["shrinkage"] else "No"` —un booleano renderizado
-  a castellano— mientras `Portafolio.shrinkage` guarda al lado el bool de
-  verdad, en el mismo JSON. Reescribir ese «Sí» a «Activada» dejaría los
-  ficheros viejos con el texto de hoy congelado, igual que `(ERC)`.
-  `exporter.kpi_rows` lo imprime con `str(...)`. Barato hoy, y se encarece con
-  cada corrida guardada — exactamente el argumento de arriba.
-- **`horizon` es de otra clase y peor.** No hay par clave/etiqueta: la cadena de
-  pantalla **es** la identidad, porque son las claves de `HORIZON_CONFIG` («1
-  Mes», «6 Meses»). `configuracion.sembrar` recarga el portafolio comparando esa
-  cadena, así que reescribirla no rompería la re-exportación sino **la
-  recarga**. Más grave, más caro, y no se hace de refilón.
-- **`verdict` era falsa alarma, y de las buenas.** No existe tal clave: el
-  veredicto se guarda como `beats_equal_weight` más sus listones
-  (`oos_umbral_veredicto`, `oos_sigmas_veredicto`) y la prosa la re-dicta
-  `validation.veredicto_guardado` al leer. El patrón correcto ya estaba
-  inventado **dentro del mismo diccionario** que tenía el defecto.
+**`shrinkage` era el mismo par exacto.** `metrics` escribía
+`"shrinkage": "Sí" if corrida["shrinkage"] else "No"` —un booleano renderizado a
+castellano— mientras `Portafolio.shrinkage` guardaba al lado el bool de verdad,
+en el mismo JSON. Medido en los seis ficheros: `'Sí'`/`'No'` en `metricas` y
+`true`/`false` en el campo tipado, siempre de acuerdo. Arreglado igual que la
+estrategia: el dato se guarda, `exporter.etiqueta_shrinkage` lo redacta.
+
+**`verdict` era falsa alarma, y de las buenas.** No existe tal clave: el
+veredicto se guarda como `beats_equal_weight` más sus listones
+(`oos_umbral_veredicto`, `oos_sigmas_veredicto`) y la prosa la re-dicta
+`validation.veredicto_guardado` al leer. El patrón correcto ya estaba inventado
+**dentro del mismo diccionario** que tenía el defecto.
+
+**Y `horizon` llevó a otro sitio.** Ahí no hay par: la cadena de pantalla **es**
+la identidad, porque son las claves de `HORIZON_CONFIG`. Eso no se arregla de
+refilón —habría que dar claves opacas a los horizontes, y migrar— pero
+perseguirlo destapó un defecto de verdad, que sí se arregló y no era de esta
+clase: ver «El formulario que se quedaba en blanco».
+
+### La regla, dicha en general
+
+El test que la fija empezó estrecho —«ninguna etiqueta de `STRATEGY_LABELS`
+dentro del diccionario»— y `shrinkage` enseñó que no bastaba: «Sí» no es una
+etiqueta de ese diccionario y era exactamente el mismo defecto. Lo que une a los
+dos no es de dónde sale el texto, es que **es texto escrito ahí**. La regla pasó
+a ser esa: *ni un literal de cadena entre los valores de `metrics`*, porque un
+literal es, por definición, algo que puso el código en vez de medirlo — y lo que
+se pone se puede reescribir mañana.
+
+Con un matiz que costó un rojo: no cuentan los literales que **indexan**. En
+`optimal["sharpe"]` la cadena es la llave del diccionario del que se lee, no lo
+que se guarda, y contarla convertía la regla en ruido.
+
+### Y la migración dejó de depender de la redacción
+
+La primera versión traducía el texto de vuelta —«Máximo Sharpe (Markowitz)» →
+`max_sharpe`— y de ahí salía un aviso incómodo: había que pasarla **antes** de
+retocar una etiqueta, porque después ya no la reconocería. Ese aviso era la
+señal de que el diseño estaba mal. **El valor bueno ya está en el fichero**, en
+el campo tipado de al lado, y copiarlo de ahí no depende de ninguna redacción:
+un fichero anterior a `b8ec37b`, con el `(ERC)` dentro, se migra igual de bien.
+
+El texto viejo se sigue leyendo para una sola cosa, y nunca para sacar el valor:
+para detectar que el fichero **se contradice a sí mismo** —«Mínima varianza» en
+`metricas` y `max_sharpe` en el campo tipado— y no pisarlo en silencio. Eso lo
+mira una persona. El script pasa a llamarse `scripts/migrar_metricas_guardadas.py`,
+porque ya no es de la estrategia sino de la clase.
+
+---
+
+## El formulario que se quedaba en blanco (2026-09-20)
+
+Perseguir `horizon` por la otra punta —quién lee esa cadena— llevó a
+`configuracion.sembrar`, y ahí había un defecto de verdad, con su aviso ya
+escrito **dentro del mismo bloque**:
+
+> Streamlit revienta al CONSTRUIR el widget, o sea que la página se queda en
+> blanco antes de pintar nada, y el valor malo se queda en sesión: sigue rota
+> hasta cargar otro portafolio o reiniciar. El canal de las preferencias ya
+> estaba protegido; este no.
+
+Eso lo escribió el arreglo que acotó `peso_min` y `peso_max` al cargar un
+portafolio. En el mismo bloque, tres líneas más arriba, `horizonte` y
+`estrategia` se asignaban **en crudo** — y son las que alimentan un
+`st.selectbox(options=list(HORIZON_CONFIG))` y un
+`st.radio(options=list(STRATEGY_LABELS))`, que revientan igual con un valor que
+no está entre sus opciones. `cartera.cargar` valida el contrato del fichero,
+pero no que el horizonte que guardó siga existiendo hoy.
+
+**Es el patrón de la auditoría, otra vez y en el sitio más pequeño posible:**
+cuatro campos en un bloque, dos protegidos y dos no, y el comentario que explica
+por qué hay que protegerlos escrito encima de los cuatro. `preferencias.saneadas()`
+cubre los dos desde el principio, con su aviso, así que el canal de las
+preferencias no podía traer nada de esto; el del portafolio sí — un fichero de
+otra versión, uno editado a mano, o uno guardado antes de que se retirase un
+horizonte.
+
+Lo que quedó: en el camino malo **no se asigna nada**, y el repuesto es lo que
+`setdefault` ya sembró unas líneas antes, o sea las preferencias del usuario.
+Son suyas y son válidas, y eso las hace mejor repuesto que cualquier valor de
+fábrica. Y **se dice**: la etiqueta de origen pasa de «cargado de X» a «cargado
+de X — su horizonte «8 Meses» ya no existe». Cambiarlo en silencio sería peor que
+el defecto, que es la regla que `vistas/portafolios.py` ya aplica al veredicto.
 
 ---
 
@@ -1749,12 +1815,12 @@ Trabajo posterior anotado, por orden de valor:
    del corte. Un top más corto sería más estable; uno más largo, más honesto
    sobre lo poco que separa al puesto 14 del 18. Hoy el 15 no está elegido por
    ninguna de las dos razones.
-5. **`shrinkage` guarda «Sí»/«No» en disco**, que es el mismo defecto que se
-   acaba de cerrar para la estrategia, en el campo de al lado y con el bool
-   correcto guardado junto a él. Va el último de la lista por tamaño, no por
-   dificultad: es el más barato de los cinco y el único cuyo coste crece solo.
-   El inventario que lo encontró está en «La etiqueta de pantalla que se
-   guardaba en disco».
+5. ~~**`shrinkage` guarda «Sí»/«No» en disco.**~~ **Hecho el 2026-09-20**, el
+   mismo día que se anotó: ver «El resto de la clase, buscado y cerrado». Lo que
+   queda de esa familia es `horizon`, que no es el mismo defecto —ahí la cadena
+   de pantalla ES la identidad— y pide claves opacas para los horizontes más una
+   migración. No urge: hoy nadie ha retocado esas seis cadenas, y el formulario
+   ya no se queda en blanco si alguien lo hace.
 
 ---
 
@@ -1762,12 +1828,12 @@ Trabajo posterior anotado, por orden de valor:
 
 ```bash
 # Todos estos se ejecutan desde programa/, no desde la raiz del repo.
-pytest tests/ -q -m "not red"       # 1.734 tests, sin red
+pytest tests/ -q -m "not red"       # 1.750 tests, sin red
 python -m research.run              # correr el estudio (~5 min, luego caché)
 streamlit run app.py                # la app: optimizador + pagina de revision
 python scripts/bootstrap_universe.py   # regenerar el snapshot del universo
 python scripts/bootstrap_sectors.py    # regenerar la tabla de sectores GICS
-python scripts/migrar_estrategia_guardada.py --simular   # ya ejecutado aqui el 2026-09-20; solo hace falta en otra instalacion
+python scripts/migrar_metricas_guardadas.py --simular    # ya ejecutado aqui el 2026-09-20; solo hace falta en otra instalacion
 python -c "from ranking.run import construir_ranking, guardar; guardar(construir_ranking(con_llm=False), 'salidas')"   # ranking sin LLM (~2 min)
 ```
 

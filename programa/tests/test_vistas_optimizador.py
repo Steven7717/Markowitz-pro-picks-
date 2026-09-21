@@ -128,21 +128,65 @@ def _valor_de(diccionario: ast.Dict, clave: str) -> str:
     )
 
 
-def test_lo_que_se_guarda_no_lleva_ninguna_etiqueta_de_pantalla():
-    """La regla, comprobada sobre los VALORES y no sobre el texto del fichero.
+def _cadenas_que_se_escriben(nodo):
+    """Los literales de cadena que pueden acabar DENTRO del fichero.
 
-    Sobre el texto crudo sale mas corto y esta mal, y se vio: el diccionario
-    lleva comentarios dentro, y uno de ellos nombra «Paridad de riesgo (ERC)»
-    para contar por que existe la regla -- que contiene la etiqueta de hoy como
-    subcadena, asi que el test se caia solo al documentarse. Un comentario no se
-    escribe en disco. Lo que se escribe es lo que se evalua, y es lo que se mira
-    aqui: ni un `STRATEGY_LABELS` en las expresiones, ni una etiqueta a mano.
+    No los que indexan. En `optimal["sharpe"]` la cadena es la llave del
+    diccionario del que se lee, no lo que se guarda, y contarla convertiria la
+    regla en ruido: la primera version de este test se cayo justo ahi.
+    """
+    if isinstance(nodo, ast.Constant) and isinstance(nodo.value, str):
+        yield nodo.value
+        return
+    for hijo in ast.iter_child_nodes(nodo):
+        if isinstance(nodo, ast.Subscript) and hijo is nodo.slice:
+            continue
+        yield from _cadenas_que_se_escriben(hijo)
+
+
+def test_lo_que_se_guarda_no_lleva_ni_una_cadena_escrita_a_mano():
+    """La regla en su forma general: aqui se mide, no se redacta.
+
+    Empezo mas estrecha --«ninguna etiqueta de `STRATEGY_LABELS`»-- y el campo
+    de al lado enseño que no bastaba: `"shrinkage": "Si" if ... else "No"` no
+    era una etiqueta de ese diccionario y era exactamente el mismo defecto, un
+    dato renderizado a castellano y escrito en disco. Lo que los une no es de
+    donde sale el texto, es que es TEXTO ESCRITO AQUI. Un literal de cadena
+    entre los valores es, por definicion, algo que puso el codigo en vez de
+    medirlo — y lo que se pone se puede reescribir mañana.
     """
     for valor in _diccionario_asignado("metrics").values:
         for nodo in ast.walk(valor):
             assert not (isinstance(nodo, ast.Name) and nodo.id == "STRATEGY_LABELS")
-            if isinstance(nodo, ast.Constant) and isinstance(nodo.value, str):
-                assert nodo.value not in STRATEGY_LABELS.values()
+        for cadena in _cadenas_que_se_escriben(valor):
+            raise AssertionError(f"«{cadena}» se escribiria tal cual en el fichero")
+
+
+def test_la_regla_se_comprueba_sobre_los_valores_y_no_sobre_el_texto():
+    """Por que el test de arriba anda por el AST en vez de buscar cadenas.
+
+    Sobre el texto crudo sale mas corto y esta mal, y se vio: el diccionario
+    lleva comentarios dentro, uno de ellos nombra «Paridad de riesgo (ERC)»
+    para contar por que existe la regla, y eso contiene la etiqueta de hoy como
+    subcadena. El test se caia solo al documentarse. Un comentario no se escribe
+    en disco; lo que se escribe es lo que se evalua.
+    """
+    escrito = ast.get_source_segment(FUENTE, _diccionario_asignado("metrics"))
+    assert "Paridad de riesgo" in escrito   # el comentario sigue ahi...
+    assert not [                             # ...y no molesta.
+        c for v in _diccionario_asignado("metrics").values
+        for c in _cadenas_que_se_escriben(v)
+    ]
+
+
+def test_el_shrinkage_se_guarda_como_lo_que_es_y_no_como_se_lee():
+    """El par de al lado, con la misma forma: el bool, no «Sí»/«No».
+
+    `Portafolio.shrinkage` guarda el booleano en este mismo fichero, asi que
+    `metricas` llevaba las dos formas del mismo hecho y una era de pantalla.
+    """
+    guardado = _diccionario_asignado("metrics")
+    assert _valor_de(guardado, "shrinkage") == 'corrida["shrinkage"]'
 
 
 def test_la_estrategia_se_guarda_por_su_clave():

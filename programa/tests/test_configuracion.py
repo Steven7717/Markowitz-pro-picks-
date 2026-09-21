@@ -282,3 +282,100 @@ def test_un_portafolio_con_pesos_dentro_del_rango_se_siembra_tal_cual():
 
     assert estado[configuracion.CLAVES["peso_min"]] == 5
     assert estado[configuracion.CLAVES["peso_max"]] == 40
+
+
+# ── Lo que el portafolio trae y el formulario no puede mostrar ────────────────
+#
+# Los deslizadores ya estaban protegidos, y el comentario que lo hizo dice por
+# qué: «Streamlit revienta al CONSTRUIR el widget, o sea que la página se queda
+# en blanco antes de pintar nada, y el valor malo se queda en sesión: sigue rota
+# hasta cargar otro portafolio o reiniciar».
+#
+# Esa misma frase vale palabra por palabra para los otros dos campos del mismo
+# bloque. `st.selectbox(options=list(HORIZON_CONFIG), key=...)` y
+# `st.radio(options=list(STRATEGY_LABELS), key=...)` revientan igual si la
+# sesión trae un valor que no está entre las opciones, y `cartera.cargar` valida
+# el contrato del fichero pero no que el horizonte siga existiendo.
+#
+# `preferencias.saneadas()` protege los dos desde el principio --con su aviso--,
+# así que el canal de las preferencias no puede traer nada de esto. El del
+# portafolio sí: un fichero de otra versión, uno editado a mano, o uno guardado
+# antes de que se retirase un horizonte.
+
+from data import HORIZON_CONFIG  # noqa: E402
+from optimizer import STRATEGY_LABELS  # noqa: E402
+
+
+def test_un_horizonte_que_ya_no_existe_no_deja_el_formulario_sin_pintar():
+    estado = {"portafolio_a_cargar": _portafolio(
+        "viejo", ["AAPL", "MU"], horizonte="8 Meses"
+    )}
+
+    sembrar(estado)
+
+    assert valores(estado)["horizonte"] in HORIZON_CONFIG
+
+
+def test_una_estrategia_que_ya_no_existe_tampoco():
+    estado = {"portafolio_a_cargar": _portafolio(
+        "viejo", ["AAPL", "MU"], estrategia="momentum_12_1"
+    )}
+
+    sembrar(estado)
+
+    assert valores(estado)["estrategia"] in STRATEGY_LABELS
+
+
+def test_lo_que_se_deja_en_su_sitio_es_lo_que_ya_habia_sembrado():
+    """No un valor de fábrica: lo que el usuario tenía, que es suyo.
+
+    `sembrar` ya ha puesto las preferencias en el formulario cuando llega el
+    canal del portafolio, así que el repuesto está ahí mismo y es mejor que
+    `DEFAULT_HORIZON`.
+    """
+    estado = {"portafolio_a_cargar": _portafolio(
+        "viejo", ["AAPL", "MU"], horizonte="8 Meses", estrategia="momentum_12_1"
+    )}
+
+    sembrar(estado, Preferencias(horizonte="1 Año", estrategia="min_variance"))
+
+    assert valores(estado)["horizonte"] == "1 Año"
+    assert valores(estado)["estrategia"] == "min_variance"
+
+
+def test_un_horizonte_y_una_estrategia_validos_se_siembran_tal_cual():
+    """El guardarraíl no puede comerse el caso normal, que es todos los demás."""
+    estado = {"portafolio_a_cargar": _portafolio(
+        "normal", ["AAPL", "MU"], horizonte="3 Años", estrategia="risk_parity"
+    )}
+
+    sembrar(estado, Preferencias(horizonte="1 Mes", estrategia="max_sharpe"))
+
+    assert valores(estado)["horizonte"] == "3 Años"
+    assert valores(estado)["estrategia"] == "risk_parity"
+
+
+def test_la_sustitucion_se_dice_en_vez_de_hacerse_en_silencio():
+    """Cambiar en silencio lo que el usuario guardó sería peor que el defecto.
+
+    Es la regla que `vistas/portafolios.py` ya aplica al veredicto: «el usuario
+    recuerda lo que leyó el día que lo guardó, y tiene derecho a saber que el
+    listón cambió». Aquí el formulario diría «cargado de X» mientras muestra un
+    horizonte que X no pidió.
+    """
+    estado = {"portafolio_a_cargar": _portafolio(
+        "viejo", ["AAPL", "MU"], horizonte="8 Meses"
+    )}
+
+    origen = sembrar(estado)
+
+    assert "8 Meses" in origen
+    assert "viejo" in origen
+
+
+def test_sin_sustituciones_el_origen_no_se_ensucia():
+    estado = {"portafolio_a_cargar": _portafolio("normal", ["AAPL", "MU"])}
+
+    origen = sembrar(estado)
+
+    assert origen == "cargado de «normal»"

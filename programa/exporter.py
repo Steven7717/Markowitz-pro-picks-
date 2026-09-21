@@ -66,7 +66,7 @@ def etiqueta_estrategia(guardado) -> str:
 
     **La tolerancia no es pereza, es el resto del contrato.** Los ficheros
     escritos antes de esto llevan la etiqueta dentro;
-    `scripts/migrar_estrategia_guardada.py` alcanza los de esta instalación,
+    `scripts/migrar_metricas_guardadas.py` alcanza los de esta instalación,
     pero no una copia de seguridad, uno traído de otra máquina ni uno editado a
     mano. Un valor que no está entre las claves es lo que parece —una etiqueta
     ya escrita— y se imprime tal cual, con la redacción de aquel día, que es
@@ -75,18 +75,50 @@ def etiqueta_estrategia(guardado) -> str:
     return STRATEGY_LABELS.get(guardado, str(guardado))
 
 
+def etiqueta_shrinkage(guardado) -> str:
+    """«Sí» o «No», dictado aquí. En el fichero va el booleano.
+
+    El de al lado del anterior, y el mismo caso: `metricas` guardaba `"Sí"`/
+    `"No"` —el booleano ya renderizado a castellano— mientras
+    `cartera.Portafolio.shrinkage` guardaba el bool de verdad en el MISMO
+    fichero. Dos formas del mismo hecho, y una de ellas es texto de pantalla:
+    reescribir ese «Sí» a «Activada» habría congelado la redacción de hoy en
+    todo fichero ya guardado.
+
+    Con la misma tolerancia, y por lo mismo: un fichero anterior trae la
+    palabra ya escrita, y una palabra no se vuelve a traducir. Se reconoce por
+    el tipo, que es lo que de verdad los distingue —`isinstance(x, bool)`— y no
+    por comparar contra «Sí», que sería hacer depender la lectura del fichero
+    de una decisión de redacción, justo lo que se está quitando.
+    """
+    if isinstance(guardado, bool):
+        return "Sí" if guardado else "No"
+    return str(guardado)
+
+
+# Lo que el fichero guarda como dato y la hoja tiene que enseñar como texto.
+# Se declara una vez y lo consumen `_presentables` y `kpi_rows`, para que el
+# PDF y el Excel no puedan divergir en cómo escriben el mismo campo.
+_COMO_SE_ENSENA = {
+    "strategy": etiqueta_estrategia,
+    "shrinkage": etiqueta_shrinkage,
+}
+
+
 def _presentables(metrics: dict) -> dict:
-    """Las métricas tal y como se enseñan. Hoy sólo la estrategia se traduce.
+    """Las métricas tal y como se enseñan, sin tocar las que no lo necesitan.
 
     La hoja vuelca el diccionario entero, así que sin esto la pestaña
-    «Métricas» habría pasado de «Mínima varianza» a «min_variance» el día que
-    el fichero empezó a guardar la clave: el arreglo del fichero habría roto la
-    exportación. `vistas/seguimiento.py` pasa por `to_excel` su propio
-    diccionario, que no tiene `strategy`, y ahí no se inventa la columna.
+    «Métricas» habría pasado de «Mínima varianza» a `min_variance` y de «Sí» a
+    `True` el día que el fichero empezó a guardar el dato: el arreglo del
+    fichero habría roto la exportación. `vistas/seguimiento.py` pasa por
+    `to_excel` su propio diccionario, que no tiene ninguno de los dos campos, y
+    ahí no se inventa la columna.
     """
-    if "strategy" not in metrics:
+    presentes = {c: f for c, f in _COMO_SE_ENSENA.items() if c in metrics}
+    if not presentes:
         return metrics
-    return {**metrics, "strategy": etiqueta_estrategia(metrics["strategy"])}
+    return {**metrics, **{c: f(metrics[c]) for c, f in presentes.items()}}
 
 
 def to_excel(weights_df: pd.DataFrame, metrics: dict) -> bytes:
@@ -159,8 +191,10 @@ def kpi_rows(metrics: dict) -> list[tuple[str, str]]:
         ))
         rows.append(("Ventanas de validación", _conteo(metrics.get("oos_windows", 0))))
 
+    # `in` y no la verdad del valor: «Estimación robusta: No» dice algo de la
+    # corrida, y callarlo dejaría al lector suponiendo cuál de las dos fue.
     if "shrinkage" in metrics:
-        rows.append(("Estimación robusta", str(metrics["shrinkage"])))
+        rows.append(("Estimación robusta", etiqueta_shrinkage(metrics["shrinkage"])))
     if metrics.get("n_obs"):
         rows.append(("Observaciones usadas", _conteo(metrics["n_obs"])))
 

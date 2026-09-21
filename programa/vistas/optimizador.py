@@ -645,7 +645,10 @@ metrics = {
     # quedado con el texto viejo dentro para siempre.
     # `exporter.py` la traduce al imprimir, que es donde se presenta.
     "strategy": corrida["estrategia"],
-    "shrinkage": "Sí" if corrida["shrinkage"] else "No",
+    # El booleano, por lo mismo que la clave de arriba: «Sí» es texto de
+    # pantalla, y `Portafolio.shrinkage` ya guarda el bool en este mismo
+    # fichero. `exporter.etiqueta_shrinkage` lo escribe al imprimir.
+    "shrinkage": corrida["shrinkage"],
     "cov_shrinkage": optimal["cov_shrinkage"],
     "mean_shrinkage": optimal["mean_shrinkage"],
     "n_obs": n_obs,

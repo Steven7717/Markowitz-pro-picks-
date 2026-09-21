@@ -279,7 +279,7 @@ def test_el_informe_traduce_la_clave_guardada_a_su_etiqueta():
 def test_un_fichero_que_guardo_la_etiqueta_se_sigue_leyendo():
     """La tolerancia, para lo que no pase por la migración.
 
-    `scripts/migrar_estrategia_guardada.py` deja en clave los ficheros de esta
+    `scripts/migrar_metricas_guardadas.py` deja en clave los ficheros de esta
     máquina, pero una copia de seguridad, un portafolio traído de otro sitio o
     un fichero editado a mano pueden seguir trayendo la etiqueta dentro. Un
     valor que no está entre las claves se trata como lo que es: una etiqueta ya
@@ -312,3 +312,50 @@ def test_el_excel_de_un_libro_de_seguimiento_no_gana_una_columna():
     libro = openpyxl.load_workbook(io.BytesIO(to_excel(_weights_df(), _metrics())))
     cabecera = [c.value for c in next(libro["Métricas"].iter_rows())]
     assert cabecera == list(_metrics())
+
+
+# ── Y el de al lado: «Sí»/«No» tampoco es un dato ────────────────────────────
+#
+# `metrics` escribía `"shrinkage": "Sí" if corrida["shrinkage"] else "No"` --un
+# booleano renderizado a castellano-- mientras `Portafolio.shrinkage` guardaba
+# el bool de verdad en el MISMO fichero. Es el par exacto de la estrategia,
+# encontrado al preguntar «¿dónde más vive esta clase?» en vez de dar el caso
+# por cerrado. Cambiar ese «Sí» a «Activada» habría congelado el texto de hoy en
+# los ficheros viejos, igual que «(ERC)».
+
+def test_el_informe_escribe_si_y_no_a_partir_del_booleano():
+    assert dict(kpi_rows({**_metrics(), "shrinkage": True}))["Estimación robusta"] == "Sí"
+    assert dict(kpi_rows({**_metrics(), "shrinkage": False}))["Estimación robusta"] == "No"
+
+
+def test_el_informe_no_imprime_el_booleano_en_crudo():
+    """«True» en un informe que el usuario enseña a terceros no es castellano."""
+    for guardado in (True, False):
+        valor = dict(kpi_rows({**_metrics(), "shrinkage": guardado}))["Estimación robusta"]
+        assert valor not in ("True", "False")
+
+
+def test_un_fichero_que_guardo_la_palabra_se_sigue_leyendo():
+    """La misma tolerancia que la estrategia, por el mismo motivo."""
+    for palabra in ("Sí", "No"):
+        filas = dict(kpi_rows({**_metrics(), "shrinkage": palabra}))
+        assert filas["Estimación robusta"] == palabra
+
+
+def test_el_shrinkage_apagado_no_desaparece_del_informe():
+    """`False` es una respuesta, no una ausencia.
+
+    `kpi_rows` pregunta `if "shrinkage" in metrics` y no por su verdad, que es
+    lo correcto y conviene que siga siéndolo: «Estimación robusta: No» dice algo
+    sobre la corrida, y callarlo dejaría al lector suponiendo.
+    """
+    assert "Estimación robusta" in dict(kpi_rows({**_metrics(), "shrinkage": False}))
+
+
+def test_el_excel_tambien_escribe_la_palabra_y_no_el_booleano():
+    libro = openpyxl.load_workbook(io.BytesIO(
+        to_excel(_weights_df(), {**_metrics(), "shrinkage": True})
+    ))
+    valores = [c.value for fila in libro["Métricas"].iter_rows() for c in fila]
+    assert "Sí" in valores
+    assert True not in valores

@@ -26,6 +26,8 @@ traspaso es lo único que lo pisa: escribe en esas claves una vez y se vacía.
 
 from typing import MutableMapping
 
+from data import HORIZON_CONFIG
+from optimizer import STRATEGY_LABELS
 from preferencias import entero_en_rango
 
 # Qué clave de `session_state` guarda cada campo del formulario. El prefijo
@@ -108,8 +110,33 @@ def sembrar(
     cargado = estado.pop(CANAL_PORTAFOLIO, None)
     if cargado is not None:
         estado[CLAVES["tickers"]] = ", ".join(cargado.tickers)
-        estado[CLAVES["horizonte"]] = cargado.horizonte
-        estado[CLAVES["estrategia"]] = cargado.estrategia
+
+        # **Los mismos dos, con el mismo guardarraíl que los deslizadores de
+        # abajo.** El razonamiento está escrito ahí y vale palabra por palabra:
+        # Streamlit revienta al CONSTRUIR el widget si la sesión trae un valor
+        # que no está entre sus opciones, y `st.selectbox` y `st.radio` toman
+        # las suyas de `HORIZON_CONFIG` y `STRATEGY_LABELS`. `cartera.cargar`
+        # valida el contrato del fichero, pero no que el horizonte que guardó
+        # siga existiendo hoy.
+        #
+        # Que el aviso llegase a los pesos y no a estos dos, estando los cuatro
+        # en el mismo bloque, es el patrón de la auditoría otra vez.
+        #
+        # **El repuesto es lo que ya hay sembrado**, y por eso aquí no se
+        # asigna nada en el camino malo: cuando llega este canal, `setdefault`
+        # ya ha puesto las preferencias del usuario en el formulario. Son suyas
+        # y son válidas —`preferencias.saneadas()` las revisa al cargarlas, con
+        # su aviso— así que son mejor repuesto que cualquier valor de fábrica.
+        sustituidos: list[str] = []
+        if cargado.horizonte in HORIZON_CONFIG:
+            estado[CLAVES["horizonte"]] = cargado.horizonte
+        else:
+            sustituidos.append(f"su horizonte «{cargado.horizonte}» ya no existe")
+        if cargado.estrategia in STRATEGY_LABELS:
+            estado[CLAVES["estrategia"]] = cargado.estrategia
+        else:
+            sustituidos.append(f"su estrategia «{cargado.estrategia}» ya no existe")
+
         # Los deslizadores van de 0 a 100 y el portafolio lo guarda en
         # fracción, que es como lo consume el optimizador.
         #
@@ -130,7 +157,14 @@ def sembrar(
         )
         estado[CLAVES["cortos"]] = cargado.permitir_cortos
         estado[CLAVES["shrinkage"]] = cargado.shrinkage
+        # **Y se dice, en vez de hacerse en silencio.** Es la regla que
+        # `vistas/portafolios.py` ya aplica al veredicto: el usuario recuerda lo
+        # que guardó, y un formulario que anuncia «cargado de X» mientras enseña
+        # un horizonte que X no pidió estaría afirmando algo falso. La etiqueta
+        # de origen es donde ya mira para saber qué está viendo.
         estado[CLAVE_ORIGEN] = f"cargado de «{cargado.nombre}»"
+        if sustituidos:
+            estado[CLAVE_ORIGEN] += f" — {' y '.join(sustituidos)}"
 
     return estado[CLAVE_ORIGEN]
 
