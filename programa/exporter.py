@@ -9,6 +9,7 @@ from fpdf import FPDF
 from fpdf.enums import XPos, YPos
 import plotly.graph_objects as go
 
+from data import HORIZON_LABELS
 from optimizer import STRATEGY_LABELS
 from validation import (
     frase_identificabilidad,
@@ -96,12 +97,27 @@ def etiqueta_shrinkage(guardado) -> str:
     return str(guardado)
 
 
+def etiqueta_horizonte(guardado) -> str:
+    """El horizonte, escrito para leerse. En el fichero va su clave.
+
+    El tercero de la misma familia, y el que costó más de ver: aquí no había
+    dos formas sino una, y la etiqueta ERA la identidad. Por eso reescribir «1
+    Año» no habría estropeado sólo este informe —como con la estrategia— sino
+    la recarga de todo portafolio guardado con él.
+
+    Misma tolerancia que los otros dos: un fichero anterior guarda «1 Mes», que
+    no es una clave, y se imprime tal cual.
+    """
+    return HORIZON_LABELS.get(guardado, str(guardado))
+
+
 # Lo que el fichero guarda como dato y la hoja tiene que enseñar como texto.
 # Se declara una vez y lo consumen `_presentables` y `kpi_rows`, para que el
 # PDF y el Excel no puedan divergir en cómo escriben el mismo campo.
 _COMO_SE_ENSENA = {
     "strategy": etiqueta_estrategia,
     "shrinkage": etiqueta_shrinkage,
+    "horizon": etiqueta_horizonte,
 }
 
 
@@ -256,7 +272,7 @@ def to_pdf(
         0, 6,
         texto_pdf(
             f"Fecha: {date.today().strftime('%d/%m/%Y')}  |  "
-            f"Horizonte: {metrics.get('horizon', '-')}"
+            f"Horizonte: {etiqueta_horizonte(metrics.get('horizon', '-'))}"
         ),
         new_x=XPos.LMARGIN,
         new_y=YPos.NEXT,

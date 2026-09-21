@@ -30,6 +30,13 @@ toca. Y si el texto guardado se puede leer y **contradice** al hermano —un
 fichero editado a mano—, tampoco: el fichero se contradice a sí mismo y eso lo
 mira una persona, no un script.
 
+**Las preferencias no entran aquí, y no hace falta.** El fichero de
+`~/.markowitz-pro-picks/` también guarda un horizonte con la redacción de
+entonces, pero `preferencias.saneadas()` lo traduce cada vez que se lee y lo
+deja en clave la primera vez que el usuario guarde. Un script que entra en la
+carpeta personal de alguien para arreglar algo que se arregla solo no se
+escribe.
+
     python scripts/migrar_metricas_guardadas.py --simular
     python scripts/migrar_metricas_guardadas.py
 """
@@ -46,6 +53,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import cartera  # noqa: E402
+from data import HORIZON_CONFIG, clave_de_horizonte  # noqa: E402
 from optimizer import STRATEGY_LABELS  # noqa: E402
 
 CARPETAS = ("portafolios", "libros")
@@ -74,6 +82,10 @@ def _leer_palabra(texto):
     return {"Sí": True, "No": False}.get(texto)
 
 
+def _es_clave_horizonte(valor) -> bool:
+    return valor in HORIZON_CONFIG
+
+
 # Qué campo de `metricas` es la copia renderizada de qué campo del portafolio,
 # cómo se reconoce que ya está en su forma de dato, y cómo se lee el texto
 # viejo — esto último SÓLO para detectar que el fichero se contradice, nunca
@@ -81,6 +93,7 @@ def _leer_palabra(texto):
 CAMPOS = {
     "strategy": ("estrategia", _es_clave, _leer_etiqueta),
     "shrinkage": ("shrinkage", _es_booleano, _leer_palabra),
+    "horizon": ("horizonte", _es_clave_horizonte, clave_de_horizonte),
 }
 
 
@@ -110,8 +123,30 @@ def arreglos_de(portafolio: dict) -> tuple[dict, list[str]]:
     Pura: no toca nada. Quien llama decide si escribe.
     """
     metricas = portafolio.get("metricas") or {}
+    del_portafolio: dict = {}
     cambios: dict = {}
     quejas: list[str] = []
+
+    # **El horizonte es el único que no tiene hermano del que copiar**, porque
+    # antes no había clave ninguna: la etiqueta ERA la identidad. Aquí sí hay
+    # que traducir el texto, y se puede porque `data._HEREDADOS` es una tabla
+    # congelada —la redacción vigente hasta el 2026-09-20, que ya es historia y
+    # no se recalcula—. Va primero: `metricas["horizon"]` copia de este campo, y
+    # tiene que copiar del arreglado.
+    horizonte = portafolio.get("horizonte")
+    if horizonte is not None and not _es_clave_horizonte(horizonte):
+        clave = clave_de_horizonte(horizonte)
+        if clave is None:
+            quejas.append(
+                f"horizonte={horizonte!r} no es ninguno de los de hoy ni de los "
+                "de antes: se queda como está"
+            )
+        else:
+            del_portafolio["horizonte"] = clave
+
+    # Con el horizonte ya arreglado, para que el hermano del que se copia sea el
+    # bueno y no el que había cuando empezó esta función.
+    portafolio = {**portafolio, **del_portafolio}
 
     for campo, (hermano, ya_es_dato, leer) in CAMPOS.items():
         if campo not in metricas:
@@ -142,7 +177,7 @@ def arreglos_de(portafolio: dict) -> tuple[dict, list[str]]:
 
         cambios[campo] = bueno
 
-    return cambios, quejas
+    return del_portafolio, cambios, quejas
 
 
 def migrar(crudo: dict) -> tuple[int, list[str]]:
@@ -154,9 +189,10 @@ def migrar(crudo: dict) -> tuple[int, list[str]]:
     cambiados = 0
     quejas: list[str] = []
     for portafolio in _portafolios_de(crudo):
-        arreglos, suyas = arreglos_de(portafolio)
+        propios, arreglos, suyas = arreglos_de(portafolio)
+        portafolio.update(propios)
         portafolio["metricas"].update(arreglos)
-        cambiados += len(arreglos)
+        cambiados += len(propios) + len(arreglos)
         quejas += suyas
     return cambiados, quejas
 

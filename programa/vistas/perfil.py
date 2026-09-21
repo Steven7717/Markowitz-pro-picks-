@@ -33,7 +33,7 @@ from credenciales import (
     variables_del_shell,
 )
 from credenciales import guardar as guardar_credenciales
-from data import HORIZON_CONFIG
+from data import HORIZON_CONFIG, HORIZON_LABELS
 from optimizer import STRATEGY_LABELS
 from preferencias import Preferencias
 
@@ -185,6 +185,7 @@ with preferencias_tab:
         col_horizonte, col_estrategia = st.columns([1, 2])
         horizonte = col_horizonte.selectbox(
             "Horizonte", options=list(HORIZON_CONFIG),
+            format_func=lambda k: HORIZON_LABELS[k],
             index=list(HORIZON_CONFIG).index(actuales.horizonte),
         )
         estrategia = col_estrategia.radio(

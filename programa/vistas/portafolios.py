@@ -5,6 +5,7 @@ import streamlit as st
 
 import cartera
 import tema
+from data import HORIZON_LABELS
 from optimizer import STRATEGY_LABELS
 from validation import (
     frase_identificabilidad,
@@ -67,7 +68,10 @@ for entrada in entradas:
             st.markdown(
                 tema.etiqueta(p.fecha_legible)
                 + tema.etiqueta(STRATEGY_LABELS.get(p.estrategia, p.estrategia), "acento")
-                + tema.etiqueta(f"Horizonte {p.horizonte}")
+                + tema.etiqueta(
+                    "Horizonte "
+                    + HORIZON_LABELS.get(p.horizonte, p.horizonte)
+                )
                 + tema.etiqueta(f"{len(p.posiciones)} activos")
                 + (tema.etiqueta("Ventas en corto", "aviso") if p.permitir_cortos else "")
                 + tema.etiqueta(

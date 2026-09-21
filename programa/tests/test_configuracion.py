@@ -11,7 +11,7 @@ POR_DEFECTO = "AAPL, MSFT, GOOGL, AMZN, NVDA"
 
 def _portafolio(nombre: str, tickers: list[str], **campos) -> Portafolio:
     base = dict(
-        horizonte="3 Años", estrategia="risk_parity", peso_min=0.05,
+        horizonte="3_anos", estrategia="risk_parity", peso_min=0.05,
         peso_max=0.40, permitir_cortos=True, shrinkage=False,
     )
     base.update(campos)
@@ -34,9 +34,9 @@ def valores(estado: dict) -> dict:
 
 def test_sin_nada_en_sesion_se_siembra_de_las_preferencias():
     estado: dict = {}
-    sembrar(estado, Preferencias(tickers="KO, PEP", horizonte="1 Año"))
+    sembrar(estado, Preferencias(tickers="KO, PEP", horizonte="1_ano"))
     assert valores(estado)["tickers"] == "KO, PEP"
-    assert valores(estado)["horizonte"] == "1 Año"
+    assert valores(estado)["horizonte"] == "1_ano"
 
 
 def test_sin_tickers_guardados_se_usan_los_de_muestra():
@@ -57,7 +57,7 @@ def test_un_portafolio_cargado_pisa_todos_los_campos():
     origen = sembrar(estado)
     assert valores(estado) == {
         "tickers": "AAPL, MU",
-        "horizonte": "3 Años",
+        "horizonte": "3_anos",
         "estrategia": "risk_parity",
         "peso_min": 5,
         "peso_max": 40,
@@ -86,7 +86,7 @@ def test_un_portafolio_cargado_sobrevive_a_las_reejecuciones():
         origen = sembrar(estado)
 
     assert valores(estado)["tickers"] == "AAPL, MSFT, MU"
-    assert valores(estado)["horizonte"] == "3 Años"
+    assert valores(estado)["horizonte"] == "3_anos"
     assert origen == "cargado de «prueba 1»"
 
 
@@ -96,20 +96,20 @@ def test_lo_que_el_usuario_escribe_despues_no_se_pisa():
     sembrar(estado)
 
     estado[configuracion.CLAVES["tickers"]] = "KO, PEP"
-    estado[configuracion.CLAVES["horizonte"]] = "1 Año"
+    estado[configuracion.CLAVES["horizonte"]] = "1_ano"
     sembrar(estado)
 
     assert valores(estado)["tickers"] == "KO, PEP"
-    assert valores(estado)["horizonte"] == "1 Año"
+    assert valores(estado)["horizonte"] == "1_ano"
 
 
 def test_cargar_un_segundo_portafolio_pisa_al_primero():
     estado = {"portafolio_a_cargar": _portafolio("prueba 1", ["AAPL", "MU"])}
     sembrar(estado)
-    estado["portafolio_a_cargar"] = _portafolio("otra", ["KO"], horizonte="1 Mes")
+    estado["portafolio_a_cargar"] = _portafolio("otra", ["KO"], horizonte="1_mes")
     origen = sembrar(estado)
     assert valores(estado)["tickers"] == "KO"
-    assert valores(estado)["horizonte"] == "1 Mes"
+    assert valores(estado)["horizonte"] == "1_mes"
     assert origen == "cargado de «otra»"
 
 
@@ -139,8 +139,8 @@ def test_el_gate_trae_los_tickers_y_su_origen():
 
 def test_el_gate_no_toca_nada_mas_que_los_tickers():
     estado = {"tickers_aprobados": ["KO"]}
-    sembrar(estado, Preferencias(horizonte="1 Año", estrategia="min_variance"))
-    assert valores(estado)["horizonte"] == "1 Año"
+    sembrar(estado, Preferencias(horizonte="1_ano", estrategia="min_variance"))
+    assert valores(estado)["horizonte"] == "1_ano"
     assert valores(estado)["estrategia"] == "min_variance"
 
 
@@ -209,9 +209,9 @@ def test_guardar_preferencias_nuevas_rehace_el_formulario():
     assert valores(estado)["tickers"] == "KO, PEP"
 
     configuracion.reiniciar(estado)
-    sembrar(estado, Preferencias(tickers="MO, PM", horizonte="1 Año"))
+    sembrar(estado, Preferencias(tickers="MO, PM", horizonte="1_ano"))
     assert valores(estado)["tickers"] == "MO, PM"
-    assert valores(estado)["horizonte"] == "1 Año"
+    assert valores(estado)["horizonte"] == "1_ano"
 
 
 def test_reiniciar_tambien_borra_el_origen():
@@ -337,21 +337,21 @@ def test_lo_que_se_deja_en_su_sitio_es_lo_que_ya_habia_sembrado():
         "viejo", ["AAPL", "MU"], horizonte="8 Meses", estrategia="momentum_12_1"
     )}
 
-    sembrar(estado, Preferencias(horizonte="1 Año", estrategia="min_variance"))
+    sembrar(estado, Preferencias(horizonte="1_ano", estrategia="min_variance"))
 
-    assert valores(estado)["horizonte"] == "1 Año"
+    assert valores(estado)["horizonte"] == "1_ano"
     assert valores(estado)["estrategia"] == "min_variance"
 
 
 def test_un_horizonte_y_una_estrategia_validos_se_siembran_tal_cual():
     """El guardarraíl no puede comerse el caso normal, que es todos los demás."""
     estado = {"portafolio_a_cargar": _portafolio(
-        "normal", ["AAPL", "MU"], horizonte="3 Años", estrategia="risk_parity"
+        "normal", ["AAPL", "MU"], horizonte="3_anos", estrategia="risk_parity"
     )}
 
-    sembrar(estado, Preferencias(horizonte="1 Mes", estrategia="max_sharpe"))
+    sembrar(estado, Preferencias(horizonte="1_mes", estrategia="max_sharpe"))
 
-    assert valores(estado)["horizonte"] == "3 Años"
+    assert valores(estado)["horizonte"] == "3_anos"
     assert valores(estado)["estrategia"] == "risk_parity"
 
 
@@ -379,3 +379,20 @@ def test_sin_sustituciones_el_origen_no_se_ensucia():
     origen = sembrar(estado)
 
     assert origen == "cargado de «normal»"
+
+
+def test_un_portafolio_de_antes_de_que_el_horizonte_tuviera_clave_abre_igual():
+    """«3 Años» no es un horizonte retirado: es el mismo con el nombre de entonces.
+
+    Sin esta traducción, cargar un portafolio guardado antes del 2026-09-20
+    perdería su horizonte en silencio y caería al de las preferencias, que es
+    otro. El fichero no se toca: la traducción vive al leerlo.
+    """
+    estado = {"portafolio_a_cargar": _portafolio(
+        "de antes", ["AAPL", "MU"], horizonte="3 Años"
+    )}
+
+    origen = sembrar(estado, Preferencias(horizonte="1_mes"))
+
+    assert valores(estado)["horizonte"] == "3_anos"
+    assert origen == "cargado de «de antes»"   # no hay nada que avisar

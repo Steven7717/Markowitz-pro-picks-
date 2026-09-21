@@ -33,6 +33,7 @@ from charts import (
 )
 from data import (
     HORIZON_CONFIG,
+    HORIZON_LABELS,
     RF_FALLBACK,
     fetch_market_data,
     parse_tickers,
@@ -106,6 +107,7 @@ with st.container(border=True):
         horizon = col_horizonte.selectbox(
             "Horizonte de inversión",
             options=list(HORIZON_CONFIG),
+            format_func=lambda k: HORIZON_LABELS[k],
             key=CLAVES["horizonte"],
             help="Decide la frecuencia de los datos y cuánto historial se usa.",
         )
@@ -571,7 +573,7 @@ if obs_per_asset < 30 and not corrida["pares"]:
 
 st.markdown(
     tema.etiqueta(STRATEGY_LABELS[corrida["estrategia"]], "acento")
-    + tema.etiqueta(f"Horizonte {corrida['horizonte']}")
+    + tema.etiqueta(f"Horizonte {HORIZON_LABELS[corrida['horizonte']]}")
     + tema.etiqueta(f"{len(valid_tickers)} activos")
     # En modo por pares, "55 observaciones" seria enganoso: son las comunes,
     # pero la covarianza ha mirado bastantes mas.
@@ -632,6 +634,7 @@ metrics = {
     "annual_return": optimal["annual_return"],
     "annual_vol": optimal["annual_vol"],
     "rf_rate": rf_anual,
+    # La clave, por lo mismo que las dos de abajo: esto va al fichero.
     "horizon": corrida["horizonte"],
     # **La clave, no la etiqueta.** Este diccionario no es sólo del informe:
     # `cartera.desde_corrida(metricas=...)` lo escribe en `portafolios/*.json`
@@ -1071,11 +1074,15 @@ with exportar:
 
     st.divider()
     st.markdown("**Descargar el informe**")
+    # El nombre del fichero que se descarga lo lee una persona en su carpeta, no
+    # el programa: va la etiqueta y no la clave. `markowitz_1_Mes.xlsx` es lo que
+    # se descargaba antes de que el horizonte tuviera clave, y sigue igual.
+    _nombre_horizonte = HORIZON_LABELS[corrida["horizonte"]].replace(" ", "_")
     col_excel, col_pdf = st.columns(2)
     col_excel.download_button(
         "Descargar Excel",
         data=to_excel(weights_df, metrics),
-        file_name=f"markowitz_{corrida['horizonte'].replace(' ', '_')}.xlsx",
+        file_name=f"markowitz_{_nombre_horizonte}.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         use_container_width=True,
         icon=":material/table_view:",
@@ -1115,7 +1122,7 @@ with exportar:
         col_pdf.download_button(
             "Descargar PDF",
             data=_pdf["datos"],
-            file_name=f"markowitz_{corrida['horizonte'].replace(' ', '_')}.pdf",
+            file_name=f"markowitz_{_nombre_horizonte}.pdf",
             mime="application/pdf",
             use_container_width=True,
             icon=":material/picture_as_pdf:",

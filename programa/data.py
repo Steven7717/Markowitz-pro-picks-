@@ -4,17 +4,71 @@ import numpy as np
 import yfinance as yf
 import streamlit as st
 
+# La clave de cada horizonte y la configuración de descarga que le toca.
+#
+# **Clave y no etiqueta**, por lo mismo que `optimizer.STRATEGY_LABELS`: estas
+# cadenas se escriben en `portafolios/*.json`, en `libros/*.json` y en el fichero
+# de preferencias, y lo que va a disco no puede ser una decisión de redacción.
+#
+# Aquí el defecto era peor que en la estrategia, y por eso se arregló después.
+# Allí había dos formas —clave y etiqueta— y el fichero guardaba la equivocada;
+# aquí **no había clave ninguna**: la etiqueta ERA la identidad. Reescribir «1
+# Año» no habría estropeado una exportación, habría estropeado **la recarga** de
+# todo portafolio guardado con él, que es de lo que vive esta aplicación.
 HORIZON_CONFIG: dict[str, dict] = {
-    "1 Semana": {"period": "1y",  "interval": "1d",  "periods_per_year": 252},
-    "1 Mes":    {"period": "2y",  "interval": "1d",  "periods_per_year": 252},
-    "3 Meses":  {"period": "3y",  "interval": "1wk", "periods_per_year": 52},
-    "6 Meses":  {"period": "5y",  "interval": "1wk", "periods_per_year": 52},
-    "1 Año":    {"period": "10y", "interval": "1mo", "periods_per_year": 12},
-    "3 Años":   {"period": "15y", "interval": "1mo", "periods_per_year": 12},
+    "1_semana": {"period": "1y",  "interval": "1d",  "periods_per_year": 252},
+    "1_mes":    {"period": "2y",  "interval": "1d",  "periods_per_year": 252},
+    "3_meses":  {"period": "3y",  "interval": "1wk", "periods_per_year": 52},
+    "6_meses":  {"period": "5y",  "interval": "1wk", "periods_per_year": 52},
+    "1_ano":    {"period": "10y", "interval": "1mo", "periods_per_year": 12},
+    "3_anos":   {"period": "15y", "interval": "1mo", "periods_per_year": 12},
 }
 
-DEFAULT_HORIZON = "1 Mes"
+# Cómo se escribe cada uno en pantalla. Se puede reescribir cuando se quiera,
+# que es justamente lo que antes no se podía.
+HORIZON_LABELS: dict[str, str] = {
+    "1_semana": "1 Semana",
+    "1_mes": "1 Mes",
+    "3_meses": "3 Meses",
+    "6_meses": "6 Meses",
+    "1_ano": "1 Año",
+    "3_anos": "3 Años",
+}
+
+# Cómo se llamaban antes de tener clave, para poder leer lo que ya está escrito.
+#
+# **A mano y congelada, no derivada de `HORIZON_LABELS`.** Derivarla la dejaría
+# inservible justo el día que sirve: al reescribir una etiqueta, los ficheros que
+# llevan la vieja dentro dejarían de reconocerse, que es el defecto entero otra
+# vez y por la puerta de atrás. Esto es historia —la redacción vigente hasta el
+# 2026-09-20— y la historia no cambia cuando alguien mejora una frase.
+_HEREDADOS: dict[str, str] = {
+    "1 Semana": "1_semana",
+    "1 Mes": "1_mes",
+    "3 Meses": "3_meses",
+    "6 Meses": "6_meses",
+    "1 Año": "1_ano",
+    "3 Años": "3_anos",
+}
+
+DEFAULT_HORIZON = "1_mes"
 RF_FALLBACK = 0.05
+
+
+def clave_de_horizonte(valor) -> str | None:
+    """La clave del horizonte que `valor` nombra, o None si no se reconoce.
+
+    Acepta la clave y también la etiqueta con la que se guardó antes de que los
+    horizontes tuvieran clave, que es lo que permite abrir un portafolio de
+    entonces sin migrarlo. `None` significa lo mismo en los dos sitios que
+    preguntan —las preferencias y el portafolio que se carga—: esto no se puede
+    mostrar, hay que caer al repuesto y decirlo.
+    """
+    if not isinstance(valor, str):
+        return None
+    if valor in HORIZON_CONFIG:
+        return valor
+    return _HEREDADOS.get(valor)
 
 
 def parse_tickers(raw: str) -> list[str]:

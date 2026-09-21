@@ -1,7 +1,7 @@
 # Contexto del proyecto — para retomar en una sesión nueva
 
 **Última actualización:** 2026-09-20
-**Rama:** `master` · **Tests:** 1.750 pasando (`uv run pytest tests/ -q -m "not red"`), 4 omitidos —dos por permisos POSIX en Windows y dos sin `numpy_financial`— más 9 marcados `red`
+**Rama:** `master` · **Tests:** 1.766 pasando (`uv run pytest tests/ -q -m "not red"`), 4 omitidos —dos por permisos POSIX en Windows y dos sin `numpy_financial`— más 9 marcados `red`
 **Remoto:** `https://github.com/Steven7717/Markowitz-pro-picks-.git` — `master` es lo publicado
 **Estructura:** el programa vive en `programa/`; en la raíz sólo están los dos
 lanzadores y el `README.md`. Los comandos (`uv run pytest`, `uv run streamlit`)
@@ -10,13 +10,13 @@ se ejecutan desde `programa/`, no desde la raíz.
 > **Al retomar:** todo está en `master` y publicado, y no queda nada sin
 > fusionar. Lo último que entró fue el texto de pantalla que se guardaba en los
 > ficheros de datos —ver «La etiqueta de pantalla que se guardaba en disco»—, en
-> dos tandas del 2026-09-20: primero la estrategia, y luego el resto de su clase
-> (`shrinkage`, y el formulario que se quedaba en blanco). Las dos ramas ya se
-> borraron. **Lleva una migración que ya se ejecutó sobre los datos de esta
-> máquina**: los seis ficheros de `portafolios/` y `libros/` están en su forma
-> de dato y volver a pasar el script no hace nada. En otra instalación hay que
-> pasarlo una vez, y da igual cuándo: copia del campo tipado de al lado, no del
-> texto.
+> tres tandas del 2026-09-20: la estrategia, el resto de su clase (`shrinkage`,
+> y el formulario que se quedaba en blanco) y por último el horizonte, que era
+> el caro. Las tres ramas ya se borraron. **Lleva una migración que ya se
+> ejecutó sobre los datos de esta máquina**: los seis ficheros de `portafolios/`
+> y `libros/` están en su forma de dato y volver a pasar el script no hace nada.
+> En otra instalación hay que pasarlo una vez, y da igual cuándo. El fichero de
+> preferencias no hace falta migrarlo: se traduce al leerlo y se reescribe solo.
 >
 > Lo anterior que entró fue el aviso de cobertura por activo —ver «El aviso que
 > se calculaba y no se enseñaba»— junto con los listones de las dos Puertas del
@@ -1694,11 +1694,11 @@ veredicto se guarda como `beats_equal_weight` más sus listones
 `validation.veredicto_guardado` al leer. El patrón correcto ya estaba inventado
 **dentro del mismo diccionario** que tenía el defecto.
 
-**Y `horizon` llevó a otro sitio.** Ahí no hay par: la cadena de pantalla **es**
-la identidad, porque son las claves de `HORIZON_CONFIG`. Eso no se arregla de
-refilón —habría que dar claves opacas a los horizontes, y migrar— pero
-perseguirlo destapó un defecto de verdad, que sí se arregló y no era de esta
-clase: ver «El formulario que se quedaba en blanco».
+**Y `horizon` llevó a otro sitio, dos veces.** Ahí no hay par: la cadena de
+pantalla **es** la identidad, porque son las claves de `HORIZON_CONFIG`. Primero
+destapó un defecto de verdad que no era de esta clase —ver «El formulario que se
+quedaba en blanco»— y después se arregló él, que era el caro: ver «El horizonte
+no tenía clave».
 
 ### La regla, dicha en general
 
@@ -1815,20 +1815,70 @@ Trabajo posterior anotado, por orden de valor:
    del corte. Un top más corto sería más estable; uno más largo, más honesto
    sobre lo poco que separa al puesto 14 del 18. Hoy el 15 no está elegido por
    ninguna de las dos razones.
-5. ~~**`shrinkage` guarda «Sí»/«No» en disco.**~~ **Hecho el 2026-09-20**, el
-   mismo día que se anotó: ver «El resto de la clase, buscado y cerrado». Lo que
-   queda de esa familia es `horizon`, que no es el mismo defecto —ahí la cadena
-   de pantalla ES la identidad— y pide claves opacas para los horizontes más una
-   migración. No urge: hoy nadie ha retocado esas seis cadenas, y el formulario
-   ya no se queda en blanco si alguien lo hace.
+5. ~~**El texto de pantalla guardado en los ficheros de datos.**~~ **Cerrada la
+   familia entera el 2026-09-20**: la estrategia, el `shrinkage`, el formulario
+   que se quedaba en blanco y el horizonte. No queda ningún campo de
+   `portafolios/*.json` ni de `libros/*.json` cuyo valor sea una decisión de
+   redacción.
 
 ---
+
+## El horizonte no tenía clave (2026-09-20)
+
+El último de la familia y el más caro, y por eso se hizo el último. En la
+estrategia había **dos** formas —clave y etiqueta— y el fichero guardaba la
+equivocada; en el horizonte no había clave ninguna: `HORIZON_CONFIG` estaba
+indexado por «1 Mes», «1 Año», «3 Años», y esas cadenas se escribían en
+`portafolios/*.json`, en `libros/*.json` y en el fichero de preferencias.
+
+**La consecuencia era de otro orden.** Reescribir «Paridad de riesgo (ERC)»
+habría estropeado una re-exportación; reescribir «1 Año» habría estropeado **la
+recarga** de todo portafolio guardado con él, y la recarga es de lo que vive
+esta aplicación. `data.fetch_market_data` indexa `HORIZON_CONFIG[horizon]`,
+`configuracion.sembrar` siembra el desplegable con esa cadena y
+`preferencias.saneadas()` la valida contra las mismas claves.
+
+Lo que quedó, con la forma que ya tenían las otras dos:
+
+- `HORIZON_CONFIG` pasa a estar indexado por `1_semana`, `1_mes`, `3_meses`,
+  `6_meses`, `1_ano`, `3_anos`, y `HORIZON_LABELS` guarda cómo se escribe cada
+  uno. Los desplegables usan `format_func`, igual que el de estrategia.
+- Los sitios que lo pintan —`vistas/portafolios.py`, `vistas/comparar.py`, el
+  PDF y el Excel— traducen con `.get(clave, clave)`, que es el mismo idioma.
+- El nombre del fichero que se descarga sigue siendo `markowitz_1_Mes.xlsx` y no
+  `markowitz_1_mes.xlsx`: eso lo lee una persona en su carpeta, no el programa.
+
+### La tabla de heredados, y por qué está escrita a mano
+
+Aquí no hay campo hermano del que copiar —esa fue toda la ventaja de los otros
+dos arreglos— así que **sí hay que traducir el texto**, y para eso está
+`data._HEREDADOS`, que mapea «1 Mes» → `1_mes`.
+
+**Escrita a mano y congelada, no derivada de `HORIZON_LABELS`.** Derivarla la
+dejaría inservible justo el día que sirve: al reescribir una etiqueta, los
+ficheros que llevan la vieja dentro dejarían de reconocerse — el defecto entero
+otra vez y por la puerta de atrás. Es historia, la redacción vigente hasta el
+2026-09-20, y la historia no se recalcula. Hay un test que lo impone:
+reescribe `HORIZON_LABELS` por debajo y comprueba que «1 Mes» sigue resolviendo.
+
+Con esa tabla, **la migración es opcional**. Un portafolio guardado con «1 Año»
+abre, se carga en el optimizador y exporta sin tocarlo, porque
+`data.clave_de_horizonte` traduce al leer. Comprobado en la app arrancada con
+los seis ficheros **sin migrar**: las tres tarjetas enseñan su horizonte, cargar
+CORE-SATELLIT deja el formulario en «1 Año» sin aviso de sustitución —porque no
+la hubo, tradujo— y Perfil abre con las preferencias heredadas. Después, con los
+seis ya migrados, lo mismo y sin que se escape una clave a la pantalla.
+
+El fichero de preferencias no lo toca el script, y no hace falta:
+`preferencias.saneadas()` lo traduce al leerlo y lo deja en clave la primera vez
+que el usuario guarde. Un script que entra en la carpeta personal de alguien
+para arreglar algo que se arregla solo no se escribe.
 
 ## Comandos
 
 ```bash
 # Todos estos se ejecutan desde programa/, no desde la raiz del repo.
-pytest tests/ -q -m "not red"       # 1.750 tests, sin red
+pytest tests/ -q -m "not red"       # 1.766 tests, sin red
 python -m research.run              # correr el estudio (~5 min, luego caché)
 streamlit run app.py                # la app: optimizador + pagina de revision
 python scripts/bootstrap_universe.py   # regenerar el snapshot del universo

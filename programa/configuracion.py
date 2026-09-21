@@ -26,7 +26,7 @@ traspaso es lo único que lo pisa: escribe en esas claves una vez y se vacía.
 
 from typing import MutableMapping
 
-from data import HORIZON_CONFIG
+from data import clave_de_horizonte
 from optimizer import STRATEGY_LABELS
 from preferencias import entero_en_rango
 
@@ -128,8 +128,13 @@ def sembrar(
         # y son válidas —`preferencias.saneadas()` las revisa al cargarlas, con
         # su aviso— así que son mejor repuesto que cualquier valor de fábrica.
         sustituidos: list[str] = []
-        if cargado.horizonte in HORIZON_CONFIG:
-            estado[CLAVES["horizonte"]] = cargado.horizonte
+        # `clave_de_horizonte` y no `in HORIZON_CONFIG`: un portafolio guardado
+        # antes de que los horizontes tuvieran clave lleva «1 Mes» dentro, y eso
+        # no es un horizonte retirado sino el mismo con el nombre de entonces.
+        # Sin esto, cargar un portafolio viejo perderia su horizonte en silencio.
+        clave = clave_de_horizonte(cargado.horizonte)
+        if clave is not None:
+            estado[CLAVES["horizonte"]] = clave
         else:
             sustituidos.append(f"su horizonte «{cargado.horizonte}» ya no existe")
         if cargado.estrategia in STRATEGY_LABELS:

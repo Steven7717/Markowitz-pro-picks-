@@ -38,7 +38,7 @@ ETIQUETA = STRATEGY_LABELS["max_sharpe"]
 
 
 def _metricas(**campos) -> dict:
-    base = {"sharpe": 1.42, "annual_return": 0.183, "horizon": "1 Mes",
+    base = {"sharpe": 1.42, "annual_return": 0.183, "horizon": "1_mes",
             "strategy": ETIQUETA, "shrinkage": "Sí"}
     base.update(campos)
     return base
@@ -59,7 +59,7 @@ def _portafolio_crudo(**campos) -> dict:
         "fecha": "2026-09-01T19:01:54",
         "posiciones": [{"ticker": "AAPL", "peso": 0.6},
                        {"ticker": "MSFT", "peso": 0.4}],
-        "horizonte": "1 Mes",
+        "horizonte": "1_mes",
         "estrategia": "max_sharpe",
         "peso_min": 0.0,
         "peso_max": 0.4,
@@ -71,6 +71,7 @@ def _portafolio_crudo(**campos) -> dict:
     base["metricas"] = metricas if metricas is not None else _metricas(
         strategy=STRATEGY_LABELS.get(base["estrategia"], ETIQUETA),
         shrinkage="Sí" if base["shrinkage"] else "No",
+        horizon=base["horizonte"],
     )
     return base
 
@@ -124,6 +125,46 @@ def test_un_shrinkage_escrito_de_otra_forma_tambien(texto):
         shrinkage=True, metricas=_metricas(strategy="max_sharpe", shrinkage=texto))
     assert migrar(crudo) == (1, [])
     assert crudo["metricas"]["shrinkage"] is True
+
+
+def test_el_horizonte_heredado_se_traduce_con_la_tabla_congelada():
+    """El único sin hermano: antes no había clave, la etiqueta ERA la identidad.
+
+    Aquí sí hay que leer el texto, y se puede porque `data._HEREDADOS` es una
+    tabla escrita a mano y congelada —la redacción vigente hasta el 2026-09-20—,
+    no una derivada de cómo se escriba hoy.
+    """
+    crudo = _portafolio_crudo(horizonte="3 Años",
+                              metricas=_metricas(strategy="max_sharpe",
+                                                 shrinkage=True, horizon="3 Años"))
+    assert migrar(crudo) == (2, [])
+    assert crudo["horizonte"] == "3_anos"
+    assert crudo["metricas"]["horizon"] == "3_anos"
+
+
+def test_el_horizonte_de_las_metricas_copia_del_campo_ya_arreglado():
+    """Y no del que había al empezar, que todavía era «1 Mes».
+
+    Es el orden lo que lo garantiza: el campo del portafolio se arregla primero
+    y `metricas["horizon"]` copia del arreglado. Si copiase del otro, el fichero
+    saldría con la clave arriba y la etiqueta dentro — el defecto de origen, otra
+    vez y recién hecho.
+    """
+    crudo = _portafolio_crudo(horizonte="6 Meses",
+                              metricas=_metricas(strategy="max_sharpe",
+                                                 shrinkage=True, horizon="6 Meses"))
+    migrar(crudo)
+    assert crudo["metricas"]["horizon"] == crudo["horizonte"] == "6_meses"
+
+
+def test_un_horizonte_que_no_es_de_hoy_ni_de_antes_no_se_adivina():
+    crudo = _portafolio_crudo(horizonte="1 Quincena",
+                              metricas=_metricas(strategy="max_sharpe",
+                                                 shrinkage=True, horizon="1 Quincena"))
+    cambiados, quejas = migrar(crudo)
+    assert cambiados == 0
+    assert crudo["horizonte"] == "1 Quincena"
+    assert any("1 Quincena" in q for q in quejas)
 
 
 # ── Lo que ya está bien no se toca ───────────────────────────────────────────
@@ -196,7 +237,7 @@ def test_arreglos_de_no_toca_nada():
     """Pura: quien llama decide si escribe, y eso es lo que permite `--simular`."""
     crudo = _portafolio_crudo()
     antes = json.dumps(crudo, ensure_ascii=False)
-    cambios, _ = arreglos_de(crudo)
+    _, cambios, _ = arreglos_de(crudo)
     assert cambios == {"strategy": "max_sharpe", "shrinkage": True}
     assert json.dumps(crudo, ensure_ascii=False) == antes
 
@@ -306,17 +347,23 @@ def test_el_fichero_guardado_por_el_programa_es_el_caso_real(tmp_path):
     `cartera.guardar` escribe, la migración reescribe y `cartera.cargar`
     devuelve un portafolio entero: es exactamente lo que pasa con los ficheros
     de `portafolios/` de esta instalación.
+
+    Y con los tres campos a la vez, como estaban de verdad: el horizonte en la
+    redacción de entonces, la estrategia con un sufijo ya retirado y el
+    shrinkage escrito en castellano.
     """
     guardado = cartera.desde_corrida(
         nombre="prueba", tickers=["AAPL", "MSFT"], pesos=[0.6, 0.4],
         horizonte="1 Mes", estrategia="risk_parity", peso_min=0.0, peso_max=0.4,
         permitir_cortos=False, shrinkage=True,
         metricas={"sharpe": 1.2, "strategy": "Paridad de riesgo (ERC)",
-                  "shrinkage": "Sí"},
+                  "shrinkage": "Sí", "horizon": "1 Mes"},
     )
     ruta = cartera.guardar(guardado, directorio=tmp_path)
-    assert migrar_fichero(ruta) == (2, [])
+    assert migrar_fichero(ruta) == (4, [])
     vuelto = cartera.cargar(ruta)
+    assert vuelto.horizonte == "1_mes"
+    assert vuelto.metricas["horizon"] == "1_mes"
     assert vuelto.metricas["strategy"] == "risk_parity"
     assert vuelto.metricas["shrinkage"] is True
     assert vuelto.estrategia == "risk_parity"

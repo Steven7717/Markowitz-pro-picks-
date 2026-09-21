@@ -16,7 +16,7 @@ def test_lo_guardado_vuelve_igual(tmp_path):
     ruta = tmp_path / "preferencias.json"
     mias = Preferencias(
         tickers="AAPL, MSFT",
-        horizonte="1 Año",
+        horizonte="1_ano",
         estrategia="min_variance",
         peso_min=5,
         peso_max=40,
@@ -100,11 +100,11 @@ def test_un_campo_desconocido_se_ignora_sin_ruido(tmp_path):
     # fichero siga abriendose en la version instalada.
     ruta = tmp_path / "preferencias.json"
     ruta.write_text(
-        json.dumps({"horizonte": "1 Año", "modo_experto": True}), encoding="utf-8"
+        json.dumps({"horizonte": "1_ano", "modo_experto": True}), encoding="utf-8"
     )
 
     guardadas, avisos = preferencias.cargar(ruta)
-    assert guardadas.horizonte == "1 Año"
+    assert guardadas.horizonte == "1_ano"
     assert avisos == []
 
 
@@ -120,7 +120,7 @@ def test_guardar_sanea_antes_de_escribir(tmp_path):
 
 def test_borrar_vuelve_a_los_valores_de_fabrica(tmp_path):
     ruta = tmp_path / "preferencias.json"
-    preferencias.guardar(Preferencias(horizonte="1 Año"), ruta)
+    preferencias.guardar(Preferencias(horizonte="1_ano"), ruta)
     preferencias.borrar(ruta)
     guardadas, _ = preferencias.cargar(ruta)
     assert guardadas == Preferencias()
@@ -163,3 +163,18 @@ def test_un_guardado_no_deja_el_temporal_detras(tmp_path):
     ruta = tmp_path / "preferencias.json"
     preferencias.guardar(Preferencias(), ruta)
     assert [p.name for p in tmp_path.iterdir()] == [ruta.name]
+
+
+def test_unas_preferencias_de_antes_de_la_clave_se_traducen_sin_avisar(tmp_path):
+    """«1 Año» era el horizonte que el usuario eligió, y lo sigue siendo.
+
+    Avisar aquí sería mentirle: no ha perdido nada. El aviso se reserva para un
+    horizonte que de verdad ya no existe, que es el test de arriba.
+    """
+    ruta = tmp_path / "preferencias.json"
+    ruta.write_text(json.dumps({"horizonte": "1 Año"}), encoding="utf-8")
+
+    guardadas, avisos = preferencias.cargar(ruta)
+
+    assert guardadas.horizonte == "1_ano"
+    assert avisos == []

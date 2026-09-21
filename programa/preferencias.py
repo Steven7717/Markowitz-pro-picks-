@@ -19,7 +19,7 @@ import tempfile
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 
-from data import DEFAULT_HORIZON, HORIZON_CONFIG
+from data import DEFAULT_HORIZON, HORIZON_LABELS, clave_de_horizonte
 from optimizer import STRATEGY_LABELS
 
 RUTA = Path.home() / ".markowitz-pro-picks" / "preferencias.json"
@@ -53,12 +53,21 @@ class Preferencias:
         avisos: list[str] = []
         cambios: dict = {}
 
-        if self.horizonte not in HORIZON_CONFIG:
+        # `clave_de_horizonte` y no `in HORIZON_CONFIG`: un fichero de
+        # preferencias escrito antes de que los horizontes tuvieran clave guarda
+        # «1 Mes», y eso no es un horizonte inexistente sino el mismo con el
+        # nombre de entonces. Traducirlo en silencio es lo correcto —el usuario
+        # eligió ESE horizonte y lo sigue teniendo— y el aviso se reserva para lo
+        # que de verdad ya no existe.
+        clave = clave_de_horizonte(self.horizonte)
+        if clave is None:
             avisos.append(
                 f"El horizonte guardado ({self.horizonte!r}) ya no existe; "
-                f"se usa {DEFAULT_HORIZON}."
+                f"se usa {HORIZON_LABELS[DEFAULT_HORIZON]}."
             )
             cambios["horizonte"] = DEFAULT_HORIZON
+        elif clave != self.horizonte:
+            cambios["horizonte"] = clave
 
         if self.estrategia not in STRATEGY_LABELS:
             avisos.append(

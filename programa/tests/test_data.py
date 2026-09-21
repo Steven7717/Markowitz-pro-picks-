@@ -1,3 +1,5 @@
+import pytest
+
 from data import parse_tickers, HORIZON_CONFIG, DEFAULT_HORIZON
 
 
@@ -26,8 +28,58 @@ def test_parse_tickers_only_whitespace():
 
 
 def test_horizon_config_has_all_six_horizons():
-    expected = {"1 Semana", "1 Mes", "3 Meses", "6 Meses", "1 Año", "3 Años"}
+    expected = {"1_semana", "1_mes", "3_meses", "6_meses", "1_ano", "3_anos"}
     assert set(HORIZON_CONFIG.keys()) == expected
+
+
+# ── El horizonte tiene clave, y la etiqueta es texto de pantalla ─────────────
+#
+# Antes no la tenía: la etiqueta ERA la identidad, y se escribía en
+# `portafolios/*.json`, en `libros/*.json` y en las preferencias. Reescribir «1
+# Año» no habría roto una exportación —eso fue lo de la estrategia— sino la
+# RECARGA de todo portafolio guardado con él.
+
+import data  # noqa: E402
+from data import HORIZON_LABELS, clave_de_horizonte  # noqa: E402
+
+
+def test_las_claves_del_horizonte_no_son_texto_de_pantalla():
+    """Una clave se escribe en un fichero: ni espacios, ni tildes, ni mayúsculas."""
+    for clave in HORIZON_CONFIG:
+        assert clave == clave.lower()
+        assert " " not in clave
+        assert clave.isascii()
+
+
+def test_cada_horizonte_tiene_etiqueta_y_ninguna_sobra():
+    assert set(HORIZON_LABELS) == set(HORIZON_CONFIG)
+
+
+def test_una_clave_se_reconoce_a_si_misma():
+    for clave in HORIZON_CONFIG:
+        assert clave_de_horizonte(clave) == clave
+
+
+def test_la_etiqueta_con_la_que_se_guardo_antes_sigue_valiendo():
+    """Un portafolio de antes de esto guarda «1 Mes», no `1_mes`, y tiene que abrir."""
+    assert clave_de_horizonte("1 Mes") == "1_mes"
+    assert clave_de_horizonte("3 Años") == "3_anos"
+
+
+@pytest.mark.parametrize("valor", ["8 Meses", "1 Quincena", "", None, 3, ["1 Mes"]])
+def test_lo_que_no_es_ni_una_cosa_ni_otra_no_se_adivina(valor):
+    assert clave_de_horizonte(valor) is None
+
+
+def test_las_heredadas_no_dependen_de_como_se_escriba_hoy(monkeypatch):
+    """La tabla de heredados es historia, y la historia no se recalcula.
+
+    Si se derivase de `HORIZON_LABELS`, quedaría inservible justo el día que
+    sirve: al reescribir una etiqueta, los ficheros que llevan la vieja dentro
+    dejarían de reconocerse — el defecto entero otra vez, por la puerta de atrás.
+    """
+    monkeypatch.setitem(data.HORIZON_LABELS, "1_mes", "Un mes")
+    assert clave_de_horizonte("1 Mes") == "1_mes"
 
 
 def test_horizon_config_entries_have_required_fields():
@@ -65,7 +117,7 @@ def _make_mock_download(tickers: list[str], n_rows: int = 100) -> pd.DataFrame:
 @patch("data.yf.download")
 def test_fetch_market_data_returns_expected_keys(mock_dl):
     mock_dl.return_value = _make_mock_download(["AAPL", "MSFT"])
-    result = fetch_market_data(("AAPL", "MSFT"), "1 Mes")
+    result = fetch_market_data(("AAPL", "MSFT"), "1_mes")
     assert "returns" in result
     assert "rf_rate" in result
     assert "benchmark_returns" in result
@@ -77,7 +129,7 @@ def test_fetch_market_data_returns_expected_keys(mock_dl):
 @patch("data.yf.download")
 def test_fetch_market_data_rf_rate_converted_to_period(mock_dl):
     mock_dl.return_value = _make_mock_download(["AAPL", "MSFT"])
-    result = fetch_market_data(("AAPL", "MSFT"), "1 Mes")
+    result = fetch_market_data(("AAPL", "MSFT"), "1_mes")
     # ^IRX = 5.25% annual → per-day ≈ 5.25/100/252
     expected_rf = 5.25 / 100 / 252
     assert abs(result["rf_rate"] - expected_rf) < 1e-6
@@ -95,7 +147,7 @@ def test_fetch_market_data_uses_fallback_when_irx_missing(mock_dl):
     data[:, 1] = np.nan  # ^IRX all NaN
     df = pd.DataFrame(data, index=dates, columns=cols)
     mock_dl.return_value = df
-    result = fetch_market_data(("AAPL",), "1 Mes")
+    result = fetch_market_data(("AAPL",), "1_mes")
     assert result["rf_rate"] == RF_FALLBACK / 252
     assert result.get("rf_available") is False
 
@@ -169,7 +221,7 @@ def test_return_construction_raises_no_pandas_deprecation_warning():
 @patch("data.yf.download")
 def test_fetch_market_data_reports_the_observation_count(mock_dl):
     mock_dl.return_value = _make_mock_download(["AAPL", "MSFT"], n_rows=100)
-    result = fetch_market_data(("AAPL", "MSFT"), "1 Mes")
+    result = fetch_market_data(("AAPL", "MSFT"), "1_mes")
     assert result["n_obs"] == len(result["returns"])
 
 

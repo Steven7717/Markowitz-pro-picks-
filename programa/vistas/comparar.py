@@ -6,6 +6,7 @@ import streamlit as st
 import cartera
 import comparativa
 import tema
+from data import HORIZON_LABELS
 from optimizer import STRATEGY_LABELS
 
 st.markdown(
@@ -50,7 +51,7 @@ seleccion = list(elegidas.values())
 # diferentes, con distinta frecuencia de datos y distinto numero de
 # observaciones. Ponerlas en la misma tabla sin decirlo invita justo a la
 # comparacion que los numeros no sostienen.
-horizontes = {p.horizonte for p in seleccion}
+horizontes = {HORIZON_LABELS.get(p.horizonte, p.horizonte) for p in seleccion}
 if len(horizontes) > 1:
     st.warning(
         "Estás comparando portafolios con horizontes distintos ("
@@ -77,7 +78,7 @@ for p in seleccion:
         "Portafolio": p.nombre,
         "Guardado": p.fecha_legible,
         "Estrategia": STRATEGY_LABELS.get(p.estrategia, p.estrategia),
-        "Horizonte": p.horizonte,
+        "Horizonte": HORIZON_LABELS.get(p.horizonte, p.horizonte),
         "Activos": len(p.posiciones),
         "Sharpe (en muestra)": cartera.formato_cifra(m.get("sharpe")),
         "Sharpe (fuera)": cartera.formato_cifra(m.get("oos_sharpe")),
