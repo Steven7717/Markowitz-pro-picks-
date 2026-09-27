@@ -277,7 +277,7 @@ _MOTIVOS_PESOS = {
         "imagen y pulsas «Generar token») y se pega en Perfil."
     ),
     "token_invalido": "Banxico rechazó el token. Revísalo en Perfil.",
-    "sin_red": "No se pudo hablar con Banxico. Se reintentará en la próxima carga.",
+    "sin_red": "No se pudo hablar con Banxico. Se reintentará en una hora como mucho.",
     "respuesta_rara": "Banxico respondió algo que no tiene forma de serie.",
     "sin_valorar": None,
     "moneda_no_soportada": "Solo se convierten libros en USD o en MXN.",

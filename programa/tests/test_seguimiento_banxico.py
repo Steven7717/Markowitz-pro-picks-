@@ -186,6 +186,19 @@ def test_una_serie_vacia_no_se_guarda_en_cache(tmp_path):
     assert len(red.peticiones) == 2
 
 
+def test_un_fallo_al_guardar_en_cache_no_tira_la_descarga(tmp_path, monkeypatch):
+    # Un disco lleno o sin permiso de escritura no es motivo para perder el
+    # dato que ya se descargo: `traer` debe devolverlo igual, aunque la
+    # proxima llamada tenga que volver a pedirlo a la red.
+    def _guardar_roto(*args, **kwargs):
+        raise OSError("disco lleno")
+
+    monkeypatch.setattr(cache, "guardar", _guardar_roto)
+    resultado = _traer(tmp_path, _Red())
+    assert resultado.motivo == "ok"
+    assert list(resultado.datos) == [17.05, 1017.25]
+
+
 def test_de_plano_de_una_cache_vacia_tiene_indice_de_fechas():
     # Un dict vacio sin forzar el tipo del indice da un Index generico, y
     # `caduca` (con `len(datos)`) o cualquier `.date()` sobre el indice

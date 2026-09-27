@@ -131,17 +131,25 @@ def _historia(tickers: tuple[str, ...], desde: str):
 
 
 @st.cache_data(ttl=3600, show_spinner="Descargando datos de Banxico...")
-def _banxico(desde: str, hasta: str, clave: "str | None"):
+def _banxico(desde: str, hasta: str, clave: "str | None", con_fix: bool):
     """FIX e INPC para el periodo. Encima de la cache en disco de `banxico`.
 
-    El INPC se pide desde dos meses antes: el dato mensual se ancla al cierre
-    del mes, asi que un periodo que empieza el dia 5 necesita el del mes
-    anterior. El FIX, desde diez dias antes, por si el primer dia es festivo.
+    El INPC se pide desde tres meses antes: el dato mensual se ancla al cierre
+    del mes y Banxico lo publica hasta el dia 9 del mes siguiente, asi que un
+    periodo que empieza a principios de mes puede necesitar el de dos meses
+    atras, no solo el anterior. El FIX, desde diez dias antes, por si el
+    primer dia es festivo.
+
+    `con_fix=False` en un libro en MXN, donde no hay nada que convertir: es
+    una llamada de red menos, no una rama nueva que mantener.
     """
     inicio = date.fromisoformat(desde)
     fin = date.fromisoformat(hasta)
-    fix = banxico.traer(banxico.SERIE_FIX, inicio - timedelta(days=10), fin, clave)
-    inpc_desde = (inicio - timedelta(days=62)).replace(day=1)
+    fix = (
+        banxico.traer(banxico.SERIE_FIX, inicio - timedelta(days=10), fin, clave)
+        if con_fix else None
+    )
+    inpc_desde = (inicio - timedelta(days=93)).replace(day=1)
     inpc = banxico.traer(banxico.SERIE_INPC, inpc_desde, fin, clave)
     return fix, inpc
 
@@ -553,16 +561,16 @@ elif marcha.posteriores:
 cab = panel.cabecera(marcha, vivos, sin_valorar)
 
 # Las cifras en pesos. Aparte, porque dependen de Banxico y pueden faltar sin
-# que falte nada de arriba. En un libro MXN el FIX sobra; se descarta en vez de
-# abrir un segundo camino, porque es una sola llamada cacheada un dia.
+# que falte nada de arriba. En un libro MXN no se pide el FIX -- no hay nada
+# que convertir-- y con menos de dos puntos valorados `cabecera_pesos` va a
+# devolver "sin_valorar" igual que arriba, asi que pedirle datos a Banxico
+# seria una llamada de red que nadie va a leer.
 _fix = _inpc = None
-if len(marcha.valor) and not sin_valorar and actual.moneda in ("USD", "MXN"):
+if len(marcha.valor) >= 2 and not sin_valorar and actual.moneda in ("USD", "MXN"):
     _fix, _inpc = _banxico(
         marcha.valor.index[0].date().isoformat(), date.today().isoformat(),
-        banxico.token(),
+        banxico.token(), actual.moneda == "USD",
     )
-    if actual.moneda == "MXN":
-        _fix = None
 _motivo_datos = next(
     (s.motivo for s in (_fix, _inpc) if s is not None and s.motivo != "ok"), "ok"
 )
@@ -788,8 +796,12 @@ with por_activo:
     st.markdown("**En pesos (MXN)**")
     _notas = panel.notas_pesos(cab_mxn)
     p1, p2, p3, p4, p5 = st.columns(5)
+    _twr_mxn_nota = _notas["tc"]
+    if cab_mxn.twr_anual is None and cab_mxn.twr_periodo is not None:
+        _extra = f" Sin anualizar, el periodo entero rindió {cab_mxn.twr_periodo:.2%}."
+        _twr_mxn_nota = (_twr_mxn_nota or "") + _extra
     p1.metric("TWR MXN", cartera.formato_porcentaje(cab_mxn.twr_anual),
-              help=_notas["tc"])
+              help=_twr_mxn_nota)
     _tir_mxn_texto, _tir_mxn_nota = panel.texto_tir(
         cab_mxn.tir, cab_mxn.motivo_tir, cab.dias
     )
@@ -809,11 +821,15 @@ with por_activo:
     for _nota in (_notas["motivo"], _notas["periodo"]):
         if _nota:
             st.caption(_nota)
-    _hora = next((s.descargada for s in (_fix, _inpc) if s and s.descargada), None)
-    if _hora:
+    # La mas vieja de las dos, no la mas nueva: si el FIX se descargo hace una
+    # hora y el INPC lleva un dia en cache porque Banxico le nego el token,
+    # decir "descargado hace una hora" seria mentir sobre el dato que si fallo.
+    _horas = [s.descargada for s in (_fix, _inpc) if s and s.descargada]
+    if _horas:
+        _hora = min(_horas).astimezone()
         _vieja = any(s and s.vieja for s in (_fix, _inpc))
         st.caption(
-            f"Datos: Banxico SIE · descargados el {_hora:%Y-%m-%d %H:%M} UTC"
+            f"Datos: Banxico SIE · descargados el {_hora:%Y-%m-%d %H:%M}"
             + (" · **no se pudieron renovar**" if _vieja else "")
         )
 

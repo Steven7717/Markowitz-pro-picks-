@@ -182,7 +182,13 @@ def traer(
         # `caduca` deje de considerarlo vigente, y para el FIX eso es un dia
         # entero aunque el dato salga a media manana.
         if len(datos):
-            cache.guardar(raiz, _FUENTE, llave, _a_plano(datos))
+            try:
+                cache.guardar(raiz, _FUENTE, llave, _a_plano(datos))
+            except OSError:
+                # Un disco lleno o sin permiso no invalida el dato: ya se
+                # descargo. Sin la cache, la proxima llamada volvera a
+                # pedirlo a la red, que es peor que nada pero no un fallo.
+                pass
         return Serie(datos, "ok", ahora)
 
     if previo is not None:

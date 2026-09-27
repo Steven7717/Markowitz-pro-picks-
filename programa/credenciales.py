@@ -26,7 +26,7 @@ _PREFIJO_HABITUAL = "sk-ant-"
 _TOKEN_BANXICO = re.compile(r"^[A-Za-z0-9]{64}$")
 
 # La correspondencia entre variable de entorno y campo. En un solo sitio
-# porque cuatro funciones la recorren: repetida, añadir una tercera credencial
+# porque cuatro funciones la recorren: repetida, añadir una credencial más
 # significaría acordarse de tocar los cuatro.
 _VARIABLES = (
     ("ANTHROPIC_API_KEY", "api_key"),
