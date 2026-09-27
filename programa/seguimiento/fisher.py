@@ -26,3 +26,27 @@ def real(nominal: "float | None", inflacion_anual: "float | None") -> "float | N
     if nominal is None or inflacion_anual is None or inflacion_anual <= -1.0:
         return None
     return (1.0 + nominal) / (1.0 + inflacion_anual) - 1.0
+
+
+def en_pesos(
+    valor: pd.Series, flujos: pd.Series, fix: "pd.Series | None"
+) -> "tuple[pd.Series, pd.Series] | None":
+    """El valor diario y los flujos, en pesos, con el FIX de cada fecha.
+
+    Flujo a flujo y no con el atajo `(1 + r_USD)(1 + Δtc) − 1`: el atajo da la
+    TWR bien, pero la TIR sale mal en cuanto hay aportaciones, porque cada una
+    entro a un tipo de cambio distinto.
+
+    Un dia sin FIX (fin de semana, o un festivo mexicano que en EE. UU. es habil)
+    usa el ultimo publicado. **Hacia atras no se arrastra nada**: si la serie
+    empieza antes del primer FIX disponible devuelve `None`, porque el tipo de
+    cambio de ese dia no lo sabe nadie aqui.
+    """
+    if fix is None or fix.empty:
+        return None
+    fix = fix.sort_index()
+    calendario = valor.index.union(flujos.index)
+    alineado = fix.reindex(fix.index.union(calendario)).ffill().reindex(calendario)
+    if alineado.isna().any():
+        return None
+    return valor * alineado.reindex(valor.index), flujos * alineado.reindex(flujos.index)
