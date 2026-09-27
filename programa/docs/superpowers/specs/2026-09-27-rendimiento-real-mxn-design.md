@@ -87,9 +87,21 @@ respuesta como fixture de test.
 `credenciales.py` gana un tercer campo, `banxico_token`. Se añade a
 `_VARIABLES` como `("BANXICO_TOKEN", "banxico_token")` y a `limpia()`. Se
 captura en la misma pantalla que la clave de Anthropic y la identidad de
-EDGAR, con un enlace a la página de alta del token. El token se valida solo por
-su forma: una cadena hexadecimal de 64 caracteres. Se puede registrar con el
-mismo correo que EDGAR, pero es un dato distinto.
+EDGAR. El token se valida solo por su forma: 64 caracteres alfanuméricos, que
+es lo que documenta Banxico.
+
+**El token no se puede obtener por el usuario, ni sale del correo de EDGAR.**
+Banxico no pide correo. La página
+<https://www.banxico.org.mx/SieAPIRest/service/v1/token> solo pide resolver una
+imagen de seguridad (un CAPTCHA) y pulsar «Generar token». El token se genera
+una vez y se reutiliza. Automatizar ese paso sería saltarse el CAPTCHA, así que
+la pantalla se limita a hacerlo corto: un enlace directo a esa página y la
+instrucción «resuelve la imagen, pulsa Generar token y pega aquí el código de
+64 caracteres».
+
+**Límites de consulta.** Banxico inhabilita temporalmente el token que los
+supera. Por eso la caché del punto 1 no es opcional: con cada clic, Streamlit
+volvería a pedir las dos series.
 
 ### 3. `seguimiento/fisher.py` — las cuentas
 
