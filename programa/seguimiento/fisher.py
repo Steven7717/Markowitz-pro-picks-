@@ -50,3 +50,82 @@ def en_pesos(
     if alineado.isna().any():
         return None
     return valor * alineado.reindex(valor.index), flujos * alineado.reindex(flujos.index)
+
+
+# Para extender el INPC mas alla del ultimo publicado: una tasa mensual se
+# aplica en proporcion a los dias, como doce meses por año.
+_MESES_POR_DIA = 12 / 365
+
+
+@dataclass(frozen=True)
+class Inflacion:
+    """La inflacion de un periodo y hasta donde es oficial.
+
+    `estimada` no es un detalle: el INPC se publica hacia el dia 9 del mes
+    siguiente, asi que los ultimos dias de una cartera casi nunca lo tienen. Se
+    extienden con la ultima tasa mensual y la pantalla lo dice.
+    """
+
+    acumulada: float
+    anual: "float | None"
+    oficial_hasta: date
+    estimada: bool
+    tasa_extension: "float | None" = None
+
+
+def anclar(inpc: pd.Series) -> pd.Series:
+    """El INPC fechado al cierre de su mes, no al dia 1 que usa Banxico."""
+    serie = inpc.dropna().sort_index()
+    serie.index = (
+        pd.DatetimeIndex(serie.index).to_period("M").to_timestamp(how="end").normalize()
+    )
+    return serie
+
+
+def nivel(anclado: pd.Series, dia: date) -> "float | None":
+    """El nivel del indice en un dia, interpolado o extendido.
+
+    Entre dos cierres de mes, geometrico por dias. Despues del ultimo, la ultima
+    tasa mensual conocida. Antes del primero, `None`: no se extrapola hacia
+    atras.
+    """
+    cuando = pd.Timestamp(dia)
+    if anclado.empty or cuando < anclado.index[0]:
+        return None
+    if cuando > anclado.index[-1]:
+        if len(anclado) < 2:
+            return None
+        tasa = anclado.iloc[-1] / anclado.iloc[-2]
+        dias = (cuando - anclado.index[-1]).days
+        return float(anclado.iloc[-1] * tasa ** (dias * _MESES_POR_DIA))
+    posicion = int(anclado.index.searchsorted(cuando))
+    if anclado.index[posicion] == cuando:
+        return float(anclado.iloc[posicion])
+    antes, despues = anclado.index[posicion - 1], anclado.index[posicion]
+    fraccion = (cuando - antes).days / (despues - antes).days
+    razon = anclado.iloc[posicion] / anclado.iloc[posicion - 1]
+    return float(anclado.iloc[posicion - 1] * razon ** fraccion)
+
+
+def inflacion_periodo(inpc: pd.Series, desde: date, hasta: date) -> "Inflacion | None":
+    """La inflacion entre dos fechas, anualizada con la misma guarda que la TWR.
+
+    `None` si alguna de las dos fechas no tiene nivel. Por debajo de 30 dias
+    devuelve la acumulada con `anual=None`, igual que `rendimiento.anualizar`.
+    """
+    anclado = anclar(inpc)
+    inicio, fin = nivel(anclado, desde), nivel(anclado, hasta)
+    if inicio is None or fin is None:
+        return None
+    acumulada = fin / inicio - 1.0
+    dias = (pd.Timestamp(hasta) - pd.Timestamp(desde)).days
+    estimada = bool(pd.Timestamp(hasta) > anclado.index[-1])
+    return Inflacion(
+        acumulada=acumulada,
+        anual=rendimiento.anualizar(acumulada, dias=dias),
+        oficial_hasta=anclado.index[-1].date(),
+        estimada=estimada,
+        tasa_extension=(
+            float(anclado.iloc[-1] / anclado.iloc[-2] - 1.0) if estimada else None
+        ),
+    )
