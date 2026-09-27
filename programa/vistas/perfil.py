@@ -104,6 +104,10 @@ with credenciales_tab:
         st.text_input(
             "Correo para EDGAR", value=guardadas.edgar_identity or "", disabled=True
         )
+        st.text_input(
+            "Token de Banxico",
+            value=enmascarar(guardadas.banxico_token), disabled=True,
+        )
     else:
         nueva_clave = st.text_input(
             "Clave de Anthropic",
@@ -120,12 +124,22 @@ with credenciales_tab:
             help="No es un registro: la SEC exige un contacto en la cabecera de "
             "cada petición y sólo se envía ahí.",
         )
+        nuevo_token = st.text_input(
+            "Token de Banxico",
+            type="password",
+            key="entrada_token_banxico",
+            help="Para ver el rendimiento en pesos y descontando la inflación. No "
+                 "pide correo: en https://www.banxico.org.mx/SieAPIRest/service/v1/token "
+                 "resuelves la imagen, pulsas «Generar token» y pegas aquí los 64 "
+                 "caracteres. Se genera una vez y sirve siempre.",
+        )
         guardar_col, cancelar_col = st.columns([1, 1])
         if guardar_col.button("Guardar credenciales", type="primary",
                               icon=":material/save:"):
             nuevas = Credenciales(
                 api_key=nueva_clave or guardadas.api_key,
                 edgar_identity=nuevo_correo,
+                banxico_token=nuevo_token or guardadas.banxico_token,
             )
             try:
                 guardar_credenciales(nuevas)
@@ -161,7 +175,9 @@ with credenciales_tab:
         "rechaza las que no lo llevan, así que sin él no hay datos que descargar.\n"
         "- **Clave de Anthropic** — opcional. Sólo la necesita la mitad con IA, "
         "que redacta la tesis y verifica las citas del informe anual. Sin ella el "
-        "ranking sale igual, con fichas de plantilla."
+        "ranking sale igual, con fichas de plantilla.\n"
+        "- **Token de Banxico** — opcional. Sólo para la fila «En pesos» de "
+        "Seguimiento: el tipo de cambio FIX y el INPC. Sin él esa fila sale con «—»."
     )
 
 # ── Valores por defecto ──────────────────────────────────────────────────────
