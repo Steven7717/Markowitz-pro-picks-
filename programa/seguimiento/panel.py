@@ -267,6 +267,50 @@ def cabecera_pesos(
     )
 
 
+_MESES = ("ene", "feb", "mar", "abr", "may", "jun",
+          "jul", "ago", "sep", "oct", "nov", "dic")
+
+_MOTIVOS_PESOS = {
+    "sin_token": (
+        "Sin token de Banxico. Se saca gratis en "
+        "https://www.banxico.org.mx/SieAPIRest/service/v1/token (resuelves la "
+        "imagen y pulsas «Generar token») y se pega en Perfil."
+    ),
+    "token_invalido": "Banxico rechazó el token. Revísalo en Perfil.",
+    "sin_red": "No se pudo hablar con Banxico. Se reintentará en la próxima carga.",
+    "respuesta_rara": "Banxico respondió algo que no tiene forma de serie.",
+    "sin_valorar": None,
+    "moneda_no_soportada": "Solo se convierten libros en USD o en MXN.",
+    "fix_incompleto": "No hay tipo de cambio FIX para el primer día de la cartera.",
+    "inpc_incompleto": "No hay INPC para el inicio del periodo.",
+}
+
+
+def notas_pesos(cp: CabeceraPesos) -> "dict[str, str | None]":
+    """Las ayudas de la fila en pesos: tipo de cambio, inflacion y motivo."""
+    tc = None
+    if cp.movimiento_tc is not None:
+        verbo = "subió" if cp.movimiento_tc >= 0 else "bajó"
+        tc = (
+            f"FIX {cp.fix_inicial:.2f} → {cp.fix_final:.2f}: el dólar {verbo} "
+            f"{abs(cp.movimiento_tc):.2%} en el periodo. Ya está dentro de la cifra."
+        )
+
+    inflacion = None
+    if cp.inflacion is not None:
+        oficial = cp.inflacion.oficial_hasta
+        mes = f"{_MESES[oficial.month - 1]}-{oficial.year}"
+        inflacion = f"INPC oficial hasta {mes}."
+        if cp.inflacion.estimada:
+            inflacion += (
+                " Los días posteriores están estimados con la última tasa "
+                f"mensual ({cp.inflacion.tasa_extension:.2%})."
+            )
+
+    motivo = None if cp.motivo == "ok" else _MOTIVOS_PESOS.get(cp.motivo, cp.motivo)
+    return {"tc": tc, "inflacion": inflacion, "motivo": motivo}
+
+
 # Un salto inicial por debajo de esta fraccion del dinero aportado es redondeo
 # (comisiones, un cierre que se movio un tick) y no una causa que nombrar.
 _SALTO_MATERIAL = 0.01

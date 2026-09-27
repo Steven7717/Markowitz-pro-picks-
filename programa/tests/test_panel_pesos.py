@@ -5,7 +5,7 @@ from datetime import date
 import pandas as pd
 import pytest
 
-from seguimiento import panel, posiciones, rendimiento
+from seguimiento import fisher, panel, posiciones, rendimiento
 
 
 def _serie(fechas, valores):
@@ -93,3 +93,30 @@ def test_un_inpc_que_no_llega_al_inicio_lo_nombra():
                               fix=_serie(FECHAS, [17.0] * 3), inpc=tarde)
     assert cp.inflacion is None
     assert cp.motivo == "inpc_incompleto"
+
+
+def test_la_nota_del_tipo_de_cambio_dice_de_donde_a_donde():
+    cp = panel.CabeceraPesos(motivo="ok", twr_anual=0.1, fix_inicial=17.05,
+                             fix_final=18.40)
+    notas = panel.notas_pesos(cp)
+    assert "17.05 → 18.40" in notas["tc"]
+    assert "subió" in notas["tc"]
+
+
+def test_la_nota_de_inflacion_dice_desde_cuando_es_estimada():
+    inf = fisher.Inflacion(acumulada=0.03, anual=0.04, oficial_hasta=date(2026, 8, 31),
+                           estimada=True, tasa_extension=0.004)
+    notas = panel.notas_pesos(panel.CabeceraPesos(motivo="ok", inflacion=inf))
+    assert "ago-2026" in notas["inflacion"]
+    assert "estimad" in notas["inflacion"]
+    assert "0.40%" in notas["inflacion"]
+
+
+def test_sin_token_la_nota_dice_como_conseguirlo():
+    notas = panel.notas_pesos(panel.CabeceraPesos(motivo="sin_token"))
+    assert "Perfil" in notas["motivo"]
+    assert "banxico.org.mx" in notas["motivo"]
+
+
+def test_con_todo_bien_no_hay_nota_de_motivo():
+    assert panel.notas_pesos(panel.CabeceraPesos(motivo="ok"))["motivo"] is None
