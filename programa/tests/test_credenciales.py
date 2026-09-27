@@ -368,3 +368,27 @@ def test_dos_guardados_a_la_vez_no_comparten_el_fichero_temporal(tmp_path, monke
     assert all(Path(v).parent == ruta.parent for v in vistos)
     assert list(tmp_path.iterdir()) == [ruta], "queda basura"
     assert json.loads(ruta.read_text(encoding="utf-8"))["api_key"] == "sk-ant-dos"
+
+
+TOKEN_BANXICO = "a1" * 32  # 64 alfanumericos, la forma que documenta Banxico
+
+
+def test_el_token_de_banxico_se_guarda_y_se_lee(tmp_path):
+    ruta = guardar(Credenciales(banxico_token=TOKEN_BANXICO), tmp_path / "c.json")
+    assert cargar(ruta).banxico_token == TOKEN_BANXICO
+
+
+def test_el_token_de_banxico_solo_basta_para_guardar(tmp_path):
+    # Antes, sin clave ni correo, «no hay nada que guardar».
+    guardar(Credenciales(banxico_token=TOKEN_BANXICO), tmp_path / "c.json")
+
+
+def test_un_token_de_banxico_con_otra_forma_se_rechaza(tmp_path):
+    with pytest.raises(CredencialInvalida, match="64"):
+        guardar(Credenciales(banxico_token="corto"), tmp_path / "c.json")
+
+
+def test_el_token_de_banxico_va_a_su_variable_de_entorno():
+    entorno = {}
+    aplicar(Credenciales(banxico_token=TOKEN_BANXICO), entorno)
+    assert entorno["BANXICO_TOKEN"] == TOKEN_BANXICO

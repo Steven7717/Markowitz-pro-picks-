@@ -21,12 +21,17 @@ RUTA = Path.home() / ".markowitz-pro-picks" / "credenciales.json"
 _CORREO = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 _PREFIJO_HABITUAL = "sk-ant-"
 
+# La forma que documenta Banxico: 64 caracteres alfanumericos. Solo la forma;
+# si el token vale o no lo dice la API al primer uso.
+_TOKEN_BANXICO = re.compile(r"^[A-Za-z0-9]{64}$")
+
 # La correspondencia entre variable de entorno y campo. En un solo sitio
 # porque cuatro funciones la recorren: repetida, añadir una tercera credencial
 # significaría acordarse de tocar los cuatro.
 _VARIABLES = (
     ("ANTHROPIC_API_KEY", "api_key"),
     ("EDGAR_IDENTITY", "edgar_identity"),
+    ("BANXICO_TOKEN", "banxico_token"),
 )
 
 
@@ -40,10 +45,11 @@ class CredencialInvalida(ValueError):
 
 @dataclass(frozen=True)
 class Credenciales:
-    """Los dos datos que necesita la mitad con IA."""
+    """Los datos que necesitan la mitad con IA y el rendimiento en pesos."""
 
     api_key: str | None = None
     edgar_identity: str | None = None
+    banxico_token: str | None = None
 
     def limpia(self) -> "Credenciales":
         """Copia sin espacios sobrantes, con lo vacío convertido en ausente.
@@ -57,6 +63,7 @@ class Credenciales:
             self,
             api_key=_limpiar(self.api_key),
             edgar_identity=_limpiar(self.edgar_identity),
+            banxico_token=_limpiar(self.banxico_token),
         )
 
 
@@ -77,13 +84,14 @@ def cargar(ruta: Path | None = None) -> Credenciales:
         raise ConfigIlegible(f"No se pudo leer {ruta}: {error}") from error
     if not isinstance(datos, dict):
         raise ConfigIlegible(f"{ruta} no contiene un objeto JSON.")
-    for campo in ("api_key", "edgar_identity"):
+    for campo in ("api_key", "edgar_identity", "banxico_token"):
         valor = datos.get(campo)
         if valor is not None and not isinstance(valor, str):
             raise ConfigIlegible(f"{ruta}: '{campo}' no es texto.")
     return Credenciales(
         api_key=datos.get("api_key"),
         edgar_identity=datos.get("edgar_identity"),
+        banxico_token=datos.get("banxico_token"),
     ).limpia()
 
 
@@ -109,9 +117,17 @@ def validar(credenciales: Credenciales) -> None:
             "real en la cabecera de cada petición."
         )
 
-    if not credenciales.api_key and not credenciales.edgar_identity:
+    token = credenciales.banxico_token
+    if token and not _TOKEN_BANXICO.match(token):
         raise CredencialInvalida(
-            "No hay nada que guardar: rellena al menos uno de los dos campos."
+            "El token de Banxico son 64 letras y números, sin espacios. Cópialo "
+            "entero de la página donde lo generaste."
+        )
+
+    if not (credenciales.api_key or credenciales.edgar_identity
+            or credenciales.banxico_token):
+        raise CredencialInvalida(
+            "No hay nada que guardar: rellena al menos uno de los campos."
         )
 
 
@@ -141,6 +157,7 @@ def guardar(credenciales: Credenciales, ruta: Path | None = None) -> Path:
         {
             "api_key": credenciales.api_key,
             "edgar_identity": credenciales.edgar_identity,
+            "banxico_token": credenciales.banxico_token,
         },
         ensure_ascii=False,
         indent=2,
