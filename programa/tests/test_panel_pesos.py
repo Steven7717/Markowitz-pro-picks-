@@ -120,3 +120,68 @@ def test_sin_token_la_nota_dice_como_conseguirlo():
 
 def test_con_todo_bien_no_hay_nota_de_motivo():
     assert panel.notas_pesos(panel.CabeceraPesos(motivo="ok"))["motivo"] is None
+
+
+def test_sin_inpc_vacio_tambien_dice_por_que():
+    cp = panel.cabecera_pesos(MARCHA, sin_valorar=False, moneda="MXN",
+                              fix=None, inpc=pd.Series(dtype=float))
+    assert cp.motivo == "inpc_incompleto"
+
+
+def test_inpc_none_tambien_dice_por_que():
+    cp = panel.cabecera_pesos(MARCHA, sin_valorar=False, moneda="MXN",
+                              fix=None, inpc=None)
+    assert cp.motivo == "inpc_incompleto"
+
+
+def test_periodo_corto_dice_que_hacen_falta_30_dias():
+    notas = panel.notas_pesos(panel.CabeceraPesos(motivo="ok", twr_anual=None))
+    assert notas["periodo"] == "Hacen falta al menos 30 días para anualizar."
+
+
+def test_periodo_no_aparece_si_no_es_por_eso():
+    assert panel.notas_pesos(panel.CabeceraPesos(motivo="sin_token"))["periodo"] is None
+    con_twr = panel.CabeceraPesos(motivo="ok", twr_anual=0.1)
+    assert panel.notas_pesos(con_twr)["periodo"] is None
+
+
+def test_movimiento_tc_con_fix_inicial_cero_no_divide_por_cero():
+    cp = panel.CabeceraPesos(motivo="ok", fix_inicial=0.0, fix_final=18.0)
+    assert cp.movimiento_tc is None
+
+
+def _marcha_con_flujo_intermedio():
+    return posiciones.Marcha(
+        acciones=pd.DataFrame(), efectivo=pd.Series(dtype=float),
+        valor=_serie(FECHAS, [1000.0, 1600.0, 1700.0]),
+        flujos=_serie(FECHAS, [1000.0, 500.0, 0.0]),
+        dividendos=pd.DataFrame(),
+    )
+
+
+def test_un_flujo_intermedio_con_fix_que_se_mueve_cambia_la_tir_en_pesos():
+    marcha = _marcha_con_flujo_intermedio()
+    usd_flujos_tir = [
+        (d.date(), -float(v)) for d, v in marcha.flujos.items() if v
+    ]
+    usd_flujos_tir.append((marcha.valor.index[-1].date(), float(marcha.valor.iloc[-1])))
+    tir_usd, _ = rendimiento.tir_detallada(usd_flujos_tir)
+
+    constante = panel.cabecera_pesos(
+        marcha, sin_valorar=False, moneda="USD",
+        fix=_serie(FECHAS, [17.0, 17.0, 17.0]), inpc=None,
+    )
+    assert constante.tir == pytest.approx(tir_usd)
+
+    variable = panel.cabecera_pesos(
+        marcha, sin_valorar=False, moneda="USD",
+        fix=_serie(FECHAS, [17.0, 18.0, 19.0]), inpc=None,
+    )
+    assert variable.tir != pytest.approx(tir_usd)
+
+
+def test_un_fix_que_empieza_despues_del_primer_dia_dice_fix_incompleto():
+    tarde = _serie(["2026-03-02", "2026-03-31"], [17.5, 18.0])
+    cp = panel.cabecera_pesos(MARCHA, sin_valorar=False, moneda="USD",
+                              fix=tarde, inpc=INPC)
+    assert cp.motivo == "fix_incompleto"

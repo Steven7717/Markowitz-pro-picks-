@@ -192,7 +192,7 @@ class CabeceraPesos:
 
     @property
     def movimiento_tc(self) -> "float | None":
-        if self.fix_inicial is None or self.fix_final is None:
+        if not self.fix_inicial or self.fix_final is None:
             return None
         return self.fix_final / self.fix_inicial - 1.0
 
@@ -249,8 +249,8 @@ def cabecera_pesos(
     motivo = motivo_datos
     if inpc is not None and not inpc.empty:
         inflacion = fisher.inflacion_periodo(inpc, primero.date(), ultimo.date())
-        if inflacion is None and motivo == "ok":
-            motivo = "inpc_incompleto"
+    if inflacion is None and motivo == "ok":
+        motivo = "inpc_incompleto"
     anual = inflacion.anual if inflacion else None
 
     return CabeceraPesos(
@@ -287,7 +287,12 @@ _MOTIVOS_PESOS = {
 
 
 def notas_pesos(cp: CabeceraPesos) -> "dict[str, str | None]":
-    """Las ayudas de la fila en pesos: tipo de cambio, inflacion y motivo."""
+    """Las ayudas de la fila en pesos: tipo de cambio, inflacion, motivo y periodo.
+
+    `periodo` solo aparece cuando el motivo es `"ok"` --nada de Banxico
+    falló-- y aun asi no hay TWR anual: la unica razon posible es que el
+    periodo dura menos de los 30 dias que pide `rendimiento.anualizar`.
+    """
     tc = None
     if cp.movimiento_tc is not None:
         verbo = "subió" if cp.movimiento_tc >= 0 else "bajó"
@@ -307,8 +312,12 @@ def notas_pesos(cp: CabeceraPesos) -> "dict[str, str | None]":
                 f"mensual ({cp.inflacion.tasa_extension:.2%})."
             )
 
+    periodo = None
+    if cp.motivo == "ok" and cp.twr_anual is None:
+        periodo = "Hacen falta al menos 30 días para anualizar."
+
     motivo = None if cp.motivo == "ok" else _MOTIVOS_PESOS.get(cp.motivo, cp.motivo)
-    return {"tc": tc, "inflacion": inflacion, "motivo": motivo}
+    return {"tc": tc, "inflacion": inflacion, "motivo": motivo, "periodo": periodo}
 
 
 # Un salto inicial por debajo de esta fraccion del dinero aportado es redondeo
