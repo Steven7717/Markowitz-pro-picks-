@@ -1,7 +1,7 @@
 # Contexto del proyecto — para retomar en una sesión nueva
 
 **Última actualización:** 2026-09-20
-**Rama:** `master` · **Tests:** 1.766 pasando (`uv run pytest tests/ -q -m "not red"`), 4 omitidos —dos por permisos POSIX en Windows y dos sin `numpy_financial`— más 9 marcados `red`
+**Rama:** `master` · **Tests:** 1.840 pasando (`uv run pytest tests/ -q -m "not red"`), 4 omitidos —dos por permisos POSIX en Windows y dos sin `numpy_financial`— más 10 marcados `red`
 **Remoto:** `https://github.com/Steven7717/Markowitz-pro-picks-.git` — `master` es lo publicado
 **Estructura:** el programa vive en `programa/`; en la raíz sólo están los dos
 lanzadores y el `README.md`. Los comandos (`uv run pytest`, `uv run streamlit`)
@@ -54,6 +54,7 @@ El objetivo mayor es construir, **aguas arriba de esa app**, un sistema donde un
 | I | Capa de IA sobre F, G y H | Interpretación y propuestas de ajuste | ✅ **terminado** |
 | J | La entrada al seguimiento | Recorrido encadenado y alta del libro | ✅ **terminado** |
 | K | El panel de seguimiento | Monitor real de la cartera | ✅ **terminado** |
+| L | Rendimiento real en pesos (MXN) | TWR/TIR en pesos y reales (Fisher), vía Banxico | ✅ **terminado** |
 
 ## Resultado del sub-proyecto D
 
@@ -125,10 +126,11 @@ cae a él solo por el camino por defecto: quien pasa un directorio a mano está
 diciendo exactamente dónde mirar, y sustituírselo convertiría un fallo en un
 falso verde.
 
-Las credenciales (`ANTHROPIC_API_KEY` y `EDGAR_IDENTITY`) se meten desde la
-página de candidatos y se guardan en `~/.markowitz-pro-picks/credenciales.json`,
-fuera del proyecto — ver `credenciales.py`. El entorno gana sobre el fichero,
-así que un shell con las variables puestas sigue mandando.
+Las credenciales (`ANTHROPIC_API_KEY`, `EDGAR_IDENTITY` y `BANXICO_TOKEN`, esta
+última opcional y sólo para la fila «En pesos» de Seguimiento) se meten desde
+Perfil y se guardan en `~/.markowitz-pro-picks/credenciales.json`, fuera del
+proyecto — ver `credenciales.py`. El entorno gana sobre el fichero, así que un
+shell con las variables puestas sigue mandando.
 
 **No hay URL pública a propósito:** `salidas/` y `actas/` son rutas fijas y
 globales del proceso, así que dos visitantes simultáneos se pisarían los datos.
@@ -199,6 +201,8 @@ seguimiento/
 ├── posiciones.py   asientos → acciones, efectivo y valor, día a día
 ├── precios.py      cierres SIN ajustar, dividendos y splits
 ├── rendimiento.py  TWR, TIR, coste medio, contribución por activo
+├── banxico.py      FIX e INPC del SIE de Banxico, con caché y fallos con nombre
+├── fisher.py       conversión a pesos y TWR/TIR reales (Fisher), sin red
 └── comparacion.py  objetivo teórico, 1/N y S&P 500 sobre los mismos flujos
 vistas/seguimiento.py   widgets, sin lógica
 libros/                 datos del usuario, ignorado en git

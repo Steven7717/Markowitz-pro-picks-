@@ -326,13 +326,14 @@ costó después**. Nunca se llama a la IA sola: siempre hay que pulsar un botón
 
 ### Las credenciales
 
-Los dos datos se meten desde la propia app, en **Perfil y ajustes**, que está
+Los tres datos se meten desde la propia app, en **Perfil y ajustes**, que está
 al final de la barra lateral:
 
 | Qué | De dónde sale | Hace falta para |
 |---|---|---|
 | Un correo electrónico | El tuyo. No es un registro: viaja en la cabecera de cada petición a la SEC, que es quien lo exige, y a ningún otro sitio | **Las dos mitades** — sin él no se genera nada |
 | Clave de Anthropic | [platform.claude.com](https://platform.claude.com) — es tuya y tú pagas su uso. **Hay que comprar saldo**, ver abajo | Sólo la mitad con IA |
+| Token de Banxico | [banxico.org.mx](https://www.banxico.org.mx/SieAPIRest/service/v1/token), gratis y sin correo — ver abajo | Sólo la fila «En pesos (MXN)» de Seguimiento |
 
 ### Cómo conseguir la clave de Anthropic, paso a paso
 
@@ -405,6 +406,21 @@ a otra persona, tu clave no viaja dentro. Una vez guardada, se muestra siempre
 enmascarada (`sk-ant-…4f2a`), nunca entera. Desde ese mismo sitio puedes
 **Cambiar**la, **Cancelar** si te arrepentiste a mitad, o **Borrar**la del todo.
 
+### Cómo conseguir el token de Banxico
+
+Sáltate esto si no te interesa ver tu cartera en pesos: **el resto del programa
+funciona igual sin él**. Sin token, la fila «En pesos (MXN)» de Seguimiento
+sale con «—» en vez de romperse.
+
+Es gratis y no hace falta correo ni cuenta:
+
+1. Entra en **[banxico.org.mx/SieAPIRest/service/v1/token](https://www.banxico.org.mx/SieAPIRest/service/v1/token)**.
+2. Resuelve la imagen de seguridad.
+3. Pulsa **Generar token**.
+4. Copia los 64 caracteres y pégalos en **Perfil y ajustes → Token de Banxico**.
+
+Se genera una vez y sirve siempre — no caduca como el saldo de Anthropic.
+
 ---
 
 ## Tus posiciones
@@ -434,6 +450,7 @@ guardan decisiones y pesos, no importes.
 | En Mac: arranca, escribe dos líneas y se corta | La carpeta está en Descargas, Escritorio o Documentos. Muévela a tu carpeta de usuario |
 | Se queda minutos sin decir nada | Es la primera descarga. Es normal. No cierres la ventana |
 | «Falta EDGAR_IDENTITY en el entorno» al generar candidatos | Es tu correo, y falta. Ponlo en **Perfil y ajustes → Correo para EDGAR** |
+| La fila «En pesos» de Seguimiento sale toda en «—» | Falta el token de Banxico. Ponlo en **Perfil y ajustes → Token de Banxico** — es gratis y no pide correo |
 | Texto rojo en inglés con `download`, `network` o `timeout` | Se ha cortado internet. Cierra la ventana, comprueba la conexión y vuelve a abrir el programa: lo ya descargado no se pierde, sigue por donde iba |
 
 ---
