@@ -320,6 +320,36 @@ def notas_pesos(cp: CabeceraPesos) -> "dict[str, str | None]":
     return {"tc": tc, "inflacion": inflacion, "motivo": motivo, "periodo": periodo}
 
 
+def texto_tir(valor: "float | None", motivo: str, dias: "int | None") -> "tuple[str, str]":
+    """Lo que se enseña de una TIR y por que, en dolares o en pesos.
+
+    Vivia solo en `vistas/seguimiento.py`, escrita para la TIR en dolares. La
+    fila en pesos llamaba a `cartera.formato_porcentaje(cab_mxn.tir)` a pelo,
+    sin mirar `cab_mxn.motivo_tir`: una TIR fuera de escala salia como «--»
+    sin decir por que, y una que no se pudo medir salia igual que una del
+    0,00%. Con una sola funcion las dos filas explican lo mismo de la misma
+    manera.
+    """
+    if motivo == "sobre_escala":
+        return "> 1.000%", "La tasa se sale de la escala por arriba."
+    if motivo == "bajo_escala":
+        return "< −99,9%", "La tasa se sale de la escala por abajo."
+    if motivo == "periodo_corto":
+        return "—", "Hacen falta al menos 30 días para anualizar."
+    if motivo == "mismo_signo":
+        return "—", "Todos los flujos van en el mismo sentido: no hay tasa que los anule."
+    if motivo == "pocos_flujos":
+        return "—", "Hace falta más de un movimiento de dinero."
+    texto = cartera.formato_porcentaje(valor)
+    nota = (
+        f"Anualizada desde {dias} días de historia: extrapola lo que "
+        "pasó en ese tramo a un año entero."
+        if dias and dias < 365 else
+        "Ponderada por dinero: lo que ganaste tú, con tu timing dentro."
+    )
+    return texto, nota
+
+
 # Un salto inicial por debajo de esta fraccion del dinero aportado es redondeo
 # (comisiones, un cierre que se movio un tick) y no una causa que nombrar.
 _SALTO_MATERIAL = 0.01

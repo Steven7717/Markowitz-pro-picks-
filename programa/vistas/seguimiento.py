@@ -779,24 +779,7 @@ with por_activo:
     # El TWR lleva desde siempre su desagravio --«sin anualizar, el periodo
     # entero rindio X»-- y la TIR se quedaba sin el, con un 325% a pelo y la
     # ayuda diciendo «lo que ganaste tu». Y un «—» tapaba dos cosas distintas.
-    if cab.motivo_tir == "sobre_escala":
-        _tir_texto, _tir_nota = "> 1.000%", "La tasa se sale de la escala por arriba."
-    elif cab.motivo_tir == "bajo_escala":
-        _tir_texto, _tir_nota = "< −99,9%", "La tasa se sale de la escala por abajo."
-    elif cab.motivo_tir == "periodo_corto":
-        _tir_texto, _tir_nota = "—", "Hacen falta al menos 30 días para anualizar."
-    elif cab.motivo_tir == "mismo_signo":
-        _tir_texto, _tir_nota = "—", "Todos los flujos van en el mismo sentido: no hay tasa que los anule."
-    elif cab.motivo_tir == "pocos_flujos":
-        _tir_texto, _tir_nota = "—", "Hace falta más de un movimiento de dinero."
-    else:
-        _tir_texto = cartera.formato_porcentaje(cab.tir)
-        _tir_nota = (
-            f"Anualizada desde {cab.dias} días de historia: extrapola lo que "
-            "pasó en ese tramo a un año entero."
-            if cab.dias and cab.dias < 365 else
-            "Ponderada por dinero: lo que ganaste tú, con tu timing dentro."
-        )
+    _tir_texto, _tir_nota = panel.texto_tir(cab.tir, cab.motivo_tir, cab.dias)
     d1.metric("TIR", _tir_texto, help=_tir_nota)
     d2.metric("Dividendos", f"{cab.dividendos:,.2f}")
 
@@ -807,7 +790,12 @@ with por_activo:
     p1, p2, p3, p4, p5 = st.columns(5)
     p1.metric("TWR MXN", cartera.formato_porcentaje(cab_mxn.twr_anual),
               help=_notas["tc"])
-    p2.metric("TIR MXN", cartera.formato_porcentaje(cab_mxn.tir), help=_notas["tc"])
+    _tir_mxn_texto, _tir_mxn_nota = panel.texto_tir(
+        cab_mxn.tir, cab_mxn.motivo_tir, cab.dias
+    )
+    if _notas["tc"]:
+        _tir_mxn_nota = f"{_tir_mxn_nota} {_notas['tc']}"
+    p2.metric("TIR MXN", _tir_mxn_texto, help=_tir_mxn_nota)
     p3.metric("Inflación anual",
               cartera.formato_porcentaje(
                   cab_mxn.inflacion.anual if cab_mxn.inflacion else None),
