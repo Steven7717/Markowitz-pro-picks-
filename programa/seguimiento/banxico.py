@@ -11,7 +11,9 @@ La cache no es opcional: Banxico inhabilita por un tiempo el token que pasa de
 su limite de consultas, y Streamlit vuelve a ejecutar la pagina con cada clic.
 """
 
+import http.client
 import json
+import math
 import os
 import urllib.error
 import urllib.request
@@ -73,6 +75,8 @@ def parsear(crudo: dict) -> pd.Series:
             numero = float(str(punto["dato"]).replace(",", "").strip())
         except ValueError:
             continue
+        if not math.isfinite(numero):
+            continue
         fechas.append(datetime.strptime(punto["fecha"], "%d/%m/%Y"))
         valores.append(numero)
     serie = pd.Series(valores, index=pd.DatetimeIndex(fechas), dtype=float).sort_index()
@@ -85,13 +89,20 @@ def caduca(serie: str, datos: pd.Series, cuando: datetime) -> datetime:
     El FIX cambia cada dia habil, asi que vale un dia. El INPC mensual sale
     hacia el dia 9 del mes siguiente, asi que el de agosto no tiene sucesor
     hasta el 9 de octubre: vale hasta el 10.
+
+    Si Banxico se retrasa y ya paso ese dia 10 sin dato nuevo, el resultado no
+    puede quedar en el pasado: se pide al menos un dia mas, nunca menos. Que
+    eso reintente la red en cada rerun de Streamlit no pega aqui, porque la
+    vista ya envuelve `traer` en `st.cache_data(ttl=3600)`: como mucho una vez
+    por hora, no una vez por clic.
     """
     if serie == SERIE_INPC and len(datos):
         ultimo = datos.index[-1]
         # Meses contados desde el año 0, dos por delante del ultimo dato: agosto
         # da octubre, diciembre da febrero del año siguiente.
         meses = ultimo.year * 12 + (ultimo.month - 1) + 2
-        return datetime(meses // 12, meses % 12 + 1, 10, tzinfo=timezone.utc)
+        dia_10 = datetime(meses // 12, meses % 12 + 1, 10, tzinfo=timezone.utc)
+        return max(dia_10, cuando + timedelta(days=1))
     return cuando + timedelta(days=1)
 
 
@@ -102,9 +113,12 @@ def _a_plano(serie: pd.Series) -> dict:
 def _de_plano(plano) -> pd.Series:
     if not isinstance(plano, dict):
         raise TypeError("cache de Banxico sin forma de serie")
-    serie = pd.Series(
-        {pd.Timestamp(k): float(v) for k, v in plano.items()}, dtype=float
-    )
+    fechas = [pd.Timestamp(k) for k in plano]
+    valores = [float(v) for v in plano.values()]
+    # Un dict vacio sin forzar el indice da un `RangeIndex`, no un
+    # `DatetimeIndex`: `caduca` y cualquier `.date()` sobre el indice
+    # reventarian con una serie de un FIX o INPC que hoy no tiene nada guardado.
+    serie = pd.Series(valores, index=pd.DatetimeIndex(fechas), dtype=float)
     return serie.sort_index()
 
 
@@ -158,12 +172,17 @@ def traer(
             motivo = "sin_red"
         else:
             motivo = "respuesta_rara"
-    except (urllib.error.URLError, TimeoutError, OSError):
+    except (urllib.error.URLError, TimeoutError, OSError, http.client.HTTPException):
         motivo = "sin_red"
-    except (ValueError, KeyError, IndexError, TypeError):
+    except (ValueError, KeyError, IndexError, TypeError, AttributeError):
         motivo = "respuesta_rara"
     else:
-        cache.guardar(raiz, _FUENTE, llave, _a_plano(datos))
+        # Vacio no es "respuesta_rara": es que Banxico aun no publica el dato
+        # de hoy. No se guarda: si se guardara quedaria fijo hasta que
+        # `caduca` deje de considerarlo vigente, y para el FIX eso es un dia
+        # entero aunque el dato salga a media manana.
+        if len(datos):
+            cache.guardar(raiz, _FUENTE, llave, _a_plano(datos))
         return Serie(datos, "ok", ahora)
 
     if previo is not None:

@@ -5,12 +5,14 @@ que comprueba que la forma real no ha cambiado y que los ids de serie son los
 buenos.
 """
 
+import http.client
 import io
 import json
 import os
 import urllib.error
 from datetime import date, datetime, timedelta, timezone
 
+import pandas as pd
 import pytest
 
 from noticias import cache
@@ -116,6 +118,19 @@ def test_una_respuesta_sin_la_forma_esperada_es_respuesta_rara(tmp_path):
     assert _traer(tmp_path, _Red(respuesta={"otra": 1})).motivo == "respuesta_rara"
 
 
+def test_una_lectura_incompleta_de_la_red_es_sin_red(tmp_path):
+    error = http.client.IncompleteRead(b"")
+    assert _traer(tmp_path, _Red(error=error)).motivo == "sin_red"
+
+
+def test_una_serie_sin_datos_ni_nulo_es_respuesta_rara(tmp_path):
+    # `"datos": None` hace que `.get("datos")` de un `None` en vez de faltar la
+    # clave, y `None or []` lo cubriria -- pero un elemento `None` en la lista
+    # de series (`"series": [None]`) no tiene ni `.get`: es un AttributeError.
+    respuesta = {"bmx": {"series": [None]}}
+    assert _traer(tmp_path, _Red(respuesta=respuesta)).motivo == "respuesta_rara"
+
+
 def test_lo_descargado_se_guarda_y_la_segunda_vez_no_llama(tmp_path):
     red = _Red()
     primero = _traer(tmp_path, red)
@@ -146,6 +161,57 @@ def test_el_inpc_vale_hasta_el_dia_10_del_mes_en_que_sale_el_siguiente():
     assert banxico.caduca(banxico.SERIE_INPC, diciembre, cuando) == datetime(
         2027, 2, 10, tzinfo=timezone.utc)
     assert banxico.caduca(banxico.SERIE_FIX, agosto, cuando) == cuando + timedelta(days=1)
+
+
+def test_el_inpc_publicado_tarde_no_insiste_mas_de_un_dia():
+    import pandas as pd
+    agosto = pd.Series([140.0], index=pd.DatetimeIndex(["2026-08-01"]))
+    # El dia 10 (limite normal) ya paso cuando se pregunta esto: Banxico se
+    # retraso. Sin el suelo de "cuando + 1 dia", `traer` reintentaria la red
+    # en cada rerun de Streamlit hasta que salga el dato.
+    cuando = datetime(2026, 10, 12, tzinfo=timezone.utc)
+    assert banxico.caduca(banxico.SERIE_INPC, agosto, cuando) == cuando + timedelta(days=1)
+
+
+def test_una_serie_vacia_no_se_guarda_en_cache(tmp_path):
+    # Un FIX de hoy que Banxico aun no publica esta manana viene vacio. Si se
+    # guardara, quedaria "congelado" 24 horas y no se reintentaria hasta
+    # manana aunque el dato ya este disponible en la red a media mañana.
+    respuesta_vacia = {"bmx": {"series": [{"idSerie": "SF43718", "datos": []}]}}
+    red = _Red(respuesta=respuesta_vacia)
+    primero = _traer(tmp_path, red)
+    segundo = _traer(tmp_path, red)
+    assert primero.motivo == segundo.motivo == "ok"
+    assert len(primero.datos) == 0 and len(segundo.datos) == 0
+    assert len(red.peticiones) == 2
+
+
+def test_de_plano_de_una_cache_vacia_tiene_indice_de_fechas():
+    # Un dict vacio sin forzar el tipo del indice da un Index generico, y
+    # `caduca` (con `len(datos)`) o cualquier `.date()` sobre el indice
+    # reventaria con un TypeError si el indice no fuera de fechas.
+    serie = banxico._de_plano({})
+    assert isinstance(serie.index, pd.DatetimeIndex)
+
+
+def test_parsear_descarta_nan_e_infinito_como_n_e():
+    respuesta = {
+        "bmx": {
+            "series": [
+                {
+                    "idSerie": "SF43718",
+                    "datos": [
+                        {"fecha": "02/03/2026", "dato": "17.0500"},
+                        {"fecha": "03/03/2026", "dato": "NaN"},
+                        {"fecha": "04/03/2026", "dato": "inf"},
+                    ],
+                }
+            ]
+        }
+    }
+    serie = banxico.parsear(respuesta)
+    assert [d.date() for d in serie.index] == [date(2026, 3, 2)]
+    assert list(serie) == [17.05]
 
 
 def test_token_lee_la_variable_de_entorno(monkeypatch):
