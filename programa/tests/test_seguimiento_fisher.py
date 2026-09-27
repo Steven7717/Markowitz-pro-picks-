@@ -23,6 +23,10 @@ def test_fisher_sin_alguna_de_las_dos_no_inventa():
     assert fisher.real(0.10, None) is None
 
 
+def test_fisher_con_deflacion_total_no_divide_entre_cero():
+    assert fisher.real(0.10, -1.0) is None
+
+
 def _serie(pares):
     return pd.Series(
         [v for _, v in pares], index=pd.DatetimeIndex([d for d, _ in pares]), dtype=float
@@ -79,6 +83,32 @@ def test_sin_serie_de_fix_no_hay_conversion():
     assert fisher.en_pesos(valor, valor, pd.Series(dtype=float)) is None
 
 
+def test_un_fix_con_fecha_duplicada_no_revienta_y_usa_la_ultima():
+    valor = _serie([("2026-03-02", 100.0), ("2026-03-03", 100.0)])
+    flujos = _serie([("2026-03-02", 100.0), ("2026-03-03", 0.0)])
+    fix = pd.Series(
+        [17.0, 17.5, 18.0],
+        index=pd.DatetimeIndex(["2026-03-02", "2026-03-02", "2026-03-03"]),
+        dtype=float,
+    )
+
+    valor_mxn, _ = fisher.en_pesos(valor, flujos, fix)
+
+    assert valor_mxn.loc["2026-03-02"] == pytest.approx(1750.0)
+    assert valor_mxn.loc["2026-03-03"] == pytest.approx(1800.0)
+
+
+def test_flujos_con_menos_fechas_que_el_valor_se_convierten_bien():
+    valor = _serie([("2026-03-02", 100.0), ("2026-03-03", 105.0), ("2026-03-04", 110.0)])
+    flujos = _serie([("2026-03-02", 100.0)])
+    fix = _serie([("2026-03-02", 17.0), ("2026-03-03", 17.0), ("2026-03-04", 17.0)])
+
+    valor_mxn, flujos_mxn = fisher.en_pesos(valor, flujos, fix)
+
+    assert list(valor_mxn) == [1700.0, 1785.0, 1870.0]
+    assert list(flujos_mxn) == [1700.0]
+
+
 # Tal como llega de `banxico.traer`: fechado el dia 1 de cada mes.
 INPC = _serie([("2026-01-01", 100.0), ("2026-02-01", 101.0), ("2026-03-01", 102.01)])
 
@@ -108,6 +138,29 @@ def test_antes_del_primer_inpc_no_hay_nivel():
     assert fisher.nivel(fisher.anclar(INPC), date(2026, 1, 15)) is None
 
 
+def test_con_un_solo_ancla_no_se_puede_extender():
+    un_solo = _serie([("2026-01-01", 100.0)])
+    assert fisher.nivel(fisher.anclar(un_solo), date(2026, 2, 15)) is None
+
+
+def test_la_extension_usa_la_tasa_mensual_no_la_del_hueco_entre_anclas():
+    # Enero y abril, sin febrero ni marzo: el hueco entre anclas es de tres
+    # meses, y la tasa que se extiende tiene que ser la mensual (la raiz
+    # cubica), no el 3% del tramo completo.
+    con_hueco = _serie([("2026-01-01", 100.0), ("2026-04-01", 103.0)])
+    inf = fisher.inflacion_periodo(con_hueco, date(2026, 1, 31), date(2026, 6, 30))
+    assert inf.tasa_extension == pytest.approx(1.03 ** (1 / 3) - 1)
+
+
+def test_inpc_con_dos_fechas_en_el_mismo_mes_ancla_una_con_la_ultima():
+    con_duplicado = _serie(
+        [("2026-01-01", 100.0), ("2026-02-01", 101.0), ("2026-02-15", 101.5)]
+    )
+    anclado = fisher.anclar(con_duplicado)
+    assert len(anclado) == 2
+    assert anclado.loc["2026-02-28"] == pytest.approx(101.5)
+
+
 def test_inflacion_de_un_periodo_cubierto_es_oficial():
     inf = fisher.inflacion_periodo(INPC, date(2026, 1, 31), date(2026, 3, 31))
     assert inf.acumulada == pytest.approx(0.0201)
@@ -132,6 +185,10 @@ def test_por_debajo_de_treinta_dias_no_se_anualiza():
 
 def test_un_inicio_sin_inpc_no_da_inflacion():
     assert fisher.inflacion_periodo(INPC, date(2026, 1, 15), date(2026, 3, 31)) is None
+
+
+def test_un_periodo_al_reves_no_da_inflacion():
+    assert fisher.inflacion_periodo(INPC, date(2026, 3, 31), date(2026, 1, 31)) is None
 
 
 def test_con_inflacion_cero_lo_real_es_lo_nominal():

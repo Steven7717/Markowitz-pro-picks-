@@ -20,8 +20,9 @@ def real(nominal: "float | None", inflacion_anual: "float | None") -> "float | N
     """Ecuacion de Fisher exacta: `(1 + nominal) / (1 + π) − 1`.
 
     No `nominal − π`. Con la inflacion mexicana la aproximacion se equivoca en
-    decimas, y en pantalla esa diferencia no se veria. Un `None` en cualquiera
-    de las dos entradas es «no se puede medir», y lo sigue siendo a la salida.
+    decimas, y ese error pasaria desapercibido en pantalla: no es que no se
+    vea, es que nadie lo notaria. Un `None` en cualquiera de las dos entradas
+    es «no se puede medir», y lo sigue siendo a la salida.
     """
     if nominal is None or inflacion_anual is None or inflacion_anual <= -1.0:
         return None
@@ -45,6 +46,9 @@ def en_pesos(
     if fix is None or fix.empty:
         return None
     fix = fix.sort_index()
+    # Dos publicaciones para el mismo dia no deberian pasar, pero si pasan la
+    # ultima es la vigente, no un promedio ni una excepcion.
+    fix = fix[~fix.index.duplicated(keep="last")]
     calendario = valor.index.union(flujos.index)
     alineado = fix.reindex(fix.index.union(calendario)).ffill().reindex(calendario)
     if alineado.isna().any():
@@ -53,7 +57,10 @@ def en_pesos(
 
 
 # Para extender el INPC mas alla del ultimo publicado: una tasa mensual se
-# aplica en proporcion a los dias, como doce meses por año.
+# aplica en proporcion a los dias, como doce meses por año. Es un mes
+# promedio (365/12 dias) a proposito: la extension no conoce la duracion real
+# del mes siguiente, mientras que la interpolacion dentro de un mes ya
+# publicado (en `nivel`) si usa los dias reales entre sus dos anclas.
 _MESES_POR_DIA = 12 / 365
 
 
@@ -74,12 +81,33 @@ class Inflacion:
 
 
 def anclar(inpc: pd.Series) -> pd.Series:
-    """El INPC fechado al cierre de su mes, no al dia 1 que usa Banxico."""
+    """El INPC fechado al cierre de su mes, no al dia 1 que usa Banxico.
+
+    Dos publicaciones ancladas al mismo mes no deberian pasar, pero si pasan
+    (una revision, un dato duplicado) se queda la ultima por fecha original:
+    es la mas reciente, no la primera que llego.
+    """
     serie = inpc.dropna().sort_index()
-    serie.index = (
-        pd.DatetimeIndex(serie.index).to_period("M").to_timestamp(how="end").normalize()
+    serie = pd.Series(
+        serie.values,
+        index=pd.DatetimeIndex(serie.index).to_period("M").to_timestamp(how="end").normalize(),
     )
-    return serie
+    return serie[~serie.index.duplicated(keep="last")]
+
+
+def _tasa_mensual_extension(anclado: pd.Series) -> float:
+    """La tasa mensual con la que se extiende el INPC mas alla del ultimo dato.
+
+    No es la razon cruda entre las ultimas dos anclas: si entre ellas hay un
+    hueco de varios meses (un INPC que falto por descargar), esa razon es la
+    acumulada del hueco entero, no la de un mes. Se reparte entre los meses de
+    calendario que separan las dos anclas (minimo uno) para que la extension
+    seguida sea siempre una tasa mensual, tenga o no huecos el historico.
+    """
+    ultimo, penultimo = anclado.index[-1], anclado.index[-2]
+    meses = max(1, (ultimo.year * 12 + ultimo.month) - (penultimo.year * 12 + penultimo.month))
+    razon = anclado.iloc[-1] / anclado.iloc[-2]
+    return float(razon ** (1.0 / meses))
 
 
 def nivel(anclado: pd.Series, dia: date) -> "float | None":
@@ -95,7 +123,7 @@ def nivel(anclado: pd.Series, dia: date) -> "float | None":
     if cuando > anclado.index[-1]:
         if len(anclado) < 2:
             return None
-        tasa = anclado.iloc[-1] / anclado.iloc[-2]
+        tasa = _tasa_mensual_extension(anclado)
         dias = (cuando - anclado.index[-1]).days
         return float(anclado.iloc[-1] * tasa ** (dias * _MESES_POR_DIA))
     posicion = int(anclado.index.searchsorted(cuando))
@@ -110,9 +138,14 @@ def nivel(anclado: pd.Series, dia: date) -> "float | None":
 def inflacion_periodo(inpc: pd.Series, desde: date, hasta: date) -> "Inflacion | None":
     """La inflacion entre dos fechas, anualizada con la misma guarda que la TWR.
 
-    `None` si alguna de las dos fechas no tiene nivel. Por debajo de 30 dias
-    devuelve la acumulada con `anual=None`, igual que `rendimiento.anualizar`.
+    `None` si alguna de las dos fechas no tiene nivel, o si el periodo esta al
+    reves (`hasta` antes que `desde`: no hay dias que anualizar y la
+    "inflacion" saldria con el signo de una resta que nadie pidio). Por debajo
+    de 30 dias devuelve la acumulada con `anual=None`, igual que
+    `rendimiento.anualizar`.
     """
+    if pd.Timestamp(hasta) < pd.Timestamp(desde):
+        return None
     anclado = anclar(inpc)
     inicio, fin = nivel(anclado, desde), nivel(anclado, hasta)
     if inicio is None or fin is None:
@@ -125,7 +158,5 @@ def inflacion_periodo(inpc: pd.Series, desde: date, hasta: date) -> "Inflacion |
         anual=rendimiento.anualizar(acumulada, dias=dias),
         oficial_hasta=anclado.index[-1].date(),
         estimada=estimada,
-        tasa_extension=(
-            float(anclado.iloc[-1] / anclado.iloc[-2] - 1.0) if estimada else None
-        ),
+        tasa_extension=(_tasa_mensual_extension(anclado) - 1.0) if estimada else None,
     )
