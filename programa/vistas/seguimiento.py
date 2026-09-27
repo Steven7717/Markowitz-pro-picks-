@@ -9,7 +9,7 @@ guion de Streamlit no lo podía mirar ningún test.
 
 import contextlib
 import html
-from datetime import date
+from datetime import date, timedelta
 
 import pandas as pd
 import streamlit as st
@@ -22,7 +22,7 @@ from interprete import archivo
 from interprete import cliente as interprete_cliente
 from interprete import noticias as interprete_noticias
 from noticias import resumen, texto, traer
-from seguimiento import comparacion, libro as mod, panel, posiciones, precios
+from seguimiento import banxico, comparacion, libro as mod, panel, posiciones, precios
 from vistas import libros, panel_ia
 
 st.markdown(
@@ -128,6 +128,22 @@ def _cierre_del_dia(ticker: str, fecha: str):
 @st.cache_data(ttl=3600, show_spinner="Descargando precios...")
 def _historia(tickers: tuple[str, ...], desde: str):
     return precios.descargar(list(tickers), desde=desde)
+
+
+@st.cache_data(ttl=3600, show_spinner="Descargando datos de Banxico...")
+def _banxico(desde: str, hasta: str, clave: "str | None"):
+    """FIX e INPC para el periodo. Encima de la cache en disco de `banxico`.
+
+    El INPC se pide desde dos meses antes: el dato mensual se ancla al cierre
+    del mes, asi que un periodo que empieza el dia 5 necesita el del mes
+    anterior. El FIX, desde diez dias antes, por si el primer dia es festivo.
+    """
+    inicio = date.fromisoformat(desde)
+    fin = date.fromisoformat(hasta)
+    fix = banxico.traer(banxico.SERIE_FIX, inicio - timedelta(days=10), fin, clave)
+    inpc_desde = (inicio - timedelta(days=62)).replace(day=1)
+    inpc = banxico.traer(banxico.SERIE_INPC, inpc_desde, fin, clave)
+    return fix, inpc
 
 
 def _precios_para_escribir(libro):
@@ -536,6 +552,27 @@ elif marcha.posteriores:
 # `tests/test_panel_cabecera.py`.
 cab = panel.cabecera(marcha, vivos, sin_valorar)
 
+# Las cifras en pesos. Aparte, porque dependen de Banxico y pueden faltar sin
+# que falte nada de arriba. En un libro MXN el FIX sobra; se descarta en vez de
+# abrir un segundo camino, porque es una sola llamada cacheada un dia.
+_fix = _inpc = None
+if len(marcha.valor) and not sin_valorar and actual.moneda in ("USD", "MXN"):
+    _fix, _inpc = _banxico(
+        marcha.valor.index[0].date().isoformat(), date.today().isoformat(),
+        banxico.token(),
+    )
+    if actual.moneda == "MXN":
+        _fix = None
+_motivo_datos = next(
+    (s.motivo for s in (_fix, _inpc) if s is not None and s.motivo != "ok"), "ok"
+)
+cab_mxn = panel.cabecera_pesos(
+    marcha, sin_valorar, actual.moneda,
+    fix=_fix.datos if _fix else None,
+    inpc=_inpc.datos if _inpc else None,
+    motivo_datos=_motivo_datos,
+)
+
 # CUATRO columnas, no seis. Medido en la app a 1024px con las seis: la columna
 # de contenido son 724px, cada cifra recibe 79px y su caja de texto 50px, y
 # Streamlit las recorta con puntos suspensivos --«51,…» «40,…» «11,…»--. No es
@@ -763,6 +800,35 @@ with por_activo:
     d1.metric("TIR", _tir_texto, help=_tir_nota)
     d2.metric("Dividendos", f"{cab.dividendos:,.2f}")
 
+    # En pesos, y descontando la inflacion. Cinco cifras de porcentaje caben en
+    # una fila: el recorte que midio K era con importes de nueve caracteres.
+    st.markdown("**En pesos (MXN)**")
+    _notas = panel.notas_pesos(cab_mxn)
+    p1, p2, p3, p4, p5 = st.columns(5)
+    p1.metric("TWR MXN", cartera.formato_porcentaje(cab_mxn.twr_anual),
+              help=_notas["tc"])
+    p2.metric("TIR MXN", cartera.formato_porcentaje(cab_mxn.tir), help=_notas["tc"])
+    p3.metric("Inflación anual",
+              cartera.formato_porcentaje(
+                  cab_mxn.inflacion.anual if cab_mxn.inflacion else None),
+              help=_notas["inflacion"])
+    p4.metric("TWR real", cartera.formato_porcentaje(cab_mxn.twr_real),
+              help="Fisher: (1 + TWR MXN) / (1 + inflación) − 1. Lo que creció tu "
+                   "poder de compra en pesos.")
+    p5.metric("TIR real", cartera.formato_porcentaje(cab_mxn.tir_real),
+              help="Fisher sobre la TIR en pesos. Supone la inflación del periodo "
+                   "constante.")
+    for _nota in (_notas["motivo"], _notas["periodo"]):
+        if _nota:
+            st.caption(_nota)
+    _hora = next((s.descargada for s in (_fix, _inpc) if s and s.descargada), None)
+    if _hora:
+        _vieja = any(s and s.vieja for s in (_fix, _inpc))
+        st.caption(
+            f"Datos: Banxico SIE · descargados el {_hora:%Y-%m-%d %H:%M} UTC"
+            + (" · **no se pudieron renovar**" if _vieja else "")
+        )
+
     # El denominador de los pesos sale de `composicion`, no de `cab.valor`: aquel
     # es la suma de los activos y este incluye el efectivo sin invertir. Con el
     # segundo la columna sumaba 71,9% al lado de un objetivo que suma 100%.
@@ -816,6 +882,15 @@ with por_activo:
                 "TWR del periodo": cab.twr_periodo,
                 "TWR anual": cab.twr_anual,
                 "TIR": cab.tir,
+                "TWR MXN": cab_mxn.twr_anual,
+                "TIR MXN": cab_mxn.tir,
+                "Inflación anual (INPC)": (
+                    cab_mxn.inflacion.anual if cab_mxn.inflacion else None),
+                "TWR real": cab_mxn.twr_real,
+                "TIR real": cab_mxn.tir_real,
+                "INPC estimado desde": (
+                    cab_mxn.inflacion.oficial_hasta.isoformat()
+                    if cab_mxn.inflacion and cab_mxn.inflacion.estimada else None),
                 "Dividendos": cab.dividendos,
                 "Metodo de coste": "media ponderada",
             },
