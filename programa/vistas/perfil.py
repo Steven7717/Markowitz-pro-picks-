@@ -80,8 +80,15 @@ with credenciales_tab:
             + ". Lo que guardes aquí no lo pisa."
         )
 
+    # Antes miraba solo `api_key`: quien guardaba un correo de EDGAR o un token
+    # de Banxico sin clave de Anthropic caia en la rama de edicion con sus tres
+    # campos vacios, sin forma de ver que ya tenia algo guardado ni de borrarlo
+    # sin escribir antes una clave que no le hace falta.
+    hay_algo_guardado = bool(
+        guardadas.api_key or guardadas.edgar_identity or guardadas.banxico_token
+    )
     editando = st.session_state.get("editando_credenciales")
-    if guardadas.api_key and not editando:
+    if hay_algo_guardado and not editando:
         clave, cambiar, quitar = st.columns([4, 1, 1])
         clave.text_input(
             "Clave de Anthropic", value=enmascarar(guardadas.api_key), disabled=True
@@ -163,7 +170,7 @@ with credenciales_tab:
         # Solo si hay algo guardado a lo que volver: sin esto, quien pulsa
         # "Cambiar" y se arrepiente se queda ante un campo vacio donde estaba su
         # clave, sin Borrar y sin vuelta atras que no sea reiniciar.
-        if guardadas.api_key and cancelar_col.button("Cancelar"):
+        if hay_algo_guardado and cancelar_col.button("Cancelar"):
             st.session_state.editando_credenciales = False
             st.rerun()
 
