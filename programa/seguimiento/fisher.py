@@ -56,6 +56,12 @@ def en_pesos(
     return valor * alineado.reindex(valor.index), flujos * alineado.reindex(flujos.index)
 
 
+def fix_en(fix: pd.Series, dia) -> "float | None":
+    """El FIX vigente un dia: el de ese dia o el ultimo publicado antes."""
+    anteriores = fix.sort_index().loc[: pd.Timestamp(dia)]
+    return float(anteriores.iloc[-1]) if len(anteriores) else None
+
+
 # Para extender el INPC mas alla del ultimo publicado: una tasa mensual se
 # aplica en proporcion a los dias, como doce meses por año. Es un mes
 # promedio (365/12 dias) a proposito: la extension no conoce la duracion real

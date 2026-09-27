@@ -195,3 +195,9 @@ def test_con_inflacion_cero_lo_real_es_lo_nominal():
     plano = _serie([("2026-01-01", 100.0), ("2026-02-01", 100.0), ("2026-03-01", 100.0)])
     inf = fisher.inflacion_periodo(plano, date(2026, 1, 31), date(2026, 3, 31))
     assert fisher.real(0.12, inf.anual) == pytest.approx(0.12)
+
+
+def test_fix_en_un_dia_sin_dato_es_el_ultimo_publicado():
+    fix = _serie([("2026-03-13", 18.0), ("2026-03-17", 18.2)])
+    assert fisher.fix_en(fix, date(2026, 3, 16)) == 18.0
+    assert fisher.fix_en(fix, date(2026, 3, 1)) is None

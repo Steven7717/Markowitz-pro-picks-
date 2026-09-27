@@ -11,7 +11,7 @@ fallase, porque los numeros que saldrian serian plausibles.
 from dataclasses import dataclass
 
 import cartera
-from seguimiento import libro as mod, posiciones, rendimiento
+from seguimiento import fisher, libro as mod, posiciones, rendimiento
 
 
 @dataclass(frozen=True)
@@ -162,6 +162,108 @@ def cabecera(marcha, vivos, sin_valorar: bool) -> Cabecera:
         flujos=dias_con_flujo,
         salto_inicial=salto_inicial,
         flujo_posterior=flujo_posterior,
+    )
+
+
+@dataclass(frozen=True)
+class CabeceraPesos:
+    """Las cifras en pesos. Separadas de `Cabecera` a proposito.
+
+    Dependen de Banxico y pueden faltar --un token caducado, la red caida-- sin
+    que falte nada de lo que no depende de el. Metidas en `Cabecera`, un fallo
+    de Banxico tocaria cifras que no tienen nada que ver.
+
+    `motivo` es `"ok"`, uno de los fallos de `banxico.Serie`, `"sin_valorar"`,
+    `"moneda_no_soportada"`, `"fix_incompleto"` o `"inpc_incompleto"`. Con un
+    motivo que no es `"ok"` puede haber cifras nominales igualmente: sin INPC,
+    la TWR en pesos se mide y solo faltan las reales.
+    """
+
+    motivo: str
+    twr_periodo: "float | None" = None
+    twr_anual: "float | None" = None
+    tir: "float | None" = None
+    motivo_tir: str = "ok"
+    inflacion: "fisher.Inflacion | None" = None
+    twr_real: "float | None" = None
+    tir_real: "float | None" = None
+    fix_inicial: "float | None" = None
+    fix_final: "float | None" = None
+
+    @property
+    def movimiento_tc(self) -> "float | None":
+        if self.fix_inicial is None or self.fix_final is None:
+            return None
+        return self.fix_final / self.fix_inicial - 1.0
+
+
+def cabecera_pesos(
+    marcha,
+    sin_valorar: bool,
+    moneda: str,
+    fix,
+    inpc,
+    motivo_datos: str = "ok",
+) -> CabeceraPesos:
+    """TWR y TIR en pesos, la inflacion del periodo y las dos reales.
+
+    Mismo corte temporal que `cabecera`: la serie valorada y `marcha.flujos`,
+    nunca los asientos. `motivo_datos` es el primer fallo de las dos descargas
+    de Banxico, o `"ok"`.
+    """
+    if moneda not in ("USD", "MXN"):
+        return CabeceraPesos(motivo="moneda_no_soportada")
+    if sin_valorar or len(marcha.valor) < 2:
+        return CabeceraPesos(motivo="sin_valorar")
+
+    fix_inicial = fix_final = None
+    if moneda == "MXN":
+        valor, flujos = marcha.valor, marcha.flujos
+    else:
+        convertido = fisher.en_pesos(marcha.valor, marcha.flujos, fix)
+        if convertido is None:
+            # Sin serie, el motivo es el de la descarga. Con serie pero sin dato
+            # para el primer dia, es que el FIX no llega tan atras.
+            sin_serie = fix is None or fix.empty
+            return CabeceraPesos(
+                motivo=motivo_datos if sin_serie and motivo_datos != "ok"
+                else "fix_incompleto"
+            )
+        valor, flujos = convertido
+        fix_inicial = fisher.fix_en(fix, marcha.valor.index[0])
+        fix_final = fisher.fix_en(fix, marcha.valor.index[-1])
+
+    primero, ultimo = valor.index[0], valor.index[-1]
+    dias = (ultimo - primero).days
+    twr_periodo = rendimiento.twr(valor, flujos)
+    twr_anual = rendimiento.anualizar(twr_periodo, dias=dias)
+
+    # La misma ecuacion que en `cabecera`, con los importes en pesos: el dinero
+    # que entra es una salida del bolsillo, y el valor final la cierra.
+    flujos_tir = [(d.date(), -float(v)) for d, v in flujos.items() if v]
+    if flujos_tir:
+        flujos_tir.append((ultimo.date(), float(valor.iloc[-1])))
+    tir, motivo_tir = rendimiento.tir_detallada(flujos_tir)
+
+    inflacion = None
+    motivo = motivo_datos
+    if inpc is not None and not inpc.empty:
+        inflacion = fisher.inflacion_periodo(inpc, primero.date(), ultimo.date())
+        if inflacion is None and motivo == "ok":
+            motivo = "inpc_incompleto"
+    anual = inflacion.anual if inflacion else None
+
+    return CabeceraPesos(
+        motivo=motivo,
+        twr_periodo=twr_periodo,
+        twr_anual=twr_anual,
+        tir=tir,
+        motivo_tir=motivo_tir,
+        inflacion=inflacion,
+        twr_real=fisher.real(twr_anual, anual),
+        tir_real=fisher.real(tir, anual),
+        fix_inicial=fix_inicial,
+        fix_final=fix_final,
     )
 
 
