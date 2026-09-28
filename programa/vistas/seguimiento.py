@@ -795,26 +795,29 @@ with por_activo:
     # una fila: el recorte que midio K era con importes de nueve caracteres.
     st.markdown("**En pesos (MXN)**")
     _notas = panel.notas_pesos(cab_mxn)
+    # Anuales, o del periodo si el libro tiene menos de 30 dias: lo decide
+    # `panel.fila_pesos`, y la nota `periodo` de debajo dice cual de las dos es.
+    _fila = panel.fila_pesos(cab_mxn)
+    _cuales = "del periodo, sin anualizar" if _fila["del_periodo"] else "anual"
     p1, p2, p3, p4, p5 = st.columns(5)
-    _twr_mxn_nota = _notas["tc"]
-    if cab_mxn.twr_anual is None and cab_mxn.twr_periodo is not None:
-        _extra = f" Sin anualizar, el periodo entero rindió {cab_mxn.twr_periodo:.2%}."
-        _twr_mxn_nota = (_twr_mxn_nota or "") + _extra
-    p1.metric("TWR MXN", cartera.formato_porcentaje(cab_mxn.twr_anual),
-              help=_twr_mxn_nota)
+    p1.metric("TWR MXN", cartera.formato_porcentaje(_fila["twr"]),
+              help=f"Ponderada por tiempo, en pesos ({_cuales}). "
+                   + (_notas["tc"] or ""))
     _tir_mxn_texto, _tir_mxn_nota = panel.texto_tir(
         cab_mxn.tir, cab_mxn.motivo_tir, cab.dias
     )
     if _notas["tc"]:
         _tir_mxn_nota = f"{_tir_mxn_nota} {_notas['tc']}"
     p2.metric("TIR MXN", _tir_mxn_texto, help=_tir_mxn_nota)
-    p3.metric("Inflación anual",
-              cartera.formato_porcentaje(
-                  cab_mxn.inflacion.anual if cab_mxn.inflacion else None),
-              help=_notas["inflacion"])
-    p4.metric("TWR real", cartera.formato_porcentaje(cab_mxn.twr_real),
-              help="Fisher: (1 + TWR MXN) / (1 + inflación) − 1. Lo que creció tu "
-                   "poder de compra en pesos.")
+    # «Inflación» y no «Inflación anual»: a cinco columnas en una ventana
+    # estrecha la etiqueta larga se cortaba en «Inflaci…», y ademas ya no
+    # siempre es anual.
+    p3.metric("Inflación", cartera.formato_porcentaje(_fila["inflacion"]),
+              help=f"INPC, {_cuales}. " + (_notas["inflacion"] or ""))
+    p4.metric("TWR real", cartera.formato_porcentaje(_fila["twr_real"]),
+              help="Fisher: (1 + TWR MXN) / (1 + inflación) − 1, las dos sobre "
+                   f"el mismo tramo ({_cuales}). Lo que creció tu poder de "
+                   "compra en pesos.")
     p5.metric("TIR real", cartera.formato_porcentaje(cab_mxn.tir_real),
               help="Fisher sobre la TIR en pesos. Supone la inflación del periodo "
                    "constante.")
@@ -892,6 +895,12 @@ with por_activo:
                     cab_mxn.inflacion.anual if cab_mxn.inflacion else None),
                 "TWR real": cab_mxn.twr_real,
                 "TIR real": cab_mxn.tir_real,
+                # Siempre, y no solo cuando la pantalla las enseña: como la
+                # «TWR del periodo» en dolares, que tambien sale siempre.
+                "TWR MXN del periodo": cab_mxn.twr_periodo,
+                "Inflación del periodo (INPC)": (
+                    cab_mxn.inflacion.acumulada if cab_mxn.inflacion else None),
+                "TWR real del periodo": cab_mxn.twr_real_periodo,
                 "INPC estimado desde": (
                     cab_mxn.inflacion.oficial_hasta.isoformat()
                     if cab_mxn.inflacion and cab_mxn.inflacion.estimada else None),

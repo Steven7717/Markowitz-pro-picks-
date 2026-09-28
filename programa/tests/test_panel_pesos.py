@@ -139,6 +139,64 @@ def test_periodo_corto_dice_que_hacen_falta_30_dias():
     assert notas["periodo"] == "Hacen falta al menos 30 días para anualizar."
 
 
+FECHAS_CORTAS = ["2026-03-16", "2026-03-20", "2026-03-28"]
+
+
+def _marcha_corta():
+    return posiciones.Marcha(
+        acciones=pd.DataFrame(), efectivo=pd.Series(dtype=float),
+        valor=_serie(FECHAS_CORTAS, [1000.0, 1020.0, 1050.0]),
+        flujos=_serie(FECHAS_CORTAS, [1000.0, 0.0, 0.0]),
+        dividendos=pd.DataFrame(),
+    )
+
+
+def test_por_debajo_de_30_dias_la_fila_da_las_cifras_del_periodo():
+    fix = _serie(FECHAS_CORTAS, [17.0, 17.2, 17.34])
+    cp = panel.cabecera_pesos(_marcha_corta(), sin_valorar=False, moneda="USD",
+                              fix=fix, inpc=INPC)
+    fila = panel.fila_pesos(cp)
+
+    assert cp.twr_anual is None
+    assert cp.dias == 12
+    assert fila["del_periodo"] is True
+    # 1.050 dolares a 17,34 contra 1.000 a 17,00: 7,1% en pesos.
+    assert fila["twr"] == pytest.approx(1050 * 17.34 / (1000 * 17.0) - 1)
+    assert fila["inflacion"] == pytest.approx(cp.inflacion.acumulada)
+    # Fisher igual que con las anuales, pero sobre las del periodo.
+    assert fila["twr_real"] == pytest.approx(
+        (1 + fila["twr"]) / (1 + cp.inflacion.acumulada) - 1)
+
+
+def test_con_30_dias_o_mas_la_fila_da_las_anuales():
+    fix = _serie(FECHAS, [17.0, 17.5, 18.0])
+    cp = panel.cabecera_pesos(MARCHA, sin_valorar=False, moneda="USD",
+                              fix=fix, inpc=INPC)
+    fila = panel.fila_pesos(cp)
+    assert fila["del_periodo"] is False
+    assert fila["twr"] == cp.twr_anual
+    assert fila["inflacion"] == cp.inflacion.anual
+    assert fila["twr_real"] == cp.twr_real
+
+
+def test_la_fila_del_periodo_sin_inpc_no_inventa_la_real():
+    fix = _serie(FECHAS_CORTAS, [17.0, 17.2, 17.34])
+    cp = panel.cabecera_pesos(_marcha_corta(), sin_valorar=False, moneda="USD",
+                              fix=fix, inpc=None, motivo_datos="sin_red")
+    fila = panel.fila_pesos(cp)
+    assert fila["del_periodo"] is True
+    assert fila["twr"] is not None
+    assert fila["inflacion"] is None and fila["twr_real"] is None
+
+
+def test_la_nota_del_periodo_dice_cuantos_dias_y_que_la_tir_espera():
+    cp = panel.CabeceraPesos(motivo="ok", twr_periodo=0.05, dias=12)
+    nota = panel.notas_pesos(cp)["periodo"]
+    assert "12 días" in nota
+    assert "sin anualizar" in nota
+    assert "TIR" in nota
+
+
 def test_periodo_no_aparece_si_no_es_por_eso():
     assert panel.notas_pesos(panel.CabeceraPesos(motivo="sin_token"))["periodo"] is None
     con_twr = panel.CabeceraPesos(motivo="ok", twr_anual=0.1)

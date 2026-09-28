@@ -189,6 +189,10 @@ class CabeceraPesos:
     tir_real: "float | None" = None
     fix_inicial: "float | None" = None
     fix_final: "float | None" = None
+    dias: int = 0
+    # Fisher sobre la TWR del periodo y la inflacion acumulada, sin anualizar.
+    # Es lo unico real que se puede decir de un libro de menos de 30 dias.
+    twr_real_periodo: "float | None" = None
 
     @property
     def movimiento_tc(self) -> "float | None":
@@ -264,7 +268,38 @@ def cabecera_pesos(
         tir_real=fisher.real(tir, anual),
         fix_inicial=fix_inicial,
         fix_final=fix_final,
+        dias=dias,
+        twr_real_periodo=fisher.real(
+            twr_periodo, inflacion.acumulada if inflacion else None
+        ),
     )
+
+
+def fila_pesos(cp: CabeceraPesos) -> dict:
+    """TWR MXN, inflacion y TWR real tal como se enseñan: anuales o del periodo.
+
+    Por debajo de 30 dias no hay tasa anual --anualizar doce dias convierte un
+    movimiento pequeño en una afirmacion enorme--, pero la fila no tiene por
+    que quedarse en «—»: Fisher vale igual sobre rendimientos del periodo que
+    sobre anuales, siempre que los dos lados cubran el mismo tramo. Lo que no
+    se mezcla nunca es una TWR del periodo con una inflacion anual.
+
+    La TIR no entra: es una tasa anual por definicion y no tiene version «del
+    periodo» que no sea otra cifra distinta.
+    """
+    if cp.twr_anual is None and cp.twr_periodo is not None:
+        return {
+            "del_periodo": True,
+            "twr": cp.twr_periodo,
+            "inflacion": cp.inflacion.acumulada if cp.inflacion else None,
+            "twr_real": cp.twr_real_periodo,
+        }
+    return {
+        "del_periodo": False,
+        "twr": cp.twr_anual,
+        "inflacion": cp.inflacion.anual if cp.inflacion else None,
+        "twr_real": cp.twr_real,
+    }
 
 
 _MESES = ("ene", "feb", "mar", "abr", "may", "jun",
@@ -313,7 +348,15 @@ def notas_pesos(cp: CabeceraPesos) -> "dict[str, str | None]":
             )
 
     periodo = None
-    if cp.motivo == "ok" and cp.twr_anual is None:
+    if cp.twr_anual is None and cp.twr_periodo is not None:
+        # Vale tambien con un motivo que no es "ok": sin INPC la TWR del
+        # periodo en pesos sigue saliendo, y hay que decir que no es anual.
+        periodo = (
+            f"Cifras de los {cp.dias} días del libro, sin anualizar: la tasa "
+            "anual sale a partir de 30 días. La TIR es anual por definición y "
+            "sale entonces."
+        )
+    elif cp.motivo == "ok" and cp.twr_anual is None:
         periodo = "Hacen falta al menos 30 días para anualizar."
 
     motivo = None if cp.motivo == "ok" else _MOTIVOS_PESOS.get(cp.motivo, cp.motivo)
