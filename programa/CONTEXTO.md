@@ -1,14 +1,23 @@
 # Contexto del proyecto — para retomar en una sesión nueva
 
-**Última actualización:** 2026-09-20
-**Rama:** `master` · **Tests:** 1.840 pasando (`uv run pytest tests/ -q -m "not red"`), 4 omitidos —dos por permisos POSIX en Windows y dos sin `numpy_financial`— más 10 marcados `red`
+**Última actualización:** 2026-09-28
+**Rama:** `master` · **Tests:** 1.844 pasando (`uv run pytest tests/ -q -m "not red"`), 4 omitidos —dos por permisos POSIX en Windows y dos sin `numpy_financial`— más 10 marcados `red`
 **Remoto:** `https://github.com/Steven7717/Markowitz-pro-picks-.git` — `master` es lo publicado
 **Estructura:** el programa vive en `programa/`; en la raíz sólo están los dos
 lanzadores y el `README.md`. Los comandos (`uv run pytest`, `uv run streamlit`)
 se ejecutan desde `programa/`, no desde la raíz.
 
 > **Al retomar:** todo está en `master` y publicado, y no queda nada sin
-> fusionar. Lo último que entró fue el texto de pantalla que se guardaba en los
+> fusionar. Lo último que entró, el 2026-09-28, fue el sub-proyecto L: la fila
+> «En pesos (MXN)» de Seguimiento —TWR y TIR en pesos con el FIX de cada día, y
+> reales por Fisher con el INPC, ambos del SIE de Banxico
+> (`seguimiento/banxico.py`, `seguimiento/fisher.py`)—. Por debajo de 30 días
+> enseña las cifras del periodo sin anualizar. Necesita el token de Banxico en
+> Perfil; sin él la fila sale en «—» y dice cómo sacarlo. Los ids de serie
+> (`SF43718`, `SP1`) se comprobaron contra la API real con el test `red`. La
+> rama `feat/rendimiento-real-mxn` ya se borró.
+>
+> Antes entró el texto de pantalla que se guardaba en los
 > ficheros de datos —ver «La etiqueta de pantalla que se guardaba en disco»—, en
 > tres tandas del 2026-09-20: la estrategia, el resto de su clase (`shrinkage`,
 > y el formulario que se quedaba en blanco) y por último el horizonte, que era
