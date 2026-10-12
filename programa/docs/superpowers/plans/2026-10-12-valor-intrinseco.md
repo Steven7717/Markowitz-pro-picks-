@@ -1064,14 +1064,14 @@ def test_sin_tasa_libre_lo_dice():
         assert mercado.tasa_libre() == (None, "sin_tasa_libre")
 
 
-def test_un_historial_corto_no_da_beta_y_lo_dice():
+def test_sin_regresion_posible_no_hay_beta_y_lo_dice():
     corto = pd.DataFrame(
         {"Close": range(1, 11)}, index=pd.date_range("2026-01-05", periods=10, freq="W-MON")
     )
     doble = _ticker()
     doble.history.return_value = corto
     with patch.object(mercado.yf, "Ticker", return_value=doble):
-        assert mercado.beta("NUEVA") == (None, "historial_corto")
+        assert mercado.beta("NUEVA") == (None, "sin_regresion")
 
 
 def test_la_tasa_efectiva_y_el_consenso_se_descargan():
@@ -1201,7 +1201,10 @@ def beta(ticker: str, indice: str = INDICE) -> "tuple[Beta | None, str]":
     if datos is None:
         return None, motivo
     encontrada = _reconstruir(Beta, datos.get("beta"))
-    return (encontrada, "ok") if encontrada is not None else (None, "historial_corto")
+    # `regresion_beta` devuelve None por historial corto, pero también por un
+    # precio no positivo en la ventana o una varianza nula: no siempre es la
+    # historia lo que falta.
+    return (encontrada, "ok") if encontrada is not None else (None, "sin_regresion")
 
 
 def tasa_efectiva(ticker: str) -> "tuple[float | None, str]":
@@ -2555,7 +2558,7 @@ def test_una_fallida_dice_su_motivo_y_nada_mas():
 def red_doble():
     with patch.object(mercado, "perfil", return_value=(perfil(), "ok")), patch.object(
         mercado, "tasa_libre", return_value=(0.04, "ok")
-    ), patch.object(mercado, "beta", return_value=(None, "historial_corto")), patch.object(
+    ), patch.object(mercado, "beta", return_value=(None, "sin_regresion")), patch.object(
         mercado, "tasa_efectiva", return_value=(0.25, "ok")
     ), patch.object(mercado, "consenso", return_value=(None, "ok")), patch(
         "valoracion.motor.desde_sec", return_value=(fundamentos(), "ok")
@@ -3453,7 +3456,7 @@ def procedencia(nombre: str, supuesto: dict) -> str:
             f"regresión semanal de {p.get('semanas')} semanas contra {p.get('indice')} "
             f"(R² {p.get('r2')}), con el ajuste de Blume"
         ),
-        ("beta", "por_defecto"): "1,0 por defecto: no hubo historial para la regresión",
+        ("beta", "por_defecto"): "1,0 por defecto: no hubo regresión posible (historial corto o precios inválidos)",
         ("prima", "damodaran"): f"Damodaran, prima implícita a {p.get('fecha')}",
         ("k_e", "capm"): "tasa libre más beta por prima",
         ("k_d", "gasto_entre_deuda"): "gasto financiero entre deuda, acotado",
