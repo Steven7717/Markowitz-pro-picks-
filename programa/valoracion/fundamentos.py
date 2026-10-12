@@ -10,6 +10,12 @@ las traduce antes de llegar aquí.
 `PaymentsToAcquirePropertyPlantAndEquipment` es un pago y se declara positivo.
 yfinance lo da en negativo; el constructor de esa fuente le cambia el signo
 antes de llamar a `desde_lineas`, que no lo comprueba.
+
+**NaN quiere decir «no declarada», no cero.** Una empresa que no informa de
+capex, de gasto por intereses o de deuda no los tiene a cero: no se sabe. Un
+banco, además, no declara ingresos con la etiqueta que usa el resto. Quien
+necesite un cero (el capex de una empresa sin inmovilizado, la deuda de una sin
+pasivo financiero) lo decide explícitamente al usarlo, sabiendo que lo decide.
 """
 
 import math
@@ -27,18 +33,18 @@ from fundamentals.concepts import (
 )
 from fundamentals.fetch import CorridaAbortada, load_facts
 
-# Privada y aun así importada: es la regla de los cuatro trimestres
-# consecutivos, medida y documentada en `fundamentals/kpis.py`. Una segunda
-# copia aquí es como empiezan a separarse.
-from fundamentals.kpis import _ttm
-from fundamentals.panel import quarterly_panel
+# Privadas y aun así importadas: son la regla de los cuatro trimestres
+# consecutivos, medida y documentada en `fundamentals/kpis.py`, y las ventanas de
+# días con que `fundamentals/panel.py` decide qué es un trimestre y qué es un
+# año. Una segunda copia aquí es como empiezan a separarse.
+from fundamentals.kpis import _TRIMESTRES_POR_ANO, _ttm
+from fundamentals.panel import _DIAS_ANO, _DIAS_TRIMESTRE, quarterly_panel
 
 # Veinte y no los doce del ranking: el CAGR de ingresos pide tres años y las
 # medianas de márgenes cuantos haya. Los hechos en caché traen la historia
 # entera desde 2007 (comprobado el 2026-10-12 sobre tres cachés reales), así que
 # pedir más no sale a la red.
 TRIMESTRES = 20
-_TRIMESTRES_POR_ANO = 4
 _FLUJOS = (
     "ingresos",
     "flujo_operativo",
@@ -51,7 +57,11 @@ _FLUJOS = (
 
 @dataclass(frozen=True)
 class Ejercicio:
-    """Doce meses que terminan en `fin`: flujos sumados y el balance a esa fecha."""
+    """Doce meses que terminan en `fin`: flujos sumados y el balance a esa fecha.
+
+    Cualquier cifra puede ser NaN, y NaN es «no declarada», no cero: un banco no
+    declara `ingresos`, y casi nadie declara `gasto_financiero` si no tiene deuda.
+    """
 
     fin: date
     ingresos: float
@@ -65,13 +75,24 @@ class Ejercicio:
 
 @dataclass(frozen=True)
 class Fundamentos:
-    """Una empresa, en la moneda de sus estados. `ejercicios[0]` es el más reciente."""
+    """Una empresa, en la moneda de sus estados. `ejercicios[0]` es el más reciente.
+
+    `deuda_total` y `efectivo` son el balance del último trimestre. NaN es «no
+    declarada», no cero: sin `deuda_total` no se sabe si la empresa no debe nada
+    o no lo dice, y quien la use como cero lo decide él.
+    """
 
     moneda: str
     fuente: str
     ejercicios: tuple[Ejercicio, ...]
     deuda_total: float
     efectivo: float
+
+    def __post_init__(self) -> None:
+        # `ultimo` indexa la posición 0: con la tupla vacía fallaría con un
+        # IndexError lejos de donde se construyó el objeto.
+        if not self.ejercicios:
+            raise ValueError("Fundamentos necesita al menos un ejercicio")
 
     @property
     def ultimo(self) -> Ejercicio:
@@ -89,31 +110,67 @@ def _num(valor: object) -> float:
 def desde_lineas(lineas: pd.DataFrame, moneda: str, fuente: str) -> "Fundamentos | None":
     """Las líneas trimestrales de una empresa, en ejercicios de doce meses.
 
-    Un ejercicio cada cuatro filas hacia atrás desde la última fila con ingresos
-    TTM. Asume, como `_ttm`, que las filas son trimestres consecutivos del más
-    antiguo al más reciente, que es como los entrega `quarterly_panel`. Devuelve
-    `None` si no hay ni un TTM de ingresos completo.
+    Una posición vale como cierre de ejercicio si sus cuatro trimestres son
+    consecutivos de verdad (las fechas de la ventana distan lo que distan tres
+    trimestres) y hay TTM de `ingresos` **o** de `beneficio_neto`. La segunda
+    puerta es la de los bancos, que no declaran ingresos con una etiqueta que el
+    motor reconozca y a los que la valoración por resultado residual sólo pide
+    beneficio y patrimonio. La cifra que falta se queda en NaN en el `Ejercicio`.
+
+    El ejercicio más reciente es la **última** posición válida; los demás se
+    buscan hacia atrás de cuatro en cuatro filas, y la búsqueda **se detiene**
+    en la primera posición inválida o cuya distancia al ejercicio anterior no es
+    de un año. Saltarse el hueco y seguir devolvería ejercicios que ya no son
+    años consecutivos, y `ejercicios[i]` dejaría de ser «hace i años».
+
+    Por eso lo que sale está garantizado: los ejercicios son años consecutivos,
+    del más reciente al más antiguo, y el código posterior puede indexarlos por
+    posición (`supuestos._cagr` toma `ejercicios[anos]` con exponente `1/anos`).
+    Lo que no está garantizado es que cada cifra de cada ejercicio exista.
+
+    La ventana de fechas es la de `fundamentals.panel` y no un múltiplo exacto:
+    las empresas de 52/53 semanas cierran sus trimestres a 84 o 112 días unos de
+    otros, y siguen teniendo un ejercicio al año.
+
+    Devuelve `None` si no hay ni una posición válida.
     """
     if lineas.empty:
         return None
     lineas = lineas.sort_index()
     ttm = {columna: _ttm(lineas[columna]) for columna in _FLUJOS}
-    con_ingresos = [
-        posicion
-        for posicion in range(len(lineas))
-        if pd.notna(ttm["ingresos"].iloc[posicion])
-    ]
-    if not con_ingresos:
+    fechas = lineas.index
+    minimo_ventana = (_TRIMESTRES_POR_ANO - 1) * _DIAS_TRIMESTRE[0]
+    maximo_ventana = (_TRIMESTRES_POR_ANO - 1) * _DIAS_TRIMESTRE[1]
+
+    def valida(posicion: int) -> bool:
+        if posicion < _TRIMESTRES_POR_ANO - 1:
+            return False
+        ventana = (fechas[posicion] - fechas[posicion - (_TRIMESTRES_POR_ANO - 1)]).days
+        if not minimo_ventana <= ventana <= maximo_ventana:
+            return False
+        return bool(
+            pd.notna(ttm["ingresos"].iloc[posicion])
+            or pd.notna(ttm["beneficio_neto"].iloc[posicion])
+        )
+
+    validas = [posicion for posicion in range(len(lineas)) if valida(posicion)]
+    if not validas:
         return None
-    ultima = con_ingresos[-1]
-    posiciones = [
-        posicion
-        for posicion in range(ultima, -1, -_TRIMESTRES_POR_ANO)
-        if pd.notna(ttm["ingresos"].iloc[posicion])
-    ]
+    ultima = validas[-1]
+
+    posiciones = [ultima]
+    while True:
+        candidata = posiciones[-1] - _TRIMESTRES_POR_ANO
+        if candidata < 0 or not valida(candidata):
+            break
+        dias = (fechas[posiciones[-1]] - fechas[candidata]).days
+        if not _DIAS_ANO[0] <= dias <= _DIAS_ANO[1]:
+            break
+        posiciones.append(candidata)
+
     ejercicios = tuple(
         Ejercicio(
-            fin=lineas.index[posicion].date(),
+            fin=fechas[posicion].date(),
             ingresos=_num(ttm["ingresos"].iloc[posicion]),
             flujo_operativo=_num(ttm["flujo_operativo"].iloc[posicion]),
             capex=_num(ttm["capex"].iloc[posicion]),
@@ -141,11 +198,20 @@ def desde_sec(
     Las mismas reconciliaciones que `fundamentals.run.build_panel`, en el mismo
     orden: un recuento de acciones en otra base no se arregla aquí por segunda
     vez de otra manera.
+
+    Devuelve `(fundamentos, motivo)`. Sólo se traducen a motivo los dos casos que
+    son «esta empresa no se puede valorar» (`sin_estados`, `sin_historia`). Las
+    demás excepciones (un `OSError` al leer la caché, un `KeyError` por una
+    columna que falta) se dejan propagar a propósito: son defectos o fallos del
+    entorno, no una propiedad de la empresa, y quien llama (`ranking/run.py`, que
+    llega en una tarea posterior) las atrapa ficha a ficha y no las confunde con
+    una empresa sin datos.
     """
     try:
         hechos, _ = load_facts([ticker], cache_dir=cache_dir)
     except CorridaAbortada:
-        # Con un solo ticker, abortar significa que la SEC no está: no es la
+        # Con un solo ticker, abortar significa que la fuente no responde o que
+        # rechaza la identidad con que se le pregunta (EDGAR_IDENTITY): no es la
         # empresa la que falla, pero para esta valoración el efecto es el mismo.
         return None, "sin_estados"
     facts = hechos.get(ticker)
