@@ -78,10 +78,13 @@ debajo de este documento y no se edita el original.
 | `BETA_SEMANAS_MIN` | 52 | Por debajo, beta = 1,0 y se dice |
 | `BLUME` | (0,67; 0,33) | β ajustada = 0,67·β + 0,33: la beta medida tiende a 1 con el tiempo |
 | `CRECIMIENTO_REF_TOPES` | (−0,10; +0,40) | Ni un desplome de un año ni un año de euforia se proyectan cinco años enteros |
+| `CRECIMIENTO_REF_ANOS` | 3 | Años del CAGR histórico de ingresos, o los que haya si son menos |
+| `PAYOUT_SIN_DATO` | 0,5 | Reparto de beneficios supuesto en el beneficio residual cuando yfinance no da `payoutRatio`. La procedencia lo dice |
 | `MARGEN_MINIMO` | 0,05 | El margen del voto de flujos es `max(0,05; ½·|g_ref|)` |
 | `MARGEN_ROE_MINIMO` | 0,03 | Igual para el beneficio residual: `max(0,03; ½·|ROE_ref|)` |
 | `DELTA_WACC_ESCENARIOS` | 0,01 | ±1 punto de coste de capital entre escenarios |
 | `INVERSO_LIMITES` | (−0,30; +0,80) | Intervalo de la bisección del crecimiento implícito |
+| `INVERSO_ROE_LIMITES` | (−0,20; +0,60) | Intervalo de la bisección del ROE implícito |
 | `COSTE_DEUDA_TOPES` | (r_f; r_f + 0,08) | El coste de la deuda no baja de la tasa libre de riesgo ni sube como el de un bono basura |
 | `HOLGURA_GORDON` | 0,01 | El coste de capital debe superar al crecimiento perpetuo en al menos un punto; si no, el valor terminal explota y la lectura no aplica |
 | `UMBRAL_PARES` | 0,5 | El pilar de valoración vota «barata» desde +0,5 y «cara» desde −0,5: el mismo corte que `ranking.fichas.descriptor` usa para «por encima de sus pares» |
@@ -221,7 +224,9 @@ cambiar el escenario sin decirlo.
 **Sensibilidad.** Una tabla del valor base por acción con el coste de capital en
 `wacc` ±2 puntos (paso de 1) en las filas y el crecimiento perpetuo ±1 punto
 (paso de 0,5) en las columnas. Las celdas donde no se cumple `HOLGURA_GORDON` se
-dejan vacías y se explica por qué.
+dejan vacías y se explica por qué. **La escribe N**, junto a la pantalla que la
+pinta: en Revisar candidatos no se enseña, y una función que no llama nadie es
+la que acaba borrada.
 
 **Inverso.** Bisección sobre el `g` de la primera etapa, con todo lo demás en su
 valor base, hasta que el valor por acción iguala el precio. Con margen de flujo
@@ -270,7 +275,9 @@ exige**.
 Cada voto es `barata`, `neutra`, `cara` o `no_aplica`, y el `no_aplica` lleva su
 motivo como **clave** (`quema_caja`, `ebit_negativo`, `sin_historia`,
 `wacc_bajo_crecimiento`, `sin_pares`, `sin_precio`, `sin_tasa_libre`,
-`financiera`).
+`financiera`, `patrimonio_negativo`). Una valoración que no llega a calcularse
+lleva su motivo en el nivel de arriba (`sin_estados`, `sin_precio`,
+`sin_tasa_libre`, `error_interno`).
 
 | Voto | Barata | Cara | Neutra |
 |---|---|---|---|
@@ -331,9 +338,10 @@ Lo que se guarda en `ficha["valoracion"]`:
 Las cifras son ilustrativas. Se guardan **claves, nunca textos de pantalla**: las
 etiquetas («Infravalorada», «Señales mixtas», «quema caja») viven en un
 diccionario aparte que sólo lee la vista. Todo NaN se escribe como `null`, porque
-`fichas.json` se escribe con `allow_nan=False` y ese es su contrato. `reconstruir`
-lee de vuelta y tolera claves ausentes, para que una versión futura del formato
-no rompa la lectura de una ficha vieja.
+`fichas.json` se escribe con `allow_nan=False` y ese es su contrato. La lectura
+de vuelta la hace `aprobacion.carga.valoracion_de` (ver abajo), que tolera
+claves ausentes: una versión futura del formato no puede romper la lectura de
+una ficha vieja.
 
 ## Integración en Revisar candidatos
 
@@ -352,16 +360,19 @@ si la clave falta o está corrupta. Es el defecto que ya pagó `kpis_por_pilar`:
 validar la existencia de un campo y no su contenido dejaba reventar la lista a
 la mitad, con tarjetas ya pintadas encima.
 
-**`medidores.py`.** `tarjeta_candidato` gana el distintivo del veredicto en la
-cabecera, con los colores semánticos del tema: verde para infravalorada, rojo
-para sobrevalorada, ámbar para mixtas y gris para en rango o sin datos. Si la
-ficha no trae valoración, no hay distintivo. Una función nueva,
-`resumen_valoracion(valoracion)`, pinta dentro de la ficha los tres votos en una
-línea cada uno, el rango, el margen de seguridad y la procedencia de los
-supuestos.
+**`medidores_valoracion.py`** (nuevo, junto a `medidores.py`, que ya pasa de
+las 450 líneas). Contiene las etiquetas de pantalla de cada clave y dos
+funciones:
+- `distintivo(valoracion)`: el veredicto con los colores semánticos del tema
+  (verde para infravalorada, rojo para sobrevalorada, ámbar para mixtas y gris
+  para en rango o sin datos). Sin valoración, una cadena vacía.
+- `resumen(valoracion)`: los tres votos en una línea cada uno, el rango, el
+  margen de seguridad y la procedencia de los supuestos.
+
+`medidores.tarjeta_candidato` pinta el distintivo en la cabecera de la tarjeta.
 
 **`vistas/candidatos.py`.** Dentro del desplegable de cada ficha, un bloque
-«Valoración» con `resumen_valoracion` y esta nota:
+«Valoración» con `medidores_valoracion.resumen` y esta nota:
 
 > Un criterio transparente, no una previsión: no hay forma honesta de probar
 > hacia atrás si acierta, porque las cifras de yfinance no dicen cuándo se

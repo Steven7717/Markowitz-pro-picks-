@@ -228,7 +228,9 @@ Si un ticker falla, sólo su fila lo dice. Los demás se analizan igual.
 es aritmética pura, sin volver a pedir nada a la red. N añade a
 `valoracion/supuestos.py` la función `aplicar(supuestos, cambios)`, que devuelve
 otros supuestos con lo que se movió y marca qué fue. M no la tenía porque en
-candidatos no hay nada que mover. El distintivo pasa a decir
+candidatos no hay nada que mover. Por la misma razón, N añade también
+`valoracion.dcf.sensibilidad`, la tabla de coste de capital frente a
+crecimiento perpetuo que describe el spec de M. El distintivo pasa a decir
 «con tus supuestos» y la lista de supuestos marca cuáles se movieron. **Lo
 movido no se guarda en ningún sitio.**
 
