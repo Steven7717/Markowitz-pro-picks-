@@ -1,5 +1,3 @@
-import math
-
 import numpy as np
 import pandas as pd
 import pytest
@@ -36,13 +34,14 @@ def test_el_perfil_lee_lo_que_hace_falta():
     assert p.pais == "United States"
     assert p.payout == 0.02
     assert p.tipo == "EQUITY"
-    assert p.hora.startswith("2026-")
+    assert p.hora == "2026-10-12T19:59:00+00:00"
 
 
 def test_el_perfil_no_tiene_donde_guardar_la_beta_de_yahoo():
     # La beta se calcula con `regresion_beta`, nunca se lee de Yahoo: para
-    # WALMEX.MX daba 0,016. La garantía es la forma del tipo, no una promesa.
-    assert "beta" not in Perfil.__dataclass_fields__
+    # WALMEX.MX daba 0,016. La garantía es la forma del tipo, no una promesa; y
+    # se busca la palabra en cualquier nombre para que `beta_yahoo` tampoco pase.
+    assert not any("beta" in nombre for nombre in Perfil.__dataclass_fields__)
 
 
 def test_sin_precio_no_hay_perfil():
@@ -66,6 +65,25 @@ def test_sin_moneda_no_hay_perfil():
 def test_la_moneda_de_los_estados_cae_a_la_del_precio():
     p = perfil_desde_info("X", {**INFO, "financialCurrency": None})
     assert p.moneda_estados == "USD"
+
+
+def test_un_precio_actual_no_numerico_cae_al_de_mercado():
+    # NaN es verdadero en Python: `nan or 50.0` se queda con el NaN.
+    p = perfil_desde_info("X", {**INFO, "currentPrice": float("nan"), "regularMarketPrice": 50.0})
+    assert p.precio == 50.0
+
+
+def test_una_hora_en_milisegundos_no_rompe_el_perfil():
+    # Si Yahoo cambiase la unidad, la hora es lo único que se pierde: el perfil
+    # sigue siendo válido y no se cae toda la valoración por una marca de tiempo.
+    p = perfil_desde_info("X", {**INFO, "regularMarketTime": 1_791_835_140_000})
+    assert p.precio == 989.04
+    assert p.hora is None
+
+
+def test_sin_tipo_de_cotizacion_el_perfil_no_inventa_uno():
+    p = perfil_desde_info("X", {**INFO, "quoteType": None})
+    assert p.tipo is None
 
 
 def _cierres(rendimientos: np.ndarray) -> pd.Series:
@@ -99,6 +117,88 @@ def test_la_beta_tolera_zonas_horarias_distintas():
     assert beta.bruta == pytest.approx(1.0)
 
 
+def test_solo_cuentan_las_ultimas_104_semanas():
+    g = np.random.default_rng(5)
+    mercado = g.normal(0, 0.02, 150)
+    # Las 46 primeras semanas, al revés: si entrasen en la regresión, la beta
+    # dejaría de ser 1,5.
+    activo = np.r_[-2.0 * mercado[:46], 1.5 * mercado[46:]]
+    beta = regresion_beta(_cierres(activo), _cierres(mercado), "^GSPC")
+    assert beta.semanas == 104
+    assert beta.bruta == pytest.approx(1.5)
+
+
+def test_con_52_semanas_hay_beta_y_con_51_no():
+    m = np.random.default_rng(5).normal(0, 0.02, 52)
+    assert regresion_beta(_cierres(m), _cierres(m), "^GSPC").semanas == 52
+    assert regresion_beta(_cierres(m[:51]), _cierres(m[:51]), "^GSPC") is None
+
+
+def test_la_beta_alinea_zonas_al_este_de_utc():
+    # Medianoche en Tokio es el día anterior en UTC: convertir en vez de quitar
+    # la zona desalinearía todas las fechas un día.
+    m = np.random.default_rng(3).normal(0, 0.02, 80)
+    activo = _cierres(m)
+    activo.index = activo.index.tz_localize("Asia/Tokyo")
+    assert regresion_beta(activo, _cierres(m), "^GSPC").bruta == pytest.approx(1.0)
+
+
+def test_una_fecha_repetida_cuenta_una_vez():
+    m = np.random.default_rng(3).normal(0, 0.02, 80)
+    a = _cierres(m)
+    repetida = pd.concat([a.iloc[:40], a.iloc[[39]], a.iloc[40:]])
+    assert regresion_beta(repetida, _cierres(m), "^GSPC").semanas == 80
+
+
+def test_de_una_fecha_repetida_vale_la_ultima():
+    # Yahoo repite a veces la vela de la semana en curso: la buena es la última.
+    m = np.random.default_rng(3).normal(0, 0.02, 80)
+    a = _cierres(m)
+    vieja = pd.Series([a.iloc[39] * 2], index=[a.index[39]])
+    repetida = pd.concat([a.iloc[:39], vieja, a.iloc[39:]])
+    assert regresion_beta(repetida, _cierres(m), "^GSPC").bruta == pytest.approx(1.0)
+
+
+def test_la_beta_alinea_horas_distintas_del_mismo_dia():
+    m = np.random.default_rng(3).normal(0, 0.02, 80)
+    activo = _cierres(m)
+    activo.index = activo.index.shift(14, freq="h")
+    assert regresion_beta(activo, _cierres(m), "^GSPC").bruta == pytest.approx(1.0)
+
+
+def test_la_beta_no_depende_del_orden_de_las_filas():
+    # `tail` y `pct_change` son posicionales: con las filas desordenadas
+    # calcularían rendimientos entre fechas que no son vecinas.
+    g = np.random.default_rng(11)
+    mercado = g.normal(0, 0.02, 80)
+    activo = 1.5 * mercado + g.normal(0, 0.002, 80)
+    del_derecho = regresion_beta(_cierres(activo), _cierres(mercado), "^GSPC")
+    del_reves = regresion_beta(_cierres(activo).iloc[::-1], _cierres(mercado), "^GSPC")
+    assert del_reves == del_derecho
+
+
+def test_un_indice_sin_variacion_no_da_beta():
+    a = _cierres(np.random.default_rng(3).normal(0, 0.02, 80))
+    assert regresion_beta(a, pd.Series(100.0, index=a.index), "^GSPC") is None
+
+
+def test_un_activo_sin_variacion_no_da_beta():
+    # Pendiente 0 y R2 indefinido (NaN): una beta a medias no se devuelve.
+    m = _cierres(np.random.default_rng(3).normal(0, 0.02, 80))
+    assert regresion_beta(pd.Series(100.0, index=m.index), m, "^GSPC") is None
+
+
+@pytest.mark.parametrize("posicion", [0, 40, 80])
+def test_un_cierre_a_cero_no_da_beta(posicion):
+    # Un cero en medio da un rendimiento infinito, que envenenaría el coste del
+    # capital y la caché con un NaN. Un cero en la última semana no da infinito
+    # sino un -100 %: una beta finita, plausible y falsa, que es peor.
+    m = _cierres(np.random.default_rng(3).normal(0, 0.02, 80))
+    activo = m.copy()
+    activo.iloc[posicion] = 0.0
+    assert regresion_beta(activo, m, "^GSPC") is None
+
+
 def test_la_tasa_libre_es_el_ultimo_cierre_en_tanto_por_uno():
     assert tasa_libre_desde_cierres(pd.Series([4.1, 4.2, 5.24])) == pytest.approx(0.0524)
 
@@ -119,6 +219,14 @@ def test_sin_fila_de_impuestos_no_hay_tasa_efectiva():
     estado = pd.DataFrame({"2025": [1.0]}, index=["Net Income"])
     assert tasa_efectiva_desde_estado(estado) is None
     assert tasa_efectiva_desde_estado(None) is None
+
+
+def test_la_tasa_efectiva_toma_la_mas_reciente_aunque_haya_mas_antiguas():
+    estado = pd.DataFrame(
+        {"2025": [0.11], "2024": [0.36], "2023": [0.21]},
+        index=["Tax Rate For Calcs"],
+    )
+    assert tasa_efectiva_desde_estado(estado) == 0.11
 
 
 def _estimacion(moneda: str) -> pd.DataFrame:

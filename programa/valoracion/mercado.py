@@ -33,7 +33,7 @@ class Perfil:
     industria: "str | None"
     pais: "str | None"
     payout: "float | None"
-    tipo: str
+    tipo: "str | None"
     hora: "str | None"
 
 
@@ -62,14 +62,30 @@ def _texto(valor: object) -> "str | None":
     return valor.strip() if isinstance(valor, str) and valor.strip() else None
 
 
+def _hora(momento: object) -> "str | None":
+    """La hora de la cotización en ISO y UTC. La hora es lo único prescindible
+    del perfil: si Yahoo cambiase de unidad (milisegundos), `fromtimestamp`
+    lanza, y por una marca de tiempo no se tira toda la valoración."""
+    segundos = _opcional(momento)
+    if segundos is None:
+        return None
+    try:
+        return datetime.fromtimestamp(segundos, tz=timezone.utc).isoformat()
+    except (OverflowError, OSError, ValueError):
+        return None
+
+
 def perfil_desde_info(ticker: str, info: dict) -> "Perfil | None":
     """El perfil desde `yf.Ticker(t).info`, o `None` si falta precio, capitalización o moneda."""
-    precio = _num(info.get("currentPrice") or info.get("regularMarketPrice"))
+    # `_num` antes que `or`: un NaN es verdadero en Python, y `nan or 50.0` se
+    # queda con el NaN en lugar de caer al precio de mercado.
+    precio = _num(info.get("currentPrice"))
+    if not precio > 0:
+        precio = _num(info.get("regularMarketPrice"))
     capitalizacion = _num(info.get("marketCap"))
     moneda = _texto(info.get("currency"))
     if not (precio > 0 and capitalizacion > 0) or moneda is None:
         return None
-    momento = _opcional(info.get("regularMarketTime"))
     return Perfil(
         ticker=ticker,
         precio=precio,
@@ -79,12 +95,10 @@ def perfil_desde_info(ticker: str, info: dict) -> "Perfil | None":
         industria=_texto(info.get("industry")),
         pais=_texto(info.get("country")),
         payout=_opcional(info.get("payoutRatio")),
-        tipo=_texto(info.get("quoteType")) or "EQUITY",
-        hora=(
-            None
-            if momento is None
-            else datetime.fromtimestamp(momento, tz=timezone.utc).isoformat()
-        ),
+        # Sin tipo no se inventa uno: quien lo necesite decidirá qué hacer con
+        # un `None`, y un "EQUITY" falso no se distinguiría de uno verdadero.
+        tipo=_texto(info.get("quoteType")),
+        hora=_hora(info.get("regularMarketTime")),
     )
 
 
@@ -96,6 +110,10 @@ def _semanal(cierres: pd.Series) -> pd.Series:
     if indice.tz is not None:
         indice = indice.tz_localize(None)
     serie.index = indice.normalize()
+    # Ordenada antes de quitar repetidos y de todo lo posicional que viene
+    # después (`pct_change`, `tail`); estable para que "la última" de una fecha
+    # repetida sea la que llegó última.
+    serie = serie.sort_index(kind="stable")
     return serie[~serie.index.duplicated(keep="last")]
 
 
@@ -108,16 +126,26 @@ def regresion_beta(
     de datos semanales ya da una beta ruidosa, y menos no da ninguna.
     """
     juntos = pd.concat([_semanal(activo), _semanal(indice)], axis=1, join="inner").dropna()
-    rendimientos = juntos.pct_change(fill_method=None).dropna().tail(BETA_SEMANAS)
+    precios = juntos.tail(BETA_SEMANAS + 1)
+    # Un cierre a cero es un dato corrupto: da un -100 % seguido de un
+    # rendimiento infinito. Quitar sólo el infinito dejaría el -100 %: una beta
+    # finita, plausible y falsa. Con un cero en la ventana no hay beta.
+    if (precios <= 0).any().any():
+        return None
+    rendimientos = precios.pct_change(fill_method=None).dropna()
     if len(rendimientos) < BETA_SEMANAS_MIN:
         return None
     y, x = rendimientos.iloc[:, 0], rendimientos.iloc[:, 1]
-    varianza = x.var()
-    if not varianza > 0:
+    if not (x.var() > 0 and y.var() > 0):
+        return None
+    bruta = float(y.cov(x) / x.var())
+    r2 = float(y.corr(x) ** 2)
+    # Última guarda: un NaN aquí envenenaría el coste del capital y la caché.
+    if not (math.isfinite(bruta) and math.isfinite(r2)):
         return None
     return Beta(
-        bruta=float(y.cov(x) / varianza),
-        r2=float(y.corr(x) ** 2),
+        bruta=bruta,
+        r2=r2,
         semanas=int(len(rendimientos)),
         indice=nombre_indice,
     )
