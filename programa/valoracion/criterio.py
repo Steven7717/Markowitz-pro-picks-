@@ -9,6 +9,9 @@ repite aquí: dos copias de una justificación se separan igual que dos de un
 número.
 """
 
+# Convenciones: toda tupla *_TOPES o *_LIMITES es (bajo, alto) y toda tasa es una
+# fracción (0.042 = 4,2 %).
+
 # Viaja dentro de cada valoración guardada, para que una ficha vieja diga con
 # qué criterio se calculó.
 VERSION = "m1"
@@ -22,6 +25,7 @@ PRIMA_RIESGO = 0.0420
 PRIMA_RIESGO_FECHA = "2026-10-01"
 BETA_SEMANAS = 104
 BETA_SEMANAS_MIN = 52
+# (pendiente, término independiente): beta ajustada = pendiente * beta + término.
 BLUME = (0.67, 0.33)
 COSTE_DEUDA_PRIMA_MAXIMA = 0.08
 TASA_LEGAL = {"US": 0.21, "MX": 0.30, "otros": 0.24}
@@ -46,7 +50,8 @@ MIN_VOTOS = 2
 # --- Beneficio residual -------------------------------------------------------
 PAYOUT_SIN_DATO = 0.5
 
-# Cadenas exactas de `info["industry"]` de Yahoo, sondeadas el día del commit.
+# Cadenas exactas de `info["industry"]` de Yahoo, sondeadas el 2026-10-12, con AXS
+# y FAF para Insurance - Specialty.
 # Fuera a propósito: Credit Services (Visa, Mastercard, PayPal), Insurance
 # Brokers y Asset Management, cuyo flujo de caja sí significa algo.
 INDUSTRIAS_FINANCIERAS = frozenset(
