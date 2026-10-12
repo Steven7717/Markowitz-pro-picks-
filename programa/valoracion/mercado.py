@@ -7,11 +7,14 @@ comprueban que la fuente sigue teniendo la forma que las puras esperan.
 """
 
 import math
-from dataclasses import dataclass
-from datetime import datetime, timezone
+from dataclasses import asdict, dataclass
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import pandas as pd
+import yfinance as yf
 
+from noticias import cache
 from valoracion.criterio import BETA_SEMANAS, BETA_SEMANAS_MIN
 
 
@@ -187,3 +190,121 @@ def consenso_desde_estimacion(
     if str(fila.get("currency", "")) != moneda_estados:
         return None
     return _opcional(fila.get("growth"))
+
+
+# --- Red ------------------------------------------------------------------------
+#
+# Cada función devuelve el dato y un motivo con nombre, como
+# `seguimiento/banxico.py`: `"ok"`, `"sin_red"`, o por qué el dato no existe.
+
+RAIZ_CACHE = Path(__file__).resolve().parent / ".cache"
+INDICE = "^GSPC"
+BONO_10 = "^TNX"
+
+# El precio cambia en minutos; la tasa libre, la beta de dos años, la tasa
+# efectiva anual y el consenso, en días. Generar quince candidatos dos veces en
+# una tarde no tiene por qué repetir sesenta descargas.
+VALIDEZ = {
+    "perfil": timedelta(minutes=15),
+    "tasa_libre": timedelta(days=1),
+    "beta": timedelta(days=1),
+    "tasa_efectiva": timedelta(days=1),
+    "consenso": timedelta(days=1),
+}
+
+
+def _traer(fuente: str, clave: str, descargar) -> "tuple[dict | None, str]":
+    """Lo guardado si está vigente; si no, la red; si la red falla, lo guardado.
+
+    Lo guardado caducado se usa antes que nada porque estos datos envejecen
+    despacio --una beta de dos años no cambia de un día a otro-- y el precio
+    lleva su propia hora dentro (`Perfil.hora`), que es la que se enseña.
+    """
+    guardado = cache.leer(RAIZ_CACHE, fuente, clave, VALIDEZ[fuente])
+    if guardado is not None and guardado.vigente and isinstance(guardado.datos, dict):
+        return guardado.datos, "ok"
+    try:
+        datos = descargar()
+    except Exception:
+        # yfinance lanza de todo según qué falle --HTTPError, KeyError,
+        # JSONDecodeError, ValueError, TypeError en una respuesta a medias-- y
+        # ninguna de esas clases distingue algo que aquí importe: o hay dato o no.
+        datos = None
+    if isinstance(datos, dict):
+        cache.guardar(RAIZ_CACHE, fuente, clave, datos)
+        return datos, "ok"
+    if guardado is not None and isinstance(guardado.datos, dict):
+        return guardado.datos, "ok"
+    return None, "sin_red"
+
+
+def _reconstruir(tipo, datos: "dict | None"):
+    """Un `TypeError` aquí es una caché de una versión anterior del tipo: se
+    trata como si no hubiera dato, no se revienta."""
+    if not isinstance(datos, dict):
+        return None
+    try:
+        return tipo(**datos)
+    except TypeError:
+        return None
+
+
+def perfil(ticker: str) -> "tuple[Perfil | None, str]":
+    def descargar():
+        encontrado = perfil_desde_info(ticker, yf.Ticker(ticker).info)
+        return {"perfil": None if encontrado is None else asdict(encontrado)}
+
+    datos, motivo = _traer("perfil", ticker, descargar)
+    if datos is None:
+        return None, motivo
+    encontrado = _reconstruir(Perfil, datos.get("perfil"))
+    return (encontrado, "ok") if encontrado is not None else (None, "sin_precio")
+
+
+def tasa_libre() -> "tuple[float | None, str]":
+    def descargar():
+        cierres = yf.Ticker(BONO_10).history(period="5d")["Close"]
+        return {"valor": tasa_libre_desde_cierres(cierres)}
+
+    datos, _ = _traer("tasa_libre", BONO_10, descargar)
+    if datos is None or datos.get("valor") is None:
+        return None, "sin_tasa_libre"
+    return float(datos["valor"]), "ok"
+
+
+def beta(ticker: str, indice: str = INDICE) -> "tuple[Beta | None, str]":
+    def descargar():
+        activo = yf.Ticker(ticker).history(period="2y", interval="1wk")["Close"]
+        referencia = yf.Ticker(indice).history(period="2y", interval="1wk")["Close"]
+        encontrada = regresion_beta(activo, referencia, indice)
+        return {"beta": None if encontrada is None else asdict(encontrada)}
+
+    datos, motivo = _traer("beta", f"{ticker}|{indice}", descargar)
+    if datos is None:
+        return None, motivo
+    encontrada = _reconstruir(Beta, datos.get("beta"))
+    # `regresion_beta` devuelve None por historial corto, pero también por un
+    # precio no positivo en la ventana o una varianza nula: no siempre es la
+    # historia lo que falta.
+    return (encontrada, "ok") if encontrada is not None else (None, "sin_regresion")
+
+
+def tasa_efectiva(ticker: str) -> "tuple[float | None, str]":
+    def descargar():
+        return {"valor": tasa_efectiva_desde_estado(yf.Ticker(ticker).income_stmt)}
+
+    datos, motivo = _traer("tasa_efectiva", ticker, descargar)
+    if datos is None:
+        return None, motivo
+    return datos.get("valor"), "ok"
+
+
+def consenso(ticker: str, moneda_estados: str) -> "tuple[float | None, str]":
+    def descargar():
+        estimacion = yf.Ticker(ticker).revenue_estimate
+        return {"valor": consenso_desde_estimacion(estimacion, moneda_estados)}
+
+    datos, motivo = _traer("consenso", f"{ticker}|{moneda_estados}", descargar)
+    if datos is None:
+        return None, motivo
+    return datos.get("valor"), "ok"

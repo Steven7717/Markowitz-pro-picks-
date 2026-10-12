@@ -166,6 +166,15 @@ def test_la_beta_alinea_horas_distintas_del_mismo_dia():
     assert regresion_beta(activo, _cierres(m), "^GSPC").bruta == pytest.approx(1.0)
 
 
+def test_r2_es_el_cuadrado_de_la_correlacion():
+    # Correlación deliberadamente débil (≈ 0,57 frente a un R² ≈ 0,33): con una
+    # casi perfecta, `corr` y `corr**2` se parecerían y el test no los distinguiría.
+    m = np.random.default_rng(9).normal(0, .02, 104)
+    a = 0.5 * m + np.random.default_rng(10).normal(0, .02, 104)
+    beta = regresion_beta(_cierres(a), _cierres(m), "^GSPC")
+    assert beta.r2 == pytest.approx(np.corrcoef(m, a)[0, 1] ** 2)
+
+
 def test_la_beta_no_depende_del_orden_de_las_filas():
     # `tail` y `pct_change` son posicionales: con las filas desordenadas
     # calcularían rendimientos entre fechas que no son vecinas.
