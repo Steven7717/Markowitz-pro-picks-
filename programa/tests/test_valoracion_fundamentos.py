@@ -98,6 +98,19 @@ def test_el_balance_es_el_del_ultimo_trimestre():
     assert f.efectivo == 10.0 * (len(marco) - 1)
 
 
+def test_el_balance_es_el_del_trimestre_que_cierra_el_ultimo_ejercicio():
+    # Si el último trimestre no tiene resultados, el ejercicio más reciente cierra
+    # en el anterior, y el balance de otro trimestre no es el de ese cierre.
+    marco = lineas()
+    marco["deuda_total"] = [1000.0 + i for i in range(len(marco))]
+    marco["efectivo"] = [10.0 * i for i in range(len(marco))]
+    marco.loc[marco.index[-1], ["ingresos", "beneficio_neto"]] = float("nan")
+    f = desde_lineas(marco, "USD", "sec")
+    assert f.ultimo.fin == marco.index[-2].date()
+    assert f.deuda_total == 1000.0 + (len(marco) - 2)
+    assert f.efectivo == 10.0 * (len(marco) - 2)
+
+
 def test_el_patrimonio_de_cada_ejercicio_es_el_de_su_cierre():
     marco = lineas()
     marco["patrimonio_neto"] = [100.0 * i for i in range(len(marco))]

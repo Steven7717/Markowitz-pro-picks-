@@ -77,9 +77,11 @@ class Ejercicio:
 class Fundamentos:
     """Una empresa, en la moneda de sus estados. `ejercicios[0]` es el más reciente.
 
-    `deuda_total` y `efectivo` son el balance del último trimestre. NaN es «no
-    declarada», no cero: sin `deuda_total` no se sabe si la empresa no debe nada
-    o no lo dice, y quien la use como cero lo decide él.
+    `deuda_total` y `efectivo` son el balance del trimestre que cierra `ultimo`.
+    Puede ser anterior a la última fila del panel: si el trimestre más reciente
+    no tiene TTM de la serie ancla, el ejercicio retrocede y el balance con él.
+    NaN es «no declarada», no cero: sin `deuda_total` no se sabe si la empresa no
+    debe nada o no lo dice, y quien la use como cero lo decide él.
     """
 
     moneda: str
