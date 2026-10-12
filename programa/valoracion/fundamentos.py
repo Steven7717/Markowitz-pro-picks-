@@ -112,10 +112,18 @@ def desde_lineas(lineas: pd.DataFrame, moneda: str, fuente: str) -> "Fundamentos
 
     Una posición vale como cierre de ejercicio si sus cuatro trimestres son
     consecutivos de verdad (las fechas de la ventana distan lo que distan tres
-    trimestres) y hay TTM de `ingresos` **o** de `beneficio_neto`. La segunda
-    puerta es la de los bancos, que no declaran ingresos con una etiqueta que el
-    motor reconozca y a los que la valoración por resultado residual sólo pide
-    beneficio y patrimonio. La cifra que falta se queda en NaN en el `Ejercicio`.
+    trimestres) y la serie ancla tiene TTM ahí. La serie ancla son los
+    `ingresos` si la empresa tiene algún TTM de ingresos en todo el panel, y el
+    `beneficio_neto` sólo si no lo tiene nunca: es el caso de los bancos, que no
+    declaran ingresos con una etiqueta que el motor reconozca y a los que la
+    valoración por resultado residual sólo pide beneficio y patrimonio.
+
+    El ancla es una sola serie, no «cualquiera de las dos», a propósito. Con la
+    segunda como alternativa, a una empresa normal a la que el último informe le
+    falta sólo la etiqueta de ingresos le quedaría un ejercicio más reciente con
+    `ingresos` vacío, y su DCF, que parte de ellos, se perdería por una etiqueta;
+    anclada en los ingresos, retrocede al último trimestre que sí los tiene. La
+    cifra que no es el ancla puede quedarse en NaN en el `Ejercicio`.
 
     El ejercicio más reciente es la **última** posición válida; los demás se
     buscan hacia atrás de cuatro en cuatro filas, y la búsqueda **se detiene**
@@ -139,6 +147,7 @@ def desde_lineas(lineas: pd.DataFrame, moneda: str, fuente: str) -> "Fundamentos
     lineas = lineas.sort_index()
     ttm = {columna: _ttm(lineas[columna]) for columna in _FLUJOS}
     fechas = lineas.index
+    ancla = ttm["ingresos"] if ttm["ingresos"].notna().any() else ttm["beneficio_neto"]
     minimo_ventana = (_TRIMESTRES_POR_ANO - 1) * _DIAS_TRIMESTRE[0]
     maximo_ventana = (_TRIMESTRES_POR_ANO - 1) * _DIAS_TRIMESTRE[1]
 
@@ -148,10 +157,7 @@ def desde_lineas(lineas: pd.DataFrame, moneda: str, fuente: str) -> "Fundamentos
         ventana = (fechas[posicion] - fechas[posicion - (_TRIMESTRES_POR_ANO - 1)]).days
         if not minimo_ventana <= ventana <= maximo_ventana:
             return False
-        return bool(
-            pd.notna(ttm["ingresos"].iloc[posicion])
-            or pd.notna(ttm["beneficio_neto"].iloc[posicion])
-        )
+        return bool(pd.notna(ancla.iloc[posicion]))
 
     validas = [posicion for posicion in range(len(lineas)) if valida(posicion)]
     if not validas:

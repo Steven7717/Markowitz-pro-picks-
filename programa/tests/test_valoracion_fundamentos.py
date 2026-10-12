@@ -114,15 +114,17 @@ def test_el_ultimo_ejercicio_es_el_ultimo_con_resultados_de_doce_meses():
     assert len(f.ejercicios) == 4
 
 
-def test_basta_el_beneficio_neto_para_que_el_ultimo_trimestre_cuente():
-    # Una empresa a la que sólo le falta el ingreso del último trimestre sigue
-    # teniendo el ejercicio más reciente: con ingresos vacíos, no inventado.
+def test_si_al_ultimo_trimestre_solo_le_faltan_los_ingresos_retrocede_al_ultimo_que_los_tiene():
+    # El beneficio neto del último trimestre existe, pero el ancla de una empresa
+    # con ingresos son sus ingresos: un ejercicio más reciente con ingresos
+    # vacíos le costaría el DCF por una etiqueta que falta en un solo informe.
     marco = lineas()
     marco.loc[marco.index[-1], "ingresos"] = float("nan")
     f = desde_lineas(marco, "USD", "sec")
-    assert f.ultimo.fin == date(2026, 9, 30)
-    assert math.isnan(f.ultimo.ingresos)
-    assert f.ultimo.beneficio_neto == 444.0
+    assert f.ultimo.fin == date(2026, 6, 30)
+    assert f.ultimo.ingresos == 70.0  # 16+17+18+19
+    assert f.ultimo.beneficio_neto == 420.0
+    assert len(f.ejercicios) == 4
 
 
 def test_un_banco_sin_linea_de_ingresos_tiene_ejercicios_con_beneficio_y_patrimonio():
@@ -131,6 +133,16 @@ def test_un_banco_sin_linea_de_ingresos_tiene_ejercicios_con_beneficio_y_patrimo
     assert f.ultimo.beneficio_neto == 444.0
     assert f.ultimo.patrimonio_neto == 2000.0
     assert len(f.ejercicios) == 5
+
+
+def test_un_banco_se_ancla_en_el_ultimo_trimestre_con_beneficio_neto():
+    marco = lineas(ingresos=float("nan"))
+    marco.loc[marco.index[-1], "beneficio_neto"] = float("nan")
+    f = desde_lineas(marco, "USD", "sec")
+    assert f.ultimo.fin == date(2026, 6, 30)
+    assert math.isnan(f.ultimo.ingresos)
+    assert f.ultimo.beneficio_neto == 420.0
+    assert len(f.ejercicios) == 4
 
 
 def test_sin_beneficio_neto_los_ingresos_bastan():
