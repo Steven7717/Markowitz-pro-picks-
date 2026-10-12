@@ -70,7 +70,7 @@ debajo de este documento y no se edita el original.
 |---|---|---|
 | `ANOS_ALTO_CRECIMIENTO` | 5 | Primera etapa del DCF |
 | `ANOS_CONVERGENCIA` | 5 | El crecimiento baja en línea recta hasta el de perpetuidad; en el año 10 ya es el de perpetuidad |
-| `PRIMA_RIESGO` | 0,0420 | Damodaran, prima implícita a 2026-10-01, base *trailing 12 months, adjusted payout*. Va con `PRIMA_RIESGO_FECHA` y `PRIMA_RIESGO_FUENTE` al lado |
+| `PRIMA_RIESGO` | 0,0420 | Damodaran, prima implícita a 2026-10-01, base *trailing 12 months, adjusted payout*. Va con `PRIMA_RIESGO_FECHA` al lado. La fuente la nombra la procedencia del supuesto (`"damodaran"`), no una constante |
 | `CRECIMIENTO_PERPETUO` | `{"USD": 0.025, "MXN": 0.035}` | Crecimiento nominal de largo plazo. MXN lleva encima la diferencia de objetivos de inflación (3 % frente a 2 %). Nunca puede superar la tasa libre de riesgo: si la supera, se recorta a ella |
 | `TASA_LEGAL` | `{"US": 0.21, "MX": 0.30, "otros": 0.24}` | Respaldo cuando no hay tasa efectiva, por el país de `info["country"]`. `otros` es el tipo combinado medio de la OCDE, redondeado; la procedencia lo dice |
 | `TASA_EFECTIVA_TOPES` | (0,00; 0,35) | Una tasa efectiva fuera de ahí es un año raro, no un régimen |
@@ -85,7 +85,7 @@ debajo de este documento y no se edita el original.
 | `DELTA_WACC_ESCENARIOS` | 0,01 | ±1 punto de coste de capital entre escenarios |
 | `INVERSO_LIMITES` | (−0,30; +0,80) | Intervalo de la bisección del crecimiento implícito |
 | `INVERSO_ROE_LIMITES` | (−0,20; +0,60) | Intervalo de la bisección del ROE implícito |
-| `COSTE_DEUDA_TOPES` | (r_f; r_f + 0,08) | El coste de la deuda no baja de la tasa libre de riesgo ni sube como el de un bono basura |
+| `COSTE_DEUDA_PRIMA_MAXIMA` | 0,08 | El coste de la deuda se acota entre r_f y r_f + 0,08: no baja de la tasa libre de riesgo ni sube como el de un bono basura. Se guarda la prima y no el intervalo porque r_f no es una constante |
 | `HOLGURA_GORDON` | 0,01 | El coste de capital debe superar al crecimiento perpetuo en al menos un punto; si no, el valor terminal explota y la lectura no aplica |
 | `UMBRAL_PARES` | 0,5 | El pilar de valoración vota «barata» desde +0,5 y «cara» desde −0,5: el mismo corte que `ranking.fichas.descriptor` usa para «por encima de sus pares» |
 | `MIN_ANOS_HISTORIA` | 2 | Años de margen necesarios para normalizarlo |
@@ -180,7 +180,7 @@ cuyo valor sea una decisión de redacción.
 | `beta` | Blume sobre la regresión; con menos de 52 semanas, 1,0 |
 | `prima` | `PRIMA_RIESGO` |
 | `k_e` | `r_f + beta × prima` |
-| `k_d` | `gasto_financiero_ttm / deuda_total`, acotado por `COSTE_DEUDA_TOPES` |
+| `k_d` | `gasto_financiero_ttm / deuda_total`, acotado entre `r_f` y `r_f + COSTE_DEUDA_PRIMA_MAXIMA` |
 | `t` | Tasa efectiva acotada, o la legal |
 | `wacc` | `E/(E+D)·k_e + D/(E+D)·k_d·(1 − t)`, con E = capitalización y D = deuda contable. Sin deuda, `wacc = k_e` |
 | `g_ref` | Media del CAGR histórico de ingresos (hasta 3 años) y del consenso `+1y`. Si sólo existe uno, ése. Acotado por `CRECIMIENTO_REF_TOPES` |
