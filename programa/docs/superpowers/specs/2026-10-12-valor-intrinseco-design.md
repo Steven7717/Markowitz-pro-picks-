@@ -327,6 +327,7 @@ Lo que se guarda en `ficha["valoracion"]`:
 {
   "version": "m1",
   "fecha": "2026-10-12",
+  "estados_hasta": "2026-08-31",
   "moneda": "USD",
   "precio": 989.04,
   "precio_hora": "2026-10-12T15:59:00-04:00",
@@ -345,7 +346,12 @@ Lo que se guarda en `ficha["valoracion"]`:
 }
 ```
 
-Las cifras son ilustrativas. Se guardan **claves, nunca textos de pantalla**: las
+Las cifras son ilustrativas. `estados_hasta` es el cierre del último ejercicio
+con el que se valoró: la revisión del 2026-10-12 encontró empresas cuyo último
+ejercicio válido va de uno a doce meses por detrás de su panel (PSKY, TAP,
+FERG), y un valor sin la fecha de sus cifras se lee como de hoy. En candidatos
+no ocurre, porque la guarda `MAX_ANTIGUEDAD_TRIMESTRES` del ranking ya los
+excluye; en N cualquiera puede traer uno. Se guardan **claves, nunca textos de pantalla**: las
 etiquetas («Infravalorada», «Señales mixtas», «quema caja») viven en un
 diccionario aparte que sólo lee la vista. Todo NaN se escribe como `null`, porque
 `fichas.json` se escribe con `allow_nan=False` y ese es su contrato. La lectura
@@ -454,3 +460,9 @@ toca.
   enmienda fechada, no un cambio silencioso, porque mueve todos los veredictos a
   la vez.
 - **Sólo dólares.** Pesos, otras divisas y ADRs son de N.
+- **Las empresas con trimestres de dieciséis semanas** (KR) salen sin
+  fundamentos: el panel del motor descarta ese trimestre por durar más de cien
+  días, ningún año queda completo, y es mejor `sin_historia` que el TTM de 448
+  días que salía antes. La causa está en `fundamentals/panel.py`.
+- **No hay listón de antigüedad de los estados.** Se enseña `estados_hasta` en
+  vez de inventar uno después de congelar el criterio.

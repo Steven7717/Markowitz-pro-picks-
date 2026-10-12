@@ -2527,10 +2527,14 @@ def test_la_valoracion_es_json_estricto_y_lleva_las_claves_del_spec():
     plano = a_dict(v)
     json.dumps(plano, allow_nan=False)
     assert set(plano) == {
-        "version", "fecha", "moneda", "precio", "precio_hora", "metodo", "valor",
-        "margen_seguridad", "implicito", "epv", "votos", "veredicto", "supuestos",
+        "version", "fecha", "estados_hasta", "moneda", "precio", "precio_hora",
+        "metodo", "valor", "margen_seguridad", "implicito", "epv", "votos",
+        "veredicto", "supuestos",
     }
     assert plano["version"] == "m1" and plano["fecha"] == "2026-10-12"
+    # La fecha de los estados con los que se valoró: en el Analizador (N) puede
+    # ser vieja, y el número tiene que decir de cuándo son sus cifras.
+    assert plano["estados_hasta"] == "2026-09-30"
     assert plano["votos"]["pares"] == {"voto": "no_aplica", "motivo": "sin_pares"}
     assert set(plano["supuestos"]["beta"]) == {"valor", "procedencia"}
 
@@ -2625,6 +2629,7 @@ def a_dict(v: "Valoracion") -> dict:
         {
             "version": VERSION,
             "fecha": v.fecha.isoformat(),
+            "estados_hasta": v.estados_hasta.isoformat(),
             "moneda": v.moneda,
             "precio": v.precio,
             "precio_hora": v.precio_hora,
@@ -2733,6 +2738,11 @@ class SinCrecimiento:
 @dataclass(frozen=True)
 class Valoracion:
     fecha: date
+    # El cierre del último ejercicio. Una valoración con estados de hace un año
+    # no se puede leer como una de hoy, y en N cualquiera puede traer un ticker
+    # cuyas cuentas se quedaron atrás. En candidatos no pasa: la guarda
+    # `MAX_ANTIGUEDAD_TRIMESTRES` del ranking ya excluye a los rezagados.
+    estados_hasta: date
     moneda: str
     precio: float
     precio_hora: "str | None"
@@ -2852,6 +2862,7 @@ def calcular(
     base = None if valor is None else valor.base
     return Valoracion(
         fecha=hoy or date.today(),
+        estados_hasta=fundamentos.ultimo.fin,
         moneda=perfil.moneda,
         precio=precio,
         precio_hora=perfil.hora,
@@ -3181,6 +3192,7 @@ def test_el_resumen_nombra_los_tres_votos():
     html = mv.resumen(_valoracion())
     for nombre in mv.NOMBRE_VOTO.values():
         assert nombre in html
+    assert "estados hasta 2026-09-30" in html
 
 
 def test_el_resumen_de_un_banco_llama_beneficio_residual_a_los_flujos():
@@ -3503,7 +3515,8 @@ def resumen(valoracion: dict) -> str:
         f'<div class="mpp-val-cab">{distintivo(valoracion)}'
         f'<span class="mpp-val-detalle">{_esc(_rango(valoracion))}</span>'
         f'<span class="mpp-val-detalle">Calculada el {_esc(valoracion.get("fecha"))} '
-        f'con el precio de {_esc(_dinero(valoracion.get("precio"), valoracion.get("moneda", "")))}'
+        f'con el precio de {_esc(_dinero(valoracion.get("precio"), valoracion.get("moneda", "")))} '
+        f'y estados hasta {_esc(valoracion.get("estados_hasta", "n/d"))}'
         "</span></div>"
     )
     return f'<div class="mpp-val">{cabecera}{"".join(filas)}{_supuestos(valoracion)}</div>'
