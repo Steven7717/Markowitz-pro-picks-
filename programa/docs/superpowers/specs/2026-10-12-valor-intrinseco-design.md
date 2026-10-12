@@ -108,14 +108,24 @@ resuelve».
 `Fundamentos`, una dataclase congelada con todo lo que el motor necesita, en la
 moneda de los estados:
 
-- `ingresos_ttm`, `flujo_operativo_ttm`, `capex_ttm`, `gasto_financiero_ttm`,
-  `beneficio_operativo_ttm`, `beneficio_neto_ttm`
-- `deuda_total`, `efectivo`, `patrimonio_neto` (último balance)
-- `historia`: una tabla anual (TTM cada cuatro trimestres) con ingresos, flujo
-  libre, beneficio operativo, beneficio neto y patrimonio, de la que salen los
-  márgenes normalizados, el ROE de referencia y el crecimiento histórico
-- `moneda`, `fuente` (`"sec"` en M; N añade `"yfinance"`) y la fecha del último
-  trimestre
+- `ejercicios`: una tupla de `Ejercicio`, del más reciente al más antiguo. Cada
+  uno son doce meses que terminan en `fin`, con los flujos sumados (ingresos,
+  flujo operativo, capex, gasto financiero, beneficio operativo y beneficio
+  neto) y el patrimonio a esa fecha. `ultimo` es el primero. De ahí salen los
+  márgenes normalizados, el ROE de referencia y el crecimiento histórico.
+- `deuda_total` y `efectivo`, del último balance.
+- `moneda` y `fuente` (`"sec"` en M; N añade `"yfinance"`).
+
+**Los ejercicios distan de verdad un año**, y por eso se pueden leer por
+posición. La revisión del 2026-10-12 midió sobre las 503 cachés que un trimestre
+que falta en el panel hacía que el muestreo cada cuatro filas saltara un año
+(AMCR, DPZ) o se desplazara (KR, WAT), sin decir nada. Ahora la serie se corta
+en el primer hueco en vez de saltárselo. **Los ejercicios se anclan en los
+ingresos, y sólo si la empresa no declara ninguno, en el beneficio neto**: JPM no
+tiene línea de ingresos, y el beneficio residual sólo necesita beneficio neto y
+patrimonio. Anclar en «cualquiera de los dos» le quitaba el DCF a una empresa
+normal cuyo último 10-Q traía el beneficio pero no la etiqueta de ingresos. NaN
+significa «no declarado», nunca cero.
 
 **El constructor de M lee de EDGAR**, del mismo motor que los candidatos:
 `fundamentals.panel.quarterly_panel` y `fundamentals.concepts.resolve_lines`,
