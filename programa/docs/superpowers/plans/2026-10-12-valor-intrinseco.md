@@ -3952,6 +3952,8 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 ### Task 15: Sabotaje de las guardas
 
+> **Ejecutada y superada** (2026-10-13). Los diez sabotajes del plan y tres más sobre las guardas de la Task 13 (motivo que no es texto, pie sin margen, umbral de `sin_red`) tumban su test. El paso 5 sólo tumba los dos tests de `_limpio` con NaN e infinito: el del JSON estricto pone NaN en el pilar, que no se escribe en el plano.
+
 Cada sabotaje se aplica, se corre el test indicado, se comprueba que **falla**, y se deshace con `git checkout -- <fichero>`. No se commitea nada. Si un sabotaje no tumba ningún test, el trabajo no es repetirlo: es averiguar qué otra cosa está devolviendo la respuesta correcta, y escribir el test que falta.
 
 - [ ] **Step 1: La frontera de las financieras**
@@ -3982,7 +3984,7 @@ Expected: FAIL en `test_una_empresa_que_quema_caja_no_vota_flujos`. Deshaz.
 
 En `valoracion/plano.py`, haz que `_limpio` devuelva `objeto` tal cual para los `float`.
 Run: `uv run pytest tests/test_valoracion_motor.py -q`
-Expected: FAIL en `test_un_nan_en_una_procedencia_se_escribe_como_null` y `test_la_valoracion_es_json_estricto_y_lleva_las_claves_del_spec`. Deshaz.
+Expected: FAIL en `test_un_nan_en_una_procedencia_se_escribe_como_null` y `test_un_infinito_tambien_se_escribe_como_null`. Deshaz.
 
 - [ ] **Step 6: La moneda del consenso**
 
