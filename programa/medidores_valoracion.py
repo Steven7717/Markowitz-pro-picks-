@@ -7,27 +7,49 @@ de las 450 líneas, y lo usarán las dos pantallas: Revisar candidatos y, en N, 
 Analizador.
 
 Todo lo que sale de la ficha se escapa antes de pintarlo, aunque lo haya
-escrito este mismo programa: la moneda, por ejemplo, viene de Yahoo.
+escrito este mismo programa: la moneda, por ejemplo, viene de Yahoo. Y nada de lo
+que sale de la ficha se da por bien formado: `fichas.json` lo puede haber tocado
+cualquiera, y una tarjeta corrupta no debe tumbar la lista entera, así que cada
+lectura degrada a «n/d» en vez de lanzar.
+
+Los textos de los criterios (los topes, la holgura, el reparto por defecto) se
+construyen desde `valoracion.criterio`: si un listón se enmienda, la pantalla
+cambia sola y no se queda diciendo el número viejo.
 """
 
 import html
+import math
+from datetime import datetime, timezone
 
 import tema
-from valoracion.criterio import INVERSO_LIMITES, INVERSO_ROE_LIMITES
+from valoracion.criterio import (
+    ANOS_ALTO_CRECIMIENTO,
+    BLUME,
+    COSTE_DEUDA_PRIMA_MAXIMA,
+    CRECIMIENTO_REF_TOPES,
+    HOLGURA_GORDON,
+    INVERSO_LIMITES,
+    INVERSO_ROE_LIMITES,
+    MIN_VOTOS,
+    PAYOUT_SIN_DATO,
+    TASA_EFECTIVA_TOPES,
+)
 
+# El gris del tema es el de «sin señal»: «en rango» y «sin datos» van en él, y
+# `TEXTO_TENUE` queda fuera porque sobre una tarjeta no llega a 4.5:1.
 VEREDICTO = {
     "infravalorada": ("Infravalorada", tema.VERDE),
     "sobrevalorada": ("Sobrevalorada", tema.ROJO),
     "mixtas": ("Señales mixtas", tema.AMBAR),
     "en_rango": ("En rango", tema.TEXTO_SUAVE),
-    "sin_datos": ("Sin datos suficientes", tema.TEXTO_TENUE),
+    "sin_datos": ("Sin datos suficientes", tema.TEXTO_SUAVE),
 }
 
 VOTO = {
     "barata": ("Barata", tema.VERDE),
     "neutra": ("Neutra", tema.TEXTO_SUAVE),
     "cara": ("Cara", tema.ROJO),
-    "no_aplica": ("No aplica", tema.TEXTO_TENUE),
+    "no_aplica": ("No aplica", tema.TEXTO_SUAVE),
 }
 
 NOMBRE_VOTO = {
@@ -37,25 +59,28 @@ NOMBRE_VOTO = {
 }
 _NOMBRE_VOTO_RESIDUAL = {**NOMBRE_VOTO, "flujos": "Beneficio residual"}
 
+# Ninguna etiqueta empieza por «no aplica» ni por «no se pudo», ni las repite:
+# en la fila de un voto ya está el «No aplica» a su izquierda, y delante de una
+# valoración fallida va «Sin valoración:».
 MOTIVO = {
     "quema_caja": "quema caja: valorarla exigiría inventar cuándo deja de hacerlo",
     "ebit_negativo": "beneficio operativo negativo: sin crecer no queda nada que capitalizar",
-    "sin_historia": "faltan años de historia para normalizar sus márgenes",
+    "sin_historia": "faltan años de historia",
     "wacc_bajo_crecimiento": (
-        "el coste de capital no supera al crecimiento perpetuo en al menos un "
-        "punto, y el valor terminal explotaría"
+        "el coste de capital no supera al crecimiento a perpetuidad en al menos "
+        f"{HOLGURA_GORDON * 100:.1f} puntos, y el valor terminal explotaría"
     ),
     "sin_pares": "sin pares del sector con los que comparar",
-    "sin_precio": "no se pudo descargar el precio",
-    "sin_tasa_libre": "no se pudo descargar la tasa libre de riesgo",
-    "financiera": "no aplica a bancos ni aseguradoras",
+    "sin_precio": "Yahoo Finance no devolvió el precio",
+    "sin_tasa_libre": "Yahoo Finance no devolvió la tasa libre de riesgo",
+    "financiera": "se valora por beneficio residual (bancos y aseguradoras)",
     "patrimonio_negativo": "patrimonio negativo: no hay base sobre la que medir la rentabilidad",
     "sin_beneficio_operativo": (
         "no declara beneficio operativo, así que no hay valor sin crecimiento que calcular"
     ),
     "sin_flujo_libre": "no declara capex o flujo operativo, así que no hay flujo libre que proyectar",
     "sin_red": "Yahoo Finance no devolvió datos: sin conexión, un error suyo o un símbolo que no conoce",
-    "sin_estados": "no se pudieron leer sus estados financieros de la SEC",
+    "sin_estados": "los estados financieros de la SEC no están disponibles o no son legibles",
     "error_interno": "error interno al valorar: merece avisar de ello",
 }
 
@@ -76,6 +101,21 @@ LECTURA_MARGEN = (
     "puede convivir con «en rango» cuando el crecimiento de referencia es alto."
 )
 
+# La regla del repo es explicar la identidad de cada término técnico la primera
+# vez que sale en una pantalla, no en cada tarjeta: la vista pinta esto UNA vez y
+# `resumen` no lo repite en ninguno de los resúmenes.
+GLOSARIO = f"""\
+- **DCF** (flujos de caja descontados): el valor actual de los flujos de caja libres futuros de la empresa. Es lo que vale hoy todo el dinero que se espera que genere, descontado al coste de capital.
+- **DCF inverso**: la misma ecuación leída al revés. En vez de calcular cuánto vale la empresa, busca el crecimiento que el precio de mercado da por hecho.
+- **EPV** (valor sin crecimiento, de Greenwald): lo que valdría la empresa si sus beneficios actuales se mantuvieran para siempre, sin crecer. Greenwald ajusta además la diferencia entre la amortización y el capex de mantenimiento; aquí no se hace, porque ninguna fuente separa el capex de mantenimiento del de expansión.
+- **Beneficio residual**: el método para bancos y aseguradoras, cuyo flujo de caja no significa nada. Su valor es el patrimonio contable más lo que vale la rentabilidad que supera al coste del capital propio, que se supone que persiste.
+- **ROE**: la rentabilidad sobre el patrimonio, el beneficio neto entre el patrimonio neto. Dice cuánto gana la empresa por cada unidad de capital de sus accionistas.
+- **Beta, R² y Blume**: la beta dice cuánto se mueve la acción con el mercado; 1.0 es lo mismo que él. El R² es la parte de los movimientos de la acción que el mercado explica, y un R² bajo significa una beta ruidosa. El ajuste de Blume acerca la beta medida un {(1 - BLUME[0]) * 100:.0f}% del camino hacia 1.0, porque con el tiempo las betas tienden a él.
+- **Coste de capital (WACC)**: lo que cuesta de media financiarse con deuda y con capital propio, según el peso de cada uno. El **coste del capital propio** es la parte de los accionistas: la tasa libre más la beta por la prima de riesgo.
+- **Crecimiento a perpetuidad y valor terminal**: pasados los años proyectados se supone que los flujos crecen para siempre a un ritmo bajo, que nunca supera a la tasa libre. El valor terminal es lo que valen todos esos flujos posteriores, y pesa mucho en el valor total.
+- **Margen de seguridad**: aquí es (valor base − precio) / precio, es decir, cuánto más vale la empresa que su precio. No es el de Graham, (valor − precio) / valor, que se mide sobre el valor.
+- **Veredicto**: hacen falta dos votos en el mismo sentido y ninguno en contra. Una «cara» con dos «neutra» es «en rango»; una «barata» con una «cara», señales mixtas; con menos de {MIN_VOTOS} votos aplicables, sin datos suficientes."""
+
 CSS = f"""<style>
 .mpp-veredicto {{
   border:1px solid currentColor; border-radius:999px; padding:.03rem .55rem;
@@ -87,7 +127,8 @@ CSS = f"""<style>
 .mpp-val-nombre {{ flex:0 0 11.5rem; }}
 .mpp-val-etiqueta {{ flex:0 0 5.5rem; font-weight:600; }}
 .mpp-val-detalle {{ color:{tema.TEXTO_SUAVE}; }}
-.mpp-val-sup {{ color:{tema.TEXTO_TENUE}; font-size:.72rem; margin-top:.45rem; }}
+.mpp-val-sup {{ color:{tema.TEXTO_SUAVE}; font-size:.72rem; margin-top:.45rem; }}
+.mpp-val-sup-titulo {{ font-weight:600; }}
 </style>"""
 
 
@@ -95,54 +136,141 @@ def _esc(texto: object) -> str:
     return html.escape(str(texto))
 
 
-def _pct(valor) -> str:
-    return "n/d" if valor is None else f"{valor * 100:.1f}%"
+def _dic(valor: object) -> dict:
+    """Lo que debería ser un diccionario, o uno vacío si la ficha vino rota."""
+    return valor if isinstance(valor, dict) else {}
 
 
-def _dinero(valor, moneda: str) -> str:
-    return "n/d" if valor is None else f"{valor:,.2f} {moneda}"
+def _entrada(tabla: dict, clave: object, defecto):
+    """`tabla[clave]` sin reventar con una clave que no es texto (una lista no es hashable)."""
+    return tabla.get(clave, defecto) if isinstance(clave, str) else defecto
 
 
-def _motivo(clave) -> str:
-    return MOTIVO.get(clave, str(clave))
+def _numero(valor: object) -> "float | None":
+    """El valor como número finito, o None. Un booleano no es una cifra."""
+    if isinstance(valor, bool) or not isinstance(valor, (int, float)):
+        return None
+    try:
+        numero = float(valor)
+    except OverflowError:
+        return None
+    return numero if math.isfinite(numero) else None
+
+
+def _menos(texto: str) -> str:
+    """El signo menos tipográfico: el guion corto se lee como un separador."""
+    return texto.replace("-", "−")
+
+
+def _pct(valor: object) -> str:
+    numero = _numero(valor)
+    return "n/d" if numero is None else _menos(f"{numero * 100:.1f}%")
+
+
+def _puntos(valor: object) -> str:
+    numero = _numero(valor)
+    return "n/d" if numero is None else _menos(f"{numero * 100:.1f} puntos")
+
+
+def _decimales(valor: object, cifras: int) -> str:
+    numero = _numero(valor)
+    return "n/d" if numero is None else _menos(f"{numero:.{cifras}f}")
+
+
+def _moneda(valoracion: dict) -> str:
+    """La moneda de la ficha, o nada si falta o no es texto: mejor sin ella que con basura."""
+    moneda = valoracion.get("moneda")
+    return moneda if isinstance(moneda, str) else ""
+
+
+def _dinero(valor: object, moneda: str) -> str:
+    numero = _numero(valor)
+    if numero is None:
+        return "n/d"
+    cifra = _menos(format(numero, ",.2f"))
+    return f"{cifra} {moneda}" if moneda else cifra
+
+
+def _motivo(clave: object) -> str:
+    """La etiqueta del motivo; una clave que no se conoce se enseña tal cual, que
+    es mejor que esconderla, y una que ni es texto, «n/d»."""
+    if not isinstance(clave, str):
+        return "n/d"
+    return MOTIVO.get(clave, clave)
 
 
 def distintivo(valoracion: "dict | None") -> str:
     """El veredicto en una píldora de color, o nada si no hay veredicto que enseñar."""
-    if not isinstance(valoracion, dict) or valoracion.get("veredicto") not in VEREDICTO:
+    clave = _dic(valoracion).get("veredicto")
+    if not isinstance(clave, str) or clave not in VEREDICTO:
         return ""
-    etiqueta, color = VEREDICTO[valoracion["veredicto"]]
+    etiqueta, color = VEREDICTO[clave]
     return f'<span class="mpp-veredicto" style="color:{color}">{_esc(etiqueta)}</span>'
 
 
-def _detalle_flujos(valoracion: dict) -> str:
-    lectura = valoracion.get("implicito") or {}
-    roe = lectura.get("magnitud") == "roe"
-    bajo, alto = INVERSO_ROE_LIMITES if roe else INVERSO_LIMITES
+def _referencia(valor: object, crecimiento: bool) -> str:
+    """Una referencia de crecimiento negativa se lee como lo que es: una caída.
+
+    La de un ROE no: un ROE del −4 % es una rentabilidad negativa, no una caída.
+    """
+    numero = _numero(valor)
+    if crecimiento and numero is not None and numero < 0:
+        return f"una caída del {_pct(-numero)}"
+    return _pct(numero)
+
+
+def _banda(lectura: dict, crecimiento: bool) -> str:
+    return (
+        f"su referencia es {_referencia(lectura.get('referencia'), crecimiento)} "
+        f"(banda de ±{_puntos(lectura.get('margen'))})"
+    )
+
+
+def _detalle_crecimiento(lectura: dict) -> str:
+    bajo, alto = INVERSO_LIMITES
     if lectura.get("fuera_de_limites") == "arriba":
-        return (
-            f"el precio exige un ROE de más del {_pct(alto)}" if roe
-            else f"el precio exige crecer más de un {_pct(alto)} anual"
-        )
+        return f"el precio da por hecho un crecimiento de más del {_pct(alto)} al año"
     if lectura.get("fuera_de_limites") == "abajo":
         return (
-            f"el precio queda por debajo incluso de un ROE del {_pct(bajo)}" if roe
-            else f"el precio queda por debajo incluso de decrecer un {_pct(-bajo)} anual"
+            f"el precio es tan bajo que incluso una caída de más del {_pct(-bajo)} "
+            "al año se queda corta"
         )
-    exige = (
-        f"el precio exige un ROE del {_pct(lectura.get('valor'))}" if roe
-        else f"el precio exige crecer un {_pct(lectura.get('valor'))} anual cinco años"
-    )
+    g = _numero(lectura.get("valor"))
+    if g is None:
+        return "n/d"
+    if g >= 0:
+        exige = f"que los ingresos crezcan un {_pct(g)} al año"
+    else:
+        exige = f"que los ingresos caigan un {_pct(-g)} al año"
     return (
-        f"{exige}; su referencia es {_pct(lectura.get('referencia'))} "
-        f"(±{_pct(lectura.get('margen'))})"
+        f"el precio da por hecho {exige} durante {ANOS_ALTO_CRECIMIENTO} años; "
+        f"{_banda(lectura, crecimiento=True)}"
     )
+
+
+def _detalle_roe(lectura: dict) -> str:
+    bajo, alto = INVERSO_ROE_LIMITES
+    if lectura.get("fuera_de_limites") == "arriba":
+        return f"el precio exige un ROE de más del {_pct(alto)}"
+    if lectura.get("fuera_de_limites") == "abajo":
+        return f"el precio es tan bajo que incluso un ROE inferior al {_pct(bajo)} se queda corto"
+    return (
+        f"el precio exige un ROE del {_pct(lectura.get('valor'))}; "
+        f"{_banda(lectura, crecimiento=False)}"
+    )
+
+
+def _detalle_flujos(valoracion: dict) -> str:
+    lectura = _dic(valoracion.get("implicito"))
+    if lectura.get("magnitud") == "roe":
+        return _detalle_roe(lectura)
+    return _detalle_crecimiento(lectura)
 
 
 def _detalle_epv(valoracion: dict) -> str:
-    epv = valoracion.get("epv") or {}
-    texto = f"sin crecer valdría {_dinero(epv.get('por_accion'), valoracion.get('moneda', ''))}"
-    parte = epv.get("parte_crecimiento")
+    epv = _dic(valoracion.get("epv"))
+    texto = f"sin crecer valdría {_dinero(epv.get('por_accion'), _moneda(valoracion))}"
+    parte = _numero(epv.get("parte_crecimiento"))
     if parte is not None and parte > 0:
         texto += f"; el {_pct(parte)} del precio es apuesta por el crecimiento"
     return texto
@@ -162,12 +290,12 @@ def _detalle(clave: str, voto: dict, valoracion: dict) -> str:
         return _detalle_flujos(valoracion)
     if clave == "sin_crecimiento":
         return _detalle_epv(valoracion)
-    return _DETALLE_PARES.get(voto.get("voto"), "")
+    return _entrada(_DETALLE_PARES, voto.get("voto"), "")
 
 
 def _rango(valoracion: dict) -> str:
-    moneda = valoracion.get("moneda", "")
-    valor = valoracion.get("valor")
+    moneda = _moneda(valoracion)
+    valor = _dic(valoracion.get("valor"))
     if not valor:
         return "Sin rango de valor."
     return (
@@ -178,6 +306,39 @@ def _rango(valoracion: dict) -> str:
     )
 
 
+def _hora_cotizacion(valoracion: dict) -> str:
+    """La hora del precio en UTC, o nada si falta o no se puede leer.
+
+    La caché puede servir un precio de hasta siete días, así que la fecha de
+    cálculo sola no dice de cuándo es la cifra. Una hora sin zona no se da por
+    UTC: sería inventar una zona.
+    """
+    bruta = valoracion.get("precio_hora")
+    if not isinstance(bruta, str):
+        return ""
+    try:
+        momento = datetime.fromisoformat(bruta)
+    except ValueError:
+        return ""
+    if momento.tzinfo is None:
+        return ""
+    return momento.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+
+
+def _cabecera(valoracion: dict) -> str:
+    fecha = valoracion.get("fecha", "n/d")
+    estados = valoracion.get("estados_hasta", "n/d")
+    precio = _dinero(valoracion.get("precio"), _moneda(valoracion))
+    hora = _hora_cotizacion(valoracion)
+    cotizacion = f" (cotización del {hora})" if hora else ""
+    calculo = f"Calculada el {fecha} con el precio de {precio}{cotizacion} y estados hasta {estados}"
+    return (
+        f'<div class="mpp-val-cab">{distintivo(valoracion)}'
+        f'<span class="mpp-val-detalle">{_esc(_rango(valoracion))}</span>'
+        f'<span class="mpp-val-detalle">{_esc(calculo)}</span></div>'
+    )
+
+
 _NOMBRE_SUPUESTO = {
     "r_f": "tasa libre",
     "beta": "beta",
@@ -185,79 +346,126 @@ _NOMBRE_SUPUESTO = {
     "k_e": "coste del capital propio",
     "k_d": "coste de la deuda",
     "t": "impuestos",
-    "wacc": "coste de capital",
+    "wacc": "coste de capital (deuda y capital propio)",
     "g_ref": "crecimiento de referencia",
-    "g_perpetuo": "crecimiento perpetuo",
+    "g_perpetuo": "crecimiento a perpetuidad",
     "roe_ref": "ROE de referencia",
-    "payout": "reparto",
+    "payout": "reparto de beneficios",
 }
+
+# Cada método enseña sólo los supuestos que usa: a un banco no le sirve un coste
+# de la deuda, y a una industrial no le sirve un ROE ni un reparto.
+_SUPUESTOS_DE = {
+    "flujos": ("r_f", "beta", "prima", "k_e", "k_d", "t", "wacc", "g_ref", "g_perpetuo"),
+    "residual": ("r_f", "beta", "prima", "k_e", "roe_ref", "payout", "g_perpetuo"),
+}
+
+# El reparto de yfinance se acota en `supuestos.payout`, que no lo lee de un
+# criterio: éste es el único sitio de la pantalla que repite ese rango.
+_PAYOUT_TOPES = (0.0, 1.0)
 
 
 def procedencia(nombre: str, supuesto: dict) -> str:
     """De dónde sale un supuesto, en palabras. Vacío si la fuente no se reconoce."""
-    p = (supuesto or {}).get("procedencia") or {}
+    p = _dic(_dic(supuesto).get("procedencia"))
     fuente = p.get("fuente")
+    if not isinstance(fuente, str):
+        return ""
+    g_bajo, g_alto = (_pct(tope) for tope in CRECIMIENTO_REF_TOPES)
     textos = {
-        ("r_f", "tesoro_10"): "Tesoro de EE. UU. a 10 años (^TNX)",
+        ("r_f", "tesoro_10"): f"Tesoro de EE. UU. a 10 años ({p.get('serie')})",
         ("beta", "regresion"): (
             f"regresión semanal de {p.get('semanas')} semanas contra {p.get('indice')} "
-            f"(R² {p.get('r2')}), con el ajuste de Blume"
+            f"(R² {_decimales(p.get('r2'), 2)}), con el ajuste de Blume"
         ),
-        ("beta", "por_defecto"): "1,0 por defecto: no hubo regresión posible (historial corto o precios inválidos)",
+        ("beta", "por_defecto"): "1.0 por defecto: no hubo regresión posible (historial corto o precios inválidos)",
         ("prima", "damodaran"): f"Damodaran, prima implícita a {p.get('fecha')}",
         ("k_e", "capm"): "tasa libre más beta por prima",
-        ("k_d", "gasto_entre_deuda"): "gasto financiero entre deuda, acotado",
+        ("k_d", "gasto_entre_deuda"): (
+            "gasto financiero entre deuda, acotado entre la tasa libre y esa tasa "
+            f"más {_puntos(COSTE_DEUDA_PRIMA_MAXIMA)}"
+        ),
         ("k_d", "sin_dato"): "sin deuda o sin gasto financiero declarado: la tasa libre",
-        ("k_d", "financiera"): "no aplica: en un banco o una aseguradora los intereses incluyen los depósitos",
-        ("t", "efectiva"): "tasa efectiva de yfinance, acotada entre 0% y 35%",
+        ("k_d", "financiera"): "en un banco o una aseguradora los intereses incluyen los depósitos: no se calcula",
+        ("t", "efectiva"): (
+            f"tasa efectiva de yfinance, acotada entre {_pct(TASA_EFECTIVA_TOPES[0])} "
+            f"y {_pct(TASA_EFECTIVA_TOPES[1])}"
+        ),
         ("t", "legal"): f"tasa legal ({p.get('pais')})",
-        ("wacc", "financiera"): "no aplica: se valora con el coste del capital propio",
+        ("wacc", "financiera"): "en un banco o una aseguradora no se calcula: se valora con el coste del capital propio",
         ("wacc", "wacc"): (
             f"deuda {_pct(p.get('peso_deuda'))} del capital"
             + ("" if p.get("deuda_declarada", True) else "; sin deuda declarada")
         ),
         ("g_ref", "historia_y_consenso"): (
-            f"media del histórico de ingresos ({_pct(p.get('historico'))}) y del "
-            f"consenso del próximo año ({_pct(p.get('consenso'))}), acotada"
+            f"media del crecimiento histórico de los ingresos ({_pct(p.get('historico'))}) y del "
+            f"consenso del próximo año ({_pct(p.get('consenso'))}), acotada entre {g_bajo} y {g_alto}"
         ),
-        ("g_ref", "historia"): f"histórico de ingresos ({_pct(p.get('historico'))}), sin consenso, acotado",
-        ("g_ref", "consenso"): f"consenso del próximo año ({_pct(p.get('consenso'))}), sin historia, acotado",
+        ("g_ref", "historia"): (
+            f"crecimiento histórico de los ingresos ({_pct(p.get('historico'))}), sin consenso, "
+            f"acotado entre {g_bajo} y {g_alto}"
+        ),
+        ("g_ref", "consenso"): (
+            f"consenso del próximo año ({_pct(p.get('consenso'))}), sin historia, "
+            f"acotado entre {g_bajo} y {g_alto}"
+        ),
         ("g_ref", "sin_dato"): "sin historia ni consenso",
-        ("g_perpetuo", "criterio"): f"crecimiento de largo plazo en {p.get('moneda')}",
+        ("g_perpetuo", "criterio"): f"crecimiento nominal a perpetuidad en {p.get('moneda')}",
         ("g_perpetuo", "recortado_a_r_f"): "recortado a la tasa libre de riesgo",
         ("roe_ref", "mediana_historica"): f"mediana de {p.get('anos')} años",
         ("roe_ref", "sin_dato"): "sin años suficientes",
-        ("payout", "yfinance"): "reparto de beneficios de yfinance",
-        ("payout", "por_defecto"): "sin dato: se supone la mitad",
+        ("payout", "yfinance"): (
+            f"según yfinance, acotado entre {_pct(_PAYOUT_TOPES[0])} "
+            f"y {_pct(_PAYOUT_TOPES[1])}"
+        ),
+        ("payout", "por_defecto"): f"sin dato: se supone el {_pct(PAYOUT_SIN_DATO)}",
     }
     return textos.get((nombre, fuente), "")
 
 
+def _metodo_residual(valoracion: dict) -> bool:
+    return valoracion.get("metodo") == "residual"
+
+
 def _supuestos(valoracion: dict) -> str:
-    partes = []
-    for nombre, supuesto in (valoracion.get("supuestos") or {}).items():
-        valor = (supuesto or {}).get("valor")
-        cifra = f"{valor:.2f}" if nombre == "beta" and valor is not None else _pct(valor)
+    supuestos = _dic(valoracion.get("supuestos"))
+    usados = _SUPUESTOS_DE["residual" if _metodo_residual(valoracion) else "flujos"]
+    lineas = []
+    for nombre in usados:
+        if nombre not in supuestos:
+            continue
+        supuesto = _dic(supuestos[nombre])
+        valor = supuesto.get("valor")
+        cifra = _decimales(valor, 2) if nombre == "beta" else _pct(valor)
         origen = procedencia(nombre, supuesto)
-        etiqueta = _NOMBRE_SUPUESTO.get(nombre, nombre)
-        partes.append(f"{etiqueta} {cifra}" + (f" ({origen})" if origen else ""))
-    if not partes:
+        lineas.append(f"{_NOMBRE_SUPUESTO[nombre]}: {cifra}" + (f" · {origen}" if origen else ""))
+    if not lineas:
         return ""
-    return f'<div class="mpp-val-sup">Supuestos del programa: {_esc("; ".join(partes))}.</div>'
+    cuerpo = "".join(f"<div>{_esc(linea)}</div>" for linea in lineas)
+    return (
+        '<div class="mpp-val-sup">'
+        f'<div class="mpp-val-sup-titulo">Supuestos del programa</div>{cuerpo}</div>'
+    )
 
 
 def resumen(valoracion: dict) -> str:
-    """Los tres votos en una línea cada uno, el rango y la procedencia de los supuestos."""
+    """Los tres votos en una línea cada uno, el rango y la procedencia de los supuestos.
+
+    No explica los términos: de eso se encarga `GLOSARIO`, una vez por pantalla.
+    """
+    if not isinstance(valoracion, dict):
+        return ""
     if "veredicto" not in valoracion:
         return (
-            f'<div class="mpp-val">No se pudo valorar: '
+            f'<div class="mpp-val">Sin valoración: '
             f'{_esc(_motivo(valoracion.get("motivo")))}.</div>'
         )
-    nombres = _NOMBRE_VOTO_RESIDUAL if valoracion.get("metodo") == "residual" else NOMBRE_VOTO
+    nombres = _NOMBRE_VOTO_RESIDUAL if _metodo_residual(valoracion) else NOMBRE_VOTO
+    votos = _dic(valoracion.get("votos"))
     filas = []
     for clave in ("flujos", "sin_crecimiento", "pares"):
-        voto = (valoracion.get("votos") or {}).get(clave) or {}
-        etiqueta, color = VOTO.get(voto.get("voto"), ("n/d", tema.TEXTO_TENUE))
+        voto = _dic(votos.get(clave))
+        etiqueta, color = _entrada(VOTO, voto.get("voto"), ("n/d", tema.TEXTO_SUAVE))
         filas.append(
             '<div class="mpp-val-voto">'
             f'<span class="mpp-val-nombre">{_esc(nombres[clave])}</span>'
@@ -265,12 +473,4 @@ def resumen(valoracion: dict) -> str:
             f'<span class="mpp-val-detalle">{_esc(_detalle(clave, voto, valoracion))}</span>'
             "</div>"
         )
-    cabecera = (
-        f'<div class="mpp-val-cab">{distintivo(valoracion)}'
-        f'<span class="mpp-val-detalle">{_esc(_rango(valoracion))}</span>'
-        f'<span class="mpp-val-detalle">Calculada el {_esc(valoracion.get("fecha"))} '
-        f'con el precio de {_esc(_dinero(valoracion.get("precio"), valoracion.get("moneda", "")))} '
-        f'y estados hasta {_esc(valoracion.get("estados_hasta", "n/d"))}'
-        "</span></div>"
-    )
-    return f'<div class="mpp-val">{cabecera}{"".join(filas)}{_supuestos(valoracion)}</div>'
+    return f'<div class="mpp-val">{_cabecera(valoracion)}{"".join(filas)}{_supuestos(valoracion)}</div>'
