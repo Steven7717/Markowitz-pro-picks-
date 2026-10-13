@@ -46,6 +46,11 @@ def test_sin_holgura_gordon_no_hay_valor():
     assert valor_empresa(1000.0, 0.10, 0.05, 0.03, 0.035) is None
 
 
+def test_un_poco_por_debajo_de_la_holgura_se_rechaza():
+    # La tolerancia del flotante sólo absorbe el ruido, no regala holgura.
+    assert valor_empresa(1000.0, 0.10, 0.03, 0.025, 0.0349) is None
+
+
 def test_con_la_holgura_justa_hay_valor_aunque_el_flotante_diga_lo_contrario():
     # 0,036 − 0,026 es exactamente un punto, pero en coma flotante da un
     # poco menos: sin tolerancia, el redondeo decidiría si hay valor.
@@ -164,6 +169,19 @@ def test_un_gasto_financiero_negativo_no_suma_intereses():
     )
     assert margen_fcff(negativo, t=0.25) == pytest.approx(margen_fcff(cero, t=0.25))
     assert margen_fcff(negativo, t=0.25) == pytest.approx((300 - 100) / 1000)
+
+
+def test_un_gasto_financiero_sin_declarar_no_tira_el_ano():
+    # NaN suma cero de intereses pero el año sigue contando, con sus ingresos y
+    # su flujo: descartarlo dejaría sin margen a una empresa sana.
+    f = fundamentos(
+        ejercicios=[
+            ejercicio(2026, gasto_financiero=20.0),
+            ejercicio(2025, gasto_financiero=math.nan),
+        ]
+    )
+    esperado = ((300 - 100 + 20 * 0.75) + (300 - 100)) / 2000
+    assert margen_fcff(f, t=0.25) == pytest.approx(esperado)
 
 
 def test_el_inverso_devuelve_el_crecimiento_de_partida():

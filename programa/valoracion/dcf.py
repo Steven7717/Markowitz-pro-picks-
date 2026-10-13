@@ -6,9 +6,9 @@ dispara--, y proyectar desde uno u otro daría valores distintos para el mismo
 negocio. El margen normalizado es el agregado de los años disponibles: la suma
 de sus flujos libres entre la suma de sus ingresos. Alisa el ciclo de inversión
 --el motivo para no partir del último año-- pero pesa cada año por su tamaño; la
-mediana pesaba igual un valle pequeño que el año actual, y en MU daba un 6,8 %
-frente a un 29 % del último año, con los ingresos de los últimos doce meses
-2,7 veces los del anterior. El agregado da en MU en torno al 14 %.
+mediana pesaba igual un valle pequeño que el año actual. Se midió con MU en la
+revisión de la Task 6; las cifras están en el spec, sección 5, y no se repiten
+aquí para que las dos copias no se separen.
 """
 
 import math
@@ -106,9 +106,9 @@ def margen_fcff(fundamentos: Fundamentos, t: float) -> "float | None":
 
     El margen es Σ flujo libre ÷ Σ ingresos de los años que cuentan, no la
     mediana de sus márgenes: con la mediana un año pequeño de valle del ciclo
-    pesa lo mismo que el actual, que en MU es casi tres veces mayor. Se descarta
-    el año entero de los dos sumandos, no sólo del numerador, para que ningún
-    año aporte ingresos sin su flujo.
+    pesa lo mismo que el actual, que puede ser mucho mayor (MU, en el spec,
+    sección 5). Se descarta el año entero de los dos sumandos, no sólo del
+    numerador, para que ningún año aporte ingresos sin su flujo.
     """
     flujos = 0.0
     ingresos = 0.0
