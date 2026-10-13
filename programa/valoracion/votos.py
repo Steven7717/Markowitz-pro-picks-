@@ -66,9 +66,13 @@ def voto_implicito(implicito: Implicito, referencia: float, margen: float) -> Vo
     """Compara el valor implícito con la referencia, a un lado y otro del margen.
 
     Salirse de los límites de la bisección ya es una respuesta: por ARRIBA ni el
-    crecimiento más alto que se permite llega a justificar el precio, o sea
-    «cara», y por ABAJO el precio se justifica hasta con el más bajo, o sea
+    crecimiento (o el ROE) más alto que se permite llega a justificar el precio,
+    o sea «cara», y por ABAJO el precio se justifica hasta con el más bajo, o sea
     «barata».
+
+    «ARRIBA → cara» (y «ABAJO → barata») es exacto mientras los límites de la
+    bisección queden fuera de la banda neutra: se cumple con un `g_ref` dentro
+    de sus topes y con un `roe_ref` entre un −13 % y un +40 % aproximadamente.
 
     `margen` tiene que salir de `margen_voto`: con un margen negativo las dos
     bandas se cruzan y un mismo valor sería a la vez cara y barata.
@@ -125,11 +129,12 @@ def voto_pares(pilar: "float | None") -> Voto:
 def veredicto(votos) -> str:
     """El veredicto de los votos, que pueden venir de cualquier iterable.
 
-    El motor pasa `dict.values()`, así que sólo se recorre una vez. El orden de
-    las reglas importa: primero «sin_datos», porque con menos de `MIN_VOTOS`
-    votos aplicables ni una unanimidad cuenta; después las dos mayorías sin voto
-    en contra; después cualquier desacuerdo, que es «mixtas»; y lo que sobra, a lo
-    sumo un voto en un sentido y el resto neutros, es «en_rango».
+    El motor pasa `dict.values()`, así que sólo se recorre una vez. Sólo
+    «sin_datos» tiene que ir primero, porque con menos de `MIN_VOTOS` votos
+    aplicables ni una unanimidad cuenta. Las otras tres condiciones (dos baratas
+    sin cara, dos caras sin barata, y al menos una de cada) se excluyen entre
+    sí, y «en_rango» es lo que queda: a lo sumo un voto en un sentido y el resto
+    neutros.
     """
     aplicables = [v.voto for v in votos if v.voto != NO_APLICA]
     baratas, caras = aplicables.count(BARATA), aplicables.count(CARA)

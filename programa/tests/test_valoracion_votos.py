@@ -112,6 +112,7 @@ def test_el_voto_de_pares_junto_a_los_umbrales(pilar, esperado):
     "pilar",
     [
         None,
+        "abc",
         float("nan"),
         float("inf"),
         float("-inf"),
@@ -120,8 +121,9 @@ def test_el_voto_de_pares_junto_a_los_umbrales(pilar, esperado):
     ],
 )
 def test_sin_pilar_los_pares_no_aplican(pilar):
-    # `10**400` es un entero legal que `float()` no sabe convertir: lanza
-    # OverflowError, no ValueError, y tiene que acabar en «no aplica» igual.
+    # "abc" hace que `float()` lance ValueError; `10**400` es un entero legal que
+    # `float()` no sabe convertir y lanza OverflowError. Las dos tienen que
+    # acabar en «no aplica» igual.
     assert voto_pares(pilar) == Voto(NO_APLICA, "sin_pares")
 
 
