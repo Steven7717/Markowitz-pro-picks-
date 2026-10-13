@@ -12,6 +12,7 @@ criterio, y este fichero se limita a leer de allí los signos y los pilares.
 import html
 from dataclasses import dataclass
 
+import medidores_valoracion
 import tema
 from fundamentals.kpis import TODOS_LOS_KPIS
 from ranking.criterio import MIN_KPIS_CON_DATO, PILARES, SIGNOS
@@ -433,6 +434,7 @@ def tarjeta_candidato(ficha: dict) -> str:
         f'<span class="mpp-puesto">#{_esc(ficha["puesto"])}</span>'
         f'<span class="mpp-ticker">{_esc(ficha["ticker"])}</span>'
         f'<span class="mpp-chip">{_esc(ficha["sector_gics"])}</span>'
+        f'{medidores_valoracion.distintivo(ficha.get("valoracion"))}'
         f'<span class="mpp-cab-der">Compuesto {ficha["compuesto"]:+.2f} '
         f"(z dentro del sector){_esc(resumen_cobertura)}</span>"
         "</div>"
