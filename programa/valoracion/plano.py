@@ -13,21 +13,32 @@ from typing import TYPE_CHECKING
 from valoracion.criterio import VERSION
 
 if TYPE_CHECKING:
+    # Sólo para la anotación: `motor` importa este módulo, y importarlo de
+    # vuelta en tiempo de ejecución cerraría un ciclo.
     from valoracion.motor import Valoracion
 
 
 def _limpio(objeto):
-    """Recorre lo que se va a escribir y cambia cada NaN o infinito por `None`."""
+    """Recorre lo que se va a escribir y cambia cada NaN o infinito por `None`.
+
+    Una valoración sólo anida diccionarios, así que no se recorren listas: si
+    alguna procedencia llevara una algún día, `allow_nan=False` fallaría en voz
+    alta en vez de dejar pasar un NaN.
+    """
     if isinstance(objeto, dict):
         return {clave: _limpio(valor) for clave, valor in objeto.items()}
-    if isinstance(objeto, (list, tuple)):
-        return [_limpio(valor) for valor in objeto]
     if isinstance(objeto, float) and not math.isfinite(objeto):
         return None
     return objeto
 
 
 def a_dict(v: "Valoracion") -> dict:
+    """La valoración con las claves del spec, lista para `json.dumps(allow_nan=False)`.
+
+    Los votos y los supuestos van como `{voto, motivo}` y `{valor, procedencia}`;
+    `valor`, `implicito` y `epv` son `None` cuando esa lectura no se pudo hacer.
+    Nada de lo que sale es texto de pantalla: son claves que la vista traduce.
+    """
     return _limpio(
         {
             "version": VERSION,

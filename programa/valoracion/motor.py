@@ -15,6 +15,7 @@ from valoracion.criterio import (
     INDUSTRIAS_FINANCIERAS,
     MARGEN_MINIMO,
     MARGEN_ROE_MINIMO,
+    MIN_ANOS_HISTORIA,
 )
 from valoracion.dcf import Escenarios
 from valoracion.epv import epv_por_accion, parte_crecimiento
@@ -46,6 +47,15 @@ class Lectura:
 
 @dataclass(frozen=True)
 class SinCrecimiento:
+    """El valor sin crecimiento (EPV) por acción y qué parte del precio es apuesta.
+
+    `parte_crecimiento` puede ser negativa: si el EPV supera al precio, la
+    empresa cotiza por debajo de lo que ya gana sin crecer (VZ, −0,46). Es un
+    resultado y no un fallo, y la pantalla sólo la pinta cuando es positiva:
+    una «parte de crecimiento» negativa no es una apuesta, y mostrarla
+    confundiría.
+    """
+
     por_accion: float
     parte_crecimiento: "float | None"
 
@@ -83,7 +93,13 @@ def _lectura_flujos(fundamentos, supuestos, deuda, efectivo, acciones, precio):
         return Voto(NO_APLICA, "sin_historia"), None, None
     margen = dcf.margen_fcff(fundamentos, supuestos.t.valor)
     if margen is None:
-        return Voto(NO_APLICA, "sin_historia"), None, None
+        # Igual que `epv_por_accion` separa `sin_beneficio_operativo` de
+        # `sin_historia`: lo que falta es el dato y no la historia. LLY, COST,
+        # NEE, VZ o PEP tienen cinco años de ingresos y no declaran el capex
+        # nunca; decir «sin historia» de ellas sería falso y despistaría.
+        con_ingresos = sum(1 for e in fundamentos.ejercicios if e.ingresos > 0)
+        motivo = "sin_flujo_libre" if con_ingresos >= MIN_ANOS_HISTORIA else "sin_historia"
+        return Voto(NO_APLICA, motivo), None, None
     if margen <= 0:
         # Quema caja: valorarla exigiría inventar cuándo deja de hacerlo.
         return Voto(NO_APLICA, "quema_caja"), None, None
@@ -114,10 +130,15 @@ def _lectura_residual(fundamentos, supuestos, acciones, precio):
     roe_ref = supuestos.roe_ref.valor
     if roe_ref is None:
         return Voto(NO_APLICA, "sin_historia"), None, None
-    if not fundamentos.ultimo.patrimonio_neto > 0:
+    patrimonio = fundamentos.ultimo.patrimonio_neto
+    # NaN es «no declarado», no negativo: decir `patrimonio_negativo` de un
+    # banco que sólo omitió la línea afirmaría una cifra que nadie vio.
+    if not math.isfinite(patrimonio):
+        return Voto(NO_APLICA, "sin_historia"), None, None
+    if patrimonio <= 0:
         return Voto(NO_APLICA, "patrimonio_negativo"), None, None
     datos = residual.DatosResidual(
-        patrimonio=fundamentos.ultimo.patrimonio_neto,
+        patrimonio=patrimonio,
         k_e=supuestos.k_e.valor,
         payout=supuestos.payout.valor,
         g_perpetuo=supuestos.g_perpetuo.valor,
@@ -208,11 +229,19 @@ def valorar(
 
     Lo que falta se dice con su motivo en vez de calcularse a medias: sin precio
     no hay acciones, sin tasa libre no hay coste de capital, y sin estados no
-    hay nada que proyectar.
+    hay nada que proyectar. `sin_red` y `sin_precio` se distinguen: con la red
+    caída cada ticker tarda lo suyo en rendirse (21 s con una red que descarta
+    paquetes), y quien recorre una lista tiene que poder parar en vez de
+    intentar el resto; un ticker que Yahoo no conoce, en cambio, es sólo ése.
+
+    Las excepciones se dejan propagar a propósito: un defecto propio o un fallo
+    del entorno no es una propiedad de la empresa, y quien llama
+    (`ranking/run.py`) las atrapa ficha a ficha para no confundirlas con una
+    empresa sin datos.
     """
-    perfil, _ = mercado.perfil(ticker)
+    perfil, motivo_perfil = mercado.perfil(ticker)
     if perfil is None:
-        return plano.fallida("sin_precio", hoy)
+        return plano.fallida("sin_red" if motivo_perfil == "sin_red" else "sin_precio", hoy)
     r_f, _ = mercado.tasa_libre()
     if r_f is None:
         return plano.fallida("sin_tasa_libre", hoy)
