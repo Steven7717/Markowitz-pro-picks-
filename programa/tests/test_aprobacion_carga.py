@@ -276,7 +276,19 @@ def test_una_ficha_sin_valoracion_no_tiene_valoracion():
     assert valoracion_de({"ticker": "AAA"}) is None
 
 
-@pytest.mark.parametrize("valor", ["mixtas", 3, [], {"veredicto": "mixtas"}])
+@pytest.mark.parametrize(
+    "valor",
+    [
+        "mixtas",
+        3,
+        [],
+        None,
+        {"veredicto": "mixtas"},
+        {"version": 3},
+        {"version": None},
+        {"version": ["m1"]},
+    ],
+)
 def test_una_valoracion_sin_version_no_se_lee(valor):
     assert valoracion_de({"valoracion": valor}) is None
 

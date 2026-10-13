@@ -292,7 +292,7 @@ def valoracion_de(ficha: dict) -> "dict | None":
 
     `valoracion` no está en `_CAMPOS_FICHA` a propósito: es opcional, y un
     `fichas.json` anterior al sub-proyecto M --o el de `salidas_ejemplo`-- tiene
-    que seguir cargando. Es el mismo defecto que ya pagó `kpis_por_pilar`:
+    que seguir cargando. Es el mismo defecto que ya pagó `kpis_con_dato`:
     validar la existencia de un campo y no su contenido dejaba reventar la lista
     a la mitad, con tarjetas ya pintadas encima.
 
