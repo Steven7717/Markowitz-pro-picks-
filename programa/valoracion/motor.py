@@ -229,10 +229,16 @@ def valorar(
 
     Lo que falta se dice con su motivo en vez de calcularse a medias: sin precio
     no hay acciones, sin tasa libre no hay coste de capital, y sin estados no
-    hay nada que proyectar. `sin_red` y `sin_precio` se distinguen: con la red
-    caída cada ticker tarda lo suyo en rendirse (21 s con una red que descarta
-    paquetes), y quien recorre una lista tiene que poder parar en vez de
-    intentar el resto; un ticker que Yahoo no conoce, en cambio, es sólo ése.
+    hay nada que proyectar.
+
+    `sin_red` quiere decir que Yahoo no devolvió nada utilizable: la red, un
+    error del servidor o un símbolo que no conoce; desde fuera no se
+    distinguen, porque en los tres casos `info` llega sin ninguna clave de
+    identidad. `sin_precio` es el símbolo que Yahoo conoce pero sin precio.
+    Con la red caída cada ticker tarda lo suyo en rendirse (21 s con una red
+    que descarta paquetes), así que quien recorre una lista puede parar; pero
+    un solo `sin_red` no prueba que la red esté caída, y son varios seguidos
+    los que lo dicen.
 
     Las excepciones se dejan propagar a propósito: un defecto propio o un fallo
     del entorno no es una propiedad de la empresa, y quien llama

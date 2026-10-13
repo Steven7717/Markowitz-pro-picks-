@@ -2,7 +2,7 @@ import json
 import math
 from dataclasses import replace
 from datetime import date
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -173,15 +173,18 @@ def test_con_dos_anos_de_ingresos_pero_sin_capex_falta_el_flujo_libre():
     assert v.votos["flujos"].motivo == "sin_flujo_libre"
 
 
-def test_con_un_solo_ano_de_ingresos_y_sin_capex_falta_la_historia():
-    # Sólo el último año declara ingresos: con menos de dos no hay historia de
-    # la que decir que falta el flujo libre. El consenso da un crecimiento de
-    # referencia, pero no un margen.
+@pytest.mark.parametrize("anteriores", [math.nan, 0.0])
+def test_con_un_solo_ano_de_ingresos_y_sin_capex_falta_la_historia(anteriores):
+    # Sólo el último año tiene ingresos (los otros, sin declarar o a cero: una
+    # empresa que aún no vendía): con menos de dos no hay historia de la que
+    # decir que falta el flujo libre. Un año con ingresos cero no cuenta como
+    # año con ingresos. El consenso da un crecimiento de referencia, pero no
+    # un margen.
     f = fundamentos(
         ejercicios=[
             ejercicio(2026, capex=math.nan),
-            ejercicio(2025, capex=math.nan, ingresos=math.nan),
-            ejercicio(2024, capex=math.nan, ingresos=math.nan),
+            ejercicio(2025, capex=math.nan, ingresos=anteriores),
+            ejercicio(2024, capex=math.nan, ingresos=anteriores),
         ]
     )
     v = calcular(f, perfil(), _supuestos(f=f, consenso=0.10), 0.0, HOY)
@@ -475,14 +478,23 @@ def red_doble():
     # Valores que no son los de por defecto de `deducir`, para que un dato que
     # `valorar` olvidara pasar cambie el resultado.
     beta = Beta(bruta=1.2, r2=0.3, semanas=104, indice="^GSPC")
-    with patch.object(mercado, "perfil", return_value=(perfil(), "ok")), patch.object(
-        mercado, "tasa_libre", return_value=(0.045, "ok")
-    ), patch.object(mercado, "beta", return_value=(beta, "ok")), patch.object(
-        mercado, "tasa_efectiva", return_value=(0.18, "ok")
-    ), patch.object(mercado, "consenso", return_value=(0.12, "ok")) as consenso, patch(
-        "valoracion.motor.desde_sec", return_value=(fundamentos(), "ok")
-    ) as sec:
-        yield {"consenso": consenso, "sec": sec, "beta": beta}
+    with (
+        patch.object(mercado, "perfil", return_value=(perfil(), "ok")) as perfil_doble,
+        patch.object(mercado, "tasa_libre", return_value=(0.045, "ok")) as tasa_libre,
+        patch.object(mercado, "beta", return_value=(beta, "ok")) as beta_doble,
+        patch.object(mercado, "tasa_efectiva", return_value=(0.18, "ok")) as tasa_efectiva,
+        patch.object(mercado, "consenso", return_value=(0.12, "ok")) as consenso,
+        patch("valoracion.motor.desde_sec", return_value=(fundamentos(), "ok")) as sec,
+    ):
+        yield {
+            "perfil": perfil_doble,
+            "tasa_libre": tasa_libre,
+            "beta": beta_doble,
+            "tasa_efectiva": tasa_efectiva,
+            "consenso": consenso,
+            "sec": sec,
+            "beta_medida": beta,
+        }
 
 
 def test_valorar_compone_todo_sin_red(red_doble):
@@ -494,11 +506,23 @@ def test_valorar_compone_todo_sin_red(red_doble):
 
 def test_valorar_es_calcular_con_los_datos_de_la_red(red_doble, tmp_path):
     f, p = fundamentos(), perfil()
-    s = deducir(f, p, 0.045, red_doble["beta"], 0.18, 0.12)
+    s = deducir(f, p, 0.045, red_doble["beta_medida"], 0.18, 0.12)
     esperado = a_dict(calcular(f, p, s, 0.8, HOY))
     assert valorar("TST", 0.8, cache_dir=tmp_path, hoy=HOY) == esperado
+    # Cada fuente se pregunta por el ticker que se valora, una sola vez.
+    red_doble["perfil"].assert_called_once_with("TST")
+    red_doble["beta"].assert_called_once_with("TST")
+    red_doble["tasa_efectiva"].assert_called_once_with("TST")
     red_doble["sec"].assert_called_once_with("TST", cache_dir=tmp_path)
     red_doble["consenso"].assert_called_once_with("TST", "USD")
+
+
+def test_un_pilar_de_valoracion_igual_a_cero_sigue_siendo_un_cero(red_doble):
+    # Cero es un pilar de valoración válido (ni barata ni cara frente a sus
+    # pares), no «sin pares»: el trámite de `valorar` no puede tratarlo como
+    # falso.
+    plano = valorar("TST", 0.0, hoy=HOY)
+    assert plano["votos"]["pares"] == {"voto": "neutra", "motivo": None}
 
 
 def test_sin_precio_valorar_dice_por_que(red_doble):
@@ -512,8 +536,23 @@ def test_sin_red_valorar_lo_distingue_de_un_ticker_sin_precio_y_no_sigue(red_dob
     with patch.object(mercado, "perfil", return_value=(None, "sin_red")):
         assert valorar("TST", 0.3, hoy=HOY) == {"version": "m1", "fecha": "2026-10-12", "motivo": "sin_red"}
     assert "sin_red" in MOTIVOS
-    mercado.tasa_libre.assert_not_called()
+    red_doble["tasa_libre"].assert_not_called()
     red_doble["sec"].assert_not_called()
+
+
+def test_un_simbolo_que_yahoo_no_conoce_tambien_se_dice_sin_red(tmp_path, monkeypatch):
+    # `mercado.perfil` devuelve `(None, "sin_red")` cuando `info` llega sin
+    # ninguna clave de identidad, y eso es también lo que parece un símbolo
+    # inexistente con la red sana. Desde fuera no se distinguen, y la decisión
+    # queda escrita aquí, en la frontera donde se toma.
+    monkeypatch.setattr(mercado, "RAIZ_CACHE", tmp_path)
+    doble = MagicMock()
+    doble.info = {"trailingPegRatio": 1.2}
+    with patch.object(mercado.yf, "Ticker", return_value=doble), patch(
+        "valoracion.motor.desde_sec", return_value=(None, "sin_estados")
+    ) as sec:
+        assert valorar("ZZZZQ", 0.3, hoy=HOY) == {"version": "m1", "fecha": "2026-10-12", "motivo": "sin_red"}
+    sec.assert_not_called()
 
 
 def test_sin_tasa_libre_valorar_dice_por_que(red_doble):
