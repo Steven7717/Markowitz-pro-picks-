@@ -1,3 +1,6 @@
+import math
+from dataclasses import replace
+
 import pytest
 
 from valoracion.dcf import (
@@ -43,8 +46,35 @@ def test_sin_holgura_gordon_no_hay_valor():
     assert valor_empresa(1000.0, 0.10, 0.05, 0.03, 0.035) is None
 
 
+def test_con_la_holgura_justa_hay_valor_aunque_el_flotante_diga_lo_contrario():
+    # 0,036 − 0,026 es exactamente un punto, pero en coma flotante da un
+    # poco menos: sin tolerancia, el redondeo decidiría si hay valor.
+    assert 0.036 - 0.026 < 0.01
+    assert valor_empresa(1000.0, 0.10, 0.03, 0.026, 0.036) is not None
+
+
+def test_dos_etapas_contra_un_valor_presente_escrito_a_mano():
+    # Oráculo propio, sin dependencias ni `crecimientos`: el valor presente de
+    # los diez flujos y del terminal, sumado término a término.
+    g_alto, g_perpetuo, wacc, margen = 0.12, 0.025, 0.09, 0.15
+    ritmos = [g_alto] * 5 + [g_alto + (g_perpetuo - g_alto) * k / 5 for k in range(1, 6)]
+    ingresos, flujos = 1000.0, []
+    for ritmo in ritmos:
+        ingresos *= 1 + ritmo
+        flujos.append(ingresos * margen)
+    terminal = flujos[-1] * (1 + g_perpetuo) / (wacc - g_perpetuo)
+    caja = [0.0, *flujos[:-1], flujos[-1] + terminal]
+    esperado = sum(c / (1 + wacc) ** t for t, c in enumerate(caja))
+    assert valor_empresa(1000.0, margen, g_alto, g_perpetuo, wacc) == pytest.approx(esperado)
+
+
+def test_con_todo_plano_el_valor_es_una_perpetuidad_sin_crecimiento():
+    # Sin crecimiento en ninguna etapa, flujo y terminal se suman a 100 / 0,09.
+    assert valor_empresa(1000.0, 0.10, 0.0, 0.0, 0.09) == pytest.approx(100.0 / 0.09)
+
+
 def test_el_valor_por_accion_resta_deuda_y_suma_efectivo():
-    datos = Datos(**{**DATOS.__dict__, "deuda": 300.0, "efectivo": 100.0})
+    datos = replace(DATOS, deuda=300.0, efectivo=100.0)
     ve = valor_empresa(1000.0, 0.15, 0.10, 0.025, 0.09)
     assert valor_por_accion(datos, 0.10) == pytest.approx((ve - 300.0 + 100.0) / 10.0)
 
@@ -53,7 +83,15 @@ def test_otro_coste_de_capital_sustituye_al_de_los_datos():
     assert valor_por_accion(DATOS, 0.10, wacc=0.10) < valor_por_accion(DATOS, 0.10)
 
 
+def test_sin_holgura_el_valor_por_accion_y_el_inverso_no_responden():
+    datos = replace(DATOS, wacc=0.03)
+    assert valor_por_accion(datos, 0.10) is None
+    implicito = crecimiento_implicito(datos, 50.0)
+    assert implicito.valor is None and implicito.fuera_de_limites is None
+
+
 def test_contraste_contra_numpy_financial():
+    # Contraste opcional: el oráculo de arriba ya no depende de esta librería.
     npf = pytest.importorskip("numpy_financial")
     ingresos, flujos = 1000.0, []
     for g in crecimientos(0.12, 0.025):
@@ -76,6 +114,29 @@ def test_el_margen_es_la_mediana_de_los_anos():
             ejercicio(2025, flujo_operativo=900.0),
             ejercicio(2024, flujo_operativo=200.0),
         ]
+    )
+    assert margen_fcff(f, t=0.25) == pytest.approx((300 - 100 + 15) / 1000)
+
+
+def test_con_anos_pares_la_mediana_promedia_los_dos_centrales():
+    # Márgenes 0,215, 0,315, 0,415 y 0,815: la mediana es la media de los dos
+    # centrales, no uno de ellos.
+    f = fundamentos(
+        ejercicios=[
+            ejercicio(2026, flujo_operativo=300.0),
+            ejercicio(2025, flujo_operativo=400.0),
+            ejercicio(2024, flujo_operativo=500.0),
+            ejercicio(2023, flujo_operativo=900.0),
+        ]
+    )
+    assert margen_fcff(f, t=0.25) == pytest.approx((315 + 415) / 2 / 1000)
+
+
+@pytest.mark.parametrize("campo", ["capex", "flujo_operativo", "ingresos"])
+def test_un_ano_con_un_dato_sin_declarar_no_cuenta(campo):
+    # NaN es «no declarado», no cero: tratarlo como cero inflaría el margen.
+    f = fundamentos(
+        ejercicios=[ejercicio(2026), ejercicio(2025), ejercicio(2024, **{campo: math.nan})]
     )
     assert margen_fcff(f, t=0.25) == pytest.approx((300 - 100 + 15) / 1000)
 
@@ -105,7 +166,7 @@ def test_un_gasto_financiero_negativo_no_suma_intereses():
 def test_el_inverso_devuelve_el_crecimiento_de_partida():
     precio = valor_por_accion(DATOS, 0.12)
     implicito = crecimiento_implicito(DATOS, precio)
-    assert implicito.valor == pytest.approx(0.12, abs=1e-6)
+    assert implicito.valor == pytest.approx(0.12, abs=1e-8)
     assert implicito.fuera_de_limites is None
 
 
@@ -117,3 +178,24 @@ def test_un_precio_inalcanzable_queda_por_arriba():
 def test_un_precio_minimo_queda_por_abajo():
     implicito = crecimiento_implicito(DATOS, 1e-9)
     assert implicito.valor is None and implicito.fuera_de_limites == ABAJO
+
+
+@pytest.mark.parametrize("campo", ["deuda", "efectivo", "margen", "ingresos"])
+def test_un_dato_sin_declarar_no_se_convierte_en_un_crecimiento_implicito(campo):
+    # Con un NaN el valor por acción es NaN en los dos extremos: sin guardia,
+    # la bisección se pega al límite de abajo y devuelve −30 % sin avisar.
+    implicito = crecimiento_implicito(replace(DATOS, **{campo: math.nan}), 50.0)
+    assert implicito.valor is None and implicito.fuera_de_limites is None
+
+
+def test_un_precio_sin_declarar_no_se_convierte_en_un_crecimiento_implicito():
+    implicito = crecimiento_implicito(DATOS, math.nan)
+    assert implicito.valor is None and implicito.fuera_de_limites is None
+
+
+@pytest.mark.parametrize("margen", [0.0, -0.05])
+def test_sin_margen_positivo_el_inverso_no_responde(margen):
+    # Con margen cero el valor es el mismo para todo `g`, y con margen negativo
+    # decrece: la bisección sólo vale para una función creciente.
+    implicito = crecimiento_implicito(replace(DATOS, margen=margen), 50.0)
+    assert implicito.valor is None and implicito.fuera_de_limites is None

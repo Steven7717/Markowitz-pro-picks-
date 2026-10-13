@@ -21,6 +21,11 @@ from valoracion.fundamentos import Fundamentos
 
 ANOS = ANOS_ALTO_CRECIMIENTO + ANOS_CONVERGENCIA
 
+# Una holgura exactamente en el listón (0,036 − 0,026) sale en coma flotante
+# una pizca por debajo (del orden de 1e-18); sin esta tolerancia decidiría el
+# redondeo, no el criterio.
+_RUIDO_FLOTANTE = 1e-12
+
 
 @dataclass(frozen=True)
 class Datos:
@@ -63,7 +68,7 @@ def valor_empresa(
     artefacto. No se recorta el coste de capital para que cuadre: eso sería
     cambiar el escenario sin decirlo.
     """
-    if wacc - g_perpetuo < HOLGURA_GORDON:
+    if wacc - g_perpetuo < HOLGURA_GORDON - _RUIDO_FLOTANTE:
         return None
     total = 0.0
     flujo = 0.0
@@ -100,10 +105,16 @@ def margen_fcff(fundamentos: Fundamentos, t: float) -> "float | None":
     for e in fundamentos.ejercicios:
         if not e.ingresos > 0:
             continue
+        # NaN es «no declarado», no cero: NVDA tiene años sin capex, y contarlos
+        # como cero inflaría el margen de ese año. Se descarta el año entero.
         if not (math.isfinite(e.flujo_operativo) and math.isfinite(e.capex)):
             continue
         # Un gasto financiero negativo es ingreso financiero neto (DIS, FTV en la
         # revisión de la Task 5): sumarlo con `abs` lo trataría como un coste.
+        # Uno sin declarar suma cero por la misma cautela, y aquí no se descarta
+        # el año: AAPL lo deja en blanco en tres de cinco, y perderlos dejaría
+        # sin margen a una empresa sana. No se inventan intereses, así que el
+        # flujo libre sólo puede quedarse corto, nunca inflado.
         intereses = (
             e.gasto_financiero
             if math.isfinite(e.gasto_financiero) and e.gasto_financiero > 0
