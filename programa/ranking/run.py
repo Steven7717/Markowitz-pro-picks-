@@ -1,4 +1,5 @@
 import json
+import logging
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
@@ -74,12 +75,16 @@ def _valoracion(ticker: str, pilar_valoracion: "float | None") -> dict:
 
     Una empresa que falla al valorarse se anota y la corrida sigue: es la
     política de la descarga de fundamentales. Y un defecto del propio motor
-    tampoco tumba el ranking, pero no se calla: queda escrito como
-    `error_interno` en la ficha, a la vista en la pantalla.
+    tampoco tumba el ranking, pero no se calla: la ficha queda con
+    `error_interno` y el traceback va al log de la consola. La ficha sólo dice
+    que hubo un error, no cuál; la causa está en el log.
     """
     try:
         return valorar(ticker, pilar_valoracion)
     except Exception:
+        logging.getLogger(__name__).exception(
+            "La valoración de %s falló por un defecto del motor, no por falta de datos", ticker
+        )
         return fallida("error_interno")
 
 
@@ -98,6 +103,12 @@ def construir_ranking(
     `CorridaAbortada` from `fundamentals.fetch`, which is not a company failing
     but the source being gone; it is left to propagate on purpose, so the caller
     can say why instead of showing an empty ranking.
+
+    `con_valoracion` adjunta a cada ficha su valoración (`valoracion/`). No toca
+    el score ni la selección: se calcula sobre las ya elegidas y sólo se
+    enseña. Si la red o la tasa libre faltan, deja de preguntar: un
+    `sin_tasa_libre` corta en el acto y un `sin_red` al segundo seguido, y las
+    fichas que quedan heredan ese motivo sin llamar al motor.
     """
     panel, metadatos, cobertura = build_panel(source, con_zscore=True)
     sectores = metadatos["sector_gics"]
@@ -117,8 +128,8 @@ def construir_ranking(
     mapa = desplazamientos_por_ticker(desplazadas)
 
     # Sin red o sin tasa libre, las quince fallarían igual, y con una red que no
-    # contesta cada intento tarda unos 21 s (medido en la revisión de la Task 9):
-    # cinco minutos para nada. Se deja de preguntar, como hace el cortacircuitos
+    # contesta cada intento tarda unos 21 s (la cifra está en el docstring de
+    # `valorar`): cinco minutos para nada. Se deja de preguntar, como hace el cortacircuitos
     # de `fundamentals/fetch.py`. La tasa libre es la misma para todas, así que
     # basta un fallo. `sin_red` exige dos seguidos: un símbolo que Yahoo no
     # conoce también da `sin_red`, y uno solo no puede apagar a los demás.

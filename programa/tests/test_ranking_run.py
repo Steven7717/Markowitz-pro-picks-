@@ -1,6 +1,8 @@
 import json
+import logging
+from datetime import date
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 import numpy as np
 import pandas as pd
@@ -12,6 +14,10 @@ from ranking.llm import Narrativa, Riesgo
 from ranking.llm import redactar_con_cache as redactar_con_cache_real
 from ranking.run import Resultado, _contexto, construir_ranking, guardar
 from ranking.verificacion import sin_digitos
+from tests.dobles_valoracion import fundamentos, perfil
+from valoracion.motor import calcular
+from valoracion.plano import a_dict
+from valoracion.supuestos import deducir
 
 
 @pytest.fixture(autouse=True)
@@ -26,6 +32,7 @@ def valoracion_doble():
         return_value={"version": "m1", "fecha": "2026-10-12", "motivo": "sin_precio"},
     ) as doble:
         yield doble
+
 
 SECTORES = {"Tech": 6, "Financials": 6, "Health": 6}
 
@@ -319,6 +326,8 @@ def test_con_llm_la_ficha_lleva_narrativa_con_procedencia_completa(sin_red, tmp_
         "recortado": RIESGOS.recortado,
     }
     assert ficha["narrativa"]["riesgos"][0]["verificada"] is True
+    # Y la valoración viaja en la misma ficha: las dos mitades no se pisan.
+    assert ficha["valoracion"]["version"] == "m1"
 
 
 def test_una_empresa_sin_item_1a_cae_a_plantilla_sin_abortar_la_corrida(sin_red):
@@ -430,9 +439,18 @@ def test_menos_candidatos_que_el_top_no_revienta_ni_rellena():
 def test_cada_ficha_lleva_su_valoracion(sin_red, valoracion_doble):
     resultado = construir_ranking(con_llm=False, n=5)
     assert all("valoracion" in ficha for ficha in resultado.fichas)
-    llamadas = {c.args[0]: c.args[1] for c in valoracion_doble.call_args_list}
-    for ficha in resultado.fichas:
-        assert llamadas[ficha["ticker"]] == ficha["pilares"]["valoracion"]
+    # Llamadas enteras, no argumento a argumento: un tercer argumento de más
+    # (o una llamada de más) también tiene que fallar.
+    esperadas = [call(f["ticker"], f["pilares"]["valoracion"]) for f in resultado.fichas]
+    assert valoracion_doble.call_args_list == esperadas
+
+
+def test_la_valoracion_no_cambia_ni_el_orden_ni_la_nota(sin_red):
+    con = construir_ranking(con_llm=False, n=5)
+    sin = construir_ranking(con_llm=False, n=5, con_valoracion=False)
+    sin_la_clave = [{k: v for k, v in f.items() if k != "valoracion"} for f in con.fichas]
+    assert sin_la_clave == sin.fichas
+    assert con.tabla.equals(sin.tabla)
 
 
 def test_sin_valoracion_no_se_sale_a_valorar(sin_red, valoracion_doble):
@@ -445,6 +463,17 @@ def test_una_valoracion_que_revienta_no_tumba_la_corrida(sin_red, valoracion_dob
     valoracion_doble.side_effect = RuntimeError("un defecto del motor")
     resultado = construir_ranking(con_llm=False, n=5)
     assert {f["valoracion"]["motivo"] for f in resultado.fichas} == {"error_interno"}
+
+
+def test_un_defecto_al_valorar_deja_traza_en_el_log(sin_red, valoracion_doble, caplog):
+    # La ficha dice `error_interno` pero no por qué: la causa tiene que quedar
+    # en el log, con el traceback, o el defecto se vuelve invisible.
+    valoracion_doble.side_effect = RuntimeError("un defecto del motor")
+    with caplog.at_level(logging.ERROR, logger="ranking.run"):
+        resultado = construir_ranking(con_llm=False, n=1)
+    assert "falló por un defecto del motor" in caplog.text
+    assert resultado.fichas[0]["ticker"] in caplog.text
+    assert "RuntimeError" in caplog.text
 
 
 def test_sin_tasa_libre_se_deja_de_preguntar_tras_el_primero(sin_red, valoracion_doble):
@@ -476,7 +505,20 @@ def test_un_fallo_de_una_empresa_no_corta_las_demas(sin_red, valoracion_doble):
     assert valoracion_doble.call_count == 5
 
 
-def test_guardar_con_valoracion_sigue_siendo_json_estricto(sin_red, tmp_path):
+def _valoracion_real() -> dict:
+    """Una valoración como la que escribe el motor: la salida de `a_dict`.
+
+    El doble por defecto es una fallida de tres claves; ésta lleva el plano
+    entero (votos, supuestos, rango), que es donde se podría colar un NaN.
+    """
+    f, p = fundamentos(), perfil()
+    supuestos = deducir(f, p, r_f=0.04, beta=None, tasa=0.25, consenso=None)
+    return a_dict(calcular(f, p, supuestos, 0.0, date(2026, 10, 12)))
+
+
+def test_guardar_con_una_valoracion_real_sigue_siendo_json_estricto(sin_red, valoracion_doble, tmp_path):
+    plano = _valoracion_real()
+    valoracion_doble.return_value = plano
     guardar(construir_ranking(con_llm=False, n=5), tmp_path)
     fichas = json.loads((tmp_path / "fichas.json").read_text(encoding="utf-8"))
-    assert all(f["valoracion"]["version"] == "m1" for f in fichas)
+    assert [f["valoracion"] for f in fichas] == [plano] * 5
