@@ -34,6 +34,16 @@ from valoracion.inverso import Implicito, biseccion
 
 @dataclass(frozen=True)
 class DatosResidual:
+    """Todo lo que el beneficio residual necesita, en la moneda de los estados.
+
+    `acciones` es capitalización ÷ precio, el recuento en la base del precio, no
+    el de los estados: con el de los estados, una ADR saldría con el valor
+    multiplicado o dividido por su ratio (igual que en el DCF). `payout` está en
+    [0, 1], acotado antes de llegar aquí, y es sólo el dividendo: las recompras
+    no cuentan como reparto. `g_perpetuo` es el de los supuestos, el mismo que
+    usa el DCF.
+    """
+
     patrimonio: float
     k_e: float
     payout: float
@@ -99,15 +109,18 @@ def roe_implicito(datos: DatosResidual, precio: float) -> Implicito:
     """El ROE constante que el precio exige.
 
     Con `k_e > g_perpetuo` el valor crece con el ROE, que es lo que la bisección
-    necesita, en la zona que importa: desde un ROE de cero hacia arriba. Por
-    debajo, una pérdida se come el patrimonio y las siguientes pesan menos, y la
-    función baja; pero ahí el valor es negativo, así que un precio positivo nunca
-    cae en esa zona y la bisección no se equivoca.
+    necesita, desde un ROE de `(10g − 1) / 11` hacia arriba (−6,8 % con
+    g = 2,5 %). Por debajo, una pérdida se come el patrimonio, las siguientes
+    pesan menos y el valor baja al subir el ROE. Con una pérdida (ROE ≤ 0) el
+    valor tiene forma cerrada y no depende del payout:
+    `BV_0 × ((1 + ROE) / (1 + k_e))^10 × (ROE − g) / (k_e − g)`. Con
+    g > 0 es negativo en toda la zona de pérdida, también en la que vuelve a
+    subir hasta cero; así que un precio positivo nunca cae donde la función no
+    es creciente y la bisección no se equivoca.
 
-    Sin patrimonio o acciones positivos la función no tiene esa forma, y se
-    dice aquí y no se fía de que `valor_por_accion` devuelva `None`, igual que
-    hace `crecimiento_implicito` con el margen.
+    Sin patrimonio o acciones positivos no hay respuesta: la guarda está en
+    `valor_por_accion`, que devuelve `None`, y la bisección lo convierte en
+    `Implicito(None, None)`. La función depende además de que `precio > 0`, que
+    garantiza aguas arriba `mercado.perfil_desde_info`.
     """
-    if not (datos.patrimonio > 0 and datos.acciones > 0):
-        return Implicito(None, None)
     return biseccion(lambda roe: valor_por_accion(datos, roe), precio, INVERSO_ROE_LIMITES)

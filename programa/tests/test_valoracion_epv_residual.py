@@ -137,10 +137,11 @@ def test_con_un_solo_ejercicio_con_ingresos_el_motivo_es_la_historia():
     assert epv_por_accion(f, 0.25, 0.10, 0.0, 0.0, 10.0) == (None, "sin_historia")
 
 
-def test_con_ingresos_del_ultimo_ejercicio_sin_declarar_no_hay_epv():
+@pytest.mark.parametrize("ingresos", [math.nan, 0.0])
+def test_con_ingresos_del_ultimo_ejercicio_sin_declarar_no_hay_epv(ingresos):
     # Antes decía «ebit_negativo»: el producto con NaN no es mayor que cero, y la
     # causa es otra, que el beneficio que se capitaliza no se puede calcular.
-    f = fundamentos(ejercicios=[ejercicio(2026, ingresos=math.nan), ejercicio(2025), ejercicio(2024)])
+    f = fundamentos(ejercicios=[ejercicio(2026, ingresos=ingresos), ejercicio(2025), ejercicio(2024)])
     assert epv_por_accion(f, 0.25, 0.10, 0.0, 0.0, 10.0) == (None, "sin_historia")
 
 
@@ -219,18 +220,44 @@ def test_mas_rentabilidad_mas_valor():
     assert valor(0.15) > valor(0.12) > 1000.0 > valor(0.08)
 
 
-def test_el_valor_crece_con_el_roe_donde_el_inverso_lo_necesita():
+@pytest.mark.parametrize("payout", [0.0, 0.4, 1.0])
+@pytest.mark.parametrize("roe", [-0.20, -0.07, 0.0])
+def test_con_perdida_el_valor_tiene_forma_cerrada_y_no_depende_del_payout(roe, payout):
+    # Oráculo independiente del código de retención: con ROE ≤ 0 el patrimonio
+    # queda en BV_0 × (1 + ROE)^t, y la suma de los diez años más el valor
+    # terminal se pliega en BV_0 × ((1 + ROE) / (1 + k_e))^10 × (ROE − g) / (k_e − g).
+    k_e = 0.09
+    esperado = 1000.0 * ((1 + roe) / (1 + k_e)) ** 10 * (roe - G) / (k_e - G)
+    assert valor_residual(1000.0, roe, k_e, payout, G) == pytest.approx(esperado, rel=1e-12)
+
+
+@pytest.mark.parametrize("g", [0.0, G])
+@pytest.mark.parametrize("k_e", [0.05, 0.09, 0.15, 0.25])
+def test_el_valor_crece_con_el_roe_donde_el_inverso_lo_necesita(k_e, g):
     # La bisección exige una función creciente. Lo es de 0 al límite de arriba...
-    valores = [valor_por_accion(DATOS, roe / 100) for roe in range(0, 61)]
+    datos = dataclasses.replace(DATOS, k_e=k_e, g_perpetuo=g)
+    valores = [valor_por_accion(datos, roe / 100) for roe in range(0, 61)]
     assert all(a < b for a, b in zip(valores, valores[1:]))
 
 
-def test_donde_el_valor_deja_de_crecer_con_el_roe_ya_es_negativo():
-    # ...y por debajo de cero no lo es: una pérdida se come el patrimonio, y con
-    # un patrimonio menor las pérdidas de los años siguientes pesan menos. Esa
-    # zona vale menos que cero, así que ningún precio positivo la alcanza y la
-    # bisección no puede equivocarse en ella.
-    assert all(valor_por_accion(DATOS, -0.20 + roe / 100) < 0 for roe in range(0, 21))
+@pytest.mark.parametrize("g", [0.0, G])
+@pytest.mark.parametrize("k_e", [0.05, 0.09, 0.15, 0.25])
+def test_donde_el_valor_deja_de_crecer_con_el_roe_ya_es_negativo(k_e, g):
+    # ...y por debajo de (10g − 1) / 11 no lo es (−6,8 % con g = 2,5 %): una pérdida
+    # se come el patrimonio, y con un patrimonio menor las pérdidas de los años
+    # siguientes pesan menos. Entre ese punto y cero el valor vuelve a subir, pero
+    # sigue siendo negativo. Los dos tramos valen menos que cero, así que ningún
+    # precio positivo los alcanza y la bisección no puede equivocarse en ellos.
+    datos = dataclasses.replace(DATOS, k_e=k_e, g_perpetuo=g)
+    umbral = (10 * g - 1) / 11
+    roes = [-0.20 + 0.005 * paso for paso in range(40)]  # de −0,20 a −0,005
+    valores = [valor_por_accion(datos, roe) for roe in roes]
+    assert all(valor < 0 for valor in valores)
+    for (antes, despues), (v_antes, v_despues) in zip(zip(roes, roes[1:]), zip(valores, valores[1:])):
+        if despues <= umbral:
+            assert v_despues < v_antes
+        elif antes >= umbral:
+            assert v_despues > v_antes
 
 
 def test_sin_holgura_de_gordon_no_hay_valor():
@@ -267,7 +294,7 @@ def test_el_coste_alternativo_solo_mueve_el_descuento():
     assert alto < valor_por_accion(DATOS, 0.14)
 
 
-@pytest.mark.parametrize("roe", [0.03, 0.14, 0.55])
+@pytest.mark.parametrize("roe", [0.03, 0.14, 0.55, 0.59])
 def test_el_roe_implicito_devuelve_el_de_partida(roe):
     precio = valor_por_accion(DATOS, roe)
     implicito = roe_implicito(DATOS, precio)
@@ -286,6 +313,12 @@ def test_un_precio_positivo_nunca_sale_por_abajo():
 
 def test_un_precio_inalcanzable_exige_mas_roe_del_limite():
     assert roe_implicito(DATOS, 1e9).fuera_de_limites == ARRIBA
+
+
+def test_un_precio_que_exige_un_roe_de_061_ya_esta_fuera_del_limite():
+    # Con el round trip de 0,59, fija el límite de arriba (0,60) por los dos lados.
+    implicito = roe_implicito(DATOS, valor_por_accion(DATOS, 0.61))
+    assert implicito == Implicito(None, ARRIBA)
 
 
 @pytest.mark.parametrize(
