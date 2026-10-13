@@ -483,9 +483,30 @@ toca.
   gasto financiero. Es inmaterial con poca deuda y de unas cuatro décimas de
   coste de capital en una empresa como T, con un 47 % de deuda.
 - **Las betas de R² casi nulo** (KO, XOM y T, por debajo del 1,5 %) quedan en
-  0,3–0,4 tras Blume, así que su coste del capital propio queda poco por encima
-  de la tasa libre y su DCF tiende a «barata». El R² viaja en la procedencia y
-  la pantalla lo enseña.
+  0,3–0,4 tras Blume, así que su coste de capital queda cerca de la tasa libre.
+  En T (coste de capital del 5,8 % y diferencial de Gordon de 3,3 puntos) el
+  valor sale 4,1 veces el precio: `HOLGURA_GORDON` sólo exige un punto y deja
+  pasar múltiplos terminales de hasta unas cien veces el flujo. El R² viaja en
+  la procedencia y la pantalla lo enseña.
+- **El margen agregado pesa cada año por sus ingresos**, así que un año atípico
+  tira de él. CCL 2022 (el 6 % de los ingresos de la ventana, con un margen del
+  −96 %) baja su margen del 14,9 % al 6,1 % y le cambia el voto de flujos de
+  «barata» a «cara»; KO 2025, con un flujo operativo de 1.075 millones frente a
+  12.000–15.000 los demás años, lo baja del 24,5 % al 20,7 %. Si el agregado
+  llegara a ser ≤ 0, una empresa con años recientes sanos saldría como que
+  quema caja. Quitar siempre el peor año lo arreglaba en esos casos pero
+  sesgaba todos los márgenes hacia arriba, y por eso no se hizo.
+- **Simplificaciones conocidas del DCF**, con su dirección:
+  - el descuento a fin de año infravalora entre un 3 % y un 7 %;
+  - el flujo operativo suma las compensaciones en acciones y las acciones no se
+    diluyen, lo que sobrevalora (NVDA, MU);
+  - el flujo operativo ya incluye los intereses del efectivo que el puente
+    vuelve a sumar, una doble cuenta pequeña;
+  - los intereses que se suman son los devengados, no los pagados;
+  - un gasto financiero no declarado suma cero (AAPL no lo declara en 3 de 5
+    años: unas cinco décimas de margen y un 2 % de valor);
+  - el TTM acaba en `estados_hasta`, que puede ir hasta unos cuatro meses y medio
+    por detrás de la fecha de la valoración.
 - **Las empresas con trimestres de dieciséis semanas** (KR) salen sin
   fundamentos: el panel del motor descarta ese trimestre por durar más de cien
   días, ningún año queda completo, y es mejor `sin_historia` que el TTM de 448
