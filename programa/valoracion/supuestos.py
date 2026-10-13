@@ -23,6 +23,7 @@ from valoracion.criterio import (
     CRECIMIENTO_PERPETUO,
     CRECIMIENTO_REF_ANOS,
     CRECIMIENTO_REF_TOPES,
+    INDUSTRIAS_FINANCIERAS,
     MIN_ANOS_HISTORIA,
     PAYOUT_SIN_DATO,
     PRIMA_RIESGO,
@@ -31,8 +32,10 @@ from valoracion.criterio import (
     TASA_LEGAL,
 )
 from valoracion.fundamentos import Fundamentos
-from valoracion.mercado import Beta, Perfil
+from valoracion.mercado import BONO_10, Beta, Perfil
 
+# Las claves son las cadenas exactas de `info["country"]` de Yahoo; cualquier otro
+# país (o ninguno) cae en «otros» y usa la tasa legal por defecto.
 _PAISES = {"United States": "US", "Mexico": "MX"}
 
 
@@ -63,6 +66,8 @@ def _acotar(valor: float, limites: "tuple[float, float]") -> float:
 
 
 def _redondeo(valor: "float | None") -> "float | None":
+    """Cuatro decimales para la procedencia, que sólo se pinta en pantalla; la
+    precisión completa vive en `valor`, que es lo que entra en las cuentas."""
     return None if valor is None or not math.isfinite(valor) else round(float(valor), 4)
 
 
@@ -84,6 +89,8 @@ def beta_ajustada(beta: "Beta | None") -> Supuesto:
 
 
 def tasa_impositiva(tasa: "float | None", pais: "str | None") -> Supuesto:
+    """La tasa efectiva de la empresa si se conoce, acotada porque un año con un
+    ajuste fiscal puntual da tasas negativas o absurdas; si no, la legal de su país."""
     if tasa is not None and math.isfinite(tasa):
         return Supuesto(
             _acotar(tasa, TASA_EFECTIVA_TOPES),
@@ -97,9 +104,11 @@ def coste_deuda(fundamentos: Fundamentos, r_f: float) -> Supuesto:
     """Gasto financiero entre deuda, sin bajar de la tasa libre ni subir como un bono basura."""
     deuda = fundamentos.deuda_total
     intereses = fundamentos.ultimo.gasto_financiero
-    if not deuda > 0 or not math.isfinite(intereses):
+    # Un gasto financiero negativo es ingreso neto por intereses (DIS, FTV), no un
+    # coste de la deuda: con `abs()` se leería como un tipo de interés que no existe.
+    if not deuda > 0 or not (math.isfinite(intereses) and intereses > 0):
         return Supuesto(r_f, {"fuente": "sin_dato"})
-    bruto = abs(intereses) / deuda
+    bruto = intereses / deuda
     return Supuesto(
         _acotar(bruto, (r_f, r_f + COSTE_DEUDA_PRIMA_MAXIMA)),
         {"fuente": "gasto_entre_deuda", "bruto": _redondeo(bruto)},
@@ -139,15 +148,29 @@ def _cagr(fundamentos: Fundamentos) -> "float | None":
 
 
 def crecimiento_ref(fundamentos: Fundamentos, consenso: "float | None") -> Supuesto:
+    """Media de la historia de tres años y del consenso a un año.
+
+    Ninguna de las dos sirve sola: la historia arrastra fusiones y adquisiciones
+    que no se repetirán, y el consenso sólo mira un año por delante. La
+    procedencia dice cuál de las dos partes hubo, porque con una sola la cifra
+    vale menos y la pantalla debe poder decirlo.
+    """
     historico = _cagr(fundamentos)
-    partes = [v for v in (historico, consenso) if v is not None and math.isfinite(v)]
+    hay_historia = historico is not None and math.isfinite(historico)
+    hay_consenso = consenso is not None and math.isfinite(consenso)
+    partes = [v for v, hay in ((historico, hay_historia), (consenso, hay_consenso)) if hay]
     if not partes:
         return Supuesto(None, {"fuente": "sin_dato"})
     bruto = sum(partes) / len(partes)
+    fuente = (
+        "historia_y_consenso" if hay_historia and hay_consenso
+        else "historia" if hay_historia
+        else "consenso"
+    )
     return Supuesto(
         _acotar(bruto, CRECIMIENTO_REF_TOPES),
         {
-            "fuente": "historia_y_consenso",
+            "fuente": fuente,
             "historico": _redondeo(historico),
             "consenso": _redondeo(consenso),
             "bruto": _redondeo(bruto),
@@ -177,6 +200,9 @@ def roe_referencia(fundamentos: Fundamentos) -> Supuesto:
 
 
 def payout(valor: "float | None") -> Supuesto:
+    """Parte del beneficio que se reparte, acotada a [0, 1]: repartir más de lo que
+    se gana o menos que nada no es una política que se pueda proyectar. Sin dato,
+    el respaldo del criterio."""
     if valor is not None and math.isfinite(valor):
         return Supuesto(_acotar(valor, (0.0, 1.0)), {"fuente": "yfinance"})
     return Supuesto(PAYOUT_SIN_DATO, {"fuente": "por_defecto"})
@@ -190,21 +216,35 @@ def deducir(
     tasa: "float | None",
     consenso: "float | None",
 ) -> Supuestos:
-    """Los supuestos del programa. Siempre los mismos para los mismos datos."""
+    """Los supuestos del programa. Siempre los mismos para los mismos datos.
+
+    `tasa` es la tasa efectiva anual y `consenso` el crecimiento de ingresos que
+    el consenso espera a un año (`+1y`); cualquiera de las dos puede ser None.
+    """
     b = beta_ajustada(beta)
     k_e = r_f + b.valor * PRIMA_RIESGO
-    k_d = coste_deuda(fundamentos, r_f)
     t = tasa_impositiva(tasa, perfil.pais)
+    if perfil.industria in INDUSTRIAS_FINANCIERAS:
+        # En un banco o una aseguradora los intereses pagados incluyen los
+        # depósitos, que son su materia prima y no financiación: el cociente
+        # entre intereses y deuda no es un coste de la deuda (en BAC, GS y MS
+        # sale por encima del coste del capital) y el WACC no significa nada.
+        # El beneficio residual sólo usa `k_e`, que sí se calcula.
+        k_d = Supuesto(None, {"fuente": "financiera"})
+        wacc = Supuesto(None, {"fuente": "financiera"})
+    else:
+        k_d = coste_deuda(fundamentos, r_f)
+        wacc = coste_capital(
+            k_e, k_d.valor, t.valor, perfil.capitalizacion, fundamentos.deuda_total
+        )
     return Supuestos(
-        r_f=Supuesto(r_f, {"fuente": "tesoro_10", "serie": "^TNX"}),
+        r_f=Supuesto(r_f, {"fuente": "tesoro_10", "serie": BONO_10}),
         beta=b,
         prima=Supuesto(PRIMA_RIESGO, {"fuente": "damodaran", "fecha": PRIMA_RIESGO_FECHA}),
         k_e=Supuesto(k_e, {"fuente": "capm"}),
         k_d=k_d,
         t=t,
-        wacc=coste_capital(
-            k_e, k_d.valor, t.valor, perfil.capitalizacion, fundamentos.deuda_total
-        ),
+        wacc=wacc,
         g_ref=crecimiento_ref(fundamentos, consenso),
         g_perpetuo=crecimiento_perpetuo(fundamentos.moneda, r_f),
         roe_ref=roe_referencia(fundamentos),
