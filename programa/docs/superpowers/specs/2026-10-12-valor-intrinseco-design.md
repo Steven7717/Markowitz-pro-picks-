@@ -192,7 +192,7 @@ cuyo valor sea una decisión de redacción.
 | `k_e` | `r_f + beta × prima` |
 | `k_d` | `gasto_financiero_ttm / deuda_total`, acotado entre `r_f` y `r_f + COSTE_DEUDA_PRIMA_MAXIMA` |
 | `t` | Tasa efectiva acotada, o la legal |
-| `wacc` | `E/(E+D)·k_e + D/(E+D)·k_d·(1 − t)`, con E = capitalización y D = deuda contable. Sin deuda, `wacc = k_e` En bancos y aseguradoras, `wacc` y `k_d` quedan vacíos (`financiera`): sus intereses incluyen los depósitos, y el beneficio residual sólo usa `k_e` |
+| `wacc` | `E/(E+D)·k_e + D/(E+D)·k_d·(1 − t)`, con E = capitalización y D = deuda contable. Sin deuda, `wacc = k_e`. En bancos y aseguradoras, `wacc` y `k_d` quedan vacíos (`financiera`): sus intereses incluyen los depósitos, y el beneficio residual sólo usa `k_e` |
 | `g_ref` | Media del CAGR histórico de ingresos (hasta 3 años) y del consenso `+1y`. Si sólo existe uno, ése. Acotado por `CRECIMIENTO_REF_TOPES` |
 | `g_perpetuo` | `CRECIMIENTO_PERPETUO[moneda]`, recortado a `r_f` |
 
@@ -454,8 +454,11 @@ toca.
   del capital es VE − deuda + efectivo. En empresas con muchos arrendamientos
   operativos o con filiales en parte ajenas, el valor sale algo alto.
 - **El capex de mantenimiento no se separa** del de expansión en el EPV.
-- **COF, SYF y otros lenders de *Credit Services* van por DCF**, que no les
-  sienta bien, porque la misma industria de Yahoo contiene a Visa y Mastercard.
+- **COF, SYF, AXP y otros lenders de *Credit Services*, y RJF (*Asset
+  Management*), van por DCF**, que no les sienta bien, porque la misma
+  industria de Yahoo contiene a Visa y Mastercard. Su coste de la deuda choca
+  con el techo y su coste de capital sale entre 0 y 0,4 puntos por encima del
+  del capital propio (medido en la revisión de la Task 5).
 - **La prima de riesgo está congelada** a 2026-10-01. Actualizarla es una
   enmienda fechada, no un cambio silencioso, porque mueve todos los veredictos a
   la vez.

@@ -239,6 +239,8 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 ### Task 2: Fundamentos desde EDGAR
 
+> **Ejecutada y superada.** El código de abajo es el de partida. Sus revisiones de calidad lo cambiaron (bancos sin ingresos, ejercicios que distan un año, tests de comportamiento): ver los commits de `valoracion/fundamentos.py` desde `2e655d4`. Si se re-ejecuta, manda el código vivo, no este bloque.
+
 **Files:**
 - Create: `valoracion/fundamentos.py`
 - Test: `tests/test_valoracion_fundamentos.py`
@@ -567,6 +569,8 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ---
 
 ### Task 3: Mercado — tipos e intérpretes puros
+
+> **Ejecutada y superada.** Sus revisiones endurecieron la beta, la hora y el perfil (ver `960eaba`). Manda el código vivo.
 
 **Files:**
 - Create: `valoracion/mercado.py`
@@ -977,6 +981,8 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 ### Task 4: Mercado — descargas con caché y motivos con nombre
 
+> **Ejecutada y superada.** Su revisión encontró que yfinance no lanza al fallar y una descarga vacía se guardaba como dato (ver `5cceb96` y `3728757`). Manda el código vivo.
+
 **Files:**
 - Modify: `valoracion/mercado.py` (añadir al final; y dos imports arriba)
 - Test: `tests/test_valoracion_mercado_red.py` (sin marca `red`: la red se sustituye por dobles)
@@ -1245,6 +1251,8 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ---
 
 ### Task 5: Supuestos
+
+> **Ejecutada y superada.** Sus revisiones quitaron el `abs()` del gasto financiero, vaciaron `k_d` y `wacc` en financieras y separaron la fuente de `g_ref` (ver `b412eab`). Manda el código vivo.
 
 **Files:**
 - Create: `valoracion/supuestos.py`
