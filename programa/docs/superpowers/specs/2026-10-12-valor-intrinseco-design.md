@@ -276,18 +276,28 @@ mantenimiento del de expansión. Se dice en la pantalla.
 
 ### 7. `valoracion/residual.py` — bancos y aseguradoras
 
-`k_e` es el de los supuestos. `BV_0` es el patrimonio neto. El ROE va desde
-`ROE_ini` en el año 1 hasta `k_e` en el año 10, en línea recta. El patrimonio
-crece con lo que se retiene: `BV_t = BV_{t−1} × (1 + ROE_t × (1 − payout))`,
-con el payout de yfinance acotado entre 0 y 1.
+`k_e` es el de los supuestos. `BV_0` es el patrimonio neto. El ROE se mantiene
+constante los diez años. El patrimonio crece con lo que se retiene:
+`BV_t = BV_{t−1} × (1 + ROE × (1 − payout))`, con el payout de yfinance acotado
+entre 0 y 1. Una pérdida reduce el patrimonio entera, sin repartir nada.
 
-`Valor = BV_0 + Σ_{t=1..10} (ROE_t − k_e) × BV_{t−1} / (1 + k_e)^t`. Después del
-año 10 el exceso de rentabilidad es cero, así que no hay valor terminal aparte.
+`Valor = BV_0 + Σ_{t=1..10} (ROE − k_e) × BV_{t−1} / (1 + k_e)^t + VT / (1 + k_e)^10`,
+con `VT = (ROE − k_e) × BV_10 / (k_e − g_perpetuo)`. Sin `HOLGURA_GORDON` entre
+`k_e` y `g_perpetuo`, no aplica, igual que el DCF.
+
+**El exceso de rentabilidad persiste: decisión del usuario del 2026-10-12, antes
+de medir.** El texto aprobado hacía converger el ROE al coste del capital en
+diez años y no dejaba valor terminal. La revisión de la Task 7 lo midió:
+valoraba JPM, GS, MET y PGR entre 1,1 y 2,0 veces su valor contable frente a
+2,1–3,7 en el mercado, y las votaba «caras» por construcción. Era además
+incoherente con el DCF, que mantiene el margen para siempre. Ahora el exceso
+sobre el coste del capital persiste y crece al ritmo perpetuo, como el margen
+del DCF.
 
 `ROE_ref` es la mediana del ROE anual de `historia`: beneficio neto TTM sobre
 patrimonio. **No es el KPI `roe` del panel**, que es trimestral.
 
-Los escenarios y el inverso funcionan igual que en el DCF, con `ROE_ini` en lugar
+Los escenarios y el inverso funcionan igual que en el DCF, con el ROE en lugar
 de `g` y `k_e` en lugar de `wacc`. El inverso despeja el **ROE que el precio
 exige**.
 
@@ -295,8 +305,8 @@ exige**.
 
 Cada voto es `barata`, `neutra`, `cara` o `no_aplica`, y el `no_aplica` lleva su
 motivo como **clave** (`quema_caja`, `ebit_negativo`, `sin_historia`,
-`wacc_bajo_crecimiento`, `sin_pares`, `sin_precio`, `sin_tasa_libre`,
-`financiera`, `patrimonio_negativo`). Una valoración que no llega a calcularse
+`sin_beneficio_operativo`, `wacc_bajo_crecimiento`, `sin_pares`, `sin_precio`,
+`sin_tasa_libre`, `financiera`, `patrimonio_negativo`). Una valoración que no llega a calcularse
 lleva su motivo en el nivel de arriba (`sin_estados`, `sin_precio`,
 `sin_tasa_libre`, `error_interno`).
 
@@ -496,6 +506,25 @@ toca.
   llegara a ser ≤ 0, una empresa con años recientes sanos saldría como que
   quema caja. Quitar siempre el peor año lo arreglaba en esos casos pero
   sesgaba todos los márgenes hacia arriba, y por eso no se hizo.
+- **Una de cada siete empresas no tiene valor sin crecimiento.** 69 empresas no
+  financieras del S&P 500 no etiquetan `OperatingIncomeLoss` (XOM, JNJ, LLY,
+  MRK, PFE, IBM, GE…), y el motor de fundamentales no sustituye ese concepto a
+  propósito (ver `fundamentals/concepts.py`). Su voto de EPV sale
+  `sin_beneficio_operativo`, que es lo que pasa, y no «sin historia».
+- **Los rangos del beneficio residual son anchos.** Con el exceso persistente,
+  ±½ ROE y ±1 punto de coste del capital abren mucho los escenarios: JPM va de
+  97 a 948 $ con un precio de 337 $. El voto no usa el rango sino el ROE
+  implícito, así que esto sólo afecta a lo que se dibuja. Por debajo de un ROE
+  de un 2 % el valor sale negativo, y por debajo de −7 % deja de crecer con el
+  ROE; el inverso no se ve afectado porque con un precio positivo la raíz está
+  siempre en la zona creciente.
+- **El payout es sólo el dividendo.** Las recompras no cuentan: con payout 1
+  (recompras incluidas) el valor de JPM bajaba un 5 % y su ROE implícito subía
+  de 32,6 % a 47,5 % con el modelo anterior.
+- **El margen agregado también pesa los años de saneamiento**: el año 2023 de T,
+  con 2.700 millones de beneficio operativo negativo por un deterioro, baja su
+  margen operativo del 20,1 % al 14,1 % y le cambia el voto de EPV de «barata»
+  a «neutra».
 - **Simplificaciones conocidas del DCF**, con su dirección:
   - el descuento a fin de año infravalora entre un 3 % y un 7 %;
   - el flujo operativo suma las compensaciones en acciones y las acciones no se

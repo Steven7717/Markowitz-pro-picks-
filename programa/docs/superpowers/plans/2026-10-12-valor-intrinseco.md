@@ -1660,6 +1660,8 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 ### Task 6: DCF e inverso
 
+> **Ejecutada y superada.** Sus revisiones añadieron guardas al inverso, un oráculo propio de las dos etapas y el margen agregado (decisión del usuario). Manda el código vivo.
+
 **Files:**
 - Create: `valoracion/dcf.py`
 - Create: `valoracion/inverso.py`
@@ -1976,6 +1978,8 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ---
 
 ### Task 7: Valor sin crecimiento y beneficio residual
+
+> **Ejecutada y superada.** El beneficio residual pasó a mantener el exceso de rentabilidad con valor terminal (decisión del usuario) y `DatosResidual` ganó `g_perpetuo`; el EPV ganó el motivo `sin_beneficio_operativo`. Manda el código vivo.
 
 **Files:**
 - Create: `valoracion/epv.py`
@@ -2367,6 +2371,7 @@ MOTIVOS = frozenset(
         "quema_caja",
         "ebit_negativo",
         "sin_historia",
+        "sin_beneficio_operativo",
         "wacc_bajo_crecimiento",
         "sin_pares",
         "sin_precio",
@@ -2836,12 +2841,18 @@ def _lectura_residual(fundamentos, supuestos, acciones, precio):
         patrimonio=fundamentos.ultimo.patrimonio_neto,
         k_e=supuestos.k_e.valor,
         payout=supuestos.payout.valor,
+        g_perpetuo=supuestos.g_perpetuo.valor,
         acciones=acciones,
     )
+    base = residual.valor_por_accion(datos, roe_ref)
+    if base is None:
+        # El coste del capital no supera al crecimiento perpetuo en la
+        # holgura: el valor terminal explotaría, igual que en el DCF.
+        return Voto(NO_APLICA, "wacc_bajo_crecimiento"), None, None
     holgura = margen_voto(roe_ref, MARGEN_ROE_MINIMO)
     valor = Escenarios(
         pesimista=residual.valor_por_accion(datos, roe_ref - holgura, datos.k_e + DELTA_WACC_ESCENARIOS),
-        base=residual.valor_por_accion(datos, roe_ref),
+        base=base,
         optimista=residual.valor_por_accion(datos, roe_ref + holgura, datos.k_e - DELTA_WACC_ESCENARIOS),
     )
     implicito = residual.roe_implicito(datos, precio)
@@ -3347,6 +3358,9 @@ MOTIVO = {
     "sin_tasa_libre": "no se pudo descargar la tasa libre de riesgo",
     "financiera": "no aplica a bancos ni aseguradoras",
     "patrimonio_negativo": "patrimonio negativo: no hay base sobre la que medir la rentabilidad",
+    "sin_beneficio_operativo": (
+        "no declara beneficio operativo, así que no hay valor sin crecimiento que calcular"
+    ),
     "sin_estados": "no se pudieron leer sus estados financieros de la SEC",
     "error_interno": "error interno al valorar: merece avisar de ello",
 }
