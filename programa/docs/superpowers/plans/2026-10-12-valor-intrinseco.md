@@ -2223,6 +2223,8 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 ### Task 8: Los tres votos y el veredicto
 
+> **Ejecutada y superada.** Sus revisiones fijaron los límites, protegieron `voto_epv` de valores no finitos y la Task 9 añadió los motivos `sin_flujo_libre` y `sin_red`. Manda el código vivo.
+
 **Files:**
 - Create: `valoracion/votos.py`
 - Test: `tests/test_valoracion_votos.py`
@@ -2469,6 +2471,8 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ---
 
 ### Task 9: El motor y su forma en disco
+
+> **Ejecutada y superada.** Su revisión pasó el motor por las 503 empresas y añadió `sin_flujo_libre`, `sin_red` y los tests de composición. Manda el código vivo.
 
 **Files:**
 - Create: `valoracion/motor.py`
@@ -3036,6 +3040,20 @@ def test_una_valoracion_que_revienta_no_tumba_la_corrida(sin_red, valoracion_dob
     assert {f["valoracion"]["motivo"] for f in resultado.fichas} == {"error_interno"}
 
 
+@pytest.mark.parametrize("motivo", ["sin_red", "sin_tasa_libre"])
+def test_sin_red_se_deja_de_preguntar_tras_el_primero(sin_red, valoracion_doble, motivo):
+    valoracion_doble.return_value = {"version": "m1", "fecha": "2026-10-12", "motivo": motivo}
+    resultado = construir_ranking(con_llm=False, n=5)
+    assert valoracion_doble.call_count == 1
+    assert {f["valoracion"]["motivo"] for f in resultado.fichas} == {motivo}
+
+
+def test_un_fallo_de_una_empresa_no_corta_las_demas(sin_red, valoracion_doble):
+    valoracion_doble.return_value = {"version": "m1", "fecha": "2026-10-12", "motivo": "sin_estados"}
+    construir_ranking(con_llm=False, n=5)
+    assert valoracion_doble.call_count == 5
+
+
 def test_guardar_con_valoracion_sigue_siendo_json_estricto(sin_red, tmp_path):
     guardar(construir_ranking(con_llm=False, n=5), tmp_path)
     fichas = json.loads((tmp_path / "fichas.json").read_text(encoding="utf-8"))
@@ -3059,6 +3077,11 @@ from valoracion.plano import fallida
 Añade esta función justo después de `_con_narrativa`:
 
 ```python
+# Motivos que no son de una empresa sino de la fuente: si uno sale, los demás
+# saldrían igual.
+_MOTIVOS_DE_CORTE = frozenset({"sin_red", "sin_tasa_libre"})
+
+
 def _valoracion(ticker: str, pilar_valoracion: "float | None") -> dict:
     """La valoración de una ficha, o por qué no la tiene.
 
@@ -3086,6 +3109,16 @@ def construir_ranking(
 ) -> Resultado:
 ```
 
+Antes del bucle de fichas (`fichas = []`), añade:
+
+```python
+    # Sin red o sin tasa libre, las quince fallarían igual, y con una red que no
+    # contesta cada intento tarda unos 21 s (medido en la revisión de la Task 9):
+    # cinco minutos para nada. Tras el primero se deja de preguntar, como hace el
+    # cortacircuitos de `fundamentals/fetch.py`.
+    corte: "str | None" = None
+```
+
 Y en el bucle de fichas, sustituye:
 
 ```python
@@ -3102,10 +3135,13 @@ por:
         if con_valoracion:
             # La valoración no toca el score: se calcula sobre las ya elegidas
             # y sólo se enseña. Ver el spec de M, «Integración».
-            ficha = {
-                **ficha,
-                "valoracion": _valoracion(fila.ticker, ficha["pilares"].get("valoracion")),
-            }
+            if corte is None:
+                valoracion = _valoracion(fila.ticker, ficha["pilares"].get("valoracion"))
+                if valoracion.get("motivo") in _MOTIVOS_DE_CORTE:
+                    corte = valoracion["motivo"]
+            else:
+                valoracion = fallida(corte)
+            ficha = {**ficha, "valoracion": valoracion}
         fichas.append(ficha)
 ```
 
@@ -3381,6 +3417,8 @@ MOTIVO = {
     "sin_beneficio_operativo": (
         "no declara beneficio operativo, así que no hay valor sin crecimiento que calcular"
     ),
+    "sin_flujo_libre": "no declara capex o flujo operativo, así que no hay flujo libre que proyectar",
+    "sin_red": "no hubo conexión con Yahoo Finance",
     "sin_estados": "no se pudieron leer sus estados financieros de la SEC",
     "error_interno": "error interno al valorar: merece avisar de ello",
 }

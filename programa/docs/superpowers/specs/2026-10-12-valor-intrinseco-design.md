@@ -305,10 +305,12 @@ exige**.
 
 Cada voto es `barata`, `neutra`, `cara` o `no_aplica`, y el `no_aplica` lleva su
 motivo como **clave** (`quema_caja`, `ebit_negativo`, `sin_historia`,
-`sin_beneficio_operativo`, `wacc_bajo_crecimiento`, `sin_pares`, `sin_precio`,
+`sin_beneficio_operativo`, `sin_flujo_libre`, `wacc_bajo_crecimiento`, `sin_pares`, `sin_precio`,
 `sin_tasa_libre`, `financiera`, `patrimonio_negativo`). Una valoración que no llega a calcularse
-lleva su motivo en el nivel de arriba (`sin_estados`, `sin_precio`,
-`sin_tasa_libre`, `error_interno`).
+lleva su motivo en el nivel de arriba (`sin_estados`, `sin_precio`, `sin_red`,
+`sin_tasa_libre`, `error_interno`). `sin_red` y `sin_tasa_libre` no son de una
+empresa sino de la fuente: al primero, `ranking/run.py` deja de preguntar por las
+demás, porque con una red que no contesta cada intento tarda unos 21 s.
 
 | Voto | Barata | Cara | Neutra |
 |---|---|---|---|
@@ -428,7 +430,7 @@ toca.
 | Sin red al generar | La valoración de cada ficha dice `sin_precio`, y el ranking sale igual |
 | `^TNX` no responde | Todas las fichas dicen `sin_tasa_libre`. Un aviso, no quince |
 | Empresa que quema caja | El voto de flujos es `no_aplica`, con «quema caja: valorarla exigiría inventar cuándo deja de hacerlo», nunca un cero |
-| Coste de capital ≤ crecimiento perpetuo + 1 punto | El voto de flujos es `no_aplica`, por `wacc_bajo_crecimiento` |
+| Coste de capital por debajo del crecimiento perpetuo + 1 punto | El voto de flujos es `no_aplica`, por `wacc_bajo_crecimiento` |
 | Ficha de una versión anterior | «Sin valoración: ficha de una versión anterior» |
 
 ## Cómo se prueba
@@ -506,6 +508,19 @@ toca.
   llegara a ser ≤ 0, una empresa con años recientes sanos saldría como que
   quema caja. Quitar siempre el peor año lo arreglaba en esos casos pero
   sesgaba todos los márgenes hacia arriba, y por eso no se hizo.
+- **36 empresas no financieras no tienen DCF** (LLY, COST, NEE, VZ, PEP, COP…):
+  tienen cinco años de historia pero no declaran capex, así que no hay flujo
+  libre. Su voto de flujos sale `sin_flujo_libre`. Con el EPV también sin
+  beneficio operativo (LLY), sólo les queda el voto de pares y el veredicto es
+  «sin datos suficientes».
+- **Diez empresas salen con valor por acción negativo** (SO, WEC, ETR, PEG, BA,
+  DOW…): la deuda supera el valor de la empresa que da el DCF. Es coherente con
+  el puente, y el margen de seguridad baja de −100 %.
+- **«Sobrevalorada» exige que coincidan flujos y pares**, así que AAPL, AMZN, GE,
+  PLD o CAT salen «en rango» con márgenes de seguridad de −40 % a −95 %: sus
+  flujos dicen «cara» y sus múltiplos están en línea con el sector. Al otro lado,
+  CHTR y CMCSA salen infravaloradas con valores 6–13 veces el precio, por el
+  apalancamiento de una deuda alta sobre un capital pequeño.
 - **Una de cada siete empresas no tiene valor sin crecimiento.** 69 empresas no
   financieras del S&P 500 no etiquetan `OperatingIncomeLoss` (XOM, JNJ, LLY,
   MRK, PFE, IBM, GE…), y el motor de fundamentales no sustituye ese concepto a
@@ -550,3 +565,13 @@ toca.
   días que salía antes. La causa está en `fundamentals/panel.py`.
 - **No hay listón de antigüedad de los estados.** Se enseña `estados_hasta` en
   vez de inventar uno después de congelar el criterio.
+
+## Medida preliminar de la revisión de la Task 9 (2026-10-13)
+
+La revisión de calidad del motor lo pasó por las 503 empresas del S&P 500 con
+precios y betas reales, **después** de congelar el criterio y de las dos
+decisiones de método (margen agregado y exceso persistente en el residual), que
+se tomaron con casos sueltos y antes de este barrido. Reparto de veredictos: en
+rango 338, sin datos suficientes 80, infravalorada 41, sobrevalorada 33, señales
+mixtas 8, y 3 sin calcular. Ningún listón se movió al verlo. La medida oficial,
+con los pilares reales del ranking, es la de la Task 17.
