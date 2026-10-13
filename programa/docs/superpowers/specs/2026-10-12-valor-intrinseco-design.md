@@ -308,9 +308,12 @@ motivo como **clave** (`quema_caja`, `ebit_negativo`, `sin_historia`,
 `sin_beneficio_operativo`, `sin_flujo_libre`, `wacc_bajo_crecimiento`, `sin_pares`, `sin_precio`,
 `sin_tasa_libre`, `financiera`, `patrimonio_negativo`). Una valoración que no llega a calcularse
 lleva su motivo en el nivel de arriba (`sin_estados`, `sin_precio`, `sin_red`,
-`sin_tasa_libre`, `error_interno`). `sin_red` y `sin_tasa_libre` no son de una
-empresa sino de la fuente: al primero, `ranking/run.py` deja de preguntar por las
-demás, porque con una red que no contesta cada intento tarda unos 21 s.
+`sin_tasa_libre`, `error_interno`). `sin_tasa_libre` no es de una empresa sino
+de la fuente: al primero, `ranking/run.py` deja de preguntar por las demás,
+porque con una red que no contesta cada intento tarda unos 21 s. `sin_red`
+significa que Yahoo no devolvió nada utilizable, y eso también lo da un símbolo
+que no conoce (medido con ZZZZQ y la red sana), así que el corte espera a dos
+seguidos.
 
 | Voto | Barata | Cara | Neutra |
 |---|---|---|---|
@@ -427,7 +430,7 @@ toca.
 
 | Situación | Qué se ve |
 |---|---|
-| Sin red al generar | La valoración de cada ficha dice `sin_precio`, y el ranking sale igual |
+| Sin red al generar | Las dos primeras fichas dicen `sin_red` y las demás heredan ese motivo sin volver a preguntar; el ranking sale igual |
 | `^TNX` no responde | Todas las fichas dicen `sin_tasa_libre`. Un aviso, no quince |
 | Empresa que quema caja | El voto de flujos es `no_aplica`, con «quema caja: valorarla exigiría inventar cuándo deja de hacerlo», nunca un cero |
 | Coste de capital por debajo del crecimiento perpetuo + 1 punto | El voto de flujos es `no_aplica`, por `wacc_bajo_crecimiento` |
@@ -521,6 +524,10 @@ toca.
   flujos dicen «cara» y sus múltiplos están en línea con el sector. Al otro lado,
   CHTR y CMCSA salen infravaloradas con valores 6–13 veces el precio, por el
   apalancamiento de una deuda alta sobre un capital pequeño.
+- **Cinco empresas con cinco años de historia salen `sin_historia`** (APA, DTE,
+  EQR, SYF, XEL): el motor de fundamentales no reconoce su etiqueta de ingresos.
+  Es la misma clase de rótulo inexacto que `sin_flujo_libre` arregló, con otra
+  causa, y se deja anotado.
 - **Una de cada siete empresas no tiene valor sin crecimiento.** 69 empresas no
   financieras del S&P 500 no etiquetan `OperatingIncomeLoss` (XOM, JNJ, LLY,
   MRK, PFE, IBM, GE…), y el motor de fundamentales no sustituye ese concepto a

@@ -3040,12 +3040,27 @@ def test_una_valoracion_que_revienta_no_tumba_la_corrida(sin_red, valoracion_dob
     assert {f["valoracion"]["motivo"] for f in resultado.fichas} == {"error_interno"}
 
 
-@pytest.mark.parametrize("motivo", ["sin_red", "sin_tasa_libre"])
-def test_sin_red_se_deja_de_preguntar_tras_el_primero(sin_red, valoracion_doble, motivo):
-    valoracion_doble.return_value = {"version": "m1", "fecha": "2026-10-12", "motivo": motivo}
+def test_sin_tasa_libre_se_deja_de_preguntar_tras_el_primero(sin_red, valoracion_doble):
+    valoracion_doble.return_value = {"version": "m1", "fecha": "2026-10-12", "motivo": "sin_tasa_libre"}
     resultado = construir_ranking(con_llm=False, n=5)
     assert valoracion_doble.call_count == 1
-    assert {f["valoracion"]["motivo"] for f in resultado.fichas} == {motivo}
+    assert {f["valoracion"]["motivo"] for f in resultado.fichas} == {"sin_tasa_libre"}
+
+
+def test_sin_red_se_deja_de_preguntar_tras_dos_seguidos(sin_red, valoracion_doble):
+    valoracion_doble.return_value = {"version": "m1", "fecha": "2026-10-12", "motivo": "sin_red"}
+    resultado = construir_ranking(con_llm=False, n=5)
+    assert valoracion_doble.call_count == 2
+    assert {f["valoracion"]["motivo"] for f in resultado.fichas} == {"sin_red"}
+
+
+def test_un_sin_red_suelto_no_corta_a_los_demas(sin_red, valoracion_doble):
+    # Un símbolo que Yahoo no conoce da `sin_red` con la red sana.
+    buena = {"version": "m1", "fecha": "2026-10-12", "motivo": "sin_estados"}
+    rara = {"version": "m1", "fecha": "2026-10-12", "motivo": "sin_red"}
+    valoracion_doble.side_effect = [rara, buena, rara, buena, buena]
+    construir_ranking(con_llm=False, n=5)
+    assert valoracion_doble.call_count == 5
 
 
 def test_un_fallo_de_una_empresa_no_corta_las_demas(sin_red, valoracion_doble):
@@ -3077,11 +3092,6 @@ from valoracion.plano import fallida
 Añade esta función justo después de `_con_narrativa`:
 
 ```python
-# Motivos que no son de una empresa sino de la fuente: si uno sale, los demás
-# saldrían igual.
-_MOTIVOS_DE_CORTE = frozenset({"sin_red", "sin_tasa_libre"})
-
-
 def _valoracion(ticker: str, pilar_valoracion: "float | None") -> dict:
     """La valoración de una ficha, o por qué no la tiene.
 
@@ -3114,9 +3124,12 @@ Antes del bucle de fichas (`fichas = []`), añade:
 ```python
     # Sin red o sin tasa libre, las quince fallarían igual, y con una red que no
     # contesta cada intento tarda unos 21 s (medido en la revisión de la Task 9):
-    # cinco minutos para nada. Tras el primero se deja de preguntar, como hace el
-    # cortacircuitos de `fundamentals/fetch.py`.
+    # cinco minutos para nada. Se deja de preguntar, como hace el cortacircuitos
+    # de `fundamentals/fetch.py`. La tasa libre es la misma para todas, así que
+    # basta un fallo. `sin_red` exige dos seguidos: un símbolo que Yahoo no
+    # conoce también da `sin_red`, y uno solo no puede apagar a los demás.
     corte: "str | None" = None
+    sin_red_seguidos = 0
 ```
 
 Y en el bucle de fichas, sustituye:
@@ -3137,8 +3150,10 @@ por:
             # y sólo se enseña. Ver el spec de M, «Integración».
             if corte is None:
                 valoracion = _valoracion(fila.ticker, ficha["pilares"].get("valoracion"))
-                if valoracion.get("motivo") in _MOTIVOS_DE_CORTE:
-                    corte = valoracion["motivo"]
+                motivo = valoracion.get("motivo")
+                sin_red_seguidos = sin_red_seguidos + 1 if motivo == "sin_red" else 0
+                if motivo == "sin_tasa_libre" or sin_red_seguidos >= 2:
+                    corte = motivo
             else:
                 valoracion = fallida(corte)
             ficha = {**ficha, "valoracion": valoracion}
@@ -3418,7 +3433,7 @@ MOTIVO = {
         "no declara beneficio operativo, así que no hay valor sin crecimiento que calcular"
     ),
     "sin_flujo_libre": "no declara capex o flujo operativo, así que no hay flujo libre que proyectar",
-    "sin_red": "no hubo conexión con Yahoo Finance",
+    "sin_red": "Yahoo Finance no devolvió datos: sin conexión, un error suyo o un símbolo que no conoce",
     "sin_estados": "no se pudieron leer sus estados financieros de la SEC",
     "error_interno": "error interno al valorar: merece avisar de ello",
 }
