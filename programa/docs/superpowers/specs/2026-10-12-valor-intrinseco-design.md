@@ -511,16 +511,24 @@ toca.
   MRK, PFE, IBM, GE…), y el motor de fundamentales no sustituye ese concepto a
   propósito (ver `fundamentals/concepts.py`). Su voto de EPV sale
   `sin_beneficio_operativo`, que es lo que pasa, y no «sin historia».
-- **Los rangos del beneficio residual son anchos.** Con el exceso persistente,
-  ±½ ROE y ±1 punto de coste del capital abren mucho los escenarios: JPM va de
-  97 a 948 $ con un precio de 337 $. El voto no usa el rango sino el ROE
-  implícito, así que esto sólo afecta a lo que se dibuja. Por debajo de un ROE
-  de un 2 % el valor sale negativo, y por debajo de −7 % deja de crecer con el
-  ROE; el inverso no se ve afectado porque con un precio positivo la raíz está
-  siempre en la zona creciente.
-- **El payout es sólo el dividendo.** Las recompras no cuentan: con payout 1
-  (recompras incluidas) el valor de JPM bajaba un 5 % y su ROE implícito subía
-  de 32,6 % a 47,5 % con el modelo anterior.
+- **Los rangos del beneficio residual son muy anchos.** Los escenarios mueven
+  el ROE ±½ y el coste del capital ±1 punto, y con el exceso persistente eso es
+  ±130 % del exceso sobre el coste del capital: JPM va de 81 a 1.182 $ con un
+  precio de 337 $ (14,6 veces entre extremos, frente a 2,4 de AAPL o 3,4 de KO
+  en el DCF). En el pesimista, el ROE de JPM (7,9 %) cae por debajo de su
+  coste del capital (9,7 %) y el exceso es negativo para siempre. El voto no
+  usa el rango sino el ROE implícito, así que sólo afecta a lo que se dibuja;
+  N decidirá si para las financieras lo pinta. Por debajo de un ROE de un 2 %
+  el valor sale negativo, y por debajo de unos −7 % deja de crecer con el ROE;
+  el inverso no se ve afectado, porque con un precio positivo la raíz está
+  siempre en la zona creciente (comprobado analíticamente y en 336
+  combinaciones de parámetros en la revisión de la Task 7).
+- **El payout es sólo el dividendo, y es el dato menos fiable del residual.**
+  Las recompras no cuentan, así que el patrimonio se proyecta creciendo más de
+  lo que crece, y con el exceso persistente eso se nota: con payout 1 el valor
+  de JPM baja un 35 % (372 → 242 $) y su ROE implícito sube del 15,1 % al
+  21,6 %; PGR baja un 43 %, MET un 18 % y GS un 13 %. Usar dividendos más
+  recompras del estado de flujos sería más correcto y queda como mejora.
 - **El margen agregado también pesa los años de saneamiento**: el año 2023 de T,
   con 2.700 millones de beneficio operativo negativo por un deterioro, baja su
   margen operativo del 20,1 % al 14,1 % y le cambia el voto de EPV de «barata»
