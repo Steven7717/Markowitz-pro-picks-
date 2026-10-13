@@ -72,10 +72,10 @@ def leer(raiz: Path, fuente: str, clave: str, validez: timedelta):
     try:
         crudo = json.loads(ruta.read_text(encoding="utf-8"))
         cuando = datetime.fromisoformat(crudo["cuando"])
-    except (json.JSONDecodeError, KeyError, ValueError, OSError):
+        # La resta dentro del `try`: con una hora sin zona lanza `TypeError`
+        # aquí y no al leer el fichero. Un `null`, un `[]` o un `"cuando"` que
+        # no es texto lo lanzan en las líneas de arriba.
+        vigente = datetime.now(timezone.utc) - cuando <= validez
+    except (json.JSONDecodeError, KeyError, ValueError, TypeError, OSError):
         return None
-    return Guardado(
-        datos=crudo.get("datos"),
-        cuando=cuando,
-        vigente=datetime.now(timezone.utc) - cuando <= validez,
-    )
+    return Guardado(datos=crudo.get("datos"), cuando=cuando, vigente=vigente)

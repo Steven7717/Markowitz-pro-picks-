@@ -9,6 +9,7 @@ fundamentals/.cache/
 ranking/.cache/
 noticias/.cache/
 seguimiento/.cache/
+valoracion/.cache/
 actas/*.tmp
 portafolios/*.tmp
 .venv/

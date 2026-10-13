@@ -212,77 +212,137 @@ VALIDEZ = {
     "consenso": timedelta(days=1),
 }
 
+# Hasta dónde sirve lo guardado cuando la red falla. Pasado esto, mejor decir
+# que no hay dato que dar uno que ya no describe nada.
+ANTIGUEDAD_MAXIMA = {
+    # El precio lleva su propia hora (`Perfil.hora`), que es la que se enseña:
+    # una semana vieja se ve como tal, pero no más allá.
+    "perfil": timedelta(days=7),
+    # La tasa libre se mueve cada día y entra directa en el coste del capital.
+    "tasa_libre": timedelta(days=7),
+    # Dos años de semanas: añadir un trimestre más cambia poco la pendiente.
+    "beta": timedelta(days=90),
+    # La tasa efectiva es anual y sólo cambia con cada cierre de ejercicio.
+    "tasa_efectiva": timedelta(days=400),
+    # El consenso se revisa con cada resultado trimestral.
+    "consenso": timedelta(days=30),
+}
 
-def _traer(fuente: str, clave: str, descargar) -> "tuple[dict | None, str]":
+
+def _traer(fuente: str, clave: str, pedir, interpretar, leer) -> "tuple[object, str]":
     """Lo guardado si está vigente; si no, la red; si la red falla, lo guardado.
 
-    Lo guardado caducado se usa antes que nada porque estos datos envejecen
-    despacio --una beta de dos años no cambia de un día a otro-- y el precio
-    lleva su propia hora dentro (`Perfil.hora`), que es la que se enseña.
+    - `pedir()` hace sólo las llamadas a yfinance, y es lo único dentro del
+      `try`: devuelve lo que yfinance trajo, o `None` si no pudo saberlo.
+    - `interpretar(crudo)` es nuestro y va fuera del `try`, para que un defecto
+      propio salga con su excepción y no disfrazado de "sin_red". Devuelve un
+      `dict` si sabe la respuesta --incluida "no hay"-- y entonces se guarda; o
+      `None` si no pudo saberla, y entonces no se guarda nada ni se pisa lo
+      bueno que hubiera.
+    - `leer(dict)` saca el valor de lo guardado y lanza `TypeError` o
+      `KeyError` si tiene la forma de una versión anterior; esa entrada ni se
+      sirve ni sirve de respaldo.
+
+    Lo guardado caducado se usa antes que nada, hasta `ANTIGUEDAD_MAXIMA`,
+    porque estos datos envejecen despacio --una beta de dos años no cambia de un
+    día a otro-- y el precio lleva su propia hora dentro (`Perfil.hora`).
     """
     guardado = cache.leer(RAIZ_CACHE, fuente, clave, VALIDEZ[fuente])
-    if guardado is not None and guardado.vigente and isinstance(guardado.datos, dict):
-        return guardado.datos, "ok"
+    previo, hay_previo = None, False
+    if guardado is not None and isinstance(guardado.datos, dict):
+        try:
+            previo, hay_previo = leer(guardado.datos), True
+        except (TypeError, KeyError):
+            pass
+    if hay_previo and guardado.vigente:
+        return previo, "ok"
     try:
-        datos = descargar()
+        crudo = pedir()
     except Exception:
         # yfinance lanza de todo según qué falle --HTTPError, KeyError,
         # JSONDecodeError, ValueError, TypeError en una respuesta a medias-- y
         # ninguna de esas clases distingue algo que aquí importe: o hay dato o no.
-        datos = None
-    if isinstance(datos, dict):
-        cache.guardar(RAIZ_CACHE, fuente, clave, datos)
-        return datos, "ok"
-    if guardado is not None and isinstance(guardado.datos, dict):
-        return guardado.datos, "ok"
+        crudo = None
+    datos = None if crudo is None else interpretar(crudo)
+    if datos is not None:
+        try:
+            cache.guardar(RAIZ_CACHE, fuente, clave, datos)
+        except OSError:
+            # Ya está descargado: perder la caché no es perder la respuesta.
+            pass
+        return leer(datos), "ok"
+    if hay_previo:
+        edad = datetime.now(timezone.utc) - guardado.cuando
+        if edad <= ANTIGUEDAD_MAXIMA[fuente]:
+            return previo, "ok"
     return None, "sin_red"
 
 
-def _reconstruir(tipo, datos: "dict | None"):
-    """Un `TypeError` aquí es una caché de una versión anterior del tipo: se
-    trata como si no hubiera dato, no se revienta."""
-    if not isinstance(datos, dict):
-        return None
-    try:
-        return tipo(**datos)
-    except TypeError:
-        return None
+def _sin_cierres(cierres: pd.Series) -> bool:
+    return pd.to_numeric(cierres, errors="coerce").dropna().empty
+
+
+def _valor(datos: dict) -> "float | None":
+    return datos["valor"]
 
 
 def perfil(ticker: str) -> "tuple[Perfil | None, str]":
-    def descargar():
-        encontrado = perfil_desde_info(ticker, yf.Ticker(ticker).info)
+    def pedir():
+        info = yf.Ticker(ticker).info
+        return info if isinstance(info, dict) else None
+
+    def interpretar(info):
+        encontrado = perfil_desde_info(ticker, info)
         return {"perfil": None if encontrado is None else asdict(encontrado)}
 
-    datos, motivo = _traer("perfil", ticker, descargar)
-    if datos is None:
+    def leer(datos):
+        return None if datos["perfil"] is None else Perfil(**datos["perfil"])
+
+    encontrado, motivo = _traer("perfil", ticker, pedir, interpretar, leer)
+    if motivo != "ok":
         return None, motivo
-    encontrado = _reconstruir(Perfil, datos.get("perfil"))
     return (encontrado, "ok") if encontrado is not None else (None, "sin_precio")
 
 
 def tasa_libre() -> "tuple[float | None, str]":
-    def descargar():
-        cierres = yf.Ticker(BONO_10).history(period="5d")["Close"]
+    def pedir():
+        return yf.Ticker(BONO_10).history(period="5d")["Close"]
+
+    def interpretar(cierres):
+        # `history()` no lanza cuando falla la red: devuelve un marco vacío con
+        # su columna `Close`. Sin cierres no se sabe nada; no se guarda.
+        if _sin_cierres(cierres):
+            return None
         return {"valor": tasa_libre_desde_cierres(cierres)}
 
-    datos, _ = _traer("tasa_libre", BONO_10, descargar)
-    if datos is None or datos.get("valor") is None:
+    valor, motivo = _traer("tasa_libre", BONO_10, pedir, interpretar, _valor)
+    if motivo != "ok" or valor is None:
         return None, "sin_tasa_libre"
-    return float(datos["valor"]), "ok"
+    return float(valor), "ok"
 
 
 def beta(ticker: str, indice: str = INDICE) -> "tuple[Beta | None, str]":
-    def descargar():
+    def pedir():
         activo = yf.Ticker(ticker).history(period="2y", interval="1wk")["Close"]
         referencia = yf.Ticker(indice).history(period="2y", interval="1wk")["Close"]
+        return activo, referencia
+
+    def interpretar(series):
+        activo, referencia = series
+        # `history()` no lanza cuando falla la red: devuelve un marco vacío. Eso
+        # es "no lo sé"; un historial corto pero real (una salida a bolsa
+        # reciente) es un hecho estable, y ése sí se guarda como "sin beta".
+        if _sin_cierres(activo) or _sin_cierres(referencia):
+            return None
         encontrada = regresion_beta(activo, referencia, indice)
         return {"beta": None if encontrada is None else asdict(encontrada)}
 
-    datos, motivo = _traer("beta", f"{ticker}|{indice}", descargar)
-    if datos is None:
+    def leer(datos):
+        return None if datos["beta"] is None else Beta(**datos["beta"])
+
+    encontrada, motivo = _traer("beta", f"{ticker}|{indice}", pedir, interpretar, leer)
+    if motivo != "ok":
         return None, motivo
-    encontrada = _reconstruir(Beta, datos.get("beta"))
     # `regresion_beta` devuelve None por historial corto, pero también por un
     # precio no positivo en la ventana o una varianza nula: no siempre es la
     # historia lo que falta.
@@ -290,21 +350,36 @@ def beta(ticker: str, indice: str = INDICE) -> "tuple[Beta | None, str]":
 
 
 def tasa_efectiva(ticker: str) -> "tuple[float | None, str]":
-    def descargar():
-        return {"valor": tasa_efectiva_desde_estado(yf.Ticker(ticker).income_stmt)}
+    def pedir():
+        return yf.Ticker(ticker).income_stmt
 
-    datos, motivo = _traer("tasa_efectiva", ticker, descargar)
-    if datos is None:
+    def interpretar(estado):
+        # Igual que `history()`, `income_stmt` no lanza: si falla, devuelve vacío.
+        if estado is None or estado.empty:
+            return None
+        return {"valor": tasa_efectiva_desde_estado(estado)}
+
+    valor, motivo = _traer("tasa_efectiva", ticker, pedir, interpretar, _valor)
+    if motivo != "ok":
         return None, motivo
-    return datos.get("valor"), "ok"
+    return (valor, "ok") if valor is not None else (None, "sin_tasa_efectiva")
 
 
 def consenso(ticker: str, moneda_estados: str) -> "tuple[float | None, str]":
-    def descargar():
-        estimacion = yf.Ticker(ticker).revenue_estimate
+    def pedir():
+        return yf.Ticker(ticker).revenue_estimate
+
+    def interpretar(estimacion):
+        # Igual que `history()`, `revenue_estimate` no lanza: si falla, devuelve
+        # vacío. Con tabla pero sin `+1y`, o en otra moneda, sí se sabe --que no
+        # hay consenso-- y eso se guarda.
+        if estimacion is None or estimacion.empty:
+            return None
         return {"valor": consenso_desde_estimacion(estimacion, moneda_estados)}
 
-    datos, motivo = _traer("consenso", f"{ticker}|{moneda_estados}", descargar)
-    if datos is None:
+    valor, motivo = _traer(
+        "consenso", f"{ticker}|{moneda_estados}", pedir, interpretar, _valor
+    )
+    if motivo != "ok":
         return None, motivo
-    return datos.get("valor"), "ok"
+    return (valor, "ok") if valor is not None else (None, "sin_consenso")

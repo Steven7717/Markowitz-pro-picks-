@@ -55,6 +55,24 @@ def test_un_fichero_corrupto_no_revienta(dir_cache):
     assert cache.leer(dir_cache, "prensa", "AAPL", validez=timedelta(hours=1)) is None
 
 
+@pytest.mark.parametrize(
+    "contenido",
+    [
+        "null",
+        "[]",
+        '{"cuando": 5}',
+        # Una hora sin zona: restarla de una con zona lanza TypeError al calcular
+        # la vigencia, no al leer el fichero.
+        '{"cuando": "2026-01-01T00:00:00", "datos": {"a": 1}}',
+    ],
+)
+def test_un_fichero_valido_pero_de_otra_forma_no_revienta(dir_cache, contenido):
+    cache.guardar(dir_cache, "prensa", "AAPL", {"a": 1})
+    ruta = next(dir_cache.rglob("*.json"))
+    ruta.write_text(contenido, encoding="utf-8")
+    assert cache.leer(dir_cache, "prensa", "AAPL", validez=timedelta(hours=1)) is None
+
+
 def test_un_ticker_con_barras_no_escapa_del_directorio(dir_cache):
     """El ticker llega del libro; nunca debe componer una ruta a pelo."""
     cache.guardar(dir_cache, "prensa", "../../evil", {"a": 1})
