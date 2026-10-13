@@ -3,13 +3,16 @@
 Se proyectan los ingresos y no el flujo libre: el flujo libre baila con cada
 ciclo de inversión --en MU, un año de capex fuerte lo hunde y el siguiente se
 dispara--, y proyectar desde uno u otro daría valores distintos para el mismo
-negocio. El margen normalizado es la mediana de los años disponibles.
+negocio. El margen normalizado es el agregado de los años disponibles: la suma
+de sus flujos libres entre la suma de sus ingresos. Alisa el ciclo de inversión
+--el motivo para no partir del último año-- pero pesa cada año por su tamaño; la
+mediana pesaba igual un valle pequeño que el año actual, y en MU daba un 6,8 %
+frente a un 29 % del último año, con los ingresos de los últimos doce meses
+2,7 veces los del anterior. El agregado da en MU en torno al 14 %.
 """
 
 import math
 from dataclasses import dataclass
-
-import numpy as np
 
 from valoracion.criterio import (
     ANOS_ALTO_CRECIMIENTO,
@@ -95,18 +98,26 @@ def valor_por_accion(datos: Datos, g: float, wacc: "float | None" = None) -> "fl
 
 
 def margen_fcff(fundamentos: Fundamentos, t: float) -> "float | None":
-    """La mediana del margen de flujo libre para la empresa de los años con dato.
+    """El margen agregado de flujo libre para la empresa de los años con dato.
 
     Flujo libre para la empresa = flujo operativo − capex + intereses × (1 − t):
     el flujo operativo ya descontó los intereses, y el DCF descuenta al coste de
     capital de toda la empresa, deuda incluida.
+
+    El margen es Σ flujo libre ÷ Σ ingresos de los años que cuentan, no la
+    mediana de sus márgenes: con la mediana un año pequeño de valle del ciclo
+    pesa lo mismo que el actual, que en MU es casi tres veces mayor. Se descarta
+    el año entero de los dos sumandos, no sólo del numerador, para que ningún
+    año aporte ingresos sin su flujo.
     """
-    margenes = []
+    flujos = 0.0
+    ingresos = 0.0
+    anos = 0
     for e in fundamentos.ejercicios:
         if not e.ingresos > 0:
             continue
         # NaN es «no declarado», no cero: NVDA tiene años sin capex, y contarlos
-        # como cero inflaría el margen de ese año. Se descarta el año entero.
+        # como cero inflaría el margen. Se descarta el año entero.
         if not (math.isfinite(e.flujo_operativo) and math.isfinite(e.capex)):
             continue
         # Un gasto financiero negativo es ingreso financiero neto (DIS, FTV en la
@@ -120,7 +131,9 @@ def margen_fcff(fundamentos: Fundamentos, t: float) -> "float | None":
             if math.isfinite(e.gasto_financiero) and e.gasto_financiero > 0
             else 0.0
         )
-        margenes.append((e.flujo_operativo - e.capex + intereses * (1 - t)) / e.ingresos)
-    if len(margenes) < MIN_ANOS_HISTORIA:
+        flujos += e.flujo_operativo - e.capex + intereses * (1 - t)
+        ingresos += e.ingresos
+        anos += 1
+    if anos < MIN_ANOS_HISTORIA:
         return None
-    return float(np.median(margenes))
+    return flujos / ingresos

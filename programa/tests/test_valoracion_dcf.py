@@ -107,29 +107,32 @@ def test_el_margen_de_flujo_libre_suma_los_intereses_despues_de_impuestos():
     assert margen_fcff(f, t=0.25) == pytest.approx((300 - 100 + 20 * 0.75) / 1000)
 
 
-def test_el_margen_es_la_mediana_de_los_anos():
+def test_el_margen_es_el_agregado_de_los_anos():
+    # Σ(flujo operativo − capex + intereses × (1 − t)) ÷ Σ ingresos, con
+    # intereses 20 × 0,75 = 15 en cada año.
     f = fundamentos(
         ejercicios=[
-            ejercicio(2026, flujo_operativo=300.0),
-            ejercicio(2025, flujo_operativo=900.0),
-            ejercicio(2024, flujo_operativo=200.0),
+            ejercicio(2026, ingresos=1200.0, flujo_operativo=400.0, capex=100.0),
+            ejercicio(2025, ingresos=800.0, flujo_operativo=250.0, capex=90.0),
+            ejercicio(2024, ingresos=500.0, flujo_operativo=100.0, capex=40.0),
         ]
     )
-    assert margen_fcff(f, t=0.25) == pytest.approx((300 - 100 + 15) / 1000)
+    esperado = ((400 - 100 + 15) + (250 - 90 + 15) + (100 - 40 + 15)) / (1200 + 800 + 500)
+    assert margen_fcff(f, t=0.25) == pytest.approx(esperado)
 
 
-def test_con_anos_pares_la_mediana_promedia_los_dos_centrales():
-    # Márgenes 0,215, 0,315, 0,415 y 0,815: la mediana es la media de los dos
-    # centrales, no uno de ellos.
+def test_el_agregado_pesa_cada_ano_por_su_tamano_y_no_como_la_mediana():
+    # Dos años pequeños de valle al 5 % y el actual, diez veces mayor, al 30 %:
+    # la mediana diría 5 % y el agregado pesa el año grande.
     f = fundamentos(
         ejercicios=[
-            ejercicio(2026, flujo_operativo=300.0),
-            ejercicio(2025, flujo_operativo=400.0),
-            ejercicio(2024, flujo_operativo=500.0),
-            ejercicio(2023, flujo_operativo=900.0),
+            ejercicio(2026, ingresos=1000.0, flujo_operativo=300.0, capex=0.0, gasto_financiero=0.0),
+            ejercicio(2025, ingresos=100.0, flujo_operativo=5.0, capex=0.0, gasto_financiero=0.0),
+            ejercicio(2024, ingresos=100.0, flujo_operativo=5.0, capex=0.0, gasto_financiero=0.0),
         ]
     )
-    assert margen_fcff(f, t=0.25) == pytest.approx((315 + 415) / 2 / 1000)
+    assert margen_fcff(f, t=0.25) == pytest.approx((5 + 5 + 300) / 1200)
+    assert margen_fcff(f, t=0.25) > 0.25
 
 
 @pytest.mark.parametrize("campo", ["capex", "flujo_operativo", "ingresos"])
