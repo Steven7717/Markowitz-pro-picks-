@@ -12,6 +12,7 @@ en esta pantalla, no queda ninguna recarga que pueda hacer eso.
 import streamlit as st
 
 import medidores
+import medidores_valoracion
 import tema
 from aprobacion.acta import (
     Anadido,
@@ -30,6 +31,7 @@ from aprobacion.carga import (
     cargar_candidatos,
     kpis_con_dato,
     resumen_corrida,
+    valoracion_de,
 )
 from aprobacion.generacion import (
     COSTE_APROXIMADO_USD,
@@ -68,7 +70,8 @@ def _generar(con_ia: bool) -> None:
         with st.spinner(
             "Generando candidatos"
             + (" y redactando fichas con IA" if con_ia else " sin IA")
-            + "… puede tardar unos minutos. No cierres ni recargues."
+            + ", y calculando su valor intrínseco… puede tardar unos minutos. "
+            "No cierres ni recargues."
         ):
             guardar(construir_ranking(con_llm=con_ia), "salidas")
     except CorridaAbortada as error:
@@ -239,6 +242,20 @@ except ContratoRoto as error:
     st.stop()
 
 st.info(resumen_corrida(candidatos.corrida))
+# Si falla la tasa libre o la red, las quince fichas llevan el mismo motivo.
+# Un aviso arriba lo dice una vez; repetirlo dentro de cada ficha es lo de
+# siempre, pero sin este aviso hay que abrir quince desplegables para saberlo.
+_motivos_valoracion = {
+    (valoracion_de(f) or {}).get("motivo") for f in candidatos.fichas
+}
+if len(_motivos_valoracion) == 1 and None not in _motivos_valoracion:
+    (_motivo_comun,) = _motivos_valoracion
+    st.warning(
+        "No se pudo valorar ningún candidato: "
+        f"{medidores_valoracion.etiqueta_motivo(_motivo_comun)}. "
+        "El orden y las fichas no dependen de la valoración; vuelve a generar "
+        "cuando se resuelva."
+    )
 st.caption(
     "El orden lo decide un score determinista que **no está validado "
     "empíricamente**: es un criterio de selección transparente, no una "
@@ -249,6 +266,7 @@ st.caption(
 # arriba del todo porque los dos caminos que terminan en st.stop() -- sin
 # fichas, contrato roto -- no llegan a pintar ni un medidor.
 st.markdown(medidores.CSS, unsafe_allow_html=True)
+st.markdown(medidores_valoracion.CSS, unsafe_allow_html=True)
 
 with st.expander("📏 Cómo se leen los medidores"):
     st.markdown(
@@ -281,6 +299,9 @@ media.
   junto a su nombre.
 """
     )
+
+with st.expander("💰 Cómo se lee la valoración"):
+    st.markdown(medidores_valoracion.glosario())
 
 # Cuantas van marcadas, antes de la lista y no solo en el boton del final:
 # con quince tarjetas de por medio, el recuento que vive abajo del todo no
@@ -360,6 +381,22 @@ for ficha in candidatos.fichas:
                 "Dejó fuera por el tope sectorial: "
                 + ", ".join(ficha["desplazo_a"])
             )
+
+        # Después de los pilares y antes de la narrativa: los números primero,
+        # la lectura de la IA después. `valoracion_de` y no `ficha["valoracion"]`:
+        # una ficha anterior a M no la trae, y reventar aquí sería hacerlo a
+        # mitad de la lista, con tarjetas ya pintadas encima.
+        st.markdown(
+            "**Valoración**: cuatro lecturas que dan tres votos · los términos, "
+            "en «💰 Cómo se lee la valoración», arriba"
+        )
+        _valoracion = valoracion_de(ficha)
+        if _valoracion is None:
+            st.caption("Sin valoración: ficha de una versión anterior")
+        else:
+            st.markdown(medidores_valoracion.resumen(_valoracion), unsafe_allow_html=True)
+            st.caption(medidores_valoracion.LECTURA_MARGEN)
+            st.caption(medidores_valoracion.NOTA)
 
         narrativa = ficha["narrativa"]
         if narrativa is None:
