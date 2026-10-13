@@ -69,8 +69,8 @@ def _generar(con_ia: bool) -> None:
     try:
         with st.spinner(
             "Generando candidatos"
-            + (" y redactando fichas con IA" if con_ia else " sin IA")
-            + ", y calculando su valor intrínseco… puede tardar unos minutos. "
+            + (", redactando fichas con IA y" if con_ia else " sin IA y")
+            + " calculando su valor intrínseco… puede tardar unos minutos. "
             "No cierres ni recargues."
         ):
             guardar(construir_ranking(con_llm=con_ia), "salidas")
@@ -242,20 +242,16 @@ except ContratoRoto as error:
     st.stop()
 
 st.info(resumen_corrida(candidatos.corrida))
-# Si falla la tasa libre o la red, las quince fichas llevan el mismo motivo.
-# Un aviso arriba lo dice una vez; repetirlo dentro de cada ficha es lo de
-# siempre, pero sin este aviso hay que abrir quince desplegables para saberlo.
-_motivos_valoracion = {
-    (valoracion_de(f) or {}).get("motivo") for f in candidatos.fichas
-}
-if len(_motivos_valoracion) == 1 and None not in _motivos_valoracion:
-    (_motivo_comun,) = _motivos_valoracion
-    st.warning(
-        "No se pudo valorar ningún candidato: "
-        f"{medidores_valoracion.etiqueta_motivo(_motivo_comun)}. "
-        "El orden y las fichas no dependen de la valoración; vuelve a generar "
-        "cuando se resuelva."
-    )
+# Tras el corte de `ranking/run.py` (sin tasa libre, o sin red dos veces
+# seguidas), o sin red desde el principio, los desplegables de las fichas llevan
+# todos el mismo motivo, y nada fuera de ellos lo dice: había que abrir quince
+# para enterarse. El aviso lo cuenta una vez, arriba. La lógica vive en
+# `medidores_valoracion`, con tests: aquí sólo se pinta.
+_aviso = medidores_valoracion.aviso_comun(
+    [valoracion_de(f) for f in candidatos.fichas]
+)
+if _aviso:
+    st.warning(_aviso)
 st.caption(
     "El orden lo decide un score determinista que **no está validado "
     "empíricamente**: es un criterio de selección transparente, no una "
@@ -300,7 +296,7 @@ media.
 """
     )
 
-with st.expander("💰 Cómo se lee la valoración"):
+with st.expander(medidores_valoracion.TITULO_GLOSARIO):
     st.markdown(medidores_valoracion.glosario())
 
 # Cuantas van marcadas, antes de la lista y no solo en el boton del final:
@@ -383,20 +379,19 @@ for ficha in candidatos.fichas:
             )
 
         # Después de los pilares y antes de la narrativa: los números primero,
-        # la lectura de la IA después. `valoracion_de` y no `ficha["valoracion"]`:
-        # una ficha anterior a M no la trae, y reventar aquí sería hacerlo a
-        # mitad de la lista, con tarjetas ya pintadas encima.
-        st.markdown(
-            "**Valoración**: cuatro lecturas que dan tres votos · los términos, "
-            "en «💰 Cómo se lee la valoración», arriba"
-        )
+        # la lectura de la IA después. `valoracion_de` y no
+        # `ficha["valoracion"]`: una ficha anterior a M no la trae, y reventar
+        # aquí sería hacerlo a mitad de la lista, con tarjetas ya pintadas encima.
         _valoracion = valoracion_de(ficha)
+        st.markdown(medidores_valoracion.titulo(_valoracion))
         if _valoracion is None:
             st.caption("Sin valoración: ficha de una versión anterior")
         else:
-            st.markdown(medidores_valoracion.resumen(_valoracion), unsafe_allow_html=True)
-            st.caption(medidores_valoracion.LECTURA_MARGEN)
-            st.caption(medidores_valoracion.NOTA)
+            st.markdown(
+                medidores_valoracion.resumen(_valoracion), unsafe_allow_html=True
+            )
+            for _texto in medidores_valoracion.pie(_valoracion):
+                st.caption(_texto)
 
         narrativa = ficha["narrativa"]
         if narrativa is None:

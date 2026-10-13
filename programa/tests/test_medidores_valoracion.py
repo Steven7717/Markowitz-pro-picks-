@@ -214,10 +214,191 @@ def test_la_nota_es_la_del_spec():
 
 
 def test_la_lectura_del_margen_explica_por_que_un_margen_grande_puede_ser_en_rango():
-    assert "El margen de seguridad mide la distancia al valor base. El voto de flujos no lo usa:" in mv.LECTURA_MARGEN
-    assert "con una banda de ± la mitad de esa referencia" in mv.LECTURA_MARGEN
-    assert "un margen grande puede convivir con «en rango»" in mv.LECTURA_MARGEN
-    assert mv.LECTURA_MARGEN.endswith("cuando el crecimiento de referencia es alto.")
+    lectura = mv.lectura_margen()
+    assert "El margen de seguridad mide la distancia al valor base. El voto de flujos no lo usa:" in lectura
+    assert "compara el crecimiento que el precio exige con su referencia" in lectura
+    assert "con una banda de ± la mitad de esa referencia y nunca menos de 5 puntos" in lectura
+    assert "un margen grande puede convivir con «en rango»" in lectura
+    assert lectura.endswith("cuando el crecimiento de referencia es alto.")
+
+
+def test_la_lectura_del_margen_de_un_banco_habla_del_roe():
+    lectura = mv.lectura_margen_roe()
+    assert "El margen de seguridad mide la distancia al valor base." in lectura
+    assert "compara el ROE que el precio exige con el ROE de referencia" in lectura
+    assert "con una banda de ± la mitad de esa referencia y nunca menos de 3 puntos" in lectura
+    assert "un margen grande puede convivir con «en rango»" in lectura
+    assert lectura.endswith("cuando el ROE de referencia es alto.")
+    assert "crecimiento" not in lectura
+
+
+# --- El pie y el título del bloque en la ficha -----------------------------------
+
+
+@pytest.mark.parametrize("valoracion", [None, "x", [], 3])
+def test_sin_valoracion_reconocible_no_hay_pie(valoracion):
+    assert mv.pie(valoracion) == []
+
+
+@pytest.mark.parametrize("motivo", _MOTIVOS_DE_UNA_FALLIDA)
+def test_una_fallida_no_lleva_pie(motivo):
+    # Sin rango ni votos no hay margen que explicar, y la nota sobre el criterio
+    # sobra junto a una valoración que no llegó a hacerse.
+    assert mv.pie(fallida(motivo)) == []
+
+
+def test_una_valoracion_sin_veredicto_no_lleva_pie():
+    assert mv.pie({"version": "m1", "metodo": "flujos"}) == []
+
+
+def test_el_pie_de_una_de_flujos_explica_el_margen_por_el_crecimiento():
+    assert mv.pie(_fija()) == [mv.lectura_margen(), mv.NOTA]
+
+
+def test_el_pie_de_una_financiera_explica_el_margen_por_el_roe():
+    assert mv.pie(_fija_residual()) == [mv.lectura_margen_roe(), mv.NOTA]
+
+
+@pytest.mark.parametrize("metodo", ["otro", ["residual"], {"flujos": 1}, None])
+def test_con_un_metodo_desconocido_el_pie_es_solo_la_nota(metodo):
+    assert mv.pie(_fija(metodo=metodo)) == [mv.NOTA]
+
+
+def test_una_valoracion_sin_metodo_lleva_solo_la_nota():
+    valoracion = _fija()
+    del valoracion["metodo"]
+    assert mv.pie(valoracion) == [mv.NOTA]
+
+
+def test_el_titulo_remite_al_glosario_cuando_hay_algo_que_leer():
+    assert mv.titulo(_fija()) == (
+        "**Valor intrínseco** · los términos, en «💰 Cómo se lee el valor intrínseco», arriba"
+    )
+    assert mv.TITULO_GLOSARIO in mv.titulo(_fija_residual())
+
+
+@pytest.mark.parametrize(
+    "valoracion", [None, "x", fallida("sin_red"), {"version": "m1"}]
+)
+def test_sin_veredicto_el_titulo_es_solo_el_nombre(valoracion):
+    assert mv.titulo(valoracion) == "**Valor intrínseco**"
+
+
+def test_el_desplegable_del_glosario_se_llama_como_el_bloque():
+    assert mv.TITULO_GLOSARIO == "💰 Cómo se lee el valor intrínseco"
+
+
+@pytest.mark.parametrize("valoracion", [None, _fija(), _fija_residual()])
+def test_el_bloque_no_se_llama_como_el_pilar_de_valoracion(valoracion):
+    # Tres líneas más arriba, en la misma ficha, está el pilar «valoración» del
+    # score, y el voto «Frente a sus pares» es ese mismo pilar.
+    assert "aloraci" not in mv.titulo(valoracion) + mv.TITULO_GLOSARIO
+
+
+def test_el_titulo_no_cuenta_lecturas_ni_votos():
+    # «Cuatro lecturas que dan tres votos» es falso para una financiera: tres y dos.
+    for valoracion in (_fija(), _fija_residual()):
+        assert "lecturas" not in mv.titulo(valoracion)
+        assert "votos" not in mv.titulo(valoracion)
+
+
+# --- El aviso común, encima de la lista -------------------------------------------
+
+
+def _calculadas(n: int) -> list:
+    return [_fija() for _ in range(n)]
+
+
+def _fallidas(motivo: str, n: int) -> list:
+    return [fallida(motivo) for _ in range(n)]
+
+
+_PIE_REGENERAR = (
+    "El orden y el resto de cada ficha no dependen del valor intrínseco. Generar de "
+    "nuevo lo recalcula todo, también la narrativa, así que con IA vuelve a costar dinero."
+)
+
+
+def test_los_motivos_de_corrida_existen():
+    assert set(mv.MOTIVOS_DE_CORRIDA) <= MOTIVOS
+    assert set(mv.MOTIVOS_DE_CORRIDA) == {"sin_red", "sin_tasa_libre"}
+
+
+@pytest.mark.parametrize("motivo", ["sin_tasa_libre", "sin_red", "sin_estados"])
+def test_si_todas_fallan_por_lo_mismo_se_dice_una_vez(motivo):
+    assert mv.aviso_comun(_fallidas(motivo, 15)) == (
+        f"No se pudo valorar ningún candidato: {mv.etiqueta_motivo(motivo)}. {_PIE_REGENERAR}"
+    )
+
+
+def test_si_todas_fallan_por_un_defecto_no_se_invita_a_regenerar():
+    aviso = mv.aviso_comun(_fallidas("error_interno", 15))
+    assert aviso.startswith(
+        f"No se pudo valorar ningún candidato: {mv.etiqueta_motivo('error_interno')}. "
+        "Es un defecto del programa"
+    )
+    assert "Generar de nuevo" not in aviso
+    assert "consola" in aviso
+
+
+def test_un_corte_a_mitad_de_corrida_se_cuenta():
+    # El caso típico del corte de `ranking/run.py`: cuatro valoradas, y al fallar
+    # la tasa libre las once que quedaban heredan el motivo sin preguntar.
+    assert mv.aviso_comun(_calculadas(4) + _fallidas("sin_tasa_libre", 11)) == (
+        f"11 de 15 candidatos sin valorar: {mv.etiqueta_motivo('sin_tasa_libre')}. "
+        f"{_PIE_REGENERAR}"
+    )
+
+
+def test_varios_motivos_de_corrida_van_de_mas_a_menos_frecuente_con_un_solo_pie():
+    valoraciones = (
+        _calculadas(3) + _fallidas("sin_red", 1) + _calculadas(2) + _fallidas("sin_tasa_libre", 9)
+    )
+    assert mv.aviso_comun(valoraciones) == (
+        f"9 de 15 candidatos sin valorar: {mv.etiqueta_motivo('sin_tasa_libre')}. "
+        f"1 de 15 candidatos sin valorar: {mv.etiqueta_motivo('sin_red')}. "
+        f"{_PIE_REGENERAR}"
+    )
+
+
+def test_un_fallo_suelto_de_empresa_se_ve_en_su_ficha_y_no_arriba():
+    assert mv.aviso_comun(_calculadas(14) + _fallidas("sin_estados", 1)) is None
+    assert mv.aviso_comun(_calculadas(10) + _fallidas("error_interno", 5)) is None
+
+
+def test_un_fallo_suelto_no_tapa_el_corte():
+    valoraciones = _fallidas("error_interno", 1) + _fallidas("sin_tasa_libre", 14)
+    assert mv.aviso_comun(valoraciones).startswith("14 de 15 candidatos sin valorar: ")
+
+
+@pytest.mark.parametrize("valoraciones", [[], [None] * 15, _calculadas(15)])
+def test_sin_fallidas_no_hay_aviso(valoraciones):
+    assert mv.aviso_comun(valoraciones) is None
+
+
+@pytest.mark.parametrize("motivo", [["sin_red"], {"a": 1}, 3, None])
+def test_un_motivo_que_no_es_texto_no_cuenta_ni_revienta(motivo):
+    rota = {"version": "m1", "motivo": motivo}
+    assert mv.aviso_comun([rota] * 15) is None
+    assert mv.aviso_comun(_calculadas(14) + [rota]) is None
+    assert mv.aviso_comun([rota] + _fallidas("sin_tasa_libre", 14)).startswith(
+        "14 de 15 candidatos sin valorar: "
+    )
+
+
+@pytest.mark.parametrize("entrada", ["x", ["sin_red"], 3])
+def test_una_entrada_que_no_es_un_diccionario_cuenta_como_sin_valoracion(entrada):
+    assert mv.aviso_comun([entrada] * 15) is None
+
+
+def test_el_aviso_usa_las_etiquetas_de_los_motivos(monkeypatch):
+    monkeypatch.setattr(mv, "etiqueta_motivo", lambda clave: f"[{clave}]")
+    assert mv.aviso_comun(_fallidas("sin_red", 15)).startswith(
+        "No se pudo valorar ningún candidato: [sin_red]. "
+    )
+    assert mv.aviso_comun(_calculadas(4) + _fallidas("sin_tasa_libre", 11)).startswith(
+        "11 de 15 candidatos sin valorar: [sin_tasa_libre]. "
+    )
 
 
 # Los colores que nombra el spec: verde para infravalorada, rojo para
@@ -1101,6 +1282,8 @@ def test_el_css_no_lleva_colores_escritos_a_mano():
 @pytest.mark.parametrize(
     "termino",
     [
+        "Las lecturas y los votos",
+        "Frente a sus pares",
         "DCF",
         "DCF inverso",
         "EPV",
@@ -1120,6 +1303,34 @@ def test_el_css_no_lleva_colores_escritos_a_mano():
 )
 def test_el_glosario_explica_cada_termino(termino):
     assert f"**{termino}**" in mv.glosario()
+
+
+def test_el_glosario_empieza_por_las_lecturas_y_los_votos():
+    entradas = mv.glosario().split("\n")
+    assert entradas[0].startswith("- **Las lecturas y los votos**: ")
+    assert entradas[1].startswith("- **Frente a sus pares**: ")
+
+
+def test_el_glosario_dice_que_lectura_da_cada_voto():
+    lecturas = mv.glosario().split("\n")[0]
+    assert "el DCF y el DCF inverso dan juntos un solo voto" in lecturas
+    assert f"«{mv.NOMBRE_VOTO['flujos']}»" in lecturas
+    assert f"«{mv.NOMBRE_VOTO['sin_crecimiento']}», que nunca vota «cara»" in lecturas
+    assert f"«{mv.NOMBRE_VOTO['pares']}»" in lecturas
+
+
+def test_el_glosario_dice_que_una_financiera_tiene_tres_lecturas_y_dos_votos():
+    lecturas = mv.glosario().split("\n")[0]
+    assert "el beneficio residual y su inverso (el ROE que el precio exige)" in lecturas
+    assert "«Beneficio residual»" in lecturas
+    assert "no hay voto sin crecimiento: tres lecturas y dos votos." in lecturas
+
+
+def test_el_glosario_dice_que_el_voto_de_pares_es_el_pilar_de_valoracion():
+    pares = mv.glosario().split("\n")[1]
+    assert "es el pilar «valoración» del score" in pares
+    assert "«barata» con una puntuación de +0.5 o más" in pares
+    assert "«cara» con −0.5 o menos" in pares
 
 
 def test_el_glosario_avisa_de_que_el_capex_de_mantenimiento_no_se_separa():
@@ -1170,7 +1381,7 @@ def test_el_glosario_nombra_la_tasa_libre_y_la_prima():
 
 def test_el_glosario_es_markdown_sin_etiquetas():
     entradas = [linea for linea in mv.glosario().split("\n") if linea]
-    assert len(entradas) == 14
+    assert len(entradas) == 16
     assert all(linea.startswith("- **") for linea in entradas)
     assert "<" not in mv.glosario() and ">" not in mv.glosario()
 
@@ -1258,6 +1469,26 @@ def test_el_motivo_de_la_holgura_llega_a_la_fila_del_voto(monkeypatch):
 def test_los_votos_minimos_siguen_al_criterio(monkeypatch):
     monkeypatch.setattr(mv, "MIN_VOTOS", 3)
     assert "menos de 3 votos aplicables" in mv.glosario()
+
+
+def test_el_umbral_de_los_pares_sigue_al_criterio(monkeypatch):
+    monkeypatch.setattr(mv, "UMBRAL_PARES", 0.75)
+    pares = mv.glosario().split("\n")[1]
+    assert "+0.75 o más" in pares
+    assert "−0.75 o menos" in pares
+    assert "0.5 " not in pares
+
+
+def test_el_margen_minimo_del_voto_de_flujos_sigue_al_criterio(monkeypatch):
+    monkeypatch.setattr(mv, "MARGEN_MINIMO", 0.04)
+    assert "nunca menos de 4 puntos" in mv.lectura_margen()
+    assert mv.pie(_fija())[0] == mv.lectura_margen()
+
+
+def test_el_margen_minimo_del_voto_del_roe_sigue_al_criterio(monkeypatch):
+    monkeypatch.setattr(mv, "MARGEN_ROE_MINIMO", 0.02)
+    assert "nunca menos de 2 puntos" in mv.lectura_margen_roe()
+    assert "nunca menos de 2 puntos" in mv.pie(_fija_residual())[0]
 
 
 def test_el_ajuste_de_blume_sigue_al_criterio(monkeypatch):

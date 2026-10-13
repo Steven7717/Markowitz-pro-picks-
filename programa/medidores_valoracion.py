@@ -19,6 +19,7 @@ cambia sola y no se queda diciendo el número viejo.
 
 import html
 import math
+from collections import Counter
 from datetime import datetime, timezone
 
 import tema
@@ -31,9 +32,12 @@ from valoracion.criterio import (
     HOLGURA_GORDON,
     INVERSO_LIMITES,
     INVERSO_ROE_LIMITES,
+    MARGEN_MINIMO,
+    MARGEN_ROE_MINIMO,
     MIN_VOTOS,
     PAYOUT_SIN_DATO,
     TASA_EFECTIVA_TOPES,
+    UMBRAL_PARES,
 )
 
 # El gris del tema es el de «sin señal»: «en rango» y «sin datos» van en él, y
@@ -98,14 +102,32 @@ NOTA = (
 
 # En la corrida real de la Task 10, SNDK salía «en rango» con un margen de
 # seguridad del +129 %. No es un error: el voto no mira la distancia al valor
-# base sino el crecimiento que el precio exige frente a su referencia, con una
-# banda de ± la mitad de esa referencia. Sin decirlo, la pantalla desconcierta.
-LECTURA_MARGEN = (
-    "El margen de seguridad mide la distancia al valor base. El voto de flujos "
-    "no lo usa: compara el crecimiento que el precio exige con su referencia, "
-    "con una banda de ± la mitad de esa referencia. Por eso un margen grande "
-    "puede convivir con «en rango» cuando el crecimiento de referencia es alto."
-)
+# base sino lo que el precio exige frente a su referencia, con la banda de
+# `valoracion.votos.margen_voto`. Sin decirlo, la pantalla desconcierta.
+#
+# Son funciones y no constantes porque nombran el mínimo de la banda, que es
+# del criterio: leído al importar, se quedaría con el número viejo.
+def lectura_margen() -> str:
+    """Por qué un margen de seguridad grande puede ir con «en rango» (método de flujos)."""
+    return (
+        "El margen de seguridad mide la distancia al valor base. El voto de flujos "
+        "no lo usa: compara el crecimiento que el precio exige con su referencia, "
+        "con una banda de ± la mitad de esa referencia y nunca menos de "
+        f"{_n_puntos(MARGEN_MINIMO)}. Por eso un margen grande puede convivir con "
+        "«en rango» cuando el crecimiento de referencia es alto."
+    )
+
+
+def lectura_margen_roe() -> str:
+    """Lo mismo para una entidad financiera, cuyo voto compara ROE y no crecimiento."""
+    return (
+        "El margen de seguridad mide la distancia al valor base. El voto del "
+        "beneficio residual no lo usa: compara el ROE que el precio exige con el "
+        "ROE de referencia, con una banda de ± la mitad de esa referencia y nunca "
+        f"menos de {_n_puntos(MARGEN_ROE_MINIMO)}. Por eso un margen grande puede "
+        "convivir con «en rango» cuando el ROE de referencia es alto."
+    )
+
 
 def glosario() -> str:
     """Los términos técnicos de la pantalla, en markdown, para pintarlos una vez.
@@ -119,7 +141,12 @@ def glosario() -> str:
     """
     blume = (1 - BLUME[0]) * 100
     salto = _n_puntos(DELTA_WACC_ESCENARIOS)
+    flujos, epv, pares = (f"«{NOMBRE_VOTO[c]}»" for c in ("flujos", "sin_crecimiento", "pares"))
+    residual = f"«{_NOMBRE_VOTO_RESIDUAL['flujos']}»"
+    umbral = f"{UMBRAL_PARES:g}"
     return f"""\
+- **Las lecturas y los votos**: el DCF y el DCF inverso dan juntos un solo voto, {flujos}, porque son la misma ecuación leída en los dos sentidos y por separado contarían dos veces. El EPV da el voto {epv}, que nunca vota «cara»: pagar por el crecimiento no es estar cara. El tercer voto es {pares}. En las entidades financieras, el beneficio residual y su inverso (el ROE que el precio exige) ocupan el sitio de los flujos, con el voto {residual}, y no hay voto sin crecimiento: tres lecturas y dos votos.
+- **Frente a sus pares**: es el pilar «valoración» del score convertido en voto, es decir, los múltiplos de la empresa frente a los de su sector. Vota «barata» con una puntuación de +{umbral} o más, «cara» con −{umbral} o menos y «neutra» entre medias. La puntuación es la del medidor del pilar: desviaciones típicas frente a la media del sector, con el signo ya aplicado, así que positiva es más barata.
 - **DCF** (flujos de caja descontados): el valor actual de los flujos de caja libres futuros de la empresa. Es lo que vale hoy todo el dinero que se espera que genere, descontado al coste de capital.
 - **DCF inverso**: la misma ecuación leída al revés. En vez de calcular cuánto vale la empresa, busca el crecimiento que el precio de mercado da por hecho.
 - **EPV** (valor sin crecimiento, de Greenwald): lo que valdría la empresa si su beneficio operativo después de impuestos se mantuviera para siempre, sin crecer. Greenwald ajusta además la diferencia entre la amortización y el capex de mantenimiento; aquí no se hace, porque ninguna fuente separa el capex de mantenimiento del de expansión.
@@ -499,3 +526,104 @@ def resumen(valoracion: dict) -> str:
             "</div>"
         )
     return f'<div class="mpp-val">{_cabecera(valoracion)}{"".join(filas)}{_supuestos(valoracion)}</div>'
+
+
+# --- Lo que rodea al resumen en la pantalla -------------------------------------
+#
+# «Valor intrínseco» y no «Valoración»: tres líneas más arriba, en la misma ficha,
+# está el pilar «valoración» del score, y el voto «Frente a sus pares» es ese
+# mismo pilar. Con el mismo nombre, el bloque y el pilar se leían como una cosa.
+# «Sin valoración:» de una fallida se queda: ahí es el sustantivo, no el nombre.
+
+TITULO_GLOSARIO = "💰 Cómo se lee el valor intrínseco"
+
+
+def _con_veredicto(valoracion: object) -> bool:
+    return isinstance(valoracion, dict) and "veredicto" in valoracion
+
+
+def titulo(valoracion: object) -> str:
+    """El encabezado del bloque en la ficha, en markdown.
+
+    Sólo remite al glosario si hay votos y rango que leer. No cuenta lecturas ni
+    votos: «cuatro lecturas que dan tres votos» es falso en una financiera, que
+    tiene tres y dos.
+    """
+    if _con_veredicto(valoracion):
+        return f"**Valor intrínseco** · los términos, en «{TITULO_GLOSARIO}», arriba"
+    return "**Valor intrínseco**"
+
+
+def pie(valoracion: object) -> "list[str]":
+    """Las notas que van debajo del resumen, una por `st.caption`.
+
+    Una fallida no lleva ninguna: sin rango ni votos no hay margen que explicar.
+    La lectura del margen depende del método, porque el voto de una financiera
+    compara ROE y no crecimiento; con un método que no se reconoce, sólo la nota,
+    que vale para todos.
+    """
+    if not _con_veredicto(valoracion):
+        return []
+    metodo = valoracion.get("metodo")
+    if metodo == "flujos":
+        return [lectura_margen(), NOTA]
+    if metodo == "residual":
+        return [lectura_margen_roe(), NOTA]
+    return [NOTA]
+
+
+# Los motivos que dispara el corte de `ranking/run.py`: sin tasa libre, o sin red
+# dos veces seguidas, la corrida deja de preguntar y todas las fichas que
+# quedaban heredan ese motivo. El caso típico es 4 valoradas y 11
+# `sin_tasa_libre`: sin un aviso arriba, hay que abrir once desplegables para
+# saber que ni siquiera se intentó.
+MOTIVOS_DE_CORRIDA = ("sin_red", "sin_tasa_libre")
+
+_PIE_REGENERAR = (
+    "El orden y el resto de cada ficha no dependen del valor intrínseco. Generar "
+    "de nuevo lo recalcula todo, también la narrativa, así que con IA vuelve a "
+    "costar dinero."
+)
+
+# La consola va oculta en el arranque normal de Windows (`Iniciar App.vbs`), así
+# que decir sólo «está en la consola» señalaría algo que el usuario no ve.
+_PIE_DEFECTO = (
+    "Es un defecto del programa, no un problema de los datos. El detalle queda en "
+    "la ventana de consola del programa; en Windows va oculta, y se ve arrancando "
+    "con «Iniciar App.bat»."
+)
+
+
+def _motivo_de(valoracion: object) -> "str | None":
+    """El motivo de una fallida, o None.
+
+    Sólo cuenta si la entrada es un diccionario y el motivo es texto: una ficha
+    anterior a M, una valoración calculada (no lleva motivo) o un `fichas.json`
+    tocado a mano con un motivo lista no pueden tumbar la lista entera.
+    """
+    motivo = valoracion.get("motivo") if isinstance(valoracion, dict) else None
+    return motivo if isinstance(motivo, str) else None
+
+
+def aviso_comun(valoraciones: list) -> "str | None":
+    """Un aviso para encima de la lista cuando el fallo es de la corrida y no de una empresa.
+
+    Recibe lo que devuelve `valoracion_de` para cada ficha (diccionarios o None).
+    Si todas fallaron por lo mismo, lo dice una vez. Si no, pero el corte de la
+    corrida dejó fichas sin valorar, dice cuántas y por qué, de más a menos
+    frecuente. Un fallo suelto de una empresa, como `sin_estados`, no sale aquí:
+    se ve en su propia ficha.
+    """
+    motivos = [_motivo_de(v) for v in valoraciones]
+    if motivos and motivos[0] is not None and motivos.count(motivos[0]) == len(motivos):
+        comun = motivos[0]
+        pie_aviso = _PIE_DEFECTO if comun == "error_interno" else _PIE_REGENERAR
+        return f"No se pudo valorar ningún candidato: {etiqueta_motivo(comun)}. {pie_aviso}"
+    del_corte = Counter(m for m in motivos if m in MOTIVOS_DE_CORRIDA)
+    if not del_corte:
+        return None
+    frases = [
+        f"{cuantas} de {len(motivos)} candidatos sin valorar: {etiqueta_motivo(motivo)}."
+        for motivo, cuantas in del_corte.most_common()
+    ]
+    return " ".join([*frases, _PIE_REGENERAR])
