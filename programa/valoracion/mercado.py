@@ -286,12 +286,28 @@ def _valor(datos: dict) -> "float | None":
     return datos["valor"]
 
 
+CLAVES_DE_IDENTIDAD = (
+    "quoteType",
+    "currency",
+    "marketCap",
+    "currentPrice",
+    "regularMarketPrice",
+)
+
+
 def perfil(ticker: str) -> "tuple[Perfil | None, str]":
     def pedir():
         info = yf.Ticker(ticker).info
         return info if isinstance(info, dict) else None
 
     def interpretar(info):
+        # Un 401, 404 o 5xx de quoteSummary no lanza: `info` queda en
+        # {"trailingPegRatio": …}, igual que para un símbolo inexistente. Sin
+        # ninguna clave de identidad no se sabe nada. Un símbolo que Yahoo
+        # conoce pero sin precio conserva `quoteType` y `currency`, y ése sí se
+        # guarda como "sin precio".
+        if not any(clave in info for clave in CLAVES_DE_IDENTIDAD):
+            return None
         encontrado = perfil_desde_info(ticker, info)
         return {"perfil": None if encontrado is None else asdict(encontrado)}
 

@@ -71,8 +71,36 @@ def test_el_perfil_guardado_es_el_mismo_que_el_descargado():
 
 
 def test_un_ticker_sin_precio_dice_sin_precio():
-    with patch.object(mercado.yf, "Ticker", return_value=_ticker(info={})):
+    # Yahoo lo conoce (trae tipo y moneda) pero no cotiza: es un hecho, se guarda.
+    info = {"quoteType": "EQUITY", "currency": "USD"}
+    with patch.object(mercado.yf, "Ticker", return_value=_ticker(info=info)):
         assert mercado.perfil("NADA") == (None, "sin_precio")
+    with patch.object(mercado.yf, "Ticker") as fabrica:
+        assert mercado.perfil("NADA") == (None, "sin_precio")
+    fabrica.assert_not_called()
+
+
+def test_un_info_sin_identidad_no_se_guarda(tmp_path):
+    # Un 401, 404 o 5xx de quoteSummary no lanza: `info` queda en una sola clave
+    # suelta, igual que para un símbolo inexistente. Sin saber nada, no se guarda.
+    with patch.object(mercado.yf, "Ticker", return_value=_ticker(info={})):
+        assert mercado.perfil("MU") == (None, "sin_red")
+    with patch.object(mercado.yf, "Ticker", return_value=_ticker(info={"trailingPegRatio": 1.2})):
+        assert mercado.perfil("MU") == (None, "sin_red")
+    assert _escritos(tmp_path) == []
+
+
+def test_un_info_sin_identidad_no_pisa_el_perfil_guardado(tmp_path, monkeypatch):
+    with patch.object(mercado.yf, "Ticker", return_value=_ticker(info=INFO)):
+        mercado.perfil("MU")
+    antes = {ruta: ruta.read_bytes() for ruta in _escritos(tmp_path)}
+    monkeypatch.setitem(mercado.VALIDEZ, "perfil", timedelta(seconds=-1))
+    roto = _ticker(info={"trailingPegRatio": 1.2})
+    with patch.object(mercado.yf, "Ticker", return_value=roto) as fabrica:
+        perfil, motivo = mercado.perfil("MU")
+    fabrica.assert_called()
+    assert motivo == "ok" and perfil.precio == 989.04
+    assert {ruta: ruta.read_bytes() for ruta in _escritos(tmp_path)} == antes
 
 
 def test_sin_red_y_sin_cache_dice_sin_red():
