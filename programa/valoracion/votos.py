@@ -41,6 +41,13 @@ MOTIVOS = frozenset(
 
 @dataclass(frozen=True)
 class Voto:
+    """Un voto y, si no aplica, por qué.
+
+    `motivo` es una clave de `MOTIVOS`, nunca texto de pantalla: la etiqueta
+    legible vive en la vista, y así una ficha guardada no se queda con una frase
+    que luego se reescriba.
+    """
+
     voto: str
     motivo: "str | None" = None
 
@@ -56,6 +63,21 @@ def margen_voto(referencia: float, minimo: float) -> float:
 
 
 def voto_implicito(implicito: Implicito, referencia: float, margen: float) -> Voto:
+    """Compara el valor implícito con la referencia, a un lado y otro del margen.
+
+    Salirse de los límites de la bisección ya es una respuesta: por ARRIBA ni el
+    crecimiento más alto que se permite llega a justificar el precio, o sea
+    «cara», y por ABAJO el precio se justifica hasta con el más bajo, o sea
+    «barata».
+
+    `margen` tiene que salir de `margen_voto`: con un margen negativo las dos
+    bandas se cruzan y un mismo valor sería a la vez cara y barata.
+
+    `Implicito(None, None)` es una red de seguridad para un invariante roto, no
+    un caso corriente: el motor comprueba `wacc_bajo_crecimiento`, `quema_caja`
+    y `patrimonio_negativo` ANTES de invertir, así que una empresa real no llega
+    aquí por ninguna de esas causas y el motivo genérico no las tapa.
+    """
     if implicito.fuera_de_limites == ARRIBA:
         return Voto(CARA)
     if implicito.fuera_de_limites == ABAJO:
@@ -75,14 +97,21 @@ def voto_epv(epv: float, precio: float) -> Voto:
     La consecuencia es que «sobrevalorada» exige que coincidan flujos y pares:
     cara frente a sus propios números y frente a su sector.
     """
+    # Con NaN toda comparación es falsa y el voto saldría «neutra»; con un EPV
+    # infinito saldría «barata». Sería un voto que nadie calculó, y además puede
+    # ser el que complete un «en_rango» o una «infravalorada» con datos rotos.
+    if not (math.isfinite(epv) and math.isfinite(precio)):
+        return Voto(NO_APLICA, "sin_precio")
     return Voto(BARATA) if precio < epv else Voto(NEUTRA)
 
 
 def voto_pares(pilar: "float | None") -> Voto:
     """El pilar de valoración ya lleva el signo: positivo es barata frente al sector."""
+    # OverflowError: un entero enorme (10**400) es legal pero `float()` no lo
+    # convierte, y no es ni TypeError ni ValueError.
     try:
         valor = float(pilar)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return Voto(NO_APLICA, "sin_pares")
     if not math.isfinite(valor):
         return Voto(NO_APLICA, "sin_pares")
@@ -94,6 +123,14 @@ def voto_pares(pilar: "float | None") -> Voto:
 
 
 def veredicto(votos) -> str:
+    """El veredicto de los votos, que pueden venir de cualquier iterable.
+
+    El motor pasa `dict.values()`, así que sólo se recorre una vez. El orden de
+    las reglas importa: primero «sin_datos», porque con menos de `MIN_VOTOS`
+    votos aplicables ni una unanimidad cuenta; después las dos mayorías sin voto
+    en contra; después cualquier desacuerdo, que es «mixtas»; y lo que sobra, a lo
+    sumo un voto en un sentido y el resto neutros, es «en_rango».
+    """
     aplicables = [v.voto for v in votos if v.voto != NO_APLICA]
     baratas, caras = aplicables.count(BARATA), aplicables.count(CARA)
     if len(aplicables) < MIN_VOTOS:
