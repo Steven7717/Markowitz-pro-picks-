@@ -285,3 +285,22 @@ def resumen_corrida(corrida: dict | None) -> str:
         f"las que sobrevivieron {corrida['n_supervivientes']} a las guardas. "
         f"Quedaron excluidas {excluidas}: {por_motivo}."
     )
+
+
+def valoracion_de(ficha: dict) -> "dict | None":
+    """La valoración de la ficha, o `None` si no tiene o no se reconoce.
+
+    `valoracion` no está en `_CAMPOS_FICHA` a propósito: es opcional, y un
+    `fichas.json` anterior al sub-proyecto M --o el de `salidas_ejemplo`-- tiene
+    que seguir cargando. Es el mismo defecto que ya pagó `kpis_por_pilar`:
+    validar la existencia de un campo y no su contenido dejaba reventar la lista
+    a la mitad, con tarjetas ya pintadas encima.
+
+    Se exige `version` como cadena porque es lo único que tienen en común una
+    valoración calculada y una fallida, y lo único que un formato futuro no va a
+    quitar.
+    """
+    valor = ficha.get("valoracion")
+    if not isinstance(valor, dict) or not isinstance(valor.get("version"), str):
+        return None
+    return valor

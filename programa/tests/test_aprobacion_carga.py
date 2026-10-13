@@ -9,6 +9,7 @@ from aprobacion.carga import (
     FaltanFichas,
     cargar_candidatos,
     resumen_corrida,
+    valoracion_de,
 )
 
 FICHA = {
@@ -266,3 +267,38 @@ def test_una_cobertura_que_no_es_un_numero_se_trata_como_ausente():
     hay es el numero."""
     assert carga.kpis_con_dato({"cobertura": {"kpis_con_dato": "muchos"}}) is None
     assert carga.kpis_con_dato({"cobertura": {"kpis_con_dato": True}}) is None
+
+
+# --- La valoracion es opcional: las fichas viejas no la traen ---------------
+
+
+def test_una_ficha_sin_valoracion_no_tiene_valoracion():
+    assert valoracion_de({"ticker": "AAA"}) is None
+
+
+@pytest.mark.parametrize("valor", ["mixtas", 3, [], {"veredicto": "mixtas"}])
+def test_una_valoracion_sin_version_no_se_lee(valor):
+    assert valoracion_de({"valoracion": valor}) is None
+
+
+def test_una_valoracion_con_version_se_lee_tal_cual():
+    valor = {"version": "m1", "veredicto": "mixtas"}
+    assert valoracion_de({"valoracion": valor}) is valor
+
+
+def test_una_fallida_tambien_se_lee():
+    valor = {"version": "m1", "fecha": "2026-10-12", "motivo": "sin_precio"}
+    assert valoracion_de({"valoracion": valor}) == valor
+
+
+def test_un_fichas_json_sin_valoracion_sigue_cargando(tmp_path: Path):
+    """`valoracion` no esta en `_CAMPOS_FICHA` a proposito: un `fichas.json`
+    anterior al sub-proyecto M --o el de `salidas_ejemplo`-- no la trae y tiene
+    que seguir cargando. Si alguien la anadiera a los campos obligatorios, este
+    test se pondria rojo antes de que lo notara un revisor con la pantalla
+    vacia."""
+    assert "valoracion" not in FICHA
+    directorio = escribir(tmp_path, fichas=[FICHA], corrida=CORRIDA)
+    candidatos = cargar_candidatos(directorio)
+    assert [f["ticker"] for f in candidatos.fichas] == ["AAA"]
+    assert valoracion_de(candidatos.fichas[0]) is None
