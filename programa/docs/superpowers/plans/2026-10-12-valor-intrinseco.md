@@ -1884,7 +1884,13 @@ def margen_fcff(fundamentos: Fundamentos, t: float) -> "float | None":
             continue
         if not (math.isfinite(e.flujo_operativo) and math.isfinite(e.capex)):
             continue
-        intereses = abs(e.gasto_financiero) if math.isfinite(e.gasto_financiero) else 0.0
+        # Un gasto financiero negativo es ingreso financiero neto (DIS, FTV en la
+        # revisión de la Task 5): sumarlo con `abs` lo trataría como un coste.
+        intereses = (
+            e.gasto_financiero
+            if math.isfinite(e.gasto_financiero) and e.gasto_financiero > 0
+            else 0.0
+        )
         margenes.append((e.flujo_operativo - e.capex + intereses * (1 - t)) / e.ingresos)
     if len(margenes) < MIN_ANOS_HISTORIA:
         return None
@@ -3461,8 +3467,10 @@ def procedencia(nombre: str, supuesto: dict) -> str:
         ("k_e", "capm"): "tasa libre más beta por prima",
         ("k_d", "gasto_entre_deuda"): "gasto financiero entre deuda, acotado",
         ("k_d", "sin_dato"): "sin deuda o sin gasto financiero declarado: la tasa libre",
+        ("k_d", "financiera"): "no aplica: en un banco o una aseguradora los intereses incluyen los depósitos",
         ("t", "efectiva"): "tasa efectiva de yfinance, acotada entre 0% y 35%",
         ("t", "legal"): f"tasa legal ({p.get('pais')})",
+        ("wacc", "financiera"): "no aplica: se valora con el coste del capital propio",
         ("wacc", "wacc"): (
             f"deuda {_pct(p.get('peso_deuda'))} del capital"
             + ("" if p.get("deuda_declarada", True) else "; sin deuda declarada")
@@ -3471,6 +3479,8 @@ def procedencia(nombre: str, supuesto: dict) -> str:
             f"media del histórico de ingresos ({_pct(p.get('historico'))}) y del "
             f"consenso del próximo año ({_pct(p.get('consenso'))}), acotada"
         ),
+        ("g_ref", "historia"): f"histórico de ingresos ({_pct(p.get('historico'))}), sin consenso, acotado",
+        ("g_ref", "consenso"): f"consenso del próximo año ({_pct(p.get('consenso'))}), sin historia, acotado",
         ("g_ref", "sin_dato"): "sin historia ni consenso",
         ("g_perpetuo", "criterio"): f"crecimiento de largo plazo en {p.get('moneda')}",
         ("g_perpetuo", "recortado_a_r_f"): "recortado a la tasa libre de riesgo",

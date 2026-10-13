@@ -192,7 +192,7 @@ cuyo valor sea una decisión de redacción.
 | `k_e` | `r_f + beta × prima` |
 | `k_d` | `gasto_financiero_ttm / deuda_total`, acotado entre `r_f` y `r_f + COSTE_DEUDA_PRIMA_MAXIMA` |
 | `t` | Tasa efectiva acotada, o la legal |
-| `wacc` | `E/(E+D)·k_e + D/(E+D)·k_d·(1 − t)`, con E = capitalización y D = deuda contable. Sin deuda, `wacc = k_e` |
+| `wacc` | `E/(E+D)·k_e + D/(E+D)·k_d·(1 − t)`, con E = capitalización y D = deuda contable. Sin deuda, `wacc = k_e` En bancos y aseguradoras, `wacc` y `k_d` quedan vacíos (`financiera`): sus intereses incluyen los depósitos, y el beneficio residual sólo usa `k_e` |
 | `g_ref` | Media del CAGR histórico de ingresos (hasta 3 años) y del consenso `+1y`. Si sólo existe uno, ése. Acotado por `CRECIMIENTO_REF_TOPES` |
 | `g_perpetuo` | `CRECIMIENTO_PERPETUO[moneda]`, recortado a `r_f` |
 
@@ -460,6 +460,18 @@ toca.
   enmienda fechada, no un cambio silencioso, porque mueve todos los veredictos a
   la vez.
 - **Sólo dólares.** Pesos, otras divisas y ADRs son de N.
+- **Fusiones y escisiones deforman el crecimiento histórico.** El CAGR de tres
+  años de una empresa que compró otra mide la compra, no el negocio: en la
+  revisión de la Task 5, AMCR, SW y FITB salían recortadas en +40 %, y DD o FTV
+  en −10 %. El tope lo acota; no lo corrige.
+- **El coste de la deuda casi nunca lleva diferencial.** Sobre 500 empresas,
+  el 79 % sale con `k_d` igual a la tasa libre, por el suelo o por no declarar
+  gasto financiero. Es inmaterial con poca deuda y de unas cuatro décimas de
+  coste de capital en una empresa como T, con un 47 % de deuda.
+- **Las betas de R² casi nulo** (KO, XOM y T, por debajo del 1,5 %) quedan en
+  0,3–0,4 tras Blume, así que su coste del capital propio queda poco por encima
+  de la tasa libre y su DCF tiende a «barata». El R² viaja en la procedencia y
+  la pantalla lo enseña.
 - **Las empresas con trimestres de dieciséis semanas** (KR) salen sin
   fundamentos: el panel del motor descarta ese trimestre por durar más de cien
   días, ningún año queda completo, y es mejor `sin_historia` que el TTM de 448
