@@ -4025,6 +4025,8 @@ Expected: vacío (ningún fichero modificado).
 
 ### Task 16: Suite completa y recorrido con la app arrancada
 
+> **Ejecutada y superada** (2026-10-13). Suite normal: 2746 passed, 5 skipped. Generar sin IA tardó 152 s y valoró las 15 (CF infravalorada, el resto en rango; EIX y CEG no votan flujos por quemar caja, INCY por no declarar capex). Una ficha sin `valoracion` entre las nuevas se pinta sola como «versión anterior», sin aviso arriba. El acta de prueba `actas/2026-10-13-160113.json` lleva la valoración de CF. Los 16 tests `red` pasan. El único error del servidor es el `ConnectionResetError` de asyncio en Windows al recargar la pestaña, ajeno a M.
+
 - [ ] **Step 1: La suite normal entera**
 
 Run: `uv run pytest tests/ -q -m "not red"`
