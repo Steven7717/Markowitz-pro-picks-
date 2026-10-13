@@ -3180,6 +3180,8 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 ### Task 11: Leer la valoración de una ficha sin romperse con las viejas
 
+> **Ejecutada.** Su revisión añadió los casos que fijan que `version` es texto.
+
 **Files:**
 - Modify: `aprobacion/carga.py` (función nueva al final)
 - Modify: `tests/test_aprobacion_carga.py` (tests al final)
@@ -3254,6 +3256,8 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ---
 
 ### Task 12: Etiquetas, distintivo y resumen
+
+> **Ejecutada y superada.** Su revisión reescribió los textos, añadió `GLOSARIO`, la hora de la cotización, el filtro de supuestos por método y los tests del texto y los colores. Manda el código vivo.
 
 **Files:**
 - Create: `medidores_valoracion.py`
@@ -3773,6 +3777,18 @@ if len(_motivos_valoracion) == 1 and None not in _motivos_valoracion:
         "El orden y las fichas no dependen de la valoración; vuelve a generar "
         "cuando se resuelva."
     )
+```
+
+- [ ] **Step 4b: El glosario, una sola vez por pantalla**
+
+La revisión de la Task 12 pidió glosar la jerga (DCF, EPV, beta, ROE, coste de
+capital, margen de seguridad…) la primera vez en la pantalla, como manda el
+registro del texto. Va una vez, no dentro de cada una de las quince fichas.
+Justo después del desplegable «📏 Cómo se leen los medidores», añade:
+
+```python
+with st.expander("💰 Cómo se lee la valoración"):
+    st.markdown(medidores_valoracion.GLOSARIO)
 ```
 
 - [ ] **Step 5: El bloque «Valoración» en cada ficha**
