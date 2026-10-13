@@ -3257,7 +3257,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 ### Task 12: Etiquetas, distintivo y resumen
 
-> **Ejecutada y superada.** Su revisión reescribió los textos, añadió `GLOSARIO`, la hora de la cotización, el filtro de supuestos por método y los tests del texto y los colores. Manda el código vivo.
+> **Ejecutada y superada.** Su revisión reescribió los textos, añadió `glosario()` y `etiqueta_motivo()` (los textos que nombran umbrales los leen del criterio al pintar), la hora de la cotización, el filtro de supuestos por método y los tests del texto y los colores. Manda el código vivo.
 
 **Files:**
 - Create: `medidores_valoracion.py`
@@ -3773,7 +3773,7 @@ if len(_motivos_valoracion) == 1 and None not in _motivos_valoracion:
     (_motivo_comun,) = _motivos_valoracion
     st.warning(
         "No se pudo valorar ningún candidato: "
-        f"{medidores_valoracion.MOTIVO.get(_motivo_comun, _motivo_comun)}. "
+        f"{medidores_valoracion.etiqueta_motivo(_motivo_comun)}. "
         "El orden y las fichas no dependen de la valoración; vuelve a generar "
         "cuando se resuelva."
     )
@@ -3788,7 +3788,7 @@ Justo después del desplegable «📏 Cómo se leen los medidores», añade:
 
 ```python
 with st.expander("💰 Cómo se lee la valoración"):
-    st.markdown(medidores_valoracion.GLOSARIO)
+    st.markdown(medidores_valoracion.glosario())
 ```
 
 - [ ] **Step 5: El bloque «Valoración» en cada ficha**
@@ -3810,7 +3810,10 @@ añade:
         # la lectura de la IA después. `valoracion_de` y no `ficha["valoracion"]`:
         # una ficha anterior a M no la trae, y reventar aquí sería hacerlo a
         # mitad de la lista, con tarjetas ya pintadas encima.
-        st.markdown("**Valoración**: cuatro lecturas que dan tres votos")
+        st.markdown(
+            "**Valoración**: cuatro lecturas que dan tres votos · los términos, "
+            "en «💰 Cómo se lee la valoración», arriba"
+        )
         _valoracion = valoracion_de(ficha)
         if _valoracion is None:
             st.caption("Sin valoración: ficha de una versión anterior")
