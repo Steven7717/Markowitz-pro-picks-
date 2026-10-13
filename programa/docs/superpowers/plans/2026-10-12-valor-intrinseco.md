@@ -2560,7 +2560,7 @@ def red_doble():
         mercado, "tasa_libre", return_value=(0.04, "ok")
     ), patch.object(mercado, "beta", return_value=(None, "sin_regresion")), patch.object(
         mercado, "tasa_efectiva", return_value=(0.25, "ok")
-    ), patch.object(mercado, "consenso", return_value=(None, "ok")), patch(
+    ), patch.object(mercado, "consenso", return_value=(None, "sin_consenso")), patch(
         "valoracion.motor.desde_sec", return_value=(fundamentos(), "ok")
     ):
         yield
@@ -3566,7 +3566,6 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 **Files:**
 - Modify: `vistas/candidatos.py`
-- Modify: `.gitignore` (el de `programa/`)
 
 Las vistas no tienen tests unitarios en este repo; se comprueban con la app arrancada en la Task 16.
 
@@ -3674,11 +3673,10 @@ añade:
 
 - [ ] **Step 6: `.gitignore`**
 
-En `programa/.gitignore`, debajo de `seguimiento/.cache/`, añade:
+Ya lo hizo la Task 4, tras su revisión de calidad. Comprueba que la línea está:
 
-```
-valoracion/.cache/
-```
+Run: `grep -n "valoracion/.cache/" .gitignore`
+Expected: una línea.
 
 - [ ] **Step 7: Comprobar que la vista se importa sin errores de sintaxis**
 
@@ -3688,7 +3686,7 @@ Expected: `ok`
 - [ ] **Step 8: Commit**
 
 ```bash
-git add vistas/candidatos.py .gitignore
+git add vistas/candidatos.py
 git commit -m "feat: la valoracion en Revisar candidatos, en la tarjeta y en la ficha
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
