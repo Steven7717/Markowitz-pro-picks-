@@ -243,10 +243,11 @@ except ContratoRoto as error:
 
 st.info(resumen_corrida(candidatos.corrida))
 # Tras el corte de `ranking/run.py` (sin tasa libre, o sin red dos veces
-# seguidas), o sin red desde el principio, los desplegables de las fichas llevan
-# todos el mismo motivo, y nada fuera de ellos lo dice: había que abrir quince
-# para enterarse. El aviso lo cuenta una vez, arriba. La lógica vive en
-# `medidores_valoracion`, con tests: aquí sólo se pinta.
+# seguidas) las fichas que quedaban llevan todas el mismo motivo, y sin red
+# desde el principio lo llevan las quince. Nada fuera de los desplegables lo
+# decía: había que abrirlos uno a uno para enterarse. El aviso lo cuenta una
+# vez, arriba. La lógica vive en `medidores_valoracion`, con tests: aquí sólo
+# se pinta.
 _aviso = medidores_valoracion.aviso_comun(
     [valoracion_de(f) for f in candidatos.fichas]
 )

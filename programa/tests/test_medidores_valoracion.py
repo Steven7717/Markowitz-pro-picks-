@@ -198,6 +198,14 @@ def test_la_fallida_de_la_red_se_lee_sin_dobles_dos_puntos():
     )
 
 
+def test_el_error_interno_dice_que_es_del_programa_sin_repetir_el_aviso():
+    # Dentro de la ficha tiene que entenderse solo; encima de la lista ya lo
+    # acompaña el pie del defecto, que dice qué hacer.
+    etiqueta = mv.etiqueta_motivo("error_interno")
+    assert "del programa" in etiqueta
+    assert "avisar" not in etiqueta
+
+
 def test_el_motivo_de_una_financiera_habla_de_entidades_financieras():
     etiqueta = mv.etiqueta_motivo("financiera")
     assert "beneficio residual" in etiqueta
@@ -270,22 +278,34 @@ def test_una_valoracion_sin_metodo_lleva_solo_la_nota():
     assert mv.pie(valoracion) == [mv.NOTA]
 
 
+@pytest.mark.parametrize("fabrica", [_fija, _fija_residual])
+@pytest.mark.parametrize("margen", [None, "x", float("nan")])
+def test_con_veredicto_pero_sin_margen_el_pie_es_solo_la_nota(fabrica, margen):
+    # Si el voto de flujos no aplica (sin flujo libre, quema caja, valor
+    # terminal que explotaría, sin historia), no hay rango ni margen, pero el
+    # EPV y los pares siguen dando veredicto: LLY, COST, NEE, VZ y PEP en la
+    # corrida real. Explicar un margen que no se enseña confunde.
+    assert mv.pie(fabrica(valor=None, margen_seguridad=margen)) == [mv.NOTA]
+
+
 def test_el_titulo_remite_al_glosario_cuando_hay_algo_que_leer():
-    assert mv.titulo(_fija()) == (
-        "**Valor intrínseco** · los términos, en «💰 Cómo se lee el valor intrínseco», arriba"
-    )
-    assert mv.TITULO_GLOSARIO in mv.titulo(_fija_residual())
+    for valoracion in (_fija(), _fija_residual()):
+        titulo = mv.titulo(valoracion)
+        assert titulo.startswith("**Valor intrínseco**")
+        assert f"«{mv.TITULO_GLOSARIO}»" in titulo
 
 
 @pytest.mark.parametrize(
     "valoracion", [None, "x", fallida("sin_red"), {"version": "m1"}]
 )
-def test_sin_veredicto_el_titulo_es_solo_el_nombre(valoracion):
-    assert mv.titulo(valoracion) == "**Valor intrínseco**"
+def test_sin_veredicto_el_titulo_no_remite_al_glosario(valoracion):
+    titulo = mv.titulo(valoracion)
+    assert titulo.startswith("**Valor intrínseco**")
+    assert mv.TITULO_GLOSARIO not in titulo
 
 
-def test_el_desplegable_del_glosario_se_llama_como_el_bloque():
-    assert mv.TITULO_GLOSARIO == "💰 Cómo se lee el valor intrínseco"
+def test_el_desplegable_del_glosario_nombra_el_bloque():
+    assert "valor intrínseco" in mv.TITULO_GLOSARIO
 
 
 @pytest.mark.parametrize("valoracion", [None, _fija(), _fija_residual()])
@@ -313,52 +333,92 @@ def _fallidas(motivo: str, n: int) -> list:
     return [fallida(motivo) for _ in range(n)]
 
 
-_PIE_REGENERAR = (
-    "El orden y el resto de cada ficha no dependen del valor intrínseco. Generar de "
-    "nuevo lo recalcula todo, también la narrativa, así que con IA vuelve a costar dinero."
-)
-
-
 def test_los_motivos_de_corrida_existen():
     assert set(mv.MOTIVOS_DE_CORRIDA) <= MOTIVOS
     assert set(mv.MOTIVOS_DE_CORRIDA) == {"sin_red", "sin_tasa_libre"}
 
 
+def test_la_tasa_libre_corta_a_la_primera_y_la_red_a_la_segunda():
+    assert mv.MOTIVOS_DE_CORRIDA["sin_tasa_libre"] == 1
+    assert mv.MOTIVOS_DE_CORRIDA["sin_red"] == 2
+
+
+def test_el_minimo_de_sin_red_es_el_del_corte_de_la_corrida():
+    # El módulo no importa `ranking.run` (arrastra pandas y la IA), así que el 2
+    # se repite: este test es lo que impide que los dos se separen.
+    corte = (Path(__file__).parent.parent / "ranking" / "run.py").read_text(encoding="utf-8")
+    assert f"sin_red_seguidos >= {mv.MOTIVOS_DE_CORRIDA['sin_red']}" in corte
+
+
+def test_los_pies_del_aviso_son_distintos():
+    assert mv._PIE_REGENERAR != mv._PIE_DEFECTO
+
+
+def test_el_pie_de_regenerar_no_empuja_a_perder_la_narrativa():
+    # Las narrativas se guardan por contenido (`ranking.llm.redactar_con_cache`):
+    # regenerar con IA sobre los mismos datos no paga nada, y sin IA las pierde.
+    assert "en el mismo modo" in mv._PIE_REGENERAR
+    assert "caché" in mv._PIE_REGENERAR
+    assert "sin IA" not in mv._PIE_REGENERAR
+    assert "costar" not in mv._PIE_REGENERAR
+
+
 @pytest.mark.parametrize("motivo", ["sin_tasa_libre", "sin_red", "sin_estados"])
 def test_si_todas_fallan_por_lo_mismo_se_dice_una_vez(motivo):
-    assert mv.aviso_comun(_fallidas(motivo, 15)) == (
-        f"No se pudo valorar ningún candidato: {mv.etiqueta_motivo(motivo)}. {_PIE_REGENERAR}"
-    )
+    aviso = mv.aviso_comun(_fallidas(motivo, 15))
+    assert aviso.startswith(f"No se pudo valorar ningún candidato: {mv.etiqueta_motivo(motivo)}. ")
+    assert aviso.endswith(mv._PIE_REGENERAR)
+    assert aviso.count(mv._PIE_REGENERAR) == 1
 
 
-def test_si_todas_fallan_por_un_defecto_no_se_invita_a_regenerar():
+def test_si_todas_fallan_por_un_defecto_no_se_invita_a_regenerar_sin_mas():
     aviso = mv.aviso_comun(_fallidas("error_interno", 15))
     assert aviso.startswith(
         f"No se pudo valorar ningún candidato: {mv.etiqueta_motivo('error_interno')}. "
-        "Es un defecto del programa"
     )
-    assert "Generar de nuevo" not in aviso
-    assert "consola" in aviso
+    assert aviso.endswith(mv._PIE_DEFECTO)
+    assert mv._PIE_REGENERAR not in aviso
+
+
+def test_el_pie_del_defecto_dice_como_ver_el_detalle():
+    # La consola va oculta y no se guarda; cerrar sólo la pestaña deja el
+    # servidor vivo 90 s, y abrir otro entonces lo manda al puerto 8502.
+    assert "no se guarda" in mv._PIE_DEFECTO
+    assert "«Salir del programa»" in mv._PIE_DEFECTO
+    assert "«Iniciar App.bat»" in mv._PIE_DEFECTO
+    assert "en el mismo modo" in mv._PIE_DEFECTO
 
 
 def test_un_corte_a_mitad_de_corrida_se_cuenta():
     # El caso típico del corte de `ranking/run.py`: cuatro valoradas, y al fallar
     # la tasa libre las once que quedaban heredan el motivo sin preguntar.
-    assert mv.aviso_comun(_calculadas(4) + _fallidas("sin_tasa_libre", 11)) == (
+    aviso = mv.aviso_comun(_calculadas(4) + _fallidas("sin_tasa_libre", 11))
+    assert aviso.startswith(
         f"11 de 15 candidatos sin valorar: {mv.etiqueta_motivo('sin_tasa_libre')}. "
-        f"{_PIE_REGENERAR}"
     )
+    assert aviso.endswith(mv._PIE_REGENERAR)
+    assert aviso.count(mv._PIE_REGENERAR) == 1
 
 
 def test_varios_motivos_de_corrida_van_de_mas_a_menos_frecuente_con_un_solo_pie():
     valoraciones = (
-        _calculadas(3) + _fallidas("sin_red", 1) + _calculadas(2) + _fallidas("sin_tasa_libre", 9)
+        _calculadas(2) + _fallidas("sin_red", 2) + _calculadas(2) + _fallidas("sin_tasa_libre", 9)
     )
     assert mv.aviso_comun(valoraciones) == (
         f"9 de 15 candidatos sin valorar: {mv.etiqueta_motivo('sin_tasa_libre')}. "
-        f"1 de 15 candidatos sin valorar: {mv.etiqueta_motivo('sin_red')}. "
-        f"{_PIE_REGENERAR}"
+        f"2 de 15 candidatos sin valorar: {mv.etiqueta_motivo('sin_red')}. "
+        f"{mv._PIE_REGENERAR}"
     )
+
+
+def test_un_sin_red_suelto_es_de_la_empresa_y_no_de_la_corrida():
+    # Para `ranking/run.py` un `sin_red` aislado es un símbolo que Yahoo no
+    # conoce: regenerar no lo arregla, y su ficha ya lo dice.
+    assert mv.aviso_comun(_calculadas(14) + _fallidas("sin_red", 1)) is None
+    con_corte = _calculadas(3) + _fallidas("sin_red", 1) + _fallidas("sin_tasa_libre", 11)
+    aviso = mv.aviso_comun(con_corte)
+    assert aviso.startswith("11 de 15 candidatos sin valorar: ")
+    assert mv.etiqueta_motivo("sin_red") not in aviso
 
 
 def test_un_fallo_suelto_de_empresa_se_ve_en_su_ficha_y_no_arriba():
@@ -1313,8 +1373,9 @@ def test_el_glosario_empieza_por_las_lecturas_y_los_votos():
 
 def test_el_glosario_dice_que_lectura_da_cada_voto():
     lecturas = mv.glosario().split("\n")[0]
-    assert "el DCF y el DCF inverso dan juntos un solo voto" in lecturas
-    assert f"«{mv.NOMBRE_VOTO['flujos']}»" in lecturas
+    # El voto lo da el inverso y el rango del DCF es su contexto (`valoracion/votos.py`).
+    assert "dan un solo voto" in lecturas
+    assert f"«{mv.NOMBRE_VOTO['flujos']}»: lo decide el inverso, y el DCF da el rango" in lecturas
     assert f"«{mv.NOMBRE_VOTO['sin_crecimiento']}», que nunca vota «cara»" in lecturas
     assert f"«{mv.NOMBRE_VOTO['pares']}»" in lecturas
 
@@ -1322,8 +1383,8 @@ def test_el_glosario_dice_que_lectura_da_cada_voto():
 def test_el_glosario_dice_que_una_financiera_tiene_tres_lecturas_y_dos_votos():
     lecturas = mv.glosario().split("\n")[0]
     assert "el beneficio residual y su inverso (el ROE que el precio exige)" in lecturas
-    assert "«Beneficio residual»" in lecturas
-    assert "no hay voto sin crecimiento: tres lecturas y dos votos." in lecturas
+    assert "«Beneficio residual», lo decide el inverso, y el beneficio residual da el rango" in lecturas
+    assert "No hay voto sin crecimiento: tres lecturas y dos votos." in lecturas
 
 
 def test_el_glosario_dice_que_el_voto_de_pares_es_el_pilar_de_valoracion():

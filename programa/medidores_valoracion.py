@@ -91,7 +91,7 @@ MOTIVO = {
     "sin_flujo_libre": "no declara capex o flujo operativo, así que no hay flujo libre que proyectar",
     "sin_red": "Yahoo Finance no devolvió datos (sin conexión, un error suyo o un símbolo que no conoce)",
     "sin_estados": "los estados financieros de la SEC no están disponibles o no son legibles",
-    "error_interno": "error interno al valorar (merece avisar de ello)",
+    "error_interno": "error interno del programa al valorar",
 }
 
 NOTA = (
@@ -145,7 +145,7 @@ def glosario() -> str:
     residual = f"«{_NOMBRE_VOTO_RESIDUAL['flujos']}»"
     umbral = f"{UMBRAL_PARES:g}"
     return f"""\
-- **Las lecturas y los votos**: el DCF y el DCF inverso dan juntos un solo voto, {flujos}, porque son la misma ecuación leída en los dos sentidos y por separado contarían dos veces. El EPV da el voto {epv}, que nunca vota «cara»: pagar por el crecimiento no es estar cara. El tercer voto es {pares}. En las entidades financieras, el beneficio residual y su inverso (el ROE que el precio exige) ocupan el sitio de los flujos, con el voto {residual}, y no hay voto sin crecimiento: tres lecturas y dos votos.
+- **Las lecturas y los votos**: el DCF y el DCF inverso son la misma ecuación leída en los dos sentidos y, por separado, contarían dos veces, así que dan un solo voto, {flujos}: lo decide el inverso, y el DCF da el rango de valor, que es su contexto. El EPV da el voto {epv}, que nunca vota «cara»: pagar por el crecimiento no es estar cara. El tercer voto es {pares}. En las entidades financieras, el beneficio residual y su inverso (el ROE que el precio exige) ocupan el sitio de los flujos de la misma manera: el voto, {residual}, lo decide el inverso, y el beneficio residual da el rango. No hay voto sin crecimiento: tres lecturas y dos votos.
 - **Frente a sus pares**: es el pilar «valoración» del score convertido en voto, es decir, los múltiplos de la empresa frente a los de su sector. Vota «barata» con una puntuación de +{umbral} o más, «cara» con −{umbral} o menos y «neutra» entre medias. La puntuación es la del medidor del pilar: desviaciones típicas frente a la media del sector, con el signo ya aplicado, así que positiva es más barata.
 - **DCF** (flujos de caja descontados): el valor actual de los flujos de caja libres futuros de la empresa. Es lo que vale hoy todo el dinero que se espera que genere, descontado al coste de capital.
 - **DCF inverso**: la misma ecuación leída al revés. En vez de calcular cuánto vale la empresa, busca el crecimiento que el precio de mercado da por hecho.
@@ -557,13 +557,17 @@ def titulo(valoracion: object) -> str:
 def pie(valoracion: object) -> "list[str]":
     """Las notas que van debajo del resumen, una por `st.caption`.
 
-    Una fallida no lleva ninguna: sin rango ni votos no hay margen que explicar.
-    La lectura del margen depende del método, porque el voto de una financiera
-    compara ROE y no crecimiento; con un método que no se reconoce, sólo la nota,
-    que vale para todos.
+    Una fallida no lleva ninguna. La nota sobre el criterio va con cualquier
+    veredicto; la lectura del margen, sólo si hay margen: cuando el voto de
+    flujos no aplica (sin flujo libre, quema caja…) no hay rango, pero el EPV y
+    los pares siguen dando veredicto, y explicar un margen que no se enseña
+    confunde. La lectura depende del método, porque el voto de una financiera
+    compara ROE y no crecimiento; con un método que no se reconoce, sólo la nota.
     """
     if not _con_veredicto(valoracion):
         return []
+    if _numero(valoracion.get("margen_seguridad")) is None:
+        return [NOTA]
     metodo = valoracion.get("metodo")
     if metodo == "flujos":
         return [lectura_margen(), NOTA]
@@ -572,25 +576,39 @@ def pie(valoracion: object) -> "list[str]":
     return [NOTA]
 
 
-# Los motivos que dispara el corte de `ranking/run.py`: sin tasa libre, o sin red
-# dos veces seguidas, la corrida deja de preguntar y todas las fichas que
-# quedaban heredan ese motivo. El caso típico es 4 valoradas y 11
-# `sin_tasa_libre`: sin un aviso arriba, hay que abrir once desplegables para
-# saber que ni siquiera se intentó.
-MOTIVOS_DE_CORRIDA = ("sin_red", "sin_tasa_libre")
+# Los motivos que dispara el corte de `ranking/run.py`, con cuántas fichas hacen
+# falta para que el fallo sea de la corrida y no de una empresa. Tras el corte la
+# corrida deja de preguntar y todas las fichas que quedaban heredan ese motivo:
+# el caso típico es 4 valoradas y 11 `sin_tasa_libre`, y sin un aviso arriba hay
+# que abrir once desplegables para saber que ni siquiera se intentó.
+#
+# La tasa libre es la misma para todas, así que un fallo ya es el corte. Un
+# `sin_red` suelto, en cambio, es para `run.py` un símbolo que Yahoo no conoce:
+# corta con `sin_red_seguidos >= 2`, y ese 2 se repite aquí (un test vigila que
+# no se separen) porque importar `ranking.run` arrastraría pandas y la IA.
+MOTIVOS_DE_CORRIDA = {"sin_tasa_libre": 1, "sin_red": 2}
 
+# Las narrativas se guardan por contenido (`ranking.llm.redactar_con_cache`):
+# regenerar con IA sobre los mismos datos las lee del disco sin pagar, y «Generar
+# gratis» las tira. Un aviso que dijera «con IA vuelve a costar» empujaría justo
+# a la opción que pierde la narrativa.
 _PIE_REGENERAR = (
-    "El orden y el resto de cada ficha no dependen del valor intrínseco. Generar "
-    "de nuevo lo recalcula todo, también la narrativa, así que con IA vuelve a "
-    "costar dinero."
+    "El orden y el resto de cada ficha no dependen del valor intrínseco. Para "
+    "recalcularlo, vuelve a generar en el mismo modo: si era con IA, las "
+    "narrativas ya redactadas salen de la caché sin volver a pagar mientras los "
+    "datos no cambien."
 )
 
-# La consola va oculta en el arranque normal de Windows (`Iniciar App.vbs`), así
-# que decir sólo «está en la consola» señalaría algo que el usuario no ve.
+# En el arranque normal de Windows (`Iniciar App.vbs`) la consola va oculta y su
+# salida no se guarda en ningún sitio: el detalle del fallo que se está leyendo
+# ya no se puede ver, sólo reproducir. «Salir del programa» y no «cierra la
+# pestaña»: sin pestañas el servidor tarda 90 s en apagarse (`apagado.ESPERA`),
+# y abrir el .bat antes manda el nuevo al puerto 8502, con dos servidores vivos.
 _PIE_DEFECTO = (
-    "Es un defecto del programa, no un problema de los datos. El detalle queda en "
-    "la ventana de consola del programa; en Windows va oculta, y se ve arrancando "
-    "con «Iniciar App.bat»."
+    "Es un defecto del programa, no un problema de los datos. El detalle sale en "
+    "la consola del programa, que en Windows va oculta y no se guarda: para "
+    "verlo, pulsa «Salir del programa», ábrelo con «Iniciar App.bat», en su "
+    "carpeta, y vuelve a generar en el mismo modo."
 )
 
 
@@ -611,19 +629,20 @@ def aviso_comun(valoraciones: list) -> "str | None":
     Recibe lo que devuelve `valoracion_de` para cada ficha (diccionarios o None).
     Si todas fallaron por lo mismo, lo dice una vez. Si no, pero el corte de la
     corrida dejó fichas sin valorar, dice cuántas y por qué, de más a menos
-    frecuente. Un fallo suelto de una empresa, como `sin_estados`, no sale aquí:
-    se ve en su propia ficha.
+    frecuente. Un fallo suelto de una empresa, como `sin_estados` o un único
+    `sin_red`, no sale aquí: se ve en su propia ficha, y regenerar no lo arregla.
     """
     motivos = [_motivo_de(v) for v in valoraciones]
     if motivos and motivos[0] is not None and motivos.count(motivos[0]) == len(motivos):
         comun = motivos[0]
         pie_aviso = _PIE_DEFECTO if comun == "error_interno" else _PIE_REGENERAR
         return f"No se pudo valorar ningún candidato: {etiqueta_motivo(comun)}. {pie_aviso}"
-    del_corte = Counter(m for m in motivos if m in MOTIVOS_DE_CORRIDA)
-    if not del_corte:
-        return None
+    cuenta = Counter(m for m in motivos if m in MOTIVOS_DE_CORRIDA)
     frases = [
         f"{cuantas} de {len(motivos)} candidatos sin valorar: {etiqueta_motivo(motivo)}."
-        for motivo, cuantas in del_corte.most_common()
+        for motivo, cuantas in cuenta.most_common()
+        if cuantas >= MOTIVOS_DE_CORRIDA[motivo]
     ]
+    if not frases:
+        return None
     return " ".join([*frases, _PIE_REGENERAR])
