@@ -134,51 +134,75 @@ def test_cada_motivo_tiene_etiqueta():
     assert MOTIVOS <= set(mv.MOTIVO)
 
 
+def test_no_hay_mas_motivos_que_los_que_escribe_el_paquete():
+    # Una etiqueta de más es un texto que nadie puede ver y que se queda sin revisar.
+    assert set(mv.MOTIVO) == MOTIVOS
+
+
 @pytest.mark.parametrize("clave", sorted(mv.MOTIVO))
 def test_ninguna_etiqueta_de_motivo_dice_no_aplica_ni_no_se_pudo(clave):
     # Junto a ella ya va el «No aplica» de la fila de un voto, o el «Sin
     # valoración:» de una fallida: repetirlo lee como un tartamudeo.
-    etiqueta = mv.MOTIVO[clave].lower()
+    etiqueta = mv.etiqueta_motivo(clave).lower()
     assert "no aplica" not in etiqueta
     assert "no se pudo" not in etiqueta
 
 
 @pytest.mark.parametrize(
-    ("clave", "texto"),
+    ("clave", "idea"),
     [
-        ("quema_caja", "quema caja: valorarla exigiría inventar cuándo deja de hacerlo"),
-        ("ebit_negativo", "beneficio operativo negativo: sin crecer no queda nada que capitalizar"),
-        ("sin_historia", "faltan años de historia"),
-        (
-            "wacc_bajo_crecimiento",
-            "el coste de capital no supera al crecimiento a perpetuidad en al menos 1.0 puntos, "
-            "y el valor terminal explotaría",
-        ),
-        ("sin_pares", "sin pares del sector con los que comparar"),
-        ("sin_precio", "Yahoo Finance no devolvió el precio"),
-        ("sin_tasa_libre", "Yahoo Finance no devolvió la tasa libre de riesgo"),
-        ("financiera", "se valora por beneficio residual (bancos y aseguradoras)"),
-        ("patrimonio_negativo", "patrimonio negativo: no hay base sobre la que medir la rentabilidad"),
-        (
-            "sin_beneficio_operativo",
-            "no declara beneficio operativo, así que no hay valor sin crecimiento que calcular",
-        ),
-        ("sin_flujo_libre", "no declara capex o flujo operativo, así que no hay flujo libre que proyectar"),
-        (
-            "sin_red",
-            "Yahoo Finance no devolvió datos: sin conexión, un error suyo o un símbolo que no conoce",
-        ),
-        ("sin_estados", "los estados financieros de la SEC no están disponibles o no son legibles"),
-        ("error_interno", "error interno al valorar: merece avisar de ello"),
+        ("quema_caja", "quema caja"),
+        ("ebit_negativo", "beneficio operativo negativo"),
+        ("sin_historia", "años de historia"),
+        ("wacc_bajo_crecimiento", "valor terminal explotaría"),
+        ("sin_pares", "pares del sector"),
+        ("sin_precio", "el precio"),
+        ("sin_tasa_libre", "tasa libre de riesgo"),
+        ("financiera", "beneficio residual"),
+        ("patrimonio_negativo", "patrimonio negativo"),
+        ("sin_beneficio_operativo", "beneficio operativo"),
+        ("sin_flujo_libre", "flujo libre"),
+        ("sin_red", "Yahoo Finance no devolvió datos"),
+        ("sin_estados", "estados financieros de la SEC"),
+        ("error_interno", "error interno"),
     ],
 )
-def test_el_texto_de_cada_motivo(clave, texto):
-    assert mv.MOTIVO[clave] == texto
+def test_cada_motivo_dice_de_que_se_trata(clave, idea):
+    # No fija la redacción, sólo que la etiqueta habla de lo que debe.
+    assert idea in mv.etiqueta_motivo(clave)
 
 
-def test_no_hay_mas_motivos_que_los_que_escribe_el_paquete():
-    # Una etiqueta de más es un texto que nadie puede ver y que se queda sin revisar.
-    assert set(mv.MOTIVO) == MOTIVOS
+# Los motivos con los que puede terminar una valoración fallida: los de la red y
+# los estados (`valorar`) y el que anota `ranking/run.py` cuando algo revienta.
+_MOTIVOS_DE_UNA_FALLIDA = (
+    "sin_red", "sin_precio", "sin_tasa_libre", "sin_estados", "sin_historia", "error_interno",
+)
+
+
+def test_las_fallidas_de_la_lista_existen():
+    assert set(_MOTIVOS_DE_UNA_FALLIDA) <= MOTIVOS
+
+
+@pytest.mark.parametrize("motivo", _MOTIVOS_DE_UNA_FALLIDA)
+def test_una_fallida_lleva_un_solo_dos_puntos(motivo):
+    texto = _texto(mv.resumen(fallida(motivo)))
+    assert texto.startswith("Sin valoración: ")
+    assert texto.count(":") == 1
+    assert texto.endswith(".")
+
+
+def test_la_fallida_de_la_red_se_lee_sin_dobles_dos_puntos():
+    assert _texto(mv.resumen(fallida("sin_red"))) == (
+        "Sin valoración: Yahoo Finance no devolvió datos "
+        "(sin conexión, un error suyo o un símbolo que no conoce)."
+    )
+
+
+def test_el_motivo_de_una_financiera_habla_de_entidades_financieras():
+    etiqueta = mv.etiqueta_motivo("financiera")
+    assert "beneficio residual" in etiqueta
+    assert "entidades financieras" in etiqueta
+    assert "bancos y aseguradoras" not in etiqueta
 
 
 def test_la_nota_es_la_del_spec():
@@ -190,16 +214,10 @@ def test_la_nota_es_la_del_spec():
 
 
 def test_la_lectura_del_margen_explica_por_que_un_margen_grande_puede_ser_en_rango():
-    assert mv.LECTURA_MARGEN == (
-        "El margen de seguridad mide la distancia al valor base. El voto de flujos no lo usa: "
-        "compara el crecimiento que el precio exige con su referencia, con una banda de ± la mitad "
-        "de esa referencia. Por eso un margen grande puede convivir con «en rango» cuando el "
-        "crecimiento de referencia es alto."
-    )
-
-
-def test_el_motivo_del_coste_de_capital_cita_la_holgura_del_criterio():
-    assert f"{criterio.HOLGURA_GORDON * 100:.1f} puntos" in mv.MOTIVO["wacc_bajo_crecimiento"]
+    assert "El margen de seguridad mide la distancia al valor base. El voto de flujos no lo usa:" in mv.LECTURA_MARGEN
+    assert "con una banda de ± la mitad de esa referencia" in mv.LECTURA_MARGEN
+    assert "un margen grande puede convivir con «en rango»" in mv.LECTURA_MARGEN
+    assert mv.LECTURA_MARGEN.endswith("cuando el crecimiento de referencia es alto.")
 
 
 # Los colores que nombra el spec: verde para infravalorada, rojo para
@@ -386,27 +404,27 @@ def test_un_voto_que_no_aplica_dice_por_que():
     [
         (
             {"valor": 0.274, "referencia": 0.4, "margen": 0.2, "fuera_de_limites": None},
-            "el precio da por hecho que los ingresos crezcan un 27.4% al año durante 5 años; "
+            "el precio da por hecho que los ingresos crecerán un 27.4% al año durante 5 años; "
             "su referencia es 40.0% (banda de ±20.0 puntos)",
         ),
         (
             {"valor": 0.0, "referencia": 0.05, "margen": 0.05, "fuera_de_limites": None},
-            "el precio da por hecho que los ingresos crezcan un 0.0% al año durante 5 años; "
+            "el precio da por hecho que los ingresos crecerán un 0.0% al año durante 5 años; "
             "su referencia es 5.0% (banda de ±5.0 puntos)",
         ),
         (
             {"valor": -0.052, "referencia": 0.021, "margen": 0.05, "fuera_de_limites": None},
-            "el precio da por hecho que los ingresos caigan un 5.2% al año durante 5 años; "
+            "el precio da por hecho que los ingresos caerán un 5.2% al año durante 5 años; "
             "su referencia es 2.1% (banda de ±5.0 puntos)",
         ),
         (
             {"valor": 0.02, "referencia": -0.043, "margen": 0.05, "fuera_de_limites": None},
-            "el precio da por hecho que los ingresos crezcan un 2.0% al año durante 5 años; "
+            "el precio da por hecho que los ingresos crecerán un 2.0% al año durante 5 años; "
             "su referencia es una caída del 4.3% (banda de ±5.0 puntos)",
         ),
         (
             {"valor": -0.1, "referencia": -0.04, "margen": 0.05, "fuera_de_limites": None},
-            "el precio da por hecho que los ingresos caigan un 10.0% al año durante 5 años; "
+            "el precio da por hecho que los ingresos caerán un 10.0% al año durante 5 años; "
             "su referencia es una caída del 4.0% (banda de ±5.0 puntos)",
         ),
         (
@@ -415,7 +433,7 @@ def test_un_voto_que_no_aplica_dice_por_que():
         ),
         (
             {"valor": -0.3, "referencia": 0.04, "margen": 0.05, "fuera_de_limites": "abajo"},
-            "el precio es tan bajo que incluso una caída de más del 30.0% al año se queda corta",
+            "el precio es tan bajo que ni una caída del 30.0% al año lo explicaría",
         ),
         (
             {"valor": None, "referencia": 0.04, "margen": 0.05, "fuera_de_limites": None},
@@ -424,12 +442,12 @@ def test_un_voto_que_no_aplica_dice_por_que():
         (
             # Una referencia de cero no es una caída.
             {"valor": 0.02, "referencia": 0.0, "margen": 0.05, "fuera_de_limites": None},
-            "el precio da por hecho que los ingresos crezcan un 2.0% al año durante 5 años; "
+            "el precio da por hecho que los ingresos crecerán un 2.0% al año durante 5 años; "
             "su referencia es 0.0% (banda de ±5.0 puntos)",
         ),
         (
             {"valor": 0.02, "referencia": None, "margen": None, "fuera_de_limites": None},
-            "el precio da por hecho que los ingresos crezcan un 2.0% al año durante 5 años; "
+            "el precio da por hecho que los ingresos crecerán un 2.0% al año durante 5 años; "
             "su referencia es n/d (banda de ±n/d)",
         ),
     ],
@@ -461,7 +479,7 @@ def test_el_texto_de_la_lectura_de_crecimiento(implicito, esperado):
         ),
         (
             {"valor": -0.2, "referencia": 0.15, "margen": 0.075, "fuera_de_limites": "abajo"},
-            "el precio es tan bajo que incluso un ROE inferior al −20.0% se queda corto",
+            "el precio es tan bajo que ni un ROE del −20.0% lo explicaría",
         ),
     ],
     ids=["normal", "referencia_negativa", "arriba", "abajo"],
@@ -513,7 +531,7 @@ def test_el_resumen_completo_de_una_empresa():
             "optimista 4,321.00 USD · margen de seguridad 20.3% | "
             "Calculada el 2026-10-12 con el precio de 100.00 USD "
             "(cotización del 2026-10-12 19:59 UTC) y estados hasta 2026-09-30",
-            "Flujos (DCF e inverso) | Neutra | el precio da por hecho que los ingresos crezcan "
+            "Flujos (DCF e inverso) | Neutra | el precio da por hecho que los ingresos crecerán "
             "un 27.4% al año durante 5 años; su referencia es 40.0% (banda de ±20.0 puntos)",
             "Sin crecimiento (EPV) | Neutra | sin crecer valdría 392.27 USD; el 58.8% del "
             "precio es apuesta por el crecimiento",
@@ -529,7 +547,7 @@ def test_el_resumen_completo_de_una_empresa():
             "coste de capital (deuda y capital propio): 13.6% · deuda 0.4% del capital",
             "crecimiento de referencia: 40.0% · media del crecimiento histórico de los ingresos "
             "(104.7%) y del consenso del próximo año (15.7%), acotada entre −10.0% y 40.0%",
-            "crecimiento a perpetuidad: 2.5% · crecimiento nominal a perpetuidad en USD",
+            "crecimiento a perpetuidad: 2.5% · criterio fijo del programa para el USD",
         ]
     )
 
@@ -543,7 +561,7 @@ def test_el_resumen_completo_de_un_banco():
             "(cotización del 2026-10-12 19:59 UTC) y estados hasta 2026-09-30",
             "Beneficio residual | Neutra | el precio exige un ROE del 15.0%; su referencia es "
             "15.8% (banda de ±7.9 puntos)",
-            "Sin crecimiento (EPV) | No aplica | se valora por beneficio residual (bancos y aseguradoras)",
+            "Sin crecimiento (EPV) | No aplica | se valora por beneficio residual (entidades financieras)",
             "Frente a sus pares | Neutra | múltiplos en línea con los de su sector",
             "Supuestos del programa",
             "tasa libre: 5.2% · Tesoro de EE. UU. a 10 años (^TNX)",
@@ -552,7 +570,7 @@ def test_el_resumen_completo_de_un_banco():
             "coste del capital propio: 13.6% · tasa libre más beta por prima",
             "ROE de referencia: 15.8% · mediana de 5 años",
             "reparto de beneficios: 0.7% · según yfinance, acotado entre 0.0% y 100.0%",
-            "crecimiento a perpetuidad: 2.5% · crecimiento nominal a perpetuidad en USD",
+            "crecimiento a perpetuidad: 2.5% · criterio fijo del programa para el USD",
         ]
     )
 
@@ -690,7 +708,7 @@ def test_hasta_las_etiquetas_de_los_veredictos_y_los_votos_se_escapan(monkeypatc
         (
             "g_perpetuo",
             {"fuente": "criterio", "moneda": "MXN"},
-            "crecimiento nominal a perpetuidad en MXN",
+            "criterio fijo del programa para el MXN",
         ),
         ("g_perpetuo", {"fuente": "recortado_a_r_f", "base": 0.025}, "recortado a la tasa libre de riesgo"),
         ("roe_ref", {"fuente": "mediana_historica", "anos": 5}, "mediana de 5 años"),
@@ -1087,90 +1105,174 @@ def test_el_css_no_lleva_colores_escritos_a_mano():
         "DCF inverso",
         "EPV",
         "Beneficio residual",
+        "Capex",
         "ROE",
+        "Consenso",
+        "Tasa libre de riesgo y prima de riesgo",
         "Beta, R² y Blume",
         "Coste de capital (WACC)",
         "coste del capital propio",
         "Crecimiento a perpetuidad y valor terminal",
+        "Escenarios",
         "Margen de seguridad",
         "Veredicto",
     ],
 )
 def test_el_glosario_explica_cada_termino(termino):
-    assert f"**{termino}**" in mv.GLOSARIO
+    assert f"**{termino}**" in mv.glosario()
 
 
 def test_el_glosario_avisa_de_que_el_capex_de_mantenimiento_no_se_separa():
-    assert "ninguna fuente separa el capex de mantenimiento del de expansión" in mv.GLOSARIO
+    assert "ninguna fuente separa el capex de mantenimiento del de expansión" in mv.glosario()
+
+
+def test_el_glosario_dice_de_que_beneficio_sale_el_epv():
+    assert "si su beneficio operativo después de impuestos se mantuviera para siempre" in mv.glosario()
+    assert "sus beneficios actuales" not in mv.glosario()
 
 
 def test_el_glosario_dice_que_el_margen_no_es_el_de_graham():
-    assert "(valor base − precio) / precio" in mv.GLOSARIO
-    assert "No es el de Graham, (valor − precio) / valor" in mv.GLOSARIO
+    assert "(valor base − precio) / precio" in mv.glosario()
+    assert "No es el de Graham, (valor − precio) / valor" in mv.glosario()
 
 
 def test_el_glosario_explica_la_regla_del_veredicto():
-    assert "dos votos en el mismo sentido" in mv.GLOSARIO
-    assert "Una «cara» con dos «neutra» es «en rango»" in mv.GLOSARIO
-    assert f"menos de {criterio.MIN_VOTOS} votos aplicables" in mv.GLOSARIO
+    assert "dos votos en el mismo sentido" in mv.glosario()
+    assert "Una «cara» con dos «neutra» es «en rango»" in mv.glosario()
+    assert f"menos de {criterio.MIN_VOTOS} votos aplicables" in mv.glosario()
+    assert mv.glosario().endswith("votos aplicables, sin datos suficientes.")
 
 
 def test_el_glosario_cuenta_el_ajuste_de_blume_con_el_criterio():
     pasos = f"{(1 - criterio.BLUME[0]) * 100:.0f}% del camino hacia 1.0"
-    assert pasos in mv.GLOSARIO
-    assert "R² bajo significa una beta ruidosa" in mv.GLOSARIO
+    assert pasos in mv.glosario()
+    assert "R² bajo significa una beta ruidosa" in mv.glosario()
 
 
-def test_el_glosario_completo():
-    assert mv.GLOSARIO.split("\n") == [
-        "- **DCF** (flujos de caja descontados): el valor actual de los flujos de caja libres futuros "
-        "de la empresa. Es lo que vale hoy todo el dinero que se espera que genere, descontado al "
-        "coste de capital.",
-        "- **DCF inverso**: la misma ecuación leída al revés. En vez de calcular cuánto vale la "
-        "empresa, busca el crecimiento que el precio de mercado da por hecho.",
-        "- **EPV** (valor sin crecimiento, de Greenwald): lo que valdría la empresa si sus beneficios "
-        "actuales se mantuvieran para siempre, sin crecer. Greenwald ajusta además la diferencia entre "
-        "la amortización y el capex de mantenimiento; aquí no se hace, porque ninguna fuente separa "
-        "el capex de mantenimiento del de expansión.",
-        "- **Beneficio residual**: el método para bancos y aseguradoras, cuyo flujo de caja no "
-        "significa nada. Su valor es el patrimonio contable más lo que vale la rentabilidad que supera "
-        "al coste del capital propio, que se supone que persiste.",
-        "- **ROE**: la rentabilidad sobre el patrimonio, el beneficio neto entre el patrimonio neto. "
-        "Dice cuánto gana la empresa por cada unidad de capital de sus accionistas.",
-        "- **Beta, R² y Blume**: la beta dice cuánto se mueve la acción con el mercado; 1.0 es lo "
-        "mismo que él. El R² es la parte de los movimientos de la acción que el mercado explica, y un "
-        "R² bajo significa una beta ruidosa. El ajuste de Blume acerca la beta medida un 33% del "
-        "camino hacia 1.0, porque con el tiempo las betas tienden a él.",
-        "- **Coste de capital (WACC)**: lo que cuesta de media financiarse con deuda y con capital "
-        "propio, según el peso de cada uno. El **coste del capital propio** es la parte de los "
-        "accionistas: la tasa libre más la beta por la prima de riesgo.",
-        "- **Crecimiento a perpetuidad y valor terminal**: pasados los años proyectados se supone que "
-        "los flujos crecen para siempre a un ritmo bajo, que nunca supera a la tasa libre. El valor "
-        "terminal es lo que valen todos esos flujos posteriores, y pesa mucho en el valor total.",
-        "- **Margen de seguridad**: aquí es (valor base − precio) / precio, es decir, cuánto más vale "
-        "la empresa que su precio. No es el de Graham, (valor − precio) / valor, que se mide sobre "
-        "el valor.",
-        "- **Veredicto**: hacen falta dos votos en el mismo sentido y ninguno en contra. Una «cara» "
-        "con dos «neutra» es «en rango»; una «barata» con una «cara», señales mixtas; con menos de 2 "
-        "votos aplicables, sin datos suficientes.",
-    ]
+def test_el_glosario_nombra_a_todas_las_entidades_financieras():
+    glosario = mv.glosario()
+    assert "(bancos, aseguradoras y mercados de capitales)" in glosario
+    assert "bancos y aseguradoras," not in glosario
+
+
+def test_el_glosario_explica_de_donde_sale_el_rango():
+    glosario = mv.glosario()
+    assert "**Escenarios** (pesimista, base y optimista)" in glosario
+    assert "sube 1 punto el coste de capital" in glosario
+    assert "lo baja 1 punto" in glosario
+    assert "es lo que hace tan ancho el rango" in glosario
+
+
+def test_el_glosario_nombra_la_tasa_libre_y_la_prima():
+    assert "Tesoro de EE. UU. a 10 años (^TNX)" in mv.glosario()
+    assert "La prima de riesgo, que publica Damodaran" in mv.glosario()
 
 
 def test_el_glosario_es_markdown_sin_etiquetas():
-    entradas = [linea for linea in mv.GLOSARIO.split("\n") if linea]
-    assert len(entradas) == 10
+    entradas = [linea for linea in mv.glosario().split("\n") if linea]
+    assert len(entradas) == 14
     assert all(linea.startswith("- **") for linea in entradas)
-    assert "<" not in mv.GLOSARIO and ">" not in mv.GLOSARIO
+    assert "<" not in mv.glosario() and ">" not in mv.glosario()
 
 
 def test_el_resumen_no_repite_el_glosario():
     # El glosario se pinta una vez por pantalla; si cada resumen lo llevara, serían quince.
-    glosario = re.sub(r"\*\*", "", mv.GLOSARIO)
+    glosario = re.sub(r"\*\*", "", mv.glosario())
     for valoracion in (_fija(), _fija_residual(), fallida("sin_precio")):
         salida = _texto(mv.resumen(valoracion))
         for entrada in glosario.split("\n"):
             definicion = entrada.split(": ", 1)[1]
             assert definicion[:50] not in salida
+
+
+# --- Los textos siguen al criterio ----------------------------------------------------------------
+# Si un listón del criterio se enmienda, la pantalla tiene que cambiar con él:
+# cada test cambia el valor en el módulo y mira que el texto lo siga.
+
+
+def test_los_anos_proyectados_siguen_al_criterio(monkeypatch):
+    monkeypatch.setattr(mv, "ANOS_ALTO_CRECIMIENTO", 7)
+    detalle = _detalle(_fija(), "flujos")
+    assert "durante 7 años" in detalle
+    assert "durante 5 años" not in detalle
+
+
+def test_los_limites_del_inverso_de_crecimiento_siguen_al_criterio(monkeypatch):
+    monkeypatch.setattr(mv, "INVERSO_LIMITES", (-0.4, 0.9))
+    base = {"magnitud": "crecimiento", "valor": 0.5, "referencia": 0.4, "margen": 0.2}
+    arriba = _fija(implicito={**base, "fuera_de_limites": "arriba"})
+    abajo = _fija(implicito={**base, "fuera_de_limites": "abajo"})
+    assert _detalle(arriba, "flujos") == "el precio da por hecho un crecimiento de más del 90.0% al año"
+    assert _detalle(abajo, "flujos") == "el precio es tan bajo que ni una caída del 40.0% al año lo explicaría"
+
+
+def test_los_limites_del_inverso_de_roe_siguen_al_criterio(monkeypatch):
+    monkeypatch.setattr(mv, "INVERSO_ROE_LIMITES", (-0.1, 0.7))
+    base = {"magnitud": "roe", "valor": 0.5, "referencia": 0.15, "margen": 0.075}
+    arriba = _fija_residual(implicito={**base, "fuera_de_limites": "arriba"})
+    abajo = _fija_residual(implicito={**base, "fuera_de_limites": "abajo"})
+    assert _detalle(arriba, "flujos") == "el precio exige un ROE de más del 70.0%"
+    assert _detalle(abajo, "flujos") == "el precio es tan bajo que ni un ROE del −10.0% lo explicaría"
+
+
+def test_los_topes_de_la_tasa_efectiva_siguen_al_criterio(monkeypatch):
+    monkeypatch.setattr(mv, "TASA_EFECTIVA_TOPES", (0.05, 0.2))
+    assert mv.procedencia("t", {"procedencia": {"fuente": "efectiva"}}) == (
+        "tasa efectiva de yfinance, acotada entre 5.0% y 20.0%"
+    )
+
+
+@pytest.mark.parametrize("fuente", ["historia_y_consenso", "historia", "consenso"])
+def test_los_topes_del_crecimiento_de_referencia_siguen_al_criterio(monkeypatch, fuente):
+    monkeypatch.setattr(mv, "CRECIMIENTO_REF_TOPES", (-0.2, 0.5))
+    texto = mv.procedencia("g_ref", {"procedencia": {"fuente": fuente, "historico": 0.1, "consenso": 0.1}})
+    assert texto.endswith("entre −20.0% y 50.0%")
+
+
+def test_el_tope_de_la_prima_de_la_deuda_sigue_al_criterio(monkeypatch):
+    monkeypatch.setattr(mv, "COSTE_DEUDA_PRIMA_MAXIMA", 0.05)
+    texto = mv.procedencia("k_d", {"procedencia": {"fuente": "gasto_entre_deuda"}})
+    assert texto.endswith("esa tasa más 5.0 puntos")
+
+
+def test_el_reparto_por_defecto_sigue_al_criterio(monkeypatch):
+    monkeypatch.setattr(mv, "PAYOUT_SIN_DATO", 0.3)
+    assert mv.procedencia("payout", {"procedencia": {"fuente": "por_defecto"}}) == "sin dato: se supone el 30.0%"
+
+
+@pytest.mark.parametrize(
+    ("holgura", "esperado"),
+    [(0.01, "al menos 1 punto,"), (0.02, "al menos 2 puntos,"), (0.015, "al menos 1.5 puntos,")],
+)
+def test_la_holgura_de_gordon_sigue_al_criterio(monkeypatch, holgura, esperado):
+    monkeypatch.setattr(mv, "HOLGURA_GORDON", holgura)
+    assert esperado in mv.etiqueta_motivo("wacc_bajo_crecimiento")
+
+
+def test_el_motivo_de_la_holgura_llega_a_la_fila_del_voto(monkeypatch):
+    monkeypatch.setattr(mv, "HOLGURA_GORDON", 0.02)
+    votos = {**_fija()["votos"], "flujos": {"voto": "no_aplica", "motivo": "wacc_bajo_crecimiento"}}
+    assert "al menos 2 puntos," in _detalle(_fija(votos=votos), "flujos")
+
+
+def test_los_votos_minimos_siguen_al_criterio(monkeypatch):
+    monkeypatch.setattr(mv, "MIN_VOTOS", 3)
+    assert "menos de 3 votos aplicables" in mv.glosario()
+
+
+def test_el_ajuste_de_blume_sigue_al_criterio(monkeypatch):
+    monkeypatch.setattr(mv, "BLUME", (0.5, 0.5))
+    assert "un 50% del camino hacia 1.0" in mv.glosario()
+
+
+@pytest.mark.parametrize(
+    ("delta", "salto"), [(0.01, "1 punto"), (0.02, "2 puntos"), (0.005, "0.5 puntos")]
+)
+def test_el_salto_del_coste_de_capital_de_los_escenarios_sigue_al_criterio(monkeypatch, delta, salto):
+    monkeypatch.setattr(mv, "DELTA_WACC_ESCENARIOS", delta)
+    glosario = mv.glosario()
+    assert f"sube {salto} el coste de capital" in glosario
+    assert f"lo baja {salto}." in glosario
 
 
 # --- La tarjeta --------------------------------------------------------------------------------

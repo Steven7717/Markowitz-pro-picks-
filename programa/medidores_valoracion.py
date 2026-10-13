@@ -27,6 +27,7 @@ from valoracion.criterio import (
     BLUME,
     COSTE_DEUDA_PRIMA_MAXIMA,
     CRECIMIENTO_REF_TOPES,
+    DELTA_WACC_ESCENARIOS,
     HOLGURA_GORDON,
     INVERSO_LIMITES,
     INVERSO_ROE_LIMITES,
@@ -61,27 +62,32 @@ _NOMBRE_VOTO_RESIDUAL = {**NOMBRE_VOTO, "flujos": "Beneficio residual"}
 
 # Ninguna etiqueta empieza por «no aplica» ni por «no se pudo», ni las repite:
 # en la fila de un voto ya está el «No aplica» a su izquierda, y delante de una
-# valoración fallida va «Sin valoración:».
+# valoración fallida va «Sin valoración:». Las que pueden ir detrás de ese
+# prefijo (las de una fallida) tampoco llevan dos puntos: saldrían dos seguidos.
+#
+# `{holgura}` se rellena al pintar, en `etiqueta_motivo`, y no al importar: es la
+# holgura del criterio, y un texto fijado al importar se quedaría con el número
+# viejo si alguien la enmienda. Úsese `etiqueta_motivo`, no `MOTIVO[...]`.
 MOTIVO = {
     "quema_caja": "quema caja: valorarla exigiría inventar cuándo deja de hacerlo",
     "ebit_negativo": "beneficio operativo negativo: sin crecer no queda nada que capitalizar",
     "sin_historia": "faltan años de historia",
     "wacc_bajo_crecimiento": (
         "el coste de capital no supera al crecimiento a perpetuidad en al menos "
-        f"{HOLGURA_GORDON * 100:.1f} puntos, y el valor terminal explotaría"
+        "{holgura}, y el valor terminal explotaría"
     ),
     "sin_pares": "sin pares del sector con los que comparar",
     "sin_precio": "Yahoo Finance no devolvió el precio",
     "sin_tasa_libre": "Yahoo Finance no devolvió la tasa libre de riesgo",
-    "financiera": "se valora por beneficio residual (bancos y aseguradoras)",
+    "financiera": "se valora por beneficio residual (entidades financieras)",
     "patrimonio_negativo": "patrimonio negativo: no hay base sobre la que medir la rentabilidad",
     "sin_beneficio_operativo": (
         "no declara beneficio operativo, así que no hay valor sin crecimiento que calcular"
     ),
     "sin_flujo_libre": "no declara capex o flujo operativo, así que no hay flujo libre que proyectar",
-    "sin_red": "Yahoo Finance no devolvió datos: sin conexión, un error suyo o un símbolo que no conoce",
+    "sin_red": "Yahoo Finance no devolvió datos (sin conexión, un error suyo o un símbolo que no conoce)",
     "sin_estados": "los estados financieros de la SEC no están disponibles o no son legibles",
-    "error_interno": "error interno al valorar: merece avisar de ello",
+    "error_interno": "error interno al valorar (merece avisar de ello)",
 }
 
 NOTA = (
@@ -101,20 +107,34 @@ LECTURA_MARGEN = (
     "puede convivir con «en rango» cuando el crecimiento de referencia es alto."
 )
 
-# La regla del repo es explicar la identidad de cada término técnico la primera
-# vez que sale en una pantalla, no en cada tarjeta: la vista pinta esto UNA vez y
-# `resumen` no lo repite en ninguno de los resúmenes.
-GLOSARIO = f"""\
+def glosario() -> str:
+    """Los términos técnicos de la pantalla, en markdown, para pintarlos una vez.
+
+    La regla del repo es explicar la identidad de cada término la primera vez que
+    sale en una pantalla, no en cada tarjeta: la vista llama a esto UNA vez y
+    `resumen` no lo repite en ninguno de los resúmenes. Es una función y no una
+    constante porque lleva números del criterio (Blume, los votos mínimos, el
+    salto del coste de capital): leídos al importar, se quedarían con el valor
+    viejo si el criterio se enmienda.
+    """
+    blume = (1 - BLUME[0]) * 100
+    salto = _n_puntos(DELTA_WACC_ESCENARIOS)
+    return f"""\
 - **DCF** (flujos de caja descontados): el valor actual de los flujos de caja libres futuros de la empresa. Es lo que vale hoy todo el dinero que se espera que genere, descontado al coste de capital.
 - **DCF inverso**: la misma ecuación leída al revés. En vez de calcular cuánto vale la empresa, busca el crecimiento que el precio de mercado da por hecho.
-- **EPV** (valor sin crecimiento, de Greenwald): lo que valdría la empresa si sus beneficios actuales se mantuvieran para siempre, sin crecer. Greenwald ajusta además la diferencia entre la amortización y el capex de mantenimiento; aquí no se hace, porque ninguna fuente separa el capex de mantenimiento del de expansión.
-- **Beneficio residual**: el método para bancos y aseguradoras, cuyo flujo de caja no significa nada. Su valor es el patrimonio contable más lo que vale la rentabilidad que supera al coste del capital propio, que se supone que persiste.
+- **EPV** (valor sin crecimiento, de Greenwald): lo que valdría la empresa si su beneficio operativo después de impuestos se mantuviera para siempre, sin crecer. Greenwald ajusta además la diferencia entre la amortización y el capex de mantenimiento; aquí no se hace, porque ninguna fuente separa el capex de mantenimiento del de expansión.
+- **Beneficio residual**: el método para las entidades financieras (bancos, aseguradoras y mercados de capitales), cuyo flujo de caja no significa nada. Su valor es el patrimonio contable más lo que vale la rentabilidad que supera al coste del capital propio, que se supone que persiste.
+- **Capex**: la inversión en activos fijos, como fábricas, máquinas o equipos. El flujo de caja libre es el flujo de caja operativo menos el capex.
 - **ROE**: la rentabilidad sobre el patrimonio, el beneficio neto entre el patrimonio neto. Dice cuánto gana la empresa por cada unidad de capital de sus accionistas.
-- **Beta, R² y Blume**: la beta dice cuánto se mueve la acción con el mercado; 1.0 es lo mismo que él. El R² es la parte de los movimientos de la acción que el mercado explica, y un R² bajo significa una beta ruidosa. El ajuste de Blume acerca la beta medida un {(1 - BLUME[0]) * 100:.0f}% del camino hacia 1.0, porque con el tiempo las betas tienden a él.
+- **Consenso**: la media de las previsiones de los analistas; aquí, la del crecimiento de los ingresos del próximo año.
+- **Tasa libre de riesgo y prima de riesgo**: la tasa libre es lo que rinde el bono del Tesoro de EE. UU. a 10 años (^TNX), que se considera sin riesgo. La prima de riesgo, que publica Damodaran, es el extra que los inversores exigen por tener acciones en vez de ese bono.
+- **Beta, R² y Blume**: la beta dice cuánto se mueve la acción con el mercado; 1.0 es lo mismo que él. El R² es la parte de los movimientos de la acción que el mercado explica, y un R² bajo significa una beta ruidosa. El ajuste de Blume acerca la beta medida un {blume:.0f}% del camino hacia 1.0, porque con el tiempo las betas tienden a él.
 - **Coste de capital (WACC)**: lo que cuesta de media financiarse con deuda y con capital propio, según el peso de cada uno. El **coste del capital propio** es la parte de los accionistas: la tasa libre más la beta por la prima de riesgo.
 - **Crecimiento a perpetuidad y valor terminal**: pasados los años proyectados se supone que los flujos crecen para siempre a un ritmo bajo, que nunca supera a la tasa libre. El valor terminal es lo que valen todos esos flujos posteriores, y pesa mucho en el valor total.
+- **Escenarios** (pesimista, base y optimista): el base usa la referencia tal cual. El pesimista le resta la banda al crecimiento de referencia (o al ROE) y sube {salto} el coste de capital (en las entidades financieras, el del capital propio); el optimista le suma la banda y lo baja {salto}. Juntar los dos extremos es lo que hace tan ancho el rango.
 - **Margen de seguridad**: aquí es (valor base − precio) / precio, es decir, cuánto más vale la empresa que su precio. No es el de Graham, (valor − precio) / valor, que se mide sobre el valor.
 - **Veredicto**: hacen falta dos votos en el mismo sentido y ninguno en contra. Una «cara» con dos «neutra» es «en rango»; una «barata» con una «cara», señales mixtas; con menos de {MIN_VOTOS} votos aplicables, sin datos suficientes."""
+
 
 CSS = f"""<style>
 .mpp-veredicto {{
@@ -191,12 +211,20 @@ def _dinero(valor: object, moneda: str) -> str:
     return f"{cifra} {moneda}" if moneda else cifra
 
 
-def _motivo(clave: object) -> str:
-    """La etiqueta del motivo; una clave que no se conoce se enseña tal cual, que
+def _n_puntos(fraccion: float) -> str:
+    """«1 punto», «2 puntos»: una fracción del criterio dicha en puntos porcentuales."""
+    puntos = fraccion * 100
+    return f"{puntos:g} {'punto' if puntos == 1 else 'puntos'}"
+
+
+def etiqueta_motivo(clave: object) -> str:
+    """La etiqueta de un motivo; una clave que no se conoce se enseña tal cual, que
     es mejor que esconderla, y una que ni es texto, «n/d»."""
     if not isinstance(clave, str):
         return "n/d"
-    return MOTIVO.get(clave, clave)
+    if clave not in MOTIVO:
+        return clave
+    return MOTIVO[clave].format(holgura=_n_puntos(HOLGURA_GORDON))
 
 
 def distintivo(valoracion: "dict | None") -> str:
@@ -231,17 +259,14 @@ def _detalle_crecimiento(lectura: dict) -> str:
     if lectura.get("fuera_de_limites") == "arriba":
         return f"el precio da por hecho un crecimiento de más del {_pct(alto)} al año"
     if lectura.get("fuera_de_limites") == "abajo":
-        return (
-            f"el precio es tan bajo que incluso una caída de más del {_pct(-bajo)} "
-            "al año se queda corta"
-        )
+        return f"el precio es tan bajo que ni una caída del {_pct(-bajo)} al año lo explicaría"
     g = _numero(lectura.get("valor"))
     if g is None:
         return "n/d"
     if g >= 0:
-        exige = f"que los ingresos crezcan un {_pct(g)} al año"
+        exige = f"que los ingresos crecerán un {_pct(g)} al año"
     else:
-        exige = f"que los ingresos caigan un {_pct(-g)} al año"
+        exige = f"que los ingresos caerán un {_pct(-g)} al año"
     return (
         f"el precio da por hecho {exige} durante {ANOS_ALTO_CRECIMIENTO} años; "
         f"{_banda(lectura, crecimiento=True)}"
@@ -253,7 +278,7 @@ def _detalle_roe(lectura: dict) -> str:
     if lectura.get("fuera_de_limites") == "arriba":
         return f"el precio exige un ROE de más del {_pct(alto)}"
     if lectura.get("fuera_de_limites") == "abajo":
-        return f"el precio es tan bajo que incluso un ROE inferior al {_pct(bajo)} se queda corto"
+        return f"el precio es tan bajo que ni un ROE del {_pct(bajo)} lo explicaría"
     return (
         f"el precio exige un ROE del {_pct(lectura.get('valor'))}; "
         f"{_banda(lectura, crecimiento=False)}"
@@ -285,7 +310,7 @@ _DETALLE_PARES = {
 
 def _detalle(clave: str, voto: dict, valoracion: dict) -> str:
     if voto.get("voto") == "no_aplica":
-        return _motivo(voto.get("motivo"))
+        return etiqueta_motivo(voto.get("motivo"))
     if clave == "flujos":
         return _detalle_flujos(valoracion)
     if clave == "sin_crecimiento":
@@ -410,7 +435,7 @@ def procedencia(nombre: str, supuesto: dict) -> str:
             f"acotado entre {g_bajo} y {g_alto}"
         ),
         ("g_ref", "sin_dato"): "sin historia ni consenso",
-        ("g_perpetuo", "criterio"): f"crecimiento nominal a perpetuidad en {p.get('moneda')}",
+        ("g_perpetuo", "criterio"): f"criterio fijo del programa para el {p.get('moneda')}",
         ("g_perpetuo", "recortado_a_r_f"): "recortado a la tasa libre de riesgo",
         ("roe_ref", "mediana_historica"): f"mediana de {p.get('anos')} años",
         ("roe_ref", "sin_dato"): "sin años suficientes",
@@ -451,14 +476,14 @@ def _supuestos(valoracion: dict) -> str:
 def resumen(valoracion: dict) -> str:
     """Los tres votos en una línea cada uno, el rango y la procedencia de los supuestos.
 
-    No explica los términos: de eso se encarga `GLOSARIO`, una vez por pantalla.
+    No explica los términos: de eso se encarga `glosario()`, una vez por pantalla.
     """
     if not isinstance(valoracion, dict):
         return ""
     if "veredicto" not in valoracion:
         return (
             f'<div class="mpp-val">Sin valoración: '
-            f'{_esc(_motivo(valoracion.get("motivo")))}.</div>'
+            f'{_esc(etiqueta_motivo(valoracion.get("motivo")))}.</div>'
         )
     nombres = _NOMBRE_VOTO_RESIDUAL if _metodo_residual(valoracion) else NOMBRE_VOTO
     votos = _dic(valoracion.get("votos"))
