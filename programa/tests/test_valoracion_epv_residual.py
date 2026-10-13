@@ -108,11 +108,39 @@ def test_un_ejercicio_sin_ingresos_no_cuenta():
     assert epv_por_accion(f, 0.25, 0.10, 0.0, 0.0, 10.0) == (None, "sin_historia")
 
 
+@pytest.mark.parametrize("anos", [2, 4])
+def test_si_ninguna_empresa_declara_beneficio_operativo_el_motivo_no_es_la_historia(anos):
+    # XOM, JNJ, LLY, MRK, PFE, IBM y GE no etiquetan OperatingIncomeLoss: tienen
+    # años de sobra y lo que falta es el dato, y «sin historia» mentiría. Con dos
+    # años, el mínimo de historia, ya cuenta.
+    f = fundamentos(ejercicios=[ejercicio(2026 - i, beneficio_operativo=math.nan) for i in range(anos)])
+    assert margen_operativo(f) is None
+    assert epv_por_accion(f, 0.25, 0.10, 0.0, 0.0, 10.0) == (None, "sin_beneficio_operativo")
+
+
+def test_con_un_solo_beneficio_operativo_declarado_tampoco_hay_margen():
+    f = fundamentos(
+        ejercicios=[
+            ejercicio(2026),
+            ejercicio(2025, beneficio_operativo=math.nan),
+            ejercicio(2024, beneficio_operativo=math.nan),
+        ]
+    )
+    assert epv_por_accion(f, 0.25, 0.10, 0.0, 0.0, 10.0) == (None, "sin_beneficio_operativo")
+
+
 def test_con_un_solo_ejercicio_con_ingresos_el_motivo_es_la_historia():
     # El otro año no tiene ingresos ni beneficio operativo: aquí sí falta historia.
     f = fundamentos(
         ejercicios=[ejercicio(2026), ejercicio(2025, ingresos=math.nan, beneficio_operativo=math.nan)]
     )
+    assert epv_por_accion(f, 0.25, 0.10, 0.0, 0.0, 10.0) == (None, "sin_historia")
+
+
+def test_con_ingresos_del_ultimo_ejercicio_sin_declarar_no_hay_epv():
+    # Antes decía «ebit_negativo»: el producto con NaN no es mayor que cero, y la
+    # causa es otra, que el beneficio que se capitaliza no se puede calcular.
+    f = fundamentos(ejercicios=[ejercicio(2026, ingresos=math.nan), ejercicio(2025), ejercicio(2024)])
     assert epv_por_accion(f, 0.25, 0.10, 0.0, 0.0, 10.0) == (None, "sin_historia")
 
 

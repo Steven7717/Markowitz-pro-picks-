@@ -35,8 +35,40 @@ def epv_por_accion(
     efectivo: float,
     acciones: float,
 ) -> "tuple[float | None, str | None]":
+    """El valor por acción de lo que el negocio gana hoy, sin crecer, y el motivo si no hay.
+
+    `Valor = (margen × ingresos_TTM × (1 − t) / wacc − deuda + efectivo) / acciones`:
+    el margen operativo es el agregado de los años con dato (`margen_operativo`) y
+    los ingresos son los del último ejercicio, el TTM más reciente. Se capitaliza
+    el beneficio de hoy y no el de la media, para que el valor sea el del negocio
+    que hay y no el de un promedio de lo que fue.
+
+    Devuelve `(valor, None)` o `(None, motivo)`, y los motivos son claves de
+    `votos.MOTIVOS`:
+    - `sin_historia`: menos de `MIN_ANOS_HISTORIA` ejercicios con ingresos, o los
+      ingresos del último no están declarados (sin ellos no hay beneficio que
+      capitalizar);
+    - `sin_beneficio_operativo`: hay años de sobra pero menos de
+      `MIN_ANOS_HISTORIA` declaran el beneficio operativo. Es lo que pasa con XOM,
+      JNJ, LLY, MRK, PFE, IBM o GE, que no etiquetan `OperatingIncomeLoss`: lo que
+      falta es el dato, no la historia, y decir lo segundo despistaría;
+    - `ebit_negativo`: el beneficio operativo normalizado no es positivo.
+
+    El valor puede ser negativo con `motivo` vacío: si la deuda neta supera al
+    beneficio capitalizado, el negocio sin crecer no cubre lo que se debe. Es un
+    resultado y no un fallo, y el voto es entonces `neutra`.
+
+    Exige `wacc > 0` y `acciones > 0` y no lo comprueba: quien llama lo garantiza.
+    """
     margen = margen_operativo(fundamentos)
     if margen is None:
+        con_ingresos = sum(1 for e in fundamentos.ejercicios if e.ingresos > 0)
+        if con_ingresos >= MIN_ANOS_HISTORIA:
+            return None, "sin_beneficio_operativo"
+        return None, "sin_historia"
+    # Con los ingresos del último sin declarar el producto sería NaN, y NaN no es
+    # mayor que cero: saldría `ebit_negativo` cuando la causa es otra.
+    if not fundamentos.ultimo.ingresos > 0:
         return None, "sin_historia"
     operativo = margen * fundamentos.ultimo.ingresos
     if not operativo > 0:
