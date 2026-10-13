@@ -414,7 +414,7 @@ funciones:
 `medidores.tarjeta_candidato` pinta el distintivo en la cabecera de la tarjeta.
 
 **`vistas/candidatos.py`.** Dentro del desplegable de cada ficha, un bloque
-«Valoración» con `medidores_valoracion.resumen` y esta nota:
+«Valor intrínseco» con `medidores_valoracion.resumen` y esta nota:
 
 > Un criterio transparente, no una previsión: no hay forma honesta de probar
 > hacia atrás si acierta, porque las cifras de yfinance no dicen cuándo se
@@ -422,6 +422,19 @@ funciones:
 
 La nota del orden («el score no está validado empíricamente») ya existe y no se
 toca.
+
+*Enmienda del 2026-10-13, en la revisión de la Task 13.* El bloque se llamaba
+«Valoración», y tres líneas más arriba de la misma ficha está el pilar
+«valoración» del score, que además es el voto «Frente a sus pares». Pasa a
+llamarse «Valor intrínseco», que es como lo pidió el usuario. Además:
+- La nota y la lectura del margen sólo salen cuando hay números. Con una
+  fallida no hay margen ni votos que explicar, y la del margen tiene una
+  variante para el beneficio residual, que compara ROE y no crecimiento.
+- El aviso común deja la vista y pasa a `medidores_valoracion`, con tests.
+  Avisa también del corte a mitad de corrida («11 de 15 candidatos sin
+  valorar»), no sólo de que fallen todas.
+- Un motivo que no es texto en un `fichas.json` editado a mano ya no tumba la
+  pantalla entera.
 
 **El acta** copia las fichas dentro, así que registra la valoración sin tocar
 `aprobacion/acta.py`.
@@ -431,7 +444,7 @@ toca.
 | Situación | Qué se ve |
 |---|---|
 | Sin red al generar | Las dos primeras fichas dicen `sin_red` y las demás heredan ese motivo sin volver a preguntar; el ranking sale igual |
-| `^TNX` no responde | Todas las fichas dicen `sin_tasa_libre`. Un aviso, no quince |
+| `^TNX` no responde | Todas las fichas dicen `sin_tasa_libre`. Un aviso, no quince; si falla a mitad, el aviso dice cuántas quedaron sin valorar |
 | Empresa que quema caja | El voto de flujos es `no_aplica`, con «quema caja: valorarla exigiría inventar cuándo deja de hacerlo», nunca un cero |
 | Coste de capital por debajo del crecimiento perpetuo + 1 punto | El voto de flujos es `no_aplica`, por `wacc_bajo_crecimiento` |
 | Ficha de una versión anterior | «Sin valoración: ficha de una versión anterior» |

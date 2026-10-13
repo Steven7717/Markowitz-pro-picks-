@@ -4035,7 +4035,7 @@ Con las herramientas de vista previa: `preview_start` con `name: "markowitz-app"
 En «Revisar candidatos», elige «Sin IA» y pulsa «Generar gratis». Tarda unos minutos: el panel sale de caché y la valoración hace unas sesenta descargas. Comprueba:
 - el indicador de progreso menciona el valor intrínseco;
 - cada tarjeta lleva un distintivo de veredicto junto al sector;
-- al desplegar una ficha aparece «Valoración», con los tres votos, el rango, la fecha, los supuestos y la nota;
+- al desplegar una ficha aparece «Valor intrínseco», con los tres votos, el rango, la fecha, los supuestos y la nota;
 - `read_console_messages` y `preview_logs` sin errores.
 
 Haz una captura de la tarjeta y de una ficha desplegada.
