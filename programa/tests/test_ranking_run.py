@@ -13,6 +13,20 @@ from ranking.llm import redactar_con_cache as redactar_con_cache_real
 from ranking.run import Resultado, _contexto, construir_ranking, guardar
 from ranking.verificacion import sin_digitos
 
+
+@pytest.fixture(autouse=True)
+def valoracion_doble():
+    """La valoración sale a yfinance; aquí no se prueba ella, sino dónde cae.
+
+    Autouse porque `construir_ranking` valora por defecto: sin esto, cada test
+    de este fichero saldría a la red quince veces.
+    """
+    with patch(
+        "ranking.run.valorar",
+        return_value={"version": "m1", "fecha": "2026-10-12", "motivo": "sin_precio"},
+    ) as doble:
+        yield doble
+
 SECTORES = {"Tech": 6, "Financials": 6, "Health": 6}
 
 
@@ -408,3 +422,61 @@ def test_menos_candidatos_que_el_top_no_revienta_ni_rellena():
         resultado = construir_ranking(con_llm=False, n=15)
     assert resultado.fichas == []
     assert resultado.exclusiones.get("sector_sin_pares") == 2
+
+
+# --- La valoración en cada ficha: se adjunta, no puntúa -------------------
+
+
+def test_cada_ficha_lleva_su_valoracion(sin_red, valoracion_doble):
+    resultado = construir_ranking(con_llm=False, n=5)
+    assert all("valoracion" in ficha for ficha in resultado.fichas)
+    llamadas = {c.args[0]: c.args[1] for c in valoracion_doble.call_args_list}
+    for ficha in resultado.fichas:
+        assert llamadas[ficha["ticker"]] == ficha["pilares"]["valoracion"]
+
+
+def test_sin_valoracion_no_se_sale_a_valorar(sin_red, valoracion_doble):
+    resultado = construir_ranking(con_llm=False, n=5, con_valoracion=False)
+    assert all("valoracion" not in ficha for ficha in resultado.fichas)
+    valoracion_doble.assert_not_called()
+
+
+def test_una_valoracion_que_revienta_no_tumba_la_corrida(sin_red, valoracion_doble):
+    valoracion_doble.side_effect = RuntimeError("un defecto del motor")
+    resultado = construir_ranking(con_llm=False, n=5)
+    assert {f["valoracion"]["motivo"] for f in resultado.fichas} == {"error_interno"}
+
+
+def test_sin_tasa_libre_se_deja_de_preguntar_tras_el_primero(sin_red, valoracion_doble):
+    valoracion_doble.return_value = {"version": "m1", "fecha": "2026-10-12", "motivo": "sin_tasa_libre"}
+    resultado = construir_ranking(con_llm=False, n=5)
+    assert valoracion_doble.call_count == 1
+    assert {f["valoracion"]["motivo"] for f in resultado.fichas} == {"sin_tasa_libre"}
+
+
+def test_sin_red_se_deja_de_preguntar_tras_dos_seguidos(sin_red, valoracion_doble):
+    valoracion_doble.return_value = {"version": "m1", "fecha": "2026-10-12", "motivo": "sin_red"}
+    resultado = construir_ranking(con_llm=False, n=5)
+    assert valoracion_doble.call_count == 2
+    assert {f["valoracion"]["motivo"] for f in resultado.fichas} == {"sin_red"}
+
+
+def test_un_sin_red_suelto_no_corta_a_los_demas(sin_red, valoracion_doble):
+    # Un símbolo que Yahoo no conoce da `sin_red` con la red sana.
+    buena = {"version": "m1", "fecha": "2026-10-12", "motivo": "sin_estados"}
+    rara = {"version": "m1", "fecha": "2026-10-12", "motivo": "sin_red"}
+    valoracion_doble.side_effect = [rara, buena, rara, buena, buena]
+    construir_ranking(con_llm=False, n=5)
+    assert valoracion_doble.call_count == 5
+
+
+def test_un_fallo_de_una_empresa_no_corta_las_demas(sin_red, valoracion_doble):
+    valoracion_doble.return_value = {"version": "m1", "fecha": "2026-10-12", "motivo": "sin_estados"}
+    construir_ranking(con_llm=False, n=5)
+    assert valoracion_doble.call_count == 5
+
+
+def test_guardar_con_valoracion_sigue_siendo_json_estricto(sin_red, tmp_path):
+    guardar(construir_ranking(con_llm=False, n=5), tmp_path)
+    fichas = json.loads((tmp_path / "fichas.json").read_text(encoding="utf-8"))
+    assert all(f["valoracion"]["version"] == "m1" for f in fichas)

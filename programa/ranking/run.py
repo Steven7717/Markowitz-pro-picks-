@@ -19,6 +19,8 @@ from ranking.score import (
     puntuaciones_por_pilar,
 )
 from ranking.seleccion import desplazamientos_por_ticker, seleccionar
+from valoracion.motor import valorar
+from valoracion.plano import fallida
 
 
 @dataclass
@@ -67,12 +69,27 @@ def _con_narrativa(ficha: dict, cache_dir: Path | None) -> dict:
     return {**ficha, "narrativa": narrativa, "generada_por": "sonnet-5"}
 
 
+def _valoracion(ticker: str, pilar_valoracion: "float | None") -> dict:
+    """La valoración de una ficha, o por qué no la tiene.
+
+    Una empresa que falla al valorarse se anota y la corrida sigue: es la
+    política de la descarga de fundamentales. Y un defecto del propio motor
+    tampoco tumba el ranking, pero no se calla: queda escrito como
+    `error_interno` en la ficha, a la vista en la pantalla.
+    """
+    try:
+        return valorar(ticker, pilar_valoracion)
+    except Exception:
+        return fallida("error_interno")
+
+
 def construir_ranking(
     source: str | list[str] = "sp500",
     con_llm: bool = True,
     n: int = TAMANO_TOP,
     tope: int = TOPE_POR_SECTOR,
     cache_dir: Path | None = None,
+    con_valoracion: bool = True,
 ) -> Resultado:
     """Panel in, ranked candidates out.
 
@@ -99,6 +116,15 @@ def construir_ranking(
     elegidas, desplazadas = seleccionar(puntos, sectores, tope=tope, n=n)
     mapa = desplazamientos_por_ticker(desplazadas)
 
+    # Sin red o sin tasa libre, las quince fallarían igual, y con una red que no
+    # contesta cada intento tarda unos 21 s (medido en la revisión de la Task 9):
+    # cinco minutos para nada. Se deja de preguntar, como hace el cortacircuitos
+    # de `fundamentals/fetch.py`. La tasa libre es la misma para todas, así que
+    # basta un fallo. `sin_red` exige dos seguidos: un símbolo que Yahoo no
+    # conoce también da `sin_red`, y uno solo no puede apagar a los demás.
+    corte: "str | None" = None
+    sin_red_seguidos = 0
+
     fichas = []
     for fila in elegidas.itertuples(index=False):
         ficha = ficha_numerica(
@@ -114,6 +140,18 @@ def construir_ranking(
         )
         if con_llm:
             ficha = _con_narrativa(ficha, cache_dir)
+        if con_valoracion:
+            # La valoración no toca el score: se calcula sobre las ya elegidas
+            # y sólo se enseña. Ver el spec de M, «Integración».
+            if corte is None:
+                valoracion = _valoracion(fila.ticker, ficha["pilares"].get("valoracion"))
+                motivo = valoracion.get("motivo")
+                sin_red_seguidos = sin_red_seguidos + 1 if motivo == "sin_red" else 0
+                if motivo == "sin_tasa_libre" or sin_red_seguidos >= 2:
+                    corte = motivo
+            else:
+                valoracion = fallida(corte)
+            ficha = {**ficha, "valoracion": valoracion}
         fichas.append(ficha)
 
     tabla = pilares.join(puntos.rename("compuesto")).join(motivos.rename("exclusion"))
