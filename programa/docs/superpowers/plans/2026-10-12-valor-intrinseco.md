@@ -2015,6 +2015,19 @@ def test_con_beneficio_operativo_negativo_no_hay_epv():
     assert epv_por_accion(f, 0.25, 0.10, 0.0, 0.0, 10.0) == (None, "ebit_negativo")
 
 
+def test_el_margen_operativo_es_agregado_y_no_la_mediana():
+    # Ingresos 1.000, 100 y 100 con márgenes del 30 %, 5 % y 5 %: la mediana
+    # sería 0,05 y el agregado (300 + 5 + 5) / 1.200.
+    f = fundamentos(
+        ejercicios=[
+            ejercicio(2026, ingresos=1000.0, beneficio_operativo=300.0),
+            ejercicio(2025, ingresos=100.0, beneficio_operativo=5.0),
+            ejercicio(2024, ingresos=100.0, beneficio_operativo=5.0),
+        ]
+    )
+    assert margen_operativo(f) == pytest.approx(310.0 / 1200.0)
+
+
 def test_sin_anos_suficientes_no_hay_epv():
     f = fundamentos(ejercicios=[ejercicio(2026)])
     assert margen_operativo(f) is None
@@ -2081,21 +2094,24 @@ mantenimiento del de expansión, y la pantalla lo dice.
 
 import math
 
-import numpy as np
-
 from valoracion.criterio import MIN_ANOS_HISTORIA
 from valoracion.fundamentos import Fundamentos
 
 
 def margen_operativo(fundamentos: Fundamentos) -> "float | None":
-    margenes = [
-        e.beneficio_operativo / e.ingresos
-        for e in fundamentos.ejercicios
+    """El margen operativo agregado: suma de beneficios operativos entre suma de ingresos.
+
+    Agregado y no mediana, igual que `dcf.margen_fcff` y por la misma razón
+    (decisión del 2026-10-12): la mediana pesaba un año pequeño del pasado lo
+    mismo que el actual en una empresa que ha crecido mucho.
+    """
+    validos = [
+        e for e in fundamentos.ejercicios
         if e.ingresos > 0 and math.isfinite(e.beneficio_operativo)
     ]
-    if len(margenes) < MIN_ANOS_HISTORIA:
+    if len(validos) < MIN_ANOS_HISTORIA:
         return None
-    return float(np.median(margenes))
+    return sum(e.beneficio_operativo for e in validos) / sum(e.ingresos for e in validos)
 
 
 def epv_por_accion(
@@ -2138,14 +2154,12 @@ años, en línea recta, y después el exceso es cero: no hay valor terminal apar
 
 from dataclasses import dataclass
 
-from valoracion.criterio import (
-    ANOS_ALTO_CRECIMIENTO,
-    ANOS_CONVERGENCIA,
-    INVERSO_ROE_LIMITES,
-)
-from valoracion.inverso import Implicito, biseccion
+from valoracion.criterio import INVERSO_ROE_LIMITES
 
-ANOS = ANOS_ALTO_CRECIMIENTO + ANOS_CONVERGENCIA
+# El mismo horizonte que el DCF, importado y no recalculado: dos copias de una
+# suma se separan igual que dos de un número.
+from valoracion.dcf import ANOS
+from valoracion.inverso import Implicito, biseccion
 
 
 @dataclass(frozen=True)
@@ -2190,7 +2204,7 @@ def roe_implicito(datos: DatosResidual, precio: float) -> Implicito:
 - [ ] **Step 5: Pasar los tests**
 
 Run: `uv run pytest tests/test_valoracion_epv_residual.py -v`
-Expected: 11 passed.
+Expected: 12 passed.
 
 - [ ] **Step 6: Commit**
 

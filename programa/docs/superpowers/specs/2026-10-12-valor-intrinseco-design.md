@@ -206,8 +206,17 @@ quien la usa. Una función que no importa nadie es la que acaba borrada, como
 **Proyección.** Ingresos a 10 años: del año 1 al 5 crecen a `g`; del 6 al 10,
 el crecimiento baja en línea recta hasta `g_perpetuo`, al que llega en el año
 10. El flujo libre de cada año es ingresos × **margen de flujo libre
-normalizado**, que es la mediana del margen anual de los años de `historia`
-(al menos `MIN_ANOS_HISTORIA`).
+normalizado**, que es el margen **agregado** de los ejercicios disponibles
+(al menos `MIN_ANOS_HISTORIA`): la suma de sus flujos libres entre la suma de sus
+ingresos.
+
+**Agregado y no mediana: decisión del usuario del 2026-10-12, antes de medir.**
+El texto aprobado decía «la mediana del margen anual». La revisión de la Task 6
+la midió con MU: sus años de ciclo bajo pesaban lo mismo que el actual, el
+margen salía en un 6,8 % frente al 29 % del último año, y aplicado a unos
+ingresos 2,7 veces los del año anterior daba 334 $ por acción frente a un precio
+de 989 $. El agregado sigue amortiguando el ciclo de inversión, que es por lo
+que no se usa el último año, pero pesa cada año por su tamaño: MU ≈ 14 %.
 
 Se proyectan los ingresos y no el flujo libre directamente porque el flujo libre
 baila con cada ciclo de inversión. En MU, un año de capex fuerte lo hunde; en el
@@ -251,8 +260,10 @@ caja, y valorarla exigiría inventar cuándo deja de hacerlo. Tampoco aplica si
 ### 6. `valoracion/epv.py` — valor sin crecimiento
 
 `EPV = beneficio_operativo_normalizado × (1 − t) / wacc − deuda_total + efectivo`,
-por acción en la base del precio. El beneficio operativo normalizado es la
-mediana del margen operativo de `historia` por los ingresos TTM.
+por acción en la base del precio. El beneficio operativo normalizado es el
+margen operativo **agregado** de los ejercicios (suma de beneficios operativos
+entre suma de ingresos) por los ingresos TTM, por la misma razón que en el DCF:
+dos lecturas del mismo motor no pueden promediar distinto.
 
 Además del valor, devuelve **qué parte del precio es apuesta por el
 crecimiento**: `1 − EPV / precio`, cuando el EPV es positivo.

@@ -41,7 +41,7 @@ from fundamentals.kpis import _TRIMESTRES_POR_ANO, _ttm
 from fundamentals.panel import _DIAS_ANO, _DIAS_TRIMESTRE, quarterly_panel
 
 # Veinte y no los doce del ranking: el CAGR de ingresos pide tres años y las
-# medianas de márgenes cuantos haya. Los hechos en caché traen la historia
+# márgenes agregados cuantos haya. Los hechos en caché traen la historia
 # entera desde 2007 (comprobado el 2026-10-12 sobre tres cachés reales), así que
 # pedir más no sale a la red.
 TRIMESTRES = 20
