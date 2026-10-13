@@ -306,3 +306,35 @@ def test_una_financiera_no_tiene_coste_de_deuda_ni_de_capital_pero_si_k_e():
     assert s.wacc.valor is None and s.wacc.procedencia == {"fuente": "financiera"}
     assert s.k_e.valor == pytest.approx(0.04 + 1.0 * 0.042)
     assert s.roe_ref.valor == pytest.approx(0.12)
+
+
+def test_deducir_sin_tasa_efectiva_usa_la_legal_del_pais_del_perfil():
+    s = deducir(
+        fundamentos(), perfil(pais="Mexico"), r_f=0.04, beta=None, tasa=None, consenso=None
+    )
+    assert s.t.valor == pytest.approx(0.30)
+    assert s.t.procedencia == {"fuente": "legal", "pais": "MX"}
+
+
+def test_deducir_recorta_el_perpetuo_a_la_tasa_libre_que_recibe():
+    s = deducir(fundamentos(), perfil(), r_f=0.02, beta=None, tasa=0.25, consenso=None)
+    assert s.g_perpetuo.valor == 0.02
+    assert s.g_perpetuo.procedencia["fuente"] == "recortado_a_r_f"
+
+
+def test_deducir_toma_el_roe_de_los_ejercicios_que_recibe():
+    f = fundamentos(
+        ejercicios=[
+            ejercicio(2026 - i, beneficio_neto=200.0, patrimonio_neto=1000.0)
+            for i in range(4)
+        ]
+    )
+    s = deducir(f, perfil(), r_f=0.04, beta=None, tasa=0.25, consenso=None)
+    assert s.roe_ref.valor == pytest.approx(0.20)
+
+
+def test_una_deuda_negativa_no_pesa_en_el_coste_de_capital():
+    s = coste_capital(k_e=0.10, k_d=0.05, t=0.2, capitalizacion=800.0, deuda=-50.0)
+    assert s.valor == pytest.approx(0.10)
+    assert s.procedencia["peso_deuda"] == 0.0
+    assert s.procedencia["deuda_declarada"] is True
