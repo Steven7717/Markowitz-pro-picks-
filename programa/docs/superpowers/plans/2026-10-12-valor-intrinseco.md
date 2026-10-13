@@ -2553,6 +2553,26 @@ def test_con_el_precio_igual_al_valor_base_flujos_vota_neutra(ingresos, consenso
     assert calcular(f, en_su_valor, s, 0.0, HOY).votos["flujos"].voto == NEUTRA
 
 
+def test_sin_holgura_de_gordon_flujos_no_aplica():
+    # Coste de capital por debajo del perpetuo + 1 punto: el valor terminal
+    # explotaría. Es lo que hace segura la etiqueta genérica de
+    # `votos.voto_implicito` para un inverso sin respuesta: el motor lo filtra
+    # antes con su propio motivo.
+    s = _supuestos()
+    s = replace(s, wacc=replace(s.wacc, valor=s.g_perpetuo.valor + 0.005))
+    v = calcular(fundamentos(), perfil(), s, 0.0, HOY)
+    assert (v.votos["flujos"].voto, v.votos["flujos"].motivo) == (NO_APLICA, "wacc_bajo_crecimiento")
+    assert v.valor is None
+
+
+def test_un_banco_sin_holgura_de_gordon_flujos_no_aplica():
+    p = perfil(industria="Banks - Regional")
+    s = _supuestos(p=p)
+    s = replace(s, k_e=replace(s.k_e, valor=s.g_perpetuo.valor + 0.005))
+    v = calcular(fundamentos(), p, s, 0.0, HOY)
+    assert v.votos["flujos"].motivo == "wacc_bajo_crecimiento"
+
+
 def test_el_margen_de_seguridad_es_relativo_al_precio():
     v = calcular(fundamentos(), perfil(), _supuestos(), 0.0, HOY)
     assert v.margen_seguridad == pytest.approx((v.valor.base - 100.0) / 100.0)
@@ -2950,7 +2970,7 @@ def valorar(
 - [ ] **Step 5: Pasar los tests**
 
 Run: `uv run pytest tests/test_valoracion_motor.py -v`
-Expected: 15 passed.
+Expected: 17 passed.
 
 - [ ] **Step 6: Pasar todo `valoracion`**
 
