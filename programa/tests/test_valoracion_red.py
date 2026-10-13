@@ -3,10 +3,11 @@
 Lo que comprueban es que las fuentes siguen teniendo la forma que los
 intérpretes puros esperan, y que la lista de industrias financieras casa con
 las cadenas reales de Yahoo. Necesitan red, y `valorar` además `EDGAR_IDENTITY`
-si los hechos de MU no están en caché.
+(sin ella se omite).
 """
 
 import json
+import os
 
 import pytest
 
@@ -61,8 +62,14 @@ def test_la_lista_de_financieras_casa_con_yahoo(ticker, financiera):
 
 
 def test_valorar_mu_de_punta_a_punta():
+    from fundamentals.fetch import set_sec_identity
     from valoracion.motor import valorar
 
+    # Como los demás tests contra EDGAR: sin identidad se omite, no falla. Con
+    # la caché de hechos llena pasaría igual, pero eso depende de la máquina.
+    if not os.environ.get("EDGAR_IDENTITY"):
+        pytest.skip("Falta EDGAR_IDENTITY")
+    set_sec_identity()
     plano = valorar("MU", 0.3)
     json.dumps(plano, allow_nan=False)
     assert plano["veredicto"] in VEREDICTOS
