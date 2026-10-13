@@ -2994,6 +2994,8 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 ### Task 10: La valoración en cada ficha del ranking
 
+> **Ejecutada y superada.** Su revisión añadió el registro del defecto (`logging.exception`) y los tests de que la valoración no toca el score. Manda el código vivo.
+
 **Files:**
 - Modify: `ranking/run.py` (imports; firma de `construir_ranking`; bucle de fichas)
 - Modify: `tests/test_ranking_run.py` (fixture autouse y tests nuevos)
@@ -3444,6 +3446,17 @@ NOTA = (
     "publicaron y el universo arrastra sesgo de supervivencia."
 )
 
+# En la corrida real de la Task 10, SNDK salía «en rango» con un margen de
+# seguridad del +129 %. No es un error: el voto no mira la distancia al valor
+# base sino el crecimiento que el precio exige frente a su referencia, con una
+# banda de ± la mitad de esa referencia. Sin decirlo, la pantalla desconcierta.
+LECTURA_MARGEN = (
+    "El margen de seguridad mide la distancia al valor base. El voto de flujos "
+    "no lo usa: compara el crecimiento que el precio exige con su referencia, "
+    "con una banda de ± la mitad de esa referencia. Por eso un margen grande "
+    "puede convivir con «en rango» cuando el crecimiento de referencia es alto."
+)
+
 CSS = f"""<style>
 .mpp-veredicto {{
   border:1px solid currentColor; border-radius:999px; padding:.03rem .55rem;
@@ -3787,6 +3800,7 @@ añade:
             st.caption("Sin valoración: ficha de una versión anterior")
         else:
             st.markdown(medidores_valoracion.resumen(_valoracion), unsafe_allow_html=True)
+            st.caption(medidores_valoracion.LECTURA_MARGEN)
             st.caption(medidores_valoracion.NOTA)
 ```
 
