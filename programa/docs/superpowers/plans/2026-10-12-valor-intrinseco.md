@@ -3700,6 +3700,8 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 ### Task 13: La valoración en Revisar candidatos
 
+> **Ejecutada y superada.** Sus dos revisiones renombraron el bloque a «Valor intrínseco», sacaron a `medidores_valoracion` el aviso común (`aviso_comun`, que también cuenta el corte a mitad de corrida), el título y el pie (`titulo`, `pie`, que sólo explican el margen cuando lo hay), y protegieron la pantalla de un `fichas.json` editado a mano. Manda el código vivo.
+
 **Files:**
 - Modify: `vistas/candidatos.py`
 
