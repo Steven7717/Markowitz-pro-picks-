@@ -1,20 +1,22 @@
 # Contexto del proyecto — para retomar en una sesión nueva
 
 **Última actualización:** 2026-10-14
-**Rama:** `feat/valor-intrinseco`, pendiente de fusionar en `master` · **Tests:** 2.791 pasando (`uv run pytest tests/ -q -m "not red"`), 5 omitidos —dos por permisos POSIX en Windows y tres sin `numpy_financial`— más 26 marcados `red`
+**Rama:** `master` · **Tests:** 2.791 pasando (`uv run pytest tests/ -q -m "not red"`), 5 omitidos —dos por permisos POSIX en Windows y tres sin `numpy_financial`— más 26 marcados `red`
 **Remoto:** `https://github.com/Steven7717/Markowitz-pro-picks-.git` — `master` es lo publicado
 **Estructura:** el programa vive en `programa/`; en la raíz sólo están los dos
 lanzadores y el `README.md`. Los comandos (`uv run pytest`, `uv run streamlit`)
 se ejecutan desde `programa/`, no desde la raíz.
 
-> **Al retomar:** el sub-proyecto M, el valor intrínseco, está terminado en la
-> rama `feat/valor-intrinseco` y **pendiente de fusionar**: entra en `master` con
-> el protocolo de actualización cuando el usuario lo pida. Ver «Resultado del
-> sub-proyecto M». El N, el Analizador individual, tiene spec
-> (`docs/superpowers/specs/2026-10-12-analizador-individual-design.md`) y
-> espera a que M esté en `master`; su plan aún no está escrito.
+> **Al retomar:** todo está en `master` y publicado, y no queda nada sin
+> fusionar. Lo último que entró, el 2026-10-14, fue el sub-proyecto M: el valor
+> intrínseco de cada candidato en Revisar candidatos —cuatro lecturas, tres
+> votos y un veredicto, con sus supuestos y su procedencia—. Ver «Resultado del
+> sub-proyecto M». La rama `feat/valor-intrinseco` ya se borró. **Lo siguiente es
+> el N, el Analizador individual**: tiene spec
+> (`docs/superpowers/specs/2026-10-12-analizador-individual-design.md`) y su plan
+> aún no está escrito.
 >
-> En `master`, lo último que entró, el 2026-09-28, fue el sub-proyecto L: la fila
+> Antes, el 2026-09-28, entró el sub-proyecto L: la fila
 > «En pesos (MXN)» de Seguimiento —TWR y TIR en pesos con el FIX de cada día, y
 > reales por Fisher con el INPC, ambos del SIE de Banxico
 > (`seguimiento/banxico.py`, `seguimiento/fisher.py`)—. Por debajo de 30 días
