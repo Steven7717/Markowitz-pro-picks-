@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+import medidores_valoracion
 from valoracion import dcf, mercado, residual
 from valoracion.mercado import Beta
 from valoracion.motor import calcular, valorar
@@ -515,6 +516,55 @@ def test_valorar_es_calcular_con_los_datos_de_la_red(red_doble, tmp_path):
     red_doble["tasa_efectiva"].assert_called_once_with("TST")
     red_doble["sec"].assert_called_once_with("TST", cache_dir=tmp_path)
     red_doble["consenso"].assert_called_once_with("TST", "USD")
+
+
+def _supuesto_y_texto(plano: dict, nombre: str) -> "tuple[dict, str]":
+    """La procedencia guardada de un supuesto y lo que la pantalla dice de ella."""
+    supuesto = plano["supuestos"][nombre]
+    return supuesto["procedencia"], medidores_valoracion.resumen(plano)
+
+
+def test_una_beta_que_no_llego_por_la_red_no_se_dice_historial_corto(red_doble):
+    # Con CF, el coste del capital propio pasaba del 5,9 % al 8,4 % y la
+    # pantalla lo atribuía a un historial corto que no existía.
+    with patch.object(mercado, "beta", return_value=(None, "sin_red")):
+        plano = valorar("TST", 0.3, hoy=HOY)
+    procedencia, resumen = _supuesto_y_texto(plano, "beta")
+    assert procedencia == {"fuente": "por_defecto", "motivo": "sin_red"}
+    assert "historial corto" not in resumen
+    assert "Yahoo Finance no devolvió datos" in resumen
+
+
+def test_una_beta_sin_regresion_posible_sigue_diciendo_historial_corto(red_doble):
+    with patch.object(mercado, "beta", return_value=(None, "sin_regresion")):
+        plano = valorar("TST", 0.3, hoy=HOY)
+    procedencia, resumen = _supuesto_y_texto(plano, "beta")
+    assert procedencia == {"fuente": "por_defecto", "motivo": "sin_regresion"}
+    assert "historial corto" in resumen
+
+
+def test_una_tasa_efectiva_que_no_llego_por_la_red_lo_dice(red_doble):
+    with patch.object(mercado, "tasa_efectiva", return_value=(None, "sin_red")):
+        plano = valorar("TST", 0.3, hoy=HOY)
+    procedencia, resumen = _supuesto_y_texto(plano, "t")
+    assert procedencia == {"fuente": "legal", "pais": "US", "motivo": "sin_red"}
+    assert "Yahoo Finance no devolvió datos de la tasa efectiva" in resumen
+
+
+def test_un_consenso_que_no_llego_por_la_red_lo_dice(red_doble):
+    with patch.object(mercado, "consenso", return_value=(None, "sin_red")):
+        plano = valorar("TST", 0.3, hoy=HOY)
+    procedencia, resumen = _supuesto_y_texto(plano, "g_ref")
+    assert procedencia["fuente"] == "historia"
+    assert procedencia["motivo_consenso"] == "sin_red"
+    assert "sin consenso porque Yahoo Finance no devolvió datos" in resumen
+
+
+def test_con_todo_lo_de_mercado_presente_la_procedencia_no_lleva_motivos(red_doble):
+    plano = valorar("TST", 0.3, hoy=HOY)
+    for nombre in ("beta", "t", "g_ref"):
+        procedencia = plano["supuestos"][nombre]["procedencia"]
+        assert "motivo" not in procedencia and "motivo_consenso" not in procedencia
 
 
 def test_un_pilar_de_valoracion_igual_a_cero_sigue_siendo_un_cero(red_doble):

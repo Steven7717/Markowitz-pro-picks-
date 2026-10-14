@@ -214,10 +214,12 @@ def test_el_motivo_de_una_financiera_habla_de_entidades_financieras():
 
 
 def test_la_nota_es_la_del_spec():
+    # En M los estados vienen de la SEC, no de yfinance; y el panel guarda la
+    # última cifra que publicó cada empresa (`fundamentals/panel.py`, `keep="last"`).
     assert mv.NOTA == (
         "Un criterio transparente, no una previsión: no hay forma honesta de probar hacia atrás "
-        "si acierta, porque las cifras de yfinance no dicen cuándo se publicaron y el universo "
-        "arrastra sesgo de supervivencia."
+        "si acierta, porque las cifras guardadas son las últimas que publicó cada empresa, no las "
+        "que se conocían en su día, y el universo arrastra sesgo de supervivencia."
     )
 
 
@@ -411,6 +413,27 @@ def test_varios_motivos_de_corrida_van_de_mas_a_menos_frecuente_con_un_solo_pie(
     )
 
 
+def test_dos_sin_red_separados_no_son_un_corte():
+    # El corte de `ranking/run.py` exige dos seguidos: separados, son dos
+    # símbolos que Yahoo no conoce, y regenerar no los arregla.
+    motivos = ("sin_red", "sin_estados", "sin_red", "sin_estados", "sin_estados")
+    assert mv.aviso_comun([fallida(m) for m in motivos]) is None
+
+
+def test_una_racha_de_sin_red_es_un_corte_y_se_cuentan_todas():
+    # La racha decide si hubo corte; la cuenta, cuántas fichas lo llevan.
+    valoraciones = _calculadas(1) + _fallidas("sin_red", 3) + _calculadas(1) + _fallidas("sin_red", 1)
+    assert mv.aviso_comun(valoraciones).startswith(
+        f"4 de 6 candidatos sin valorar: {mv.etiqueta_motivo('sin_red')}. "
+    )
+
+
+def test_tras_una_valorada_el_corte_por_red_avisa():
+    assert mv.aviso_comun(_calculadas(1) + _fallidas("sin_red", 14)).startswith(
+        "14 de 15 candidatos sin valorar: "
+    )
+
+
 def test_un_sin_red_suelto_es_de_la_empresa_y_no_de_la_corrida():
     # Para `ranking/run.py` un `sin_red` aislado es un símbolo que Yahoo no
     # conoce: regenerar no lo arregla, y su ficha ya lo dice.
@@ -580,6 +603,39 @@ def test_sin_rango_la_cabecera_lo_dice():
     assert _lineas(mv.resumen(_fija(valor=None)))[0].startswith(
         "En rango | Sin rango de valor. | Calculada el 2026-10-12 "
     )
+
+
+_GORDON = "wacc_bajo_crecimiento"
+
+
+@pytest.mark.parametrize(
+    ("valor", "explicacion"),
+    [
+        ({"pesimista": 80.5, "base": 1234.5, "optimista": None}, "el optimista falta: en ese escenario, "),
+        ({"pesimista": None, "base": 1234.5, "optimista": 4321.0}, "el pesimista falta: en ese escenario, "),
+        (
+            {"pesimista": None, "base": 1234.5, "optimista": None},
+            "el pesimista y el optimista faltan: en esos escenarios, ",
+        ),
+    ],
+)
+def test_un_rango_incompleto_dice_por_que(valor, explicacion):
+    # El spec: si un escenario no cumple la holgura de Gordon, el rango «se pinta
+    # incompleto, diciendo por qué».
+    cabecera = _lineas(mv.resumen(_fija(valor=valor)))[0]
+    assert "n/d" in cabecera
+    assert explicacion + mv.etiqueta_motivo(_GORDON) in cabecera
+
+
+def test_un_rango_completo_no_habla_de_gordon():
+    assert mv.etiqueta_motivo(_GORDON) not in mv.resumen(_fija())
+
+
+@pytest.mark.parametrize("base", [None, "x"])
+def test_sin_valor_base_no_se_explica_ningun_extremo(base):
+    # Sin base no hay escenario de referencia: lo que falta ya no es un extremo.
+    valor = {"pesimista": 80.5, "base": base, "optimista": None}
+    assert mv.etiqueta_motivo(_GORDON) not in mv.resumen(_fija(valor=valor))
 
 
 def test_a_una_ficha_a_la_que_le_faltan_las_fechas_y_la_moneda_no_se_le_inventa_nada():
@@ -903,6 +959,21 @@ def test_hasta_las_etiquetas_de_los_veredictos_y_los_votos_se_escapan(monkeypatc
             {"fuente": "por_defecto"},
             "1.0 por defecto: no hubo regresión posible (historial corto o precios inválidos)",
         ),
+        (
+            "beta",
+            {"fuente": "por_defecto", "motivo": "sin_regresion"},
+            "1.0 por defecto: no hubo regresión posible (historial corto o precios inválidos)",
+        ),
+        (
+            "beta",
+            {"fuente": "por_defecto", "motivo": "sin_red"},
+            "1.0 por defecto, porque Yahoo Finance no devolvió datos para la regresión",
+        ),
+        (
+            "beta",
+            {"fuente": "por_defecto", "motivo": ["sin_red"]},
+            "1.0 por defecto: no hubo regresión posible (historial corto o precios inválidos)",
+        ),
         ("prima", {"fuente": "damodaran", "fecha": "2026-10-01"}, "Damodaran, prima implícita a 2026-10-01"),
         ("k_e", {"fuente": "capm"}, "tasa libre más beta por prima"),
         (
@@ -917,7 +988,17 @@ def test_hasta_las_etiquetas_de_los_veredictos_y_los_votos_se_escapan(monkeypatc
             "en un banco o una aseguradora los intereses incluyen los depósitos: no se calcula",
         ),
         ("t", {"fuente": "efectiva", "bruta": 0.116}, "tasa efectiva de yfinance, acotada entre 0.0% y 35.0%"),
-        ("t", {"fuente": "legal", "pais": "MX"}, "tasa legal (MX)"),
+        ("t", {"fuente": "legal", "pais": "MX"}, "tasa legal de México"),
+        ("t", {"fuente": "legal", "pais": "US"}, "tasa legal de EE. UU."),
+        ("t", {"fuente": "legal", "pais": "otros"}, "tasa legal genérica para otros países"),
+        # Una clave que la pantalla no conoce se enseña tal cual: mejor que esconderla.
+        ("t", {"fuente": "legal", "pais": "BR"}, "tasa legal (BR)"),
+        (
+            "t",
+            {"fuente": "legal", "pais": "US", "motivo": "sin_red"},
+            "tasa legal de EE. UU., porque Yahoo Finance no devolvió datos de la tasa efectiva",
+        ),
+        ("t", {"fuente": "legal", "pais": "US", "motivo": "sin_tasa_efectiva"}, "tasa legal de EE. UU."),
         (
             "wacc",
             {"fuente": "financiera"},
@@ -945,7 +1026,24 @@ def test_hasta_las_etiquetas_de_los_veredictos_y_los_votos_se_escapan(monkeypatc
             {"fuente": "consenso", "historico": None, "consenso": 0.0311},
             "consenso del próximo año (3.1%), sin historia, acotado entre −10.0% y 40.0%",
         ),
+        (
+            "g_ref",
+            {"fuente": "historia", "historico": 0.042, "consenso": None, "motivo_consenso": "sin_red"},
+            "crecimiento histórico de los ingresos (4.2%), sin consenso porque Yahoo Finance no "
+            "devolvió datos, acotado entre −10.0% y 40.0%",
+        ),
+        (
+            "g_ref",
+            {"fuente": "historia", "historico": 0.042, "consenso": None, "motivo_consenso": "sin_consenso"},
+            "crecimiento histórico de los ingresos (4.2%), sin consenso, acotado entre −10.0% y 40.0%",
+        ),
         ("g_ref", {"fuente": "sin_dato"}, "sin historia ni consenso"),
+        (
+            "g_ref",
+            {"fuente": "sin_dato", "motivo_consenso": "sin_red"},
+            "sin historia, y sin consenso porque Yahoo Finance no devolvió datos",
+        ),
+        ("g_ref", {"fuente": "sin_dato", "motivo_consenso": "sin_consenso"}, "sin historia ni consenso"),
         (
             "g_perpetuo",
             {"fuente": "criterio", "moneda": "MXN"},
@@ -960,6 +1058,11 @@ def test_hasta_las_etiquetas_de_los_veredictos_y_los_votos_se_escapan(monkeypatc
 )
 def test_el_texto_de_cada_procedencia(nombre, procedencia, esperado):
     assert mv.procedencia(nombre, {"valor": 0.1, "procedencia": procedencia}) == esperado
+
+
+def test_cada_tasa_legal_del_criterio_tiene_su_nombre_en_pantalla():
+    # «tasa legal (otros)» enseñaba una clave interna.
+    assert set(mv._PAIS_LEGAL) == set(criterio.TASA_LEGAL)
 
 
 def test_una_procedencia_desconocida_no_revienta():
@@ -1593,6 +1696,17 @@ def test_el_distintivo_va_justo_despues_del_chip_del_sector():
     tarjeta = medidores.tarjeta_candidato({**FICHA, "valoracion": valoracion})
     chip = '<span class="mpp-chip">Information Technology</span>'
     assert chip + mv.distintivo(valoracion) + '<span class="mpp-cab-der">' in tarjeta
+
+
+@pytest.mark.parametrize(
+    "valoracion",
+    [{"veredicto": "infravalorada"}, {"version": 1, "veredicto": "infravalorada"}],
+    ids=["sin_version", "version_no_texto"],
+)
+def test_la_tarjeta_exige_lo_mismo_que_el_bloque(valoracion):
+    # Editada a mano y sin `version`, la ficha pintaba la píldora mientras el
+    # bloque decía «ficha de una versión anterior»: los dos leen con `valoracion_de`.
+    assert "mpp-veredicto" not in medidores.tarjeta_candidato({**FICHA, "valoracion": valoracion})
 
 
 def test_una_tarjeta_vieja_no_lleva_distintivo():

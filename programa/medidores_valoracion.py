@@ -94,10 +94,15 @@ MOTIVO = {
     "error_interno": "error interno del programa al valorar",
 }
 
+# Los estados de M vienen de la SEC, no de yfinance, y `fundamentals/panel.py`
+# se queda con la última cifra que la empresa publicó de cada periodo
+# (`keep="last"`): una reexpresión pisa a la original. Probar hacia atrás con
+# ellas sería usar cifras que nadie tenía en su momento.
 NOTA = (
     "Un criterio transparente, no una previsión: no hay forma honesta de probar "
-    "hacia atrás si acierta, porque las cifras de yfinance no dicen cuándo se "
-    "publicaron y el universo arrastra sesgo de supervivencia."
+    "hacia atrás si acierta, porque las cifras guardadas son las últimas que "
+    "publicó cada empresa, no las que se conocían en su día, y el universo "
+    "arrastra sesgo de supervivencia."
 )
 
 # En la corrida real de la Task 10, SNDK salía «en rango» con un margen de
@@ -345,6 +350,24 @@ def _detalle(clave: str, voto: dict, valoracion: dict) -> str:
     return _entrada(_DETALLE_PARES, voto.get("voto"), "")
 
 
+def _extremos_que_faltan(valor: dict) -> str:
+    """Por qué falta un extremo del rango, o nada si no falta ninguno o no hay base.
+
+    El motor sólo deja un escenario en blanco cuando no cumple la holgura de
+    Gordon (`wacc_bajo_crecimiento`): el optimista baja el coste de capital y
+    puede quedarse sin ella aunque el base la tenga. Sin base no hay escenario
+    de referencia, y lo que falta ya no es un extremo.
+    """
+    if _numero(valor.get("base")) is None:
+        return ""
+    faltan = [e for e in ("pesimista", "optimista") if _numero(valor.get(e)) is None]
+    if not faltan:
+        return ""
+    quien = " y el ".join(faltan)
+    verbo, donde = ("faltan", "esos escenarios") if len(faltan) > 1 else ("falta", "ese escenario")
+    return f" · el {quien} {verbo}: en {donde}, {etiqueta_motivo('wacc_bajo_crecimiento')}"
+
+
 def _rango(valoracion: dict) -> str:
     moneda = _moneda(valoracion)
     valor = _dic(valoracion.get("valor"))
@@ -355,6 +378,7 @@ def _rango(valoracion: dict) -> str:
         f"base {_dinero(valor.get('base'), moneda)} · "
         f"optimista {_dinero(valor.get('optimista'), moneda)} · "
         f"margen de seguridad {_pct(valoracion.get('margen_seguridad'))}"
+        f"{_extremos_que_faltan(valor)}"
     )
 
 
@@ -416,6 +440,25 @@ _SUPUESTOS_DE = {
 # criterio: éste es el único sitio de la pantalla que repite ese rango.
 _PAYOUT_TOPES = (0.0, 1.0)
 
+# Las claves de `criterio.TASA_LEGAL`, dichas como se leen: «tasa legal (otros)»
+# enseñaba una clave interna. Un test vigila que no falte ninguna.
+_PAIS_LEGAL = {"US": "de EE. UU.", "MX": "de México", "otros": "genérica para otros países"}
+
+# Por qué faltó un dato de mercado (`supuestos._con_motivo`). Sólo «sin_red»
+# cambia el texto: es el único que contradice al de siempre. Una beta sin
+# regresión posible, una tasa efectiva o un consenso que Yahoo no tiene ya
+# quedan bien dichos con él.
+_SIN_RED = "sin_red"
+
+
+def _tasa_legal(p: dict) -> str:
+    pais = p.get("pais")
+    nombre = _entrada(_PAIS_LEGAL, pais, None)
+    texto = f"tasa legal {nombre}" if nombre else f"tasa legal ({pais})"
+    if p.get("motivo") == _SIN_RED:
+        texto += ", porque Yahoo Finance no devolvió datos de la tasa efectiva"
+    return texto
+
 
 def procedencia(nombre: str, supuesto: dict) -> str:
     """De dónde sale un supuesto, en palabras. Vacío si la fuente no se reconoce."""
@@ -424,13 +467,21 @@ def procedencia(nombre: str, supuesto: dict) -> str:
     if not isinstance(fuente, str):
         return ""
     g_bajo, g_alto = (_pct(tope) for tope in CRECIMIENTO_REF_TOPES)
+    consenso_sin_red = p.get("motivo_consenso") == _SIN_RED
+    sin_consenso = (
+        "sin consenso porque Yahoo Finance no devolvió datos" if consenso_sin_red else "sin consenso"
+    )
     textos = {
         ("r_f", "tesoro_10"): f"Tesoro de EE. UU. a 10 años ({p.get('serie')})",
         ("beta", "regresion"): (
             f"regresión semanal de {p.get('semanas')} semanas contra {p.get('indice')} "
             f"(R² {_decimales(p.get('r2'), 2)}), con el ajuste de Blume"
         ),
-        ("beta", "por_defecto"): "1.0 por defecto: no hubo regresión posible (historial corto o precios inválidos)",
+        ("beta", "por_defecto"): (
+            "1.0 por defecto, porque Yahoo Finance no devolvió datos para la regresión"
+            if p.get("motivo") == _SIN_RED
+            else "1.0 por defecto: no hubo regresión posible (historial corto o precios inválidos)"
+        ),
         ("prima", "damodaran"): f"Damodaran, prima implícita a {p.get('fecha')}",
         ("k_e", "capm"): "tasa libre más beta por prima",
         ("k_d", "gasto_entre_deuda"): (
@@ -443,7 +494,7 @@ def procedencia(nombre: str, supuesto: dict) -> str:
             f"tasa efectiva de yfinance, acotada entre {_pct(TASA_EFECTIVA_TOPES[0])} "
             f"y {_pct(TASA_EFECTIVA_TOPES[1])}"
         ),
-        ("t", "legal"): f"tasa legal ({p.get('pais')})",
+        ("t", "legal"): _tasa_legal(p),
         ("wacc", "financiera"): "en un banco o una aseguradora no se calcula: se valora con el coste del capital propio",
         ("wacc", "wacc"): (
             f"deuda {_pct(p.get('peso_deuda'))} del capital"
@@ -454,14 +505,16 @@ def procedencia(nombre: str, supuesto: dict) -> str:
             f"consenso del próximo año ({_pct(p.get('consenso'))}), acotada entre {g_bajo} y {g_alto}"
         ),
         ("g_ref", "historia"): (
-            f"crecimiento histórico de los ingresos ({_pct(p.get('historico'))}), sin consenso, "
-            f"acotado entre {g_bajo} y {g_alto}"
+            f"crecimiento histórico de los ingresos ({_pct(p.get('historico'))}), "
+            f"{sin_consenso}, acotado entre {g_bajo} y {g_alto}"
         ),
         ("g_ref", "consenso"): (
             f"consenso del próximo año ({_pct(p.get('consenso'))}), sin historia, "
             f"acotado entre {g_bajo} y {g_alto}"
         ),
-        ("g_ref", "sin_dato"): "sin historia ni consenso",
+        ("g_ref", "sin_dato"): (
+            f"sin historia, y {sin_consenso}" if consenso_sin_red else "sin historia ni consenso"
+        ),
         ("g_perpetuo", "criterio"): f"criterio fijo del programa para el {p.get('moneda')}",
         ("g_perpetuo", "recortado_a_r_f"): "recortado a la tasa libre de riesgo",
         ("roe_ref", "mediana_historica"): f"mediana de {p.get('anos')} años",
@@ -576,16 +629,19 @@ def pie(valoracion: object) -> "list[str]":
     return [NOTA]
 
 
-# Los motivos que dispara el corte de `ranking/run.py`, con cuántas fichas hacen
-# falta para que el fallo sea de la corrida y no de una empresa. Tras el corte la
-# corrida deja de preguntar y todas las fichas que quedaban heredan ese motivo:
-# el caso típico es 4 valoradas y 11 `sin_tasa_libre`, y sin un aviso arriba hay
-# que abrir once desplegables para saber que ni siquiera se intentó.
+# Los motivos que dispara el corte de `ranking/run.py`, con cuántas fichas
+# **seguidas** hacen falta para que el fallo sea de la corrida y no de una
+# empresa. Tras el corte la corrida deja de preguntar y todas las fichas que
+# quedaban heredan ese motivo: el caso típico es 4 valoradas y 11
+# `sin_tasa_libre`, y sin un aviso arriba hay que abrir once desplegables para
+# saber que ni siquiera se intentó.
 #
 # La tasa libre es la misma para todas, así que un fallo ya es el corte. Un
 # `sin_red` suelto, en cambio, es para `run.py` un símbolo que Yahoo no conoce:
 # corta con `sin_red_seguidos >= 2`, y ese 2 se repite aquí (un test vigila que
-# no se separen) porque importar `ranking.run` arrastraría pandas y la IA.
+# no se separen) porque importar `ranking.run` arrastraría pandas y la IA. Por
+# lo mismo se mira la racha y no el total: dos `sin_red` separados por otra
+# ficha no cortaron nada.
 MOTIVOS_DE_CORRIDA = {"sin_tasa_libre": 1, "sin_red": 2}
 
 # Las narrativas se guardan por contenido (`ranking.llm.redactar_con_cache`):
@@ -623,14 +679,26 @@ def _motivo_de(valoracion: object) -> "str | None":
     return motivo if isinstance(motivo, str) else None
 
 
+def _racha_mas_larga(motivos: list, motivo: str) -> int:
+    """Cuántas fichas seguidas llevan `motivo`, en el orden de la lista."""
+    mejor = actual = 0
+    for m in motivos:
+        actual = actual + 1 if m == motivo else 0
+        mejor = max(mejor, actual)
+    return mejor
+
+
 def aviso_comun(valoraciones: list) -> "str | None":
     """Un aviso para encima de la lista cuando el fallo es de la corrida y no de una empresa.
 
-    Recibe lo que devuelve `valoracion_de` para cada ficha (diccionarios o None).
-    Si todas fallaron por lo mismo, lo dice una vez. Si no, pero el corte de la
-    corrida dejó fichas sin valorar, dice cuántas y por qué, de más a menos
-    frecuente. Un fallo suelto de una empresa, como `sin_estados` o un único
-    `sin_red`, no sale aquí: se ve en su propia ficha, y regenerar no lo arregla.
+    Recibe lo que devuelve `valoracion_de` para cada ficha (diccionarios o
+    None), en el orden de la corrida, que es el de `fichas.json`. Si todas
+    fallaron por lo mismo, lo dice una vez. Si no, pero el corte de la corrida
+    dejó fichas sin valorar, dice cuántas y por qué, de más a menos frecuente:
+    hubo corte si la racha más larga de un motivo de `MOTIVOS_DE_CORRIDA` llega
+    a su umbral, y entonces se cuentan todas las fichas con ese motivo. Un fallo
+    suelto de una empresa, como `sin_estados` o un `sin_red` sin otro detrás, no
+    sale aquí: se ve en su propia ficha, y regenerar no lo arregla.
     """
     motivos = [_motivo_de(v) for v in valoraciones]
     if motivos and motivos[0] is not None and motivos.count(motivos[0]) == len(motivos):
@@ -641,7 +709,7 @@ def aviso_comun(valoraciones: list) -> "str | None":
     frases = [
         f"{cuantas} de {len(motivos)} candidatos sin valorar: {etiqueta_motivo(motivo)}."
         for motivo, cuantas in cuenta.most_common()
-        if cuantas >= MOTIVOS_DE_CORRIDA[motivo]
+        if _racha_mas_larga(motivos, motivo) >= MOTIVOS_DE_CORRIDA[motivo]
     ]
     if not frases:
         return None

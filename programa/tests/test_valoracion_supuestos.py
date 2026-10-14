@@ -36,6 +36,65 @@ def test_la_regresion_corta_no_se_usa(semanas, fuente):
     assert s.valor == pytest.approx(1.0 if fuente == "por_defecto" else 0.67 * 1.5 + 0.33)
 
 
+# --- Por qué faltó un dato de mercado ------------------------------------------
+# Sin el motivo, una beta que no llegó por la red se guardaba igual que una sin
+# regresión posible, y la pantalla daba una causa falsa: «historial corto».
+
+
+@pytest.mark.parametrize("motivo", ["sin_red", "sin_regresion"])
+def test_sin_beta_la_procedencia_dice_por_que(motivo):
+    s = beta_ajustada(None, motivo=motivo)
+    assert s.valor == 1.0
+    assert s.procedencia == {"fuente": "por_defecto", "motivo": motivo}
+
+
+@pytest.mark.parametrize("motivo", [None, "ok"])
+def test_sin_motivo_de_mercado_la_beta_por_defecto_es_la_de_siempre(motivo):
+    assert beta_ajustada(None, motivo=motivo).procedencia == {"fuente": "por_defecto"}
+
+
+def test_una_regresion_corta_no_lleva_motivo_de_mercado():
+    # La red sí contestó: lo que falta son semanas, no un dato de Yahoo.
+    corta = Beta(bruta=1.5, r2=0.4, semanas=51, indice="^GSPC")
+    assert beta_ajustada(corta, motivo="ok").procedencia == {"fuente": "por_defecto"}
+
+
+@pytest.mark.parametrize("motivo", ["sin_red", "sin_tasa_efectiva"])
+def test_sin_tasa_efectiva_la_legal_dice_por_que(motivo):
+    s = tasa_impositiva(None, "United States", motivo=motivo)
+    assert s.valor == pytest.approx(0.21)
+    assert s.procedencia == {"fuente": "legal", "pais": "US", "motivo": motivo}
+
+
+def test_con_tasa_efectiva_no_hay_motivo_que_guardar():
+    assert tasa_impositiva(0.19, "United States", motivo="ok").procedencia == {
+        "fuente": "efectiva",
+        "bruta": 0.19,
+    }
+    assert tasa_impositiva(None, "United States").procedencia == {"fuente": "legal", "pais": "US"}
+
+
+@pytest.mark.parametrize("motivo", ["sin_red", "sin_consenso"])
+def test_sin_consenso_el_crecimiento_dice_por_que(motivo):
+    f = _creciendo([1331.0, 1210.0, 1100.0, 1000.0])
+    s = crecimiento_ref(f, consenso=None, motivo=motivo)
+    assert s.valor == pytest.approx(0.10)
+    assert s.procedencia["fuente"] == "historia"
+    assert s.procedencia["motivo_consenso"] == motivo
+
+
+def test_sin_historia_ni_consenso_tambien_dice_por_que_falto_el_consenso():
+    s = crecimiento_ref(fundamentos(ejercicios=[ejercicio(2026)]), consenso=None, motivo="sin_red")
+    assert s.procedencia == {"fuente": "sin_dato", "motivo_consenso": "sin_red"}
+
+
+@pytest.mark.parametrize("motivo", [None, "ok"])
+def test_con_consenso_o_sin_motivo_no_hay_motivo_del_consenso(motivo):
+    f = _creciendo([1331.0, 1210.0, 1100.0, 1000.0])
+    assert "motivo_consenso" not in crecimiento_ref(f, consenso=0.2, motivo="ok").procedencia
+    assert "motivo_consenso" not in crecimiento_ref(f, consenso=None, motivo=motivo).procedencia
+
+
 @pytest.mark.parametrize(
     "tasa, pais, esperado, fuente",
     [
@@ -314,6 +373,38 @@ def test_deducir_sin_tasa_efectiva_usa_la_legal_del_pais_del_perfil():
     )
     assert s.t.valor == pytest.approx(0.30)
     assert s.t.procedencia == {"fuente": "legal", "pais": "MX"}
+
+
+def test_deducir_guarda_por_que_faltaron_los_datos_de_mercado():
+    motivos = {"beta": "sin_red", "tasa": "sin_red", "consenso": "sin_red"}
+    s = deducir(
+        _creciendo([1331.0, 1210.0, 1100.0, 1000.0]),
+        perfil(),
+        r_f=0.04,
+        beta=None,
+        tasa=None,
+        consenso=None,
+        motivos=motivos,
+    )
+    assert s.beta.procedencia == {"fuente": "por_defecto", "motivo": "sin_red"}
+    assert s.t.procedencia == {"fuente": "legal", "pais": "US", "motivo": "sin_red"}
+    assert s.g_ref.procedencia["motivo_consenso"] == "sin_red"
+
+
+def test_deducir_con_los_datos_de_mercado_presentes_no_guarda_motivos():
+    beta = Beta(bruta=1.5, r2=0.4, semanas=104, indice="^GSPC")
+    motivos = {"beta": "ok", "tasa": "ok", "consenso": "ok"}
+    con = deducir(fundamentos(), perfil(), 0.04, beta, 0.19, 0.20, motivos=motivos)
+    sin = deducir(fundamentos(), perfil(), 0.04, beta, 0.19, 0.20)
+    assert con == sin
+
+
+def test_deducir_sin_motivos_es_el_de_siempre():
+    # Las llamadas que no pasan motivos (los tests, y N cuando llegue) no cambian.
+    s = deducir(fundamentos(), perfil(), r_f=0.04, beta=None, tasa=None, consenso=None)
+    assert s.beta.procedencia == {"fuente": "por_defecto"}
+    assert s.t.procedencia == {"fuente": "legal", "pais": "US"}
+    assert "motivo_consenso" not in s.g_ref.procedencia
 
 
 def test_deducir_recorta_el_perpetuo_a_la_tasa_libre_que_recibe():

@@ -63,10 +63,14 @@ class SinCrecimiento:
 @dataclass(frozen=True)
 class Valoracion:
     fecha: date
-    # El cierre del último ejercicio. Una valoración con estados de hace un año
-    # no se puede leer como una de hoy, y en N cualquiera puede traer un ticker
-    # cuyas cuentas se quedaron atrás. En candidatos no pasa: la guarda
-    # `MAX_ANTIGUEDAD_TRIMESTRES` del ranking ya excluye a los rezagados.
+    # El cierre del último ejercicio válido. Una valoración con estados de hace
+    # un año no se puede leer como una de hoy, y por eso se enseña. Pasa también
+    # en candidatos: la guarda `MAX_ANTIGUEDAD_TRIMESTRES` del ranking mira el
+    # último trimestre con KPIs del panel, no el último ejercicio que la
+    # valoración puede usar, así que ésta puede ir por detrás del panel (PSKY,
+    # con panel hasta 2026-06-30, valora con estados hasta 2025-06-30; TAP, con
+    # estados hasta 2025-12-31). En N, además, cualquiera puede traer un ticker
+    # cuyas cuentas se quedaron atrás.
     estados_hasta: date
     moneda: str
     precio: float
@@ -254,8 +258,12 @@ def valorar(
     fundamentos, motivo = desde_sec(ticker, cache_dir=cache_dir)
     if fundamentos is None:
         return plano.fallida(motivo, hoy)
-    beta, _ = mercado.beta(ticker)
-    tasa, _ = mercado.tasa_efectiva(ticker)
-    consenso, _ = mercado.consenso(ticker, fundamentos.moneda)
-    supuestos = deducir(fundamentos, perfil, r_f, beta, tasa, consenso)
+    # Los motivos viajan hasta la procedencia: sin ellos, una beta que no llegó
+    # por la red se guardaba igual que una sin regresión posible, y la pantalla
+    # daba una causa falsa de un cambio real en la valoración.
+    beta, motivo_beta = mercado.beta(ticker)
+    tasa, motivo_tasa = mercado.tasa_efectiva(ticker)
+    consenso, motivo_consenso = mercado.consenso(ticker, fundamentos.moneda)
+    motivos = {"beta": motivo_beta, "tasa": motivo_tasa, "consenso": motivo_consenso}
+    supuestos = deducir(fundamentos, perfil, r_f, beta, tasa, consenso, motivos)
     return plano.a_dict(calcular(fundamentos, perfil, supuestos, pilar_valoracion, hoy))
