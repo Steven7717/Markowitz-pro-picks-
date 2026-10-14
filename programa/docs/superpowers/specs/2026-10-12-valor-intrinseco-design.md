@@ -1,7 +1,7 @@
 # Valor intrínseco — sub-proyecto M
 
 **Fecha:** 2026-10-12
-**Estado:** diseño aprobado, sin implementar
+**Estado:** implementado en la rama `feat/valor-intrinseco` (2026-10-14), pendiente de fusionar
 **Le sigue:** el sub-proyecto N, el Analizador individual
 (`2026-10-12-analizador-individual-design.md`), que usa este motor para
 cualquier ticker.
@@ -170,6 +170,13 @@ ya porque N la necesita.
 riesgo y la beta valen un día. El precio, quince minutos. La hora de cada dato
 viaja con él.
 
+*Enmienda del 2026-10-14, en la revisión final.* La caché es también el
+**respaldo cuando la red falla**: lo guardado caducado se sirve hasta
+`mercado.ANTIGUEDAD_MAXIMA` —el precio y la tasa libre, 7 días; la beta, 90; la
+tasa efectiva, 400; el consenso, 30— y sólo pasado eso el motivo es `sin_red`.
+La revisión final, con la red de yfinance cortada, calculó 422 de 423. El precio
+enseña su hora en la ficha; no hay aviso arriba de que vino de la caché.
+
 **Fallos con nombre**, como en `seguimiento/banxico.py`: cada función devuelve
 `(dato | None, motivo)`. Si falta el `^TNX`, ninguna valoración se puede
 calcular y todas lo dicen con el mismo motivo. Si falla un ticker, sólo esa
@@ -195,6 +202,15 @@ cuyo valor sea una decisión de redacción.
 | `wacc` | `E/(E+D)·k_e + D/(E+D)·k_d·(1 − t)`, con E = capitalización y D = deuda contable. Sin deuda, `wacc = k_e`. En bancos y aseguradoras, `wacc` y `k_d` quedan vacíos (`financiera`): sus intereses incluyen los depósitos, y el beneficio residual sólo usa `k_e` |
 | `g_ref` | Media del CAGR histórico de ingresos (hasta 3 años) y del consenso `+1y`. Si sólo existe uno, ése. Acotado por `CRECIMIENTO_REF_TOPES` |
 | `g_perpetuo` | `CRECIMIENTO_PERPETUO[moneda]`, recortado a `r_f` |
+
+*Enmienda del 2026-10-14, en la revisión final.* Cuando falta el dato de
+mercado de la beta, de la tasa efectiva o del consenso, la procedencia guarda
+**por qué**: `{"fuente": "por_defecto", "motivo": "sin_red"}` en la beta,
+`{"fuente": "legal", "pais": …, "motivo": …}` en la tasa y `motivo_consenso` en
+`g_ref`. Antes el motor descartaba el motivo, y una beta que Yahoo no llegó a
+devolver se pintaba como «historial corto»: con CF, el coste del capital propio
+pasaba del 5,6 % al 9,4 % con una causa falsa en pantalla. Una beta con menos de
+52 semanas sigue sin motivo, porque la red sí contestó.
 
 M no tiene forma de cambiar supuestos: en Revisar candidatos no hay
 deslizadores. La función que aplica los cambios del usuario la añade N, que es
@@ -307,8 +323,8 @@ Cada voto es `barata`, `neutra`, `cara` o `no_aplica`, y el `no_aplica` lleva su
 motivo como **clave** (`quema_caja`, `ebit_negativo`, `sin_historia`,
 `sin_beneficio_operativo`, `sin_flujo_libre`, `wacc_bajo_crecimiento`, `sin_pares`, `sin_precio`,
 `sin_tasa_libre`, `financiera`, `patrimonio_negativo`). Una valoración que no llega a calcularse
-lleva su motivo en el nivel de arriba (`sin_estados`, `sin_precio`, `sin_red`,
-`sin_tasa_libre`, `error_interno`). `sin_tasa_libre` no es de una empresa sino
+lleva su motivo en el nivel de arriba (`sin_estados`, `sin_historia`,
+`sin_precio`, `sin_red`, `sin_tasa_libre`, `error_interno`). `sin_tasa_libre` no es de una empresa sino
 de la fuente: al primero, `ranking/run.py` deja de preguntar por las demás,
 porque con una red que no contesta cada intento tarda unos 21 s. `sin_red`
 significa que Yahoo no devolvió nada utilizable, y eso también lo da un símbolo
@@ -375,9 +391,15 @@ Lo que se guarda en `ficha["valoracion"]`:
 Las cifras son ilustrativas. `estados_hasta` es el cierre del último ejercicio
 con el que se valoró: la revisión del 2026-10-12 encontró empresas cuyo último
 ejercicio válido va de uno a doce meses por detrás de su panel (PSKY, TAP,
-FERG), y un valor sin la fecha de sus cifras se lee como de hoy. En candidatos
-no ocurre, porque la guarda `MAX_ANTIGUEDAD_TRIMESTRES` del ranking ya los
-excluye; en N cualquiera puede traer uno. Se guardan **claves, nunca textos de pantalla**: las
+FERG), y un valor sin la fecha de sus cifras se lee como de hoy. *Enmienda del
+2026-10-14, en la revisión final:* aquí se decía que en candidatos no ocurre,
+porque la guarda `MAX_ANTIGUEDAD_TRIMESTRES` del ranking los excluye, y es
+falso. Esa guarda mira el último trimestre con KPIs del panel, no el último
+ejercicio válido de la valoración, y además deja pasar dos trimestres de
+retraso: PSKY, TAP y FERG sobreviven al ranking, y en la medida 83 de las 422
+valoraciones calculadas llevan más de 137 días de retraso (TAP 287, PSKY 471).
+En la corrida de la Task 16, EIX, GRMN e INCY salieron con 196–199 días. Por eso
+`estados_hasta` se enseña siempre; en N, además, cualquiera puede traer uno. Se guardan **claves, nunca textos de pantalla**: las
 etiquetas («Infravalorada», «Señales mixtas», «quema caja») viven en un
 diccionario aparte que sólo lee la vista. Todo NaN se escribe como `null`, porque
 `fichas.json` se escribe con `allow_nan=False` y ese es su contrato. La lectura
@@ -417,8 +439,15 @@ funciones:
 «Valor intrínseco» con `medidores_valoracion.resumen` y esta nota:
 
 > Un criterio transparente, no una previsión: no hay forma honesta de probar
-> hacia atrás si acierta, porque las cifras de yfinance no dicen cuándo se
-> publicaron y el universo arrastra sesgo de supervivencia.
+> hacia atrás si acierta, porque las cifras guardadas son las últimas que
+> publicó cada empresa, no las que se conocían en su día, y el universo arrastra
+> sesgo de supervivencia.
+
+*Enmienda del 2026-10-14, en la revisión final.* La nota decía que «las cifras
+de yfinance no dicen cuándo se publicaron», pero en M los estados vienen de la
+SEC. La causa real es que `fundamentals/panel.py` se queda con la última cifra
+publicada de cada periodo (`drop_duplicates(..., keep="last")`): una
+reexpresión pisa a la original.
 
 La nota del orden («el score no está validado empíricamente») ya existe y no se
 toca.
@@ -443,7 +472,9 @@ llamarse «Valor intrínseco», que es como lo pidió el usuario. Además:
 
 | Situación | Qué se ve |
 |---|---|
-| Sin red al generar | Las dos primeras fichas dicen `sin_red` y las demás heredan ese motivo sin volver a preguntar; el ranking sale igual |
+| Sin red al generar | Con datos guardados de menos de `ANTIGUEDAD_MAXIMA`, se valora con ellos y el precio enseña su hora. Sin ellos, las dos primeras fichas seguidas dicen `sin_red` y las demás heredan ese motivo sin volver a preguntar; el ranking sale igual |
+| Falla la red sólo para la beta, la tasa efectiva o el consenso | Se valora con el valor por defecto, la tasa legal o sólo la historia, y la procedencia dice que fue porque Yahoo no devolvió datos |
+| Un escenario no cumple la holgura de Gordon | El rango sale incompleto y dice cuál falta y por qué |
 | `^TNX` no responde | Todas las fichas dicen `sin_tasa_libre`. Un aviso, no quince; si falla a mitad, el aviso dice cuántas quedaron sin valorar |
 | Empresa que quema caja | El voto de flujos es `no_aplica`, con «quema caja: valorarla exigiría inventar cuándo deja de hacerlo», nunca un cero |
 | Coste de capital por debajo del crecimiento perpetuo + 1 punto | El voto de flujos es `no_aplica`, por `wacc_bajo_crecimiento` |
@@ -464,7 +495,11 @@ llamarse «Valor intrínseco», que es como lo pidió el usuario. Además:
    cuatro estados cada uno, contra una tabla escrita a mano.
 4. **Contraste externo**: el valor presente nativo frente a `numpy_financial.npv`,
    en un test que se omite si no está instalado, igual que
-   `test_contraste_contra_numpy_financial` de Seguimiento.
+   `test_contraste_contra_numpy_financial` de Seguimiento. `numpy_financial` no
+   es dependencia del proyecto, así que en la suite normal se omite; se corrió
+   una vez el 2026-10-14 con `uv run --with numpy-financial` y pasa. (El de
+   Seguimiento no: llama a `xirr`, que esa librería no tiene; es un defecto de
+   F, anotado aparte.)
 5. **Trampas medidas, con su test**: el signo del capex de cada fuente; la beta de
    Yahoo que no se lee; el consenso cuya divisa no coincide con la de los
    estados; el NaN en el JSON; la ficha vieja sin `valoracion`; Visa por DCF y
@@ -539,6 +574,7 @@ llamarse «Valor intrínseco», que es como lo pidió el usuario. Además:
   apalancamiento de una deuda alta sobre un capital pequeño.
 - **Cinco empresas con cinco años de historia salen `sin_historia`** (APA, DTE,
   EQR, SYF, XEL): el motor de fundamentales no reconoce su etiqueta de ingresos.
+  La medida de la Task 17 añade FERG, PSKY y WAT, sin diagnosticar.
   Es la misma clase de rótulo inexacto que `sin_flujo_libre` arregló, con otra
   causa, y se deja anotado.
 - **Una de cada siete empresas no tiene valor sin crecimiento.** 69 empresas no
@@ -584,7 +620,13 @@ llamarse «Valor intrínseco», que es como lo pidió el usuario. Además:
   días, ningún año queda completo, y es mejor `sin_historia` que el TTM de 448
   días que salía antes. La causa está en `fundamentals/panel.py`.
 - **No hay listón de antigüedad de los estados.** Se enseña `estados_hasta` en
-  vez de inventar uno después de congelar el criterio.
+  vez de inventar uno después de congelar el criterio. Y hace falta también en
+  candidatos: una de cada cinco valoraciones de la medida va más de 137 días por
+  detrás, y en una misma ficha los pilares y la valoración pueden hablar de
+  periodos distintos (TAP: panel a 2026-06-30, estados a 2025-12-31). Un listón
+  sería una enmienda que decide el usuario.
+- **Sin red, la valoración sale de lo guardado** hasta `ANTIGUEDAD_MAXIMA`, sin
+  un aviso arriba que lo diga; sólo el precio enseña su hora.
 
 ## Medida preliminar de la revisión de la Task 9 (2026-10-13)
 

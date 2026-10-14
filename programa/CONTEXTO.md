@@ -1,7 +1,7 @@
 # Contexto del proyecto — para retomar en una sesión nueva
 
 **Última actualización:** 2026-10-14
-**Rama:** `feat/valor-intrinseco`, pendiente de fusionar en `master` · **Tests:** 2.746 pasando (`uv run pytest tests/ -q -m "not red"`), 5 omitidos —dos por permisos POSIX en Windows y tres sin `numpy_financial`— más 26 marcados `red`
+**Rama:** `feat/valor-intrinseco`, pendiente de fusionar en `master` · **Tests:** 2.791 pasando (`uv run pytest tests/ -q -m "not red"`), 5 omitidos —dos por permisos POSIX en Windows y tres sin `numpy_financial`— más 26 marcados `red`
 **Remoto:** `https://github.com/Steven7717/Markowitz-pro-picks-.git` — `master` es lo publicado
 **Estructura:** el programa vive en `programa/`; en la raíz sólo están los dos
 lanzadores y el `README.md`. Los comandos (`uv run pytest`, `uv run streamlit`)
@@ -1400,12 +1400,14 @@ no haberlo arreglado.**
 ## Resultado del sub-proyecto M
 
 Paquete `valoracion/` (lógica, sin Streamlit) y `medidores_valoracion.py`
-(etiquetas y HTML, sin Streamlit), con **877 tests nuevos** en sus ficheros
+(etiquetas y HTML, sin Streamlit), con **922 tests nuevos** en sus ficheros
 propios —más 16 marcados `red`— y algunos más en los de ranking y aprobación.
-Fuera del paquete cambian cuatro cosas: `ranking/run.py` valora cada una de las
+Fuera del paquete cambian cinco cosas: `ranking/run.py` valora cada una de las
 quince fichas, `aprobacion/carga.py` gana `valoracion_de`,
-`medidores.tarjeta_candidato` pinta el distintivo y `vistas/candidatos.py` el
-bloque. Spec: `docs/superpowers/specs/2026-10-12-valor-intrinseco-design.md`;
+`medidores.tarjeta_candidato` pinta el distintivo con ese mismo lector,
+`vistas/candidatos.py` el bloque, y `noticias/cache.py` —compartido con Noticias
+y Banxico— devuelve `None` en vez de lanzar con un `null`, un `[]` o una hora sin
+zona guardados. Spec: `docs/superpowers/specs/2026-10-12-valor-intrinseco-design.md`;
 plan: `docs/superpowers/plans/2026-10-12-valor-intrinseco.md`.
 
 ### Qué entrega
@@ -1455,7 +1457,7 @@ plan: `docs/superpowers/plans/2026-10-12-valor-intrinseco.md`.
   arriba, en la misma ficha, está el pilar «valoración» del score, que además es
   el voto «Frente a sus pares».
 
-### Veintidós defectos, y casi todos en la revisión y no en el plan
+### Veintinueve defectos, y casi todos en la revisión y no en el plan
 
 M se ejecutó con un subagente por tarea y dos revisiones por tarea —que hace lo
 que pide el spec, y calidad—, más mutantes en la presentación y el sabotaje de
@@ -1488,11 +1490,20 @@ tenido.
 | La explicación del margen salía en fichas sin margen (LLY, COST, PEP…) | Re-revisión de la Task 13 |
 | **El aviso empujaba a regenerar sin IA**, que tira la narrativa, cuando con IA sale de la caché sin pagar | Re-revisión de la Task 13 |
 | El bloque «Valoración» chocaba con el pilar «valoración» | Revisión de la Task 13 |
+| **Una beta que Yahoo no llegó a devolver se pintaba como «historial corto»**: el motor descartaba el motivo de mercado y el coste del capital propio de CF pasaba del 5,6 % al 9,4 % con una causa falsa | Revisión final |
+| El spec decía que en candidatos los estados nunca van atrasados (PSKY, TAP, FERG lo desmienten) | Revisión final |
+| El rango incompleto no decía qué escenario faltaba ni por qué | Revisión final |
+| El aviso contaba dos `sin_red` sueltos como un corte, que exige dos seguidos | Revisión final |
+| La píldora y el bloque leían la valoración con reglas distintas | Revisión final |
+| La nota culpaba a yfinance de no fechar las cifras, que en M vienen de la SEC | Revisión final |
+| «tasa legal (otros)»: una clave interna en pantalla | Revisión final |
 
-**La lección: un motivo es una afirmación, y hay que medirla.** Tres de los
-veintidós eran motivos que decían algo falso —«sin historia», dos veces, a quien
-tenía años de sobra, y «sin red» a un defecto propio—, y los dos primeros sólo
-los enseñó el barrido real. Un `no_aplica` con un motivo equivocado se lee igual de bien que uno
+**La lección: un motivo es una afirmación, y hay que medirla.** Cuatro de los
+veintinueve eran motivos que decían algo falso —«sin historia», dos veces, a
+quien tenía años de sobra; «sin red» a un defecto propio, y «historial corto» a
+una beta que no se pudo descargar—. Los dos primeros sólo los enseñó el barrido
+real, y el último sólo una revisión que leyó el camino entero de un dato, de la
+red a la pantalla. Un `no_aplica` con un motivo equivocado se lee igual de bien que uno
 correcto.
 
 ### El resultado de la medida
@@ -1546,6 +1557,7 @@ del spec—. Un veredicto firme de cada seis. No se movió ningún listón.
   PLD o CAT salen «en rango» con márgenes de −40 % a −95 %.
 - **Cinco empresas salen `sin_historia`** con cinco años de historia (APA, DTE,
   EQR, SYF, XEL): el motor de fundamentales no reconoce su etiqueta de ingresos.
+  La medida añade FERG, PSKY y WAT, sin diagnosticar.
 - **Los rangos del beneficio residual son muy anchos** (JPM de 81 a 1.182 $ con
   un precio de 337 $), y **el payout es sólo el dividendo**: las recompras no
   cuentan.
@@ -1554,7 +1566,19 @@ del spec—. Un veredicto firme de cada seis. No se movió ningún listón.
   devengados y no pagados, gasto financiero no declarado como cero, y un TTM que
   puede ir cuatro meses y medio por detrás.
 - **KR y los trimestres de dieciséis semanas** salen sin fundamentos.
-- **No hay listón de antigüedad de los estados**: se enseña `estados_hasta`.
+- **No hay listón de antigüedad de los estados**: se enseña `estados_hasta`. Y
+  hace falta también en candidatos: una de cada cinco valoraciones de la medida
+  va más de 137 días por detrás, y en una misma ficha los pilares y la
+  valoración pueden hablar de periodos distintos (TAP). Es una enmienda que
+  decide el usuario.
+- **Sin red, la valoración sale de lo guardado** hasta
+  `mercado.ANTIGUEDAD_MAXIMA` (precio y tasa libre 7 días, beta 90), sin un
+  aviso arriba; sólo el precio enseña su hora.
+- **El contraste externo del DCF no corre en la suite**: `numpy_financial` no es
+  dependencia. Se corrió una vez con `uv run --with numpy-financial` y pasa. El
+  de Seguimiento (F) está roto: llama a `xirr`, que esa librería no tiene.
+  Y `scripts/medir_valoracion.py` necesita `tabulate` para `to_markdown()`, que
+  hoy llega sólo de forma transitiva por `uv.lock`.
 - **De la medida, tres cosas para que el usuario decida**, todas como enmienda
   fechada si se hacen:
   - `UMBRAL_PARES` (±0,5) es casi una desviación típica entera del pilar, así
