@@ -595,3 +595,145 @@ se tomaron con casos sueltos y antes de este barrido. Reparto de veredictos: en
 rango 338, sin datos suficientes 80, infravalorada 41, sobrevalorada 33, señales
 mixtas 8, y 3 sin calcular. Ningún listón se movió al verlo. La medida oficial,
 con los pilares reales del ranking, es la de la Task 17.
+
+## Resultado de la medida (2026-10-14)
+
+Corrida del 2026-10-14 con `scripts/medir_valoracion.py`, con el criterio `m1`
+sin tocar, sobre las 423 empresas del S&P 500 que sobreviven a las guardas del
+ranking (`construir_ranking(con_llm=False, con_valoracion=False)`), cada una con
+su pilar de valoración real. Tardó unos diez minutos. Las tablas son la salida
+del script tal cual, con los títulos bajados un nivel. La fila `nan` de los
+votos es KR, que no llegó a calcularse, y la tabla de motivos cuenta votos, no
+empresas: una empresa `sin_historia` aporta dos.
+
+### Veredictos
+
+| veredicto     |   count |
+|:--------------|--------:|
+| en_rango      |     329 |
+| infravalorada |      38 |
+| sobrevalorada |      33 |
+| sin_datos     |      13 |
+| mixtas        |       9 |
+| no_calculada  |       1 |
+
+### Veredictos por sector
+
+| sector                 |   en_rango |   infravalorada |   mixtas |   no_calculada |   sin_datos |   sobrevalorada |
+|:-----------------------|-----------:|----------------:|---------:|---------------:|------------:|----------------:|
+| Communication Services |         15 |               4 |        1 |              0 |           1 |               2 |
+| Consumer Discretionary |         36 |               5 |        1 |              0 |           0 |               1 |
+| Consumer Staples       |         24 |               4 |        0 |              1 |           0 |               3 |
+| Energy                 |         12 |               3 |        0 |              0 |           3 |               2 |
+| Financials             |         18 |               4 |        1 |              0 |           0 |               2 |
+| Health Care            |         43 |               6 |        3 |              0 |           2 |               4 |
+| Industrials            |         65 |               4 |        2 |              0 |           2 |               5 |
+| Information Technology |         56 |               6 |        1 |              0 |           1 |               8 |
+| Materials              |         20 |               1 |        0 |              0 |           0 |               3 |
+| Real Estate            |         15 |               1 |        0 |              0 |           0 |               1 |
+| Utilities              |         25 |               0 |        0 |              0 |           4 |               2 |
+
+### Voto flujos
+
+| voto_flujos   |   count |
+|:--------------|--------:|
+| neutra        |     137 |
+| cara          |     129 |
+| barata        |      99 |
+| no_aplica     |      57 |
+| nan           |       1 |
+
+### Voto sin_crecimiento
+
+| voto_sin_crecimiento   |   count |
+|:-----------------------|--------:|
+| neutra                 |     334 |
+| no_aplica              |      64 |
+| barata                 |      24 |
+| nan                    |       1 |
+
+### Voto pares
+
+| voto_pares   |   count |
+|:-------------|--------:|
+| neutra       |     322 |
+| cara         |      58 |
+| barata       |      42 |
+| nan          |       1 |
+
+### Motivos de no aplica
+
+|                         |   count |
+|:------------------------|--------:|
+| sin_beneficio_operativo |      46 |
+| quema_caja              |      26 |
+| sin_flujo_libre         |      25 |
+| sin_historia            |      12 |
+| ebit_negativo           |      11 |
+| financiera              |       1 |
+
+### Valoraciones que no se calcularon
+
+| motivo       |   count |
+|:-------------|--------:|
+| sin_historia |       1 |
+
+**Qué proporción sale en cada veredicto.** De las 423, 329 salen en rango
+(77,8 %), 38 infravaloradas (9,0 %), 33 sobrevaloradas (7,8 %), 13 sin datos
+suficientes (3,1 %) y 9 con señales mixtas (2,1 %). Una no se calculó: KR, por
+sus trimestres de dieciséis semanas, ya anotados en «Lo que M no resuelve».
+Veredictos firmes, en un sentido u otro, hay 71: uno de cada seis. Las 33
+sobrevaloradas son todas flujos «cara» más pares «cara», porque el EPV no vota
+«cara»; las 38 infravaloradas llegan por más caminos (18 por flujos y pares, 9
+por los tres votos, 9 por flujos y EPV con los pares neutros y 2 con un voto que
+no aplica). «En rango» no quiere decir que los votos coincidan: en 149 de las
+329, los flujos votan «barata» (56) o «cara» (93) y los pares se quedan
+neutros. Frente a la medida preliminar de la Task 9 (503 empresas: en rango 338,
+sin datos 80, infravalorada 41, sobrevalorada 33, mixtas 8 y 3 sin calcular),
+los cuatro veredictos con votos apenas se mueven y la diferencia está casi
+entera en «sin datos», que baja de 80 a 13. Coincide con el cambio de universo:
+las 80 empresas que el ranking excluye (75 por `pilar_sin_datos`) son 51
+financieras, entre ellas todos los bancos y todas las aseguradoras de riesgo
+salvo MET, 14 inmobiliarias y 15 de otros sectores. Aquí todas las calculadas
+tienen voto de pares, así que «sin datos» exige que fallen a la vez flujos y
+EPV.
+
+**Qué sectores concentran los `no_aplica` y por qué.** Hay 121 votos que no
+aplican, 57 de flujos y 64 de EPV; ninguno de pares. **Utilities** reúne 28 con
+sólo 31 empresas, y 24 de ellas se quedan sin voto de flujos: 17 por
+`quema_caja` (AEE, DUK, EXC, PCG, SRE…: en su mayoría eléctricas reguladas, que
+invierten más de lo que genera su flujo operativo y financian la diferencia con
+deuda, así que su margen de flujo libre agregado no es positivo por modelo de
+negocio y no por apuro), 5 por `sin_flujo_libre` (AEP, CMS, D, ED y NEE no
+declaran capex) y 2 por `sin_historia` (DTE, XEL). Por eso Utilities no tiene
+ninguna infravalorada y reúne 4 de los 13 «sin datos». Le siguen **Health Care**
+con 19 votos, **Energy** con 13 en sólo 20 empresas e **Industrials** con 13. El
+motivo más frecuente es `sin_beneficio_operativo` (46, todo del EPV), repartido
+por las empresas que no etiquetan `OperatingIncomeLoss`: 9 en Health Care (JNJ,
+LLY, MRK, PFE, BMY…), 8 en Industrials (GE, ETN, EMR…), 6 en Energy (XOM, CVX,
+COP…), 6 en Materials y 4 en Communication Services (FOX, FOXA, NWS, NWSA).
+`sin_flujo_libre` (25) se reparte entre Energy (COP, EOG, FANG, PSX, VLO),
+Health Care y Utilities, con 5 cada uno. `ebit_negativo` (11) es un beneficio
+operativo normalizado que no llega a positivo (BA, INTC, CRWD, DDOG, WBD…). Los
+`sin_historia` son 6 empresas: APA, DTE y XEL, ya anotadas, y FERG, PSKY y WAT,
+nuevas. El único `financiera` es MET, la única superviviente que se valora por
+beneficio residual.
+
+**Si algún reparto sugiere un listón mal calibrado.** No se cambia ninguno
+aquí; quedan tres cosas para que el usuario decida. Primera, `UMBRAL_PARES`:
+entre las supervivientes, el pilar de valoración tiene una desviación típica de
+0,505 y su percentil 90 es 0,496, así que ±0,5 es cerca de una desviación
+entera y no media. Los pares sólo votan en el 24 % de los casos (42 «barata» y
+58 «cara»), frente al 62 % de los votos de flujos que aplican, y como
+«sobrevalorada» necesita pares «cara», es ese listón el que deja en rango a 93
+empresas con flujos «cara». Se eligió para coincidir con el «por encima de sus
+pares» de `ranking.fichas.descriptor`; bajarlo (con 0,25 votarían el 56 %)
+rompería esa coincidencia, y es una enmienda fechada que sólo el usuario puede
+pedir. Segunda, no es un listón sino un método: 24 de las 31 utilities no
+tienen voto de flujos, y como el EPV nunca vota «cara», una utility sin flujos
+no puede salir sobrevalorada; un tratamiento propio para las reguladas, como el
+residual para los bancos, sería otra enmienda. Tercera, esta medida no dice nada
+de los listones del beneficio residual (`MARGEN_ROE_MINIMO`,
+`INVERSO_ROE_LIMITES`): con los bancos y las aseguradoras fuera del ranking,
+sólo se midió MET. `MARGEN_MINIMO` no parece mal puesto: los flujos votan a
+menudo y en los dos sentidos (99 «barata», 129 «cara», 137 neutros).
