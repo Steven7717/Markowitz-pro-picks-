@@ -1,14 +1,20 @@
 # Contexto del proyecto — para retomar en una sesión nueva
 
-**Última actualización:** 2026-09-28
-**Rama:** `master` · **Tests:** 1.844 pasando (`uv run pytest tests/ -q -m "not red"`), 4 omitidos —dos por permisos POSIX en Windows y dos sin `numpy_financial`— más 10 marcados `red`
+**Última actualización:** 2026-10-14
+**Rama:** `feat/valor-intrinseco`, pendiente de fusionar en `master` · **Tests:** 2.746 pasando (`uv run pytest tests/ -q -m "not red"`), 5 omitidos —dos por permisos POSIX en Windows y tres sin `numpy_financial`— más 26 marcados `red`
 **Remoto:** `https://github.com/Steven7717/Markowitz-pro-picks-.git` — `master` es lo publicado
 **Estructura:** el programa vive en `programa/`; en la raíz sólo están los dos
 lanzadores y el `README.md`. Los comandos (`uv run pytest`, `uv run streamlit`)
 se ejecutan desde `programa/`, no desde la raíz.
 
-> **Al retomar:** todo está en `master` y publicado, y no queda nada sin
-> fusionar. Lo último que entró, el 2026-09-28, fue el sub-proyecto L: la fila
+> **Al retomar:** el sub-proyecto M, el valor intrínseco, está terminado en la
+> rama `feat/valor-intrinseco` y **pendiente de fusionar**: entra en `master` con
+> el protocolo de actualización cuando el usuario lo pida. Ver «Resultado del
+> sub-proyecto M». El N, el Analizador individual, tiene spec
+> (`docs/superpowers/specs/2026-10-12-analizador-individual-design.md`) y
+> espera a que M esté en `master`; su plan aún no está escrito.
+>
+> En `master`, lo último que entró, el 2026-09-28, fue el sub-proyecto L: la fila
 > «En pesos (MXN)» de Seguimiento —TWR y TIR en pesos con el FIX de cada día, y
 > reales por Fisher con el INPC, ambos del SIE de Banxico
 > (`seguimiento/banxico.py`, `seguimiento/fisher.py`)—. Por debajo de 30 días
@@ -64,6 +70,8 @@ El objetivo mayor es construir, **aguas arriba de esa app**, un sistema donde un
 | J | La entrada al seguimiento | Recorrido encadenado y alta del libro | ✅ **terminado** |
 | K | El panel de seguimiento | Monitor real de la cartera | ✅ **terminado** |
 | L | Rendimiento real en pesos (MXN) | TWR/TIR en pesos y reales (Fisher), vía Banxico | ✅ **terminado** |
+| M | Valor intrínseco | Veredicto por cuatro lecturas y tres votos en cada candidato | ✅ **terminado** |
+| N | Analizador individual | La mecánica de candidatos para cualquier ticker, con gráfico, noticias e IA | ⏳ **diseñado** |
 
 ## Resultado del sub-proyecto D
 
@@ -1388,6 +1396,174 @@ no haberlo arreglado.**
   verificó todo lo demás con la app arrancada —la cuenta de nuevos, lo guardado
   pintándose sin pulsar, las dos marcas de respaldo, el archivo roto avisando y
   sobreviviendo—, pero pulsar el botón gasta saldo y se dejó al dueño de la clave.
+
+## Resultado del sub-proyecto M
+
+Paquete `valoracion/` (lógica, sin Streamlit) y `medidores_valoracion.py`
+(etiquetas y HTML, sin Streamlit), con **877 tests nuevos** en sus ficheros
+propios —más 16 marcados `red`— y algunos más en los de ranking y aprobación.
+Fuera del paquete cambian cuatro cosas: `ranking/run.py` valora cada una de las
+quince fichas, `aprobacion/carga.py` gana `valoracion_de`,
+`medidores.tarjeta_candidato` pinta el distintivo y `vistas/candidatos.py` el
+bloque. Spec: `docs/superpowers/specs/2026-10-12-valor-intrinseco-design.md`;
+plan: `docs/superpowers/plans/2026-10-12-valor-intrinseco.md`.
+
+### Qué entrega
+
+- **El paquete `valoracion/`.** `criterio.py` congelado (versión `m1`),
+  `fundamentos.py` (veinte trimestres de la SEC en ejercicios anuales),
+  `mercado.py` (lo único que toca la red: perfil, ^TNX, beta, tasa efectiva y
+  consenso, con caché y motivos con nombre), `supuestos.py` (cada supuesto con
+  su procedencia como dato), `dcf.py`, `inverso.py`, `epv.py`, `residual.py`,
+  `votos.py`, `motor.py` y `plano.py`. Cuatro lecturas —DCF, DCF inverso, EPV y
+  pares— dan tres votos y un veredicto: infravalorada, sobrevalorada, en rango,
+  señales mixtas o sin datos suficientes. Bancos, aseguradoras y mercados de
+  capitales van por beneficio residual y su ROE implícito.
+- **El distintivo y el bloque en Revisar candidatos.** Cada tarjeta lleva el
+  veredicto junto al sector. Cada ficha lleva el bloque «Valor intrínseco»: los
+  tres votos, el rango, el margen de seguridad, la hora de la cotización, la
+  fecha de los estados y los supuestos con su procedencia. Un desplegable
+  «💰 Cómo se lee el valor intrínseco» glosa los términos una vez por pantalla,
+  y un aviso arriba dice cuántos candidatos quedaron sin valorar cuando falla la
+  corrida (`medidores_valoracion.aviso_comun`).
+- **La valoración en el acta.** El acta copia las fichas, así que la registra
+  sin tocar `aprobacion/acta.py`.
+
+### Decisiones que no hay que relitigar
+
+- **Tres votos y no cuatro.** El DCF y el inverso son la misma ecuación leída en
+  los dos sentidos: por separado contarían dos veces. El voto lo da el inverso;
+  el DCF da el rango, que es su contexto.
+- **El EPV nunca vota «cara».** Pagar por el crecimiento no es estar cara. Por
+  eso «sobrevalorada» exige que coincidan flujos y pares.
+- **No toca el score.** Se calcula sobre las quince ya elegidas y sólo se enseña;
+  hay un test que lo fija.
+- **La beta se calcula y nunca se lee de Yahoo.** Regresión semanal propia de
+  104 semanas contra ^GSPC, con Blume. `Perfil` no tiene campo de beta a
+  propósito.
+- **Claves y no textos en disco.** `plano.py` guarda claves y números, en JSON
+  estricto (NaN e infinito pasan a `null`); las etiquetas viven en
+  `medidores_valoracion`.
+- **Lo guardado es siempre con supuestos del programa.** La sensibilidad y el
+  `aplicar` con supuestos del usuario son de N, y nunca se escriben en la ficha.
+- **El margen es agregado, y el exceso del residual persiste.** Las dos son
+  decisiones del usuario, tomadas con casos reales: la mediana del margen
+  saltaba de un año a otro, y un exceso que se desvanece no casaba con el DCF.
+- **El criterio está congelado.** Una medida no mueve un listón: cualquier cambio
+  es una enmienda fechada en el spec que decide el usuario.
+- **El bloque se llama «Valor intrínseco»**, no «Valoración»: tres líneas más
+  arriba, en la misma ficha, está el pilar «valoración» del score, que además es
+  el voto «Frente a sus pares».
+
+### Veintidós defectos, y casi todos en la revisión y no en el plan
+
+M se ejecutó con un subagente por tarea y dos revisiones por tarea —que hace lo
+que pide el spec, y calidad—, más mutantes en la presentación y el sabotaje de
+la Task 15, que no encontró ninguna guarda sin test. Lo que más defectos
+encontró fue **pasar el motor por las 503 empresas del S&P 500 con datos
+reales**: los motivos mentían en casos que ninguna ficha inventada habría
+tenido.
+
+| Defecto | Cómo se detectó |
+|---|---|
+| Un banco sin ingresos etiquetados se quedaba sin fundamentos | Revisión de la Task 2 |
+| Dos ejercicios se daban por consecutivos aunque no distaran un año | Revisión de la Task 2 |
+| **Una descarga vacía de yfinance se guardaba en caché como dato**: yfinance no lanza al fallar, devuelve un marco vacío | Revisión de la Task 4 (crítico) |
+| Un `try` ancho convertía defectos propios en «sin red» | Revisión de la Task 4 |
+| La beta y el perfil podían devolver NaN | Revisión de la Task 4 |
+| Un `info` de Yahoo sin identidad pisaba el perfil guardado | Revisión de la Task 4 |
+| Las financieras llevaban un coste de capital que no significa nada | Revisión de la Task 5 |
+| Un gasto financiero negativo se sumaba en valor absoluto | Revisión de la Task 5 |
+| El margen era la mediana, que saltaba de un año a otro | Revisión de la Task 6 (decisión del usuario: agregado) |
+| El inverso respondía con NaN fuera de sus condiciones | Revisión de la Task 6 |
+| El exceso del residual se desvanecía, a diferencia del DCF | Revisión de la Task 7 (decisión del usuario: persiste) |
+| Un voto de EPV con NaN salía «neutra»: un voto que nadie calculó | Revisión de la Task 8 |
+| 69 empresas sin `OperatingIncomeLoss` decían «sin historia» | Barrido de las 503 (revisión de la Task 9) |
+| 36 empresas sin capex declarado decían «sin historia» | Barrido de las 503 (revisión de la Task 9) |
+| KR, con trimestres de dieciséis semanas, salía con un TTM de 448 días | Barrido de las 503 (revisión de la Task 9) |
+| Un símbolo que Yahoo no conoce cortaba la corrida entera | Revisión de la Task 10 |
+| Un defecto del motor se tragaba sin dejar traza | Revisión de la Task 10 |
+| Los textos llevaban escritos a mano los números del criterio | Mutantes en la revisión de la Task 12 |
+| Un `motivo` que no es texto en un `fichas.json` editado a mano tumbaba la pantalla entera | Implementador y revisión de la Task 13 |
+| La explicación del margen salía en fichas sin margen (LLY, COST, PEP…) | Re-revisión de la Task 13 |
+| **El aviso empujaba a regenerar sin IA**, que tira la narrativa, cuando con IA sale de la caché sin pagar | Re-revisión de la Task 13 |
+| El bloque «Valoración» chocaba con el pilar «valoración» | Revisión de la Task 13 |
+
+**La lección: un motivo es una afirmación, y hay que medirla.** Tres de los
+veintidós eran motivos que decían algo falso —«sin historia», dos veces, a quien
+tenía años de sobra, y «sin red» a un defecto propio—, y los dos primeros sólo
+los enseñó el barrido real. Un `no_aplica` con un motivo equivocado se lee igual de bien que uno
+correcto.
+
+### El resultado de la medida
+
+Sobre las 423 empresas que sobreviven a las guardas del ranking, el 2026-10-14:
+329 en rango, 38 infravaloradas, 33 sobrevaloradas, 13 sin datos, 9 con señales
+mixtas y 1 sin calcular (KR) —ver «Resultado de la medida (2026-10-14)» al final
+del spec—. Un veredicto firme de cada seis. No se movió ningún listón.
+
+### Qué hereda N
+
+- `valoracion.motor.valorar(ticker, pilar)` y `calcular(...)`: el motor entero,
+  sin red en `calcular`.
+- `medidores_valoracion`: el distintivo, el resumen, el glosario y el pie.
+- La sensibilidad de los supuestos y `aplicar`, que el spec de M movió a N.
+- El spec de N ya está escrito
+  (`docs/superpowers/specs/2026-10-12-analizador-individual-design.md`); su
+  plan, no.
+
+### Lo que M no resuelve
+
+- **No predice.** No hay backtest honesto: yfinance no fecha las cifras y el
+  universo tiene sesgo de supervivencia. Es la decisión, dicha en pantalla.
+- **No ajusta arrendamientos, minoritarios ni opciones sobre acciones.** El valor
+  del capital es VE − deuda + efectivo. En empresas con muchos arrendamientos
+  operativos o con filiales en parte ajenas, el valor sale algo alto.
+- **El capex de mantenimiento no se separa** del de expansión en el EPV.
+- **COF, SYF, AXP y otros lenders de *Credit Services*, y RJF (*Asset
+  Management*), van por DCF**, que no les sienta bien, porque la misma
+  industria de Yahoo contiene a Visa y Mastercard.
+- **La prima de riesgo está congelada** a 2026-10-01. Actualizarla es una
+  enmienda fechada, porque mueve todos los veredictos a la vez.
+- **Sólo dólares.** Pesos, otras divisas y ADRs son de N.
+- **Fusiones y escisiones deforman el crecimiento histórico.** El tope lo acota;
+  no lo corrige (AMCR, SW, FITB, DD, FTV).
+- **El coste de la deuda casi nunca lleva diferencial**: el 79 % sale igual a la
+  tasa libre.
+- **Las betas de R² casi nulo** quedan cerca de 0,3–0,4 tras Blume y dejan el
+  coste de capital cerca de la tasa libre, lo que infla el valor (T sale 4,1
+  veces el precio). En la corrida de la Task 16, CF salió infravalorada con una
+  beta de 0,10 y un R² de 0,02. El R² viaja en la procedencia y la pantalla lo
+  enseña.
+- **El margen agregado pesa cada año por sus ingresos**, y también los años de
+  saneamiento: un año atípico tira de él (CCL 2022, KO 2025, T 2023).
+- **36 empresas no financieras no tienen DCF** porque no declaran capex (LLY,
+  COST, NEE, VZ, PEP, COP…), y **69 no tienen EPV** porque no etiquetan
+  `OperatingIncomeLoss` (XOM, JNJ, LLY, MRK, PFE, IBM, GE…).
+- **Diez empresas salen con valor por acción negativo** (SO, WEC, ETR, PEG, BA,
+  DOW…): la deuda supera el valor de la empresa.
+- **«Sobrevalorada» exige que coincidan flujos y pares**, así que AAPL, AMZN, GE,
+  PLD o CAT salen «en rango» con márgenes de −40 % a −95 %.
+- **Cinco empresas salen `sin_historia`** con cinco años de historia (APA, DTE,
+  EQR, SYF, XEL): el motor de fundamentales no reconoce su etiqueta de ingresos.
+- **Los rangos del beneficio residual son muy anchos** (JPM de 81 a 1.182 $ con
+  un precio de 337 $), y **el payout es sólo el dividendo**: las recompras no
+  cuentan.
+- **Simplificaciones conocidas del DCF**: descuento a fin de año, compensación en
+  acciones sin diluir, intereses del efectivo contados dos veces, intereses
+  devengados y no pagados, gasto financiero no declarado como cero, y un TTM que
+  puede ir cuatro meses y medio por detrás.
+- **KR y los trimestres de dieciséis semanas** salen sin fundamentos.
+- **No hay listón de antigüedad de los estados**: se enseña `estados_hasta`.
+- **De la medida, tres cosas para que el usuario decida**, todas como enmienda
+  fechada si se hacen:
+  - `UMBRAL_PARES` (±0,5) es casi una desviación típica entera del pilar, así
+    que los pares sólo votan en el 24 % de los casos, y deja en rango a 93
+    empresas con flujos «cara».
+  - 24 de las 31 utilities no tienen voto de flujos (las reguladas queman caja
+    por modelo de negocio), así que no pueden salir sobrevaloradas.
+  - El beneficio residual está sin medir: el ranking deja fuera a los bancos y a
+    las aseguradoras salvo MET.
 
 ## La auditoría (2026-09-13/14) — y el patrón que encontró
 

@@ -4067,6 +4067,8 @@ Expected: todo verde.
 
 ### Task 17: La medida sobre el S&P 500
 
+> **Ejecutada y superada** (2026-10-14). 423 supervivientes en unos diez minutos: en rango 329, infravalorada 38, sobrevalorada 33, sin datos 13, mixtas 9 y KR sin calcular. Anexo en el spec; ningún listón se movió. `salidas/` no se tocó.
+
 Con el criterio ya congelado. **Una medida, no un ajuste**: si el reparto sale raro, los listones no se mueven desde aquí.
 
 **Files:**
@@ -4166,6 +4168,8 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ---
 
 ### Task 18: CONTEXTO.md
+
+> **Ejecutada y superada** (2026-10-14).
 
 **Files:**
 - Modify: `CONTEXTO.md`
