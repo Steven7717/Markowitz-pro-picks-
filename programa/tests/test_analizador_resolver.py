@@ -17,6 +17,21 @@ from analizador.resolver import MAX_TICKERS, normalizar, separar, tiene_sufijo
         ("walmex.mx", "WALMEX.MX"),
         ("  mu  ", "MU"),
         ("BRK.B.MX", "BRK-B.MX"),
+        # Así escribe Yahoo las clases de acción canadienses.
+        ("RCI.B.TO", "RCI-B.TO"),
+        # MU es a la vez un ticker y el sufijo de Múnich.
+        ("MU.MU", "MU.MU"),
+        # El `&` es como Yahoo escribe la Ñ de Peñoles.
+        ("pe&oles.mx", "PE&OLES.MX"),
+        # El precio de la tabla cerrada: `V` es TSX Venture y también la clase
+        # con voto de McCormick, así que `MKC.V` se lee como bolsa y Yahoo no
+        # lo encuentra. Con guion funciona siempre, porque el guion no se toca.
+        ("MKC.V", "MKC.V"),
+        ("MKC-V", "MKC-V"),
+        ("A" * 20, "A" * 20),
+        # Lo que se pega de una web o de Excel: ancho completo e invisibles.
+        ("ＭＵ", "MU"),
+        ("\ufeffMU\u200b", "MU"),
         # Índices, divisas y cripto pasan la forma: es Yahoo quien dirá que no
         # son acciones, y la pantalla lo dirá con su motivo.
         ("^GSPC", "^GSPC"),
@@ -29,7 +44,8 @@ def test_normalizar(entrada, esperado):
 
 
 @pytest.mark.parametrize(
-    "entrada", ["", "   ", "BRK B", "MU;", "A..B", "WALMEX.", "-A", "A" * 21, None, 3]
+    "entrada",
+    ["", "   ", "BRK B", "MU;", "A..B", "WALMEX.", "-A", "&A", "A&", "A" * 21, None, 3],
 )
 def test_lo_que_no_tiene_forma_de_ticker_se_rechaza(entrada):
     assert normalizar(entrada) is None
@@ -52,8 +68,32 @@ def test_separar_por_comas_y_espacios_sin_repetir():
     )
 
 
+def test_separar_por_tabuladores():
+    assert separar("MU\tTSM JPM") == (["MU", "TSM", "JPM"], [])
+
+
 def test_separar_devuelve_los_invalidos_tal_como_se_escribieron():
     assert separar("MU, A..B MU;") == (["MU"], ["A..B", "MU;"])
+
+
+def test_separar_no_repite_los_invalidos():
+    assert separar("A..B A..B") == ([], ["A..B"])
+
+
+def test_separar_parte_por_el_espacio_aunque_parezca_una_clase_de_accion():
+    # `BRK B` son dos tickers, y `B` es Barrick. No hay forma de saber qué
+    # quiso decir quien lo escribió; N2 enseña el nombre largo de cada fila
+    # para que se note.
+    assert separar("BRK B") == (["BRK", "B"], [])
+
+
+def test_separar_limpia_los_invisibles_de_lo_que_se_pega():
+    assert separar("MU\u200b, \ufeffTSM") == (["MU", "TSM"], [])
+
+
+def test_separar_lleva_el_ancho_completo_a_su_forma_normal():
+    # NFKC convierte también la coma de ancho completo, y con eso separa.
+    assert separar("ＭＵ，ＴＳＭ") == (["MU", "TSM"], [])
 
 
 @pytest.mark.parametrize("vacio", ["", "  ,  ", None])
