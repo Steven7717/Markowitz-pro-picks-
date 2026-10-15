@@ -271,3 +271,151 @@ def test_las_filas_del_anual_solo_con_bpa_no_cuentan_como_ejercicio_anterior():
     anuales["bpa_diluido"] = [3.0, 3.1, 3.2]
     rellena = rellenar_desde_anual(_rejilla_walmex(), anuales)
     assert rellena.loc["2025-09-30", "ingresos"] == pytest.approx(1011.0 - 241.0 - 246.0 - 283.0)
+
+
+from datetime import date  # noqa: E402
+
+from analizador.lineas_yf import fundamentos_anuales, kpis_trimestrales, lineas_de  # noqa: E402
+from fundamentals.kpis import TODOS_LOS_KPIS  # noqa: E402
+
+
+def _rejilla(n=6, hueco=None):
+    fechas = pd.date_range("2025-03-31", periods=n, freq="QE")
+    lineas = pd.DataFrame(NAN, index=fechas, columns=list(LINEAS))
+    # En miles de millones: por debajo de `_MIN_PARTIDA_DE_BALANCE` (1e8) los
+    # ingresos no son denominador y el margen saldría NaN.
+    lineas["ingresos"] = [(100.0 + 10 * i) * 1e9 for i in range(n)]
+    lineas["beneficio_operativo"] = [(20.0 + i) * 1e9 for i in range(n)]
+    lineas["beneficio_neto"] = 10.0
+    lineas["acciones_diluidas"] = 10.0
+    lineas["bpa_diluido"] = 1.0
+    if hueco is not None:
+        lineas.iloc[hueco] = NAN
+    return lineas
+
+
+def test_los_kpis_son_los_del_motor_y_llevan_su_trimestre():
+    lineas = _rejilla()
+    kpis = kpis_trimestrales(lineas, pd.Series(20.0, index=lineas.index))
+    assert list(kpis.columns) == [*TODOS_LOS_KPIS, "trimestre"]
+    assert kpis["margen_operativo"].iloc[0] == pytest.approx(20.0 / 100.0)
+    assert kpis["trimestre"].iloc[0] == "2025Q1"
+    assert kpis.index.name == "periodo"
+
+
+def test_el_crecimiento_compara_con_el_mismo_trimestre_aunque_falte_uno():
+    lineas = _rejilla(hueco=2)
+    kpis = kpis_trimestrales(lineas, pd.Series(20.0, index=lineas.index))
+    # El 1T 2026 (fila 4) contra el 1T 2025 (fila 0), con el 3T 2025 vacío en medio.
+    assert kpis.loc["2026-03-31", "crecimiento_ingresos"] == pytest.approx(140.0 / 100.0 - 1)
+
+
+def test_la_fila_que_solo_ocupaba_su_sitio_no_sale():
+    lineas = _rejilla(hueco=2)
+    kpis = kpis_trimestrales(lineas, pd.Series(20.0, index=lineas.index))
+    assert pd.Timestamp("2025-09-30") not in kpis.index
+    assert len(kpis) == 5
+
+
+def test_sin_cuatro_trimestres_seguidos_no_hay_multiplo_de_doce_meses():
+    lineas = _rejilla(hueco=2)
+    kpis = kpis_trimestrales(lineas, pd.Series(20.0, index=lineas.index))
+    # Las ventanas de cuatro que pasan por el hueco no suman; la última, tampoco.
+    assert kpis["per"].isna().all()
+    completa = _rejilla()
+    kpis = kpis_trimestrales(completa, pd.Series(20.0, index=completa.index))
+    assert kpis["per"].iloc[-1] == pytest.approx(20.0 / 4.0)
+
+
+def test_sin_lineas_no_hay_kpis():
+    vacias = pd.DataFrame(columns=list(LINEAS), dtype="float64")
+    assert kpis_trimestrales(vacias, pd.Series(dtype="float64")).empty
+
+
+# --- Los ejercicios anuales --------------------------------------------------
+
+
+def _anuales(fechas, **columnas):
+    anuales = pd.DataFrame(NAN, index=pd.DatetimeIndex(fechas), columns=list(LINEAS))
+    for linea, valores in columnas.items():
+        anuales[linea] = valores
+    return anuales
+
+
+def test_los_ejercicios_van_del_mas_reciente_al_mas_antiguo():
+    anuales = _anuales(
+        ["2022-08-31", "2023-08-31", "2024-08-31", "2025-08-31"],
+        ingresos=[30.8, 15.5, 25.1, 37.4],
+        flujo_operativo=[15.2, 1.6, 8.5, 17.5],
+        capex=[12.1, 7.7, 8.4, 15.9],
+        patrimonio_neto=[49.9, 44.1, 45.1, 54.2],
+        deuda_total=[7.5, 13.9, 14.0, 15.3],
+        efectivo=[8.3, 8.6, 7.0, 9.6],
+    )
+    f = fundamentos_anuales(anuales, "USD")
+    assert [e.fin for e in f.ejercicios] == [
+        date(2025, 8, 31), date(2024, 8, 31), date(2023, 8, 31), date(2022, 8, 31)
+    ]
+    assert f.ultimo.ingresos == 37.4 and f.ultimo.capex == 15.9
+    # El balance es el del cierre del último ejercicio.
+    assert (f.deuda_total, f.efectivo) == (15.3, 9.6)
+    assert (f.moneda, f.fuente) == ("USD", "yfinance")
+
+
+def test_un_ano_que_falta_corta_la_serie():
+    # Saltarse el hueco devolvería ejercicios que ya no son años seguidos, y
+    # `supuestos._cagr` toma `ejercicios[i]` como «hace i años».
+    anuales = _anuales(["2021-12-31", "2023-12-31", "2024-12-31", "2025-12-31"], ingresos=1.0)
+    assert len(fundamentos_anuales(anuales, "MXN").ejercicios) == 3
+
+
+def test_una_fila_sin_ancla_entre_dos_anos_se_salta_y_no_corta_la_serie():
+    # El anual de RY trae columnas a fechas trimestrales con sólo el BPA y el
+    # recuento de doce meses móviles: no son años y no deben cortar la serie.
+    anuales = _anuales(
+        ["2022-10-31", "2023-07-31", "2023-10-31", "2024-07-31", "2024-10-31"],
+        ingresos=[50.0, NAN, 55.0, NAN, 60.0],
+        bpa_diluido=[1.0, 1.1, 1.2, 1.3, 1.4],
+    )
+    f = fundamentos_anuales(anuales, "CAD")
+    assert [e.fin for e in f.ejercicios] == [
+        date(2024, 10, 31), date(2023, 10, 31), date(2022, 10, 31)
+    ]
+
+
+def test_un_ano_que_esta_pero_sin_ingresos_corta_la_serie_por_la_distancia():
+    # Saltar la fila sin ancla no puede convertirse en saltarse un año: el
+    # siguiente con ancla está a dos años, y la distancia corta.
+    anuales = _anuales(
+        ["2023-12-31", "2024-12-31", "2025-12-31"], ingresos=[1.0, NAN, 1.0]
+    )
+    assert len(fundamentos_anuales(anuales, "USD").ejercicios) == 1
+
+
+def test_un_banco_sin_ingresos_se_ancla_en_el_beneficio():
+    anuales = _anuales(["2024-12-31", "2025-12-31"], beneficio_neto=[50.0, 55.0])
+    assert len(fundamentos_anuales(anuales, "USD").ejercicios) == 2
+
+
+def test_sin_ningun_ejercicio_valido_no_hay_fundamentos():
+    assert fundamentos_anuales(_anuales(["2025-12-31"], efectivo=1.0), "USD") is None
+    assert fundamentos_anuales(pd.DataFrame(columns=list(LINEAS)), "USD") is None
+
+
+def test_lineas_de_junta_las_seis_hojas():
+    trimestre = hoja(
+        ["2026-06-30", "2026-03-31", "2025-12-31", "2025-06-30", "2025-03-31"],
+        {"Total Revenue": [251.0, 245.0, 283.0, 246.0, 241.0]},
+    )
+    anual = hoja(["2025-12-31"], {"Total Revenue": [1011.0]})
+    estados = {
+        "quarterly_income_stmt": trimestre,
+        "quarterly_balance_sheet": pd.DataFrame(),
+        "quarterly_cashflow": pd.DataFrame(),
+        "income_stmt": anual,
+        "balance_sheet": pd.DataFrame(),
+        "cashflow": pd.DataFrame(),
+    }
+    trimestrales, anuales = lineas_de(estados)
+    assert trimestrales.loc["2025-09-30", "ingresos"] == pytest.approx(241.0)
+    assert anuales.loc["2025-12-31", "ingresos"] == 1011.0

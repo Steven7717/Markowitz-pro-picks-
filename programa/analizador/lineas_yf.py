@@ -24,7 +24,17 @@ como el año menos los otros tres.
 import numpy as np
 import pandas as pd
 
-from fundamentals.concepts import LINEAS
+from fundamentals.concepts import (
+    LINEAS,
+    completar_bpa_por_identidad,
+    reconciliar_recuento_de_acciones,
+)
+from fundamentals.kpis import (
+    TODOS_LOS_KPIS,
+    compute_growth,
+    compute_levels,
+    compute_valuation,
+)
 
 # Privadas y aun así importadas: son la duración de un trimestre y de un año con
 # que `fundamentals.panel` decide qué es cada cosa, y el límite con que descarta
@@ -36,6 +46,11 @@ from fundamentals.panel import (
     _FACTOR_MAXIMO_MEDIA,
     _TRIMESTRES_POR_ANO,
 )
+
+# Privada y aun así importada: es el cubo de trimestre natural del panel de la
+# SEC, y los dos paneles se juntan por él.
+from fundamentals.run import _trimestre_natural
+from valoracion.fundamentos import Ejercicio, Fundamentos, _num
 
 # Cada línea del motor, la hoja de la que sale y sus filas candidatas por orden.
 # La primera con dato **en cada fecha** gana, como en `resolve_lines`.
@@ -284,3 +299,98 @@ def rellenar_desde_anual(trimestres: pd.DataFrame, anuales: pd.DataFrame) -> pd.
                 continue
             rellenas.iloc[posiciones[vacios][0], rellenas.columns.get_loc(linea)] = valor
     return rellenas
+
+
+def lineas_de(estados: dict) -> "tuple[pd.DataFrame, pd.DataFrame]":
+    """Las líneas trimestrales, en rejilla y con el hueco rellenado, y las anuales.
+
+    `estados` es lo que devuelve `valoracion.mercado.estados`. Las trimestrales
+    pasan por las mismas reconciliaciones que el panel de la SEC, en el mismo
+    orden; con yfinance casi nunca tocan nada, pero dos caminos para el mismo
+    dato se separan, y el que se queda atrás no da error.
+    """
+    anuales = lineas_desde_estados(
+        estados.get("income_stmt"), estados.get("balance_sheet"), estados.get("cashflow")
+    )
+    trimestrales = lineas_desde_estados(
+        estados.get("quarterly_income_stmt"),
+        estados.get("quarterly_balance_sheet"),
+        estados.get("quarterly_cashflow"),
+    )
+    trimestrales = rellenar_desde_anual(rejilla_trimestral(trimestrales), anuales)
+    trimestrales = completar_bpa_por_identidad(reconciliar_recuento_de_acciones(trimestrales))
+    return trimestrales, anuales
+
+
+def kpis_trimestrales(lineas: pd.DataFrame, precios: pd.Series) -> pd.DataFrame:
+    """Los diecisiete KPIs, con las funciones del panel de la SEC, y el trimestre natural.
+
+    `lineas` viene en rejilla: los KPIs se calculan con la fila vacía en su sitio
+    --es lo que mantiene el `shift(4)` en el mismo trimestre del año anterior--,
+    y esa fila sale después, porque no es un trimestre medido. `precios` va
+    indexado por las mismas fechas y en la moneda de los estados.
+    """
+    columnas = [*TODOS_LOS_KPIS, "trimestre"]
+    if lineas.empty:
+        return pd.DataFrame(columns=columnas)
+    kpis = pd.concat(
+        [compute_levels(lineas), compute_growth(lineas), compute_valuation(lineas, precios)],
+        axis=1,
+    ).reindex(columns=list(TODOS_LOS_KPIS))
+    kpis["trimestre"] = _trimestre_natural(lineas.index)
+    kpis.index.name = "periodo"
+    return kpis[lineas.notna().any(axis=1).to_numpy()]
+
+
+def fundamentos_anuales(anuales: pd.DataFrame, moneda: str) -> "Fundamentos | None":
+    """Los ejercicios fiscales de yfinance, del más reciente al más antiguo y seguidos.
+
+    Ejercicios completos y no un TTM trimestral: con cinco trimestres sólo cabe
+    un TTM, y ponerlo delante de los anuales rompería que `ejercicios[i]` sea
+    «hace i años». `estados_hasta` dice en pantalla de cuándo son.
+
+    El ancla es la de `valoracion.fundamentos.desde_lineas`: los ingresos si
+    algún año los tiene, y si no el beneficio, que es lo que declara un banco.
+    El más reciente es el último año con ancla; los demás van hacia atrás, y la
+    serie se corta en el primer año que no dista un año del anterior. Una fila
+    sin ancla se salta en vez de cortar: el anual de RY trae columnas a fechas
+    trimestrales con sólo el BPA de doce meses móviles, y cortar en ellas le
+    dejaría un solo ejercicio. Un año que de verdad falta lo detecta la
+    distancia al siguiente con ancla. El balance es el del cierre del más
+    reciente.
+    """
+    if anuales.empty:
+        return None
+    ancla = "ingresos" if anuales["ingresos"].notna().any() else "beneficio_neto"
+    elegidos: list = []
+    for fecha, fila in anuales.sort_index(ascending=False).iterrows():
+        if pd.isna(fila[ancla]):
+            continue
+        if elegidos:
+            dias = (elegidos[-1][0] - fecha).days
+            if not _DIAS_ANO[0] <= dias <= _DIAS_ANO[1]:
+                break
+        elegidos.append((fecha, fila))
+    if not elegidos:
+        return None
+    ejercicios = tuple(
+        Ejercicio(
+            fin=fecha.date(),
+            ingresos=_num(fila["ingresos"]),
+            flujo_operativo=_num(fila["flujo_operativo"]),
+            capex=_num(fila["capex"]),
+            gasto_financiero=_num(fila["gasto_por_intereses"]),
+            beneficio_operativo=_num(fila["beneficio_operativo"]),
+            beneficio_neto=_num(fila["beneficio_neto"]),
+            patrimonio_neto=_num(fila["patrimonio_neto"]),
+        )
+        for fecha, fila in elegidos
+    )
+    _, ultima = elegidos[0]
+    return Fundamentos(
+        moneda=moneda,
+        fuente="yfinance",
+        ejercicios=ejercicios,
+        deuda_total=_num(ultima["deuda_total"]),
+        efectivo=_num(ultima["efectivo"]),
+    )
