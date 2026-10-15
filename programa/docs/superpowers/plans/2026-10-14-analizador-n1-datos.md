@@ -767,6 +767,8 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 ### Task 4: La clase de cada ticker
 
+> **Ejecutada y superada** (769dba7, c7a935c, 1b119e4, 0a7d0a0). La revisión encontró que edgartools memoriza en el proceso un fallo al bajar la lista viva de tickers de la SEC, y un corte se guardaba 30 días como «no la conoce»: ahora se limpia y da `sin_red_edgar`, y un `()` vale un día. La clase sale del último informe anual de la ventana reciente, sin enmiendas (una petición por ticker; JPM costaba 71), y no de «alguna vez presentó». `_limpiar` quita toda la categoría Unicode `Cf`. Manda el código vivo.
+
 **Files:**
 - Modify: `analizador/resolver.py`
 - Modify: `.gitignore`
