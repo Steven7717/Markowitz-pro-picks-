@@ -344,13 +344,47 @@ def _valor(datos: dict) -> "float | None":
     return datos["valor"]
 
 
-def _guardado_reciente(fuente: str, clave: str) -> "dict | None":
-    """Lo guardado mientras aún podría servir de respaldo (`ANTIGUEDAD_MAXIMA`),
-    para que `interpretar` decida si lo descargado lo mejora o lo estropea."""
-    guardado = cache.leer(RAIZ_CACHE, fuente, clave, ANTIGUEDAD_MAXIMA[fuente])
-    if guardado is None or not guardado.vigente or not isinstance(guardado.datos, dict):
+def _instante(desde: object, nombre: str) -> "datetime | None":
+    """La hora ISO con zona que `desde` guarda para `nombre`, o None si no se lee."""
+    iso = desde.get(nombre) if isinstance(desde, dict) else None
+    if not isinstance(iso, str):
         return None
-    return guardado.datos
+    try:
+        hora = datetime.fromisoformat(iso)
+    except ValueError:
+        return None
+    return hora if hora.tzinfo is not None else None
+
+
+def _conservables(fuente: str, clave: str, seccion: str, nombres, legible) -> dict:
+    """Lo que `interpretar` puede rescatar de lo guardado cuando la descarga
+    llega a medias: `{nombre: (valor, desde)}` de los valores llenos y
+    `legible(valor)` de `datos[seccion]` que no pasan de `ANTIGUEDAD_MAXIMA`
+    desde la última vez que llegaron llenos.
+
+    El tope cuenta desde `datos["desde"][nombre]`, no desde la hora del
+    fichero: lo conservado se reescribe con la hora nueva, y con ella volvería a
+    estar dentro del tope en cada descarga y no caducaría nunca. Una entrada de
+    antes de que hubiera `desde` cuenta desde su propia hora.
+    """
+    guardado = cache.leer(RAIZ_CACHE, fuente, clave, ANTIGUEDAD_MAXIMA[fuente])
+    if guardado is None or not isinstance(guardado.datos, dict):
+        return {}
+    previos = guardado.datos.get(seccion)
+    if not isinstance(previos, dict):
+        return {}
+    sin_desde = "desde" not in guardado.datos
+    ahora = datetime.now(timezone.utc)
+    conservables = {}
+    for nombre in nombres:
+        valor = previos.get(nombre)
+        if not valor or not legible(valor):
+            continue
+        desde = guardado.cuando if sin_desde else _instante(guardado.datos["desde"], nombre)
+        if desde is None or ahora - desde > ANTIGUEDAD_MAXIMA[fuente]:
+            continue
+        conservables[nombre] = (valor, desde.isoformat())
+    return conservables
 
 
 CLAVES_DE_IDENTIDAD = (
@@ -392,14 +426,16 @@ ESTADOS = (
 CLAVES_CLASIFICACION = ("sector", "industry", "country")
 
 # Yahoo cotiza algunas bolsas en la subunidad de su moneda: Londres en peniques
-# (GBp o GBX), Tel Aviv en agorot (ILA), Johannesburgo en céntimos (ZAc).
-# yfinance pasa el símbolo a mayúsculas, así que `GBpUSD=X` es `GBPUSD=X`: el
-# tipo de la libra, cien veces mayor, sin ningún error.
+# (GBp o GBX), Tel Aviv en agorot (ILA), Johannesburgo en céntimos (ZAc),
+# Kuwait en fils (KWF, mil por dinar). yfinance pasa el símbolo a mayúsculas,
+# así que `GBpUSD=X` es `GBPUSD=X`: el tipo de la libra, cien veces mayor, sin
+# ningún error.
 SUBUNIDADES = {
     "GBp": ("GBP", 100),
     "GBX": ("GBP", 100),
     "ILA": ("ILS", 100),
     "ZAc": ("ZAR", 100),
+    "KWF": ("KWD", 1000),
 }
 
 
@@ -527,19 +563,24 @@ def identidad(ticker: str) -> "tuple[dict | None, str]":
         if not any(clave in info for clave in CLAVES_DE_IDENTIDAD):
             return None
         nueva = {clave: info.get(clave) for clave in CLAVES_IDENTIDAD_INFO}
-        # Si cae sólo quoteSummary, `info` pierde a la vez el sector, la
-        # industria y el país. Si lo guardado tenía alguno, eso es «no lo sé del
-        # todo» y no «ya no tiene sector»: `None` deja que `_traer` sirva lo
-        # guardado sin pisarlo ni darle una hora nueva, hasta su edad máxima.
-        # `perfil` tiene la misma exposición desde M y no se toca aquí.
-        previa = (_guardado_reciente("identidad", ticker) or {}).get("identidad")
-        if (
-            isinstance(previa, dict)
-            and any(previa.get(clave) for clave in CLAVES_CLASIFICACION)
-            and not any(nueva.get(clave) for clave in CLAVES_CLASIFICACION)
-        ):
-            return None
-        return {"identidad": nueva}
+        ahora = datetime.now(timezone.utc).isoformat()
+        desde = {clave: ahora for clave in CLAVES_CLASIFICACION if nueva.get(clave)}
+        if not desde:
+            # Si cae sólo quoteSummary, `info` pierde a la vez el sector, la
+            # industria y el país, pero trae el precio nuevo. Eso es «no lo sé»
+            # y no «ya no tiene sector»: vale lo nuevo, y esos tres se rellenan
+            # con lo guardado hasta `ANTIGUEDAD_MAXIMA` desde que llegaron;
+            # pasado el tope, la parcial se guarda tal cual. Un ETF no tiene
+            # ninguno de los tres, ni nada que rellenar. `perfil` tiene la misma
+            # exposición desde M y no se toca aquí.
+            conservables = _conservables(
+                "identidad", ticker, "identidad", CLAVES_CLASIFICACION,
+                lambda valor: _texto(valor) is not None,
+            )
+            for clave, (valor, cuando) in conservables.items():
+                nueva[clave] = valor
+                desde[clave] = cuando
+        return {"identidad": nueva, "desde": desde}
 
     def leer(datos):
         # `dict()` aceptaría una lista de pares, y con otra lista lanzaría
@@ -551,23 +592,13 @@ def identidad(ticker: str) -> "tuple[dict | None, str]":
     return _traer("identidad", ticker, pedir, interpretar, leer)
 
 
-def _estados_llenos_guardados(ticker: str) -> dict:
-    """De lo guardado dentro de su edad máxima, los estados llenos que se leen."""
-    previos = (_guardado_reciente("estados", ticker) or {}).get("estados")
-    if not isinstance(previos, dict):
-        return {}
-    llenos = {}
-    for nombre in ESTADOS:
-        plano = previos.get(nombre)
-        if not plano:
-            continue
-        try:
-            estado_de_plano(plano)
-        except TypeError:
-            # Uno roto no se conserva: lanzaría al leerlo, ya fuera de `_traer`.
-            continue
-        llenos[nombre] = plano
-    return llenos
+def _plano_legible(plano: object) -> bool:
+    """Un estado guardado roto no se conserva: lanzaría al leerlo, ya fuera de `_traer`."""
+    try:
+        estado_de_plano(plano)
+    except TypeError:
+        return False
+    return True
 
 
 def estados(ticker: str) -> "tuple[dict | None, str]":
@@ -584,19 +615,24 @@ def estados(ticker: str) -> "tuple[dict | None, str]":
         planos = {nombre: estado_a_plano(crudos.get(nombre)) for nombre in ESTADOS}
         if not any(planos.values()):
             return None
+        ahora = datetime.now(timezone.utc).isoformat()
+        desde = {nombre: ahora for nombre in ESTADOS if planos[nombre]}
         # Pero cada estado es una petición aparte, y yfinance devuelve vacío el
         # que falla, también por un 429: tres llenos y tres vacíos pueden ser un
         # límite de peticiones en la cuarta. Exigir los seis llenos no sirve
         # --NESN.SW publica semestralmente y sus trimestrales de resultados y de
         # flujos llegan vacíos de verdad--, así que un estado que llega vacío no
-        # pisa uno lleno guardado. Lo conservado se guarda con la hora nueva: si
-        # Yahoo dejase de publicar un estado, se arrastraría el último. Y queda
+        # pisa uno lleno guardado. Pero sólo hasta `ANTIGUEDAD_MAXIMA` desde que
+        # llegó lleno por última vez (`desde`): un estado que ya no se publica,
+        # o el de otra empresa con un ticker reasignado, no se arrastra. Queda
         # sin cubrir que la primera descarga ya sea parcial: eso se guarda y vale
         # hasta la siguiente, un día después (`VALIDEZ`).
-        for nombre, plano in _estados_llenos_guardados(ticker).items():
+        conservables = _conservables("estados", ticker, "estados", ESTADOS, _plano_legible)
+        for nombre, (plano, cuando) in conservables.items():
             if not planos[nombre]:
                 planos[nombre] = plano
-        return {"estados": planos}
+                desde[nombre] = cuando
+        return {"estados": planos, "desde": desde}
 
     def leer(datos):
         return {nombre: estado_de_plano(datos["estados"][nombre]) for nombre in ESTADOS}
@@ -610,8 +646,8 @@ def tipo_de_cambio(origen: str, destino: str) -> "tuple[float | None, str]":
     El par de Yahoo es `<ORIGEN><DESTINO>=X`: `TWDUSD=X` da dólares por cada
     dólar taiwanés. Una subunidad (`SUBUNIDADES`) se cambia como su moneda y se
     escala después. Una moneda consigo misma, o frente a su subunidad, no sale a
-    la red. Un par que Yahoo no conoce se ve igual que un fallo de red
-    (`sin_red`).
+    la red. Un par que Yahoo no conoce, o sin ningún cierre válido, se ve igual
+    que un fallo de red (`sin_red`): no hay otro motivo que `ok` o ése.
     """
     base_origen, escala_origen = SUBUNIDADES.get(origen, (origen, 1))
     base_destino, escala_destino = SUBUNIDADES.get(destino, (destino, 1))
@@ -623,17 +659,19 @@ def tipo_de_cambio(origen: str, destino: str) -> "tuple[float | None, str]":
         return yf.Ticker(simbolo).history(period="5d")["Close"]
 
     def interpretar(cierres):
-        if _sin_cierres(cierres):
-            return None
-        # `inf > 0` es verdadero y se guardaría como `Infinity`, y un último
-        # cierre a cero taparía uno bueno anterior: sólo valen los finitos y
-        # positivos.
+        # `history()` no lanza cuando falla la red: devuelve vacío. `inf > 0` es
+        # verdadero y se guardaría como `Infinity`, y un último cierre a cero
+        # taparía uno bueno anterior: sólo valen los finitos y positivos, y sin
+        # ninguno no se sabe nada, igual que sin cierres.
         validos = [x for x in map(_opcional, cierres) if x is not None and x > 0]
-        return {"valor": validos[-1] if validos else None}
+        return {"valor": validos[-1]} if validos else None
 
-    valor, motivo = _traer("tipo_de_cambio", simbolo, pedir, interpretar, _valor)
+    def leer(datos):
+        # Una entrada con `valor: null`, de cuando un par sin cierres válidos se
+        # guardaba, lanza `TypeError` y no se sirve.
+        return float(datos["valor"])
+
+    valor, motivo = _traer("tipo_de_cambio", simbolo, pedir, interpretar, leer)
     if motivo != "ok":
         return None, motivo
-    if valor is None:
-        return None, "sin_tipo_de_cambio"
-    return float(valor) * escala_destino / escala_origen, "ok"
+    return valor * escala_destino / escala_origen, "ok"

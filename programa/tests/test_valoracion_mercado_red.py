@@ -543,19 +543,96 @@ def test_una_identidad_guardada_sin_forma_de_diccionario_no_se_sirve(tmp_path):
     assert motivo == "ok" and identidad["quoteType"] == "EQUITY"
 
 
-def test_una_identidad_parcial_no_pisa_la_guardada(tmp_path, monkeypatch):
+# Si cae sólo quoteSummary, llegan el tipo, la moneda y el precio, sin más.
+PARCIAL = {"quoteType": "EQUITY", "currency": "USD", "regularMarketPrice": 990.0}
+
+
+def test_una_identidad_parcial_trae_el_precio_nuevo_y_la_clasificacion_guardada(monkeypatch):
     with patch.object(mercado.yf, "Ticker", return_value=_ticker(info={**INFO, "sector": "Technology"})):
         mercado.identidad("MU")
-    antes = {ruta: ruta.read_bytes() for ruta in _escritos(tmp_path)}
     monkeypatch.setitem(mercado.VALIDEZ, "identidad", timedelta(seconds=-1))
-    # Si cae sólo quoteSummary, llegan el tipo, la moneda y el precio, sin más.
-    parcial = {"quoteType": "EQUITY", "currency": "USD", "regularMarketPrice": 990.0}
-    with patch.object(mercado.yf, "Ticker", return_value=_ticker(info=parcial)) as fabrica:
+    with patch.object(mercado.yf, "Ticker", return_value=_ticker(info=PARCIAL)) as fabrica:
         identidad, motivo = mercado.identidad("MU")
     fabrica.assert_called()
     assert motivo == "ok"
-    assert identidad["sector"] == "Technology"
-    assert {ruta: ruta.read_bytes() for ruta in _escritos(tmp_path)} == antes
+    assert identidad["regularMarketPrice"] == 990.0
+    assert identidad["currentPrice"] is None
+    assert (identidad["sector"], identidad["industry"], identidad["country"]) == (
+        "Technology",
+        "Semiconductors",
+        "United States",
+    )
+
+
+def _retrasar(raiz, dias):
+    """Como `_envejecer`, pero corre `dias` hacia atrás la hora del fichero y la
+    de cada `desde`: como si todo lo guardado hubiera pasado `dias` antes."""
+
+    def atras(iso):
+        return (datetime.fromisoformat(iso) - timedelta(days=dias)).isoformat()
+
+    for ruta in _escritos(raiz):
+        crudo = json.loads(ruta.read_text(encoding="utf-8"))
+        crudo["cuando"] = atras(crudo["cuando"])
+        desde = crudo["datos"].get("desde", {})
+        for nombre in desde:
+            desde[nombre] = atras(desde[nombre])
+        ruta.write_text(json.dumps(crudo), encoding="utf-8")
+
+
+def test_pasado_el_tope_la_identidad_parcial_pierde_la_clasificacion(tmp_path, monkeypatch):
+    # Lo rellenado se guarda con la hora nueva; si su tope contase desde ella,
+    # el sector de un ticker reasignado se arrastraría sin límite.
+    with patch.object(mercado.yf, "Ticker", return_value=_ticker(info={**INFO, "sector": "Technology"})):
+        mercado.identidad("MU")
+    monkeypatch.setitem(mercado.VALIDEZ, "identidad", timedelta(seconds=-1))
+    for dias in (3, 6, 9):
+        _retrasar(tmp_path, 3)
+        with patch.object(mercado.yf, "Ticker", return_value=_ticker(info=PARCIAL)):
+            identidad, motivo = mercado.identidad("MU")
+        assert motivo == "ok" and identidad["regularMarketPrice"] == 990.0
+        assert (identidad["sector"] is None) == (dias > 7), dias
+
+
+def test_un_estado_conservado_caduca_a_los_30_dias_de_llegar_lleno_por_ultima_vez(
+    tmp_path, monkeypatch
+):
+    # Lo conservado se guarda con la hora nueva; si su tope contase desde ella,
+    # un estado que ya no se publica --o el de otra empresa, con un ticker
+    # reasignado-- se serviría sin límite.
+    with patch.object(mercado.yf, "Ticker", return_value=_ticker(**_seis_estados(1.0))):
+        mercado.estados("MU")
+    monkeypatch.setitem(mercado.VALIDEZ, "estados", timedelta(seconds=-1))
+    sin_flujos = {**_seis_estados(2.0), "cashflow": empty_df()}
+    for dias in (7, 14, 21, 28, 35):
+        _retrasar(tmp_path, 7)
+        with patch.object(mercado.yf, "Ticker", return_value=_ticker(**sin_flujos)):
+            estados, motivo = mercado.estados("MU")
+        assert motivo == "ok"
+        assert estados["cashflow"].empty == (dias > 30), dias
+
+
+def test_unos_estados_guardados_sin_desde_cuentan_desde_su_hora(tmp_path, monkeypatch):
+    # La forma de antes de `desde`: sólo los planos.
+    planos = {nombre: mercado.estado_a_plano(df) for nombre, df in _seis_estados(1.0).items()}
+    mercado.cache.guardar(tmp_path, "estados", "MU", {"estados": planos})
+    monkeypatch.setitem(mercado.VALIDEZ, "estados", timedelta(seconds=-1))
+    sin_flujos = {**_seis_estados(2.0), "cashflow": empty_df()}
+    _retrasar(tmp_path, 25)
+    with patch.object(mercado.yf, "Ticker", return_value=_ticker(**sin_flujos)):
+        estados, _ = mercado.estados("MU")
+    assert estados["cashflow"].loc["Total Revenue"].iloc[0] == 1.0
+    # Ahora el `cashflow` conservado lleva la hora de la entrada vieja: 25 días.
+    _retrasar(tmp_path, 7)
+    with patch.object(mercado.yf, "Ticker", return_value=_ticker(**sin_flujos)):
+        estados, motivo = mercado.estados("MU")
+    assert motivo == "ok" and estados["cashflow"].empty
+
+
+def test_los_fils_de_kuwait_son_milesimas_de_dinar():
+    # NBK.KW cotiza en fils (KWF): mil fils, un dinar.
+    with patch.object(mercado.yf, "Ticker", side_effect=AssertionError("a la red no")):
+        assert mercado.tipo_de_cambio("KWF", "KWD") == (pytest.approx(0.001), "ok")
 
 
 @pytest.mark.parametrize(
@@ -566,6 +643,16 @@ def test_el_tipo_de_cambio_es_el_ultimo_cierre_finito_y_positivo(cierres):
         assert mercado.tipo_de_cambio("TWD", "USD") == (pytest.approx(0.031), "ok")
 
 
-def test_sin_un_cierre_positivo_no_hay_tipo_de_cambio():
-    with patch.object(mercado.yf, "Ticker", return_value=_con_historial([0.0])):
-        assert mercado.tipo_de_cambio("TWD", "USD") == (None, "sin_tipo_de_cambio")
+@pytest.mark.parametrize("cierres", [[0.0], [float("inf")]], ids=["cero", "infinito"])
+def test_sin_un_cierre_valido_no_se_sabe_el_tipo_de_cambio_ni_se_guarda(cierres, tmp_path):
+    with patch.object(mercado.yf, "Ticker", return_value=_con_historial(cierres)):
+        assert mercado.tipo_de_cambio("TWD", "USD") == (None, "sin_red")
+    assert _escritos(tmp_path) == []
+
+
+def test_un_tipo_de_cambio_guardado_sin_valor_no_se_sirve(tmp_path):
+    # La forma de antes, cuando un par sin cierres válidos se guardaba.
+    mercado.cache.guardar(tmp_path, "tipo_de_cambio", "TWDUSD=X", {"valor": None})
+    with patch.object(mercado.yf, "Ticker", return_value=_con_historial([0.0311])) as fabrica:
+        assert mercado.tipo_de_cambio("TWD", "USD") == (pytest.approx(0.0311), "ok")
+    fabrica.assert_called()
