@@ -1131,6 +1131,8 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 ### Task 5: Los estados de yfinance en las columnas del motor
 
+> **Ejecutada y revisada** (3e4645a y su arreglo). Con estados reales de 37 tickers, la revisión encontró que el relleno desde el anual se fiaba de cifras de Yahoo que no cuadran (WALMEX: intereses a 0,0 en los trimestres y el año entero en el 3T, cobertura de 2,09 contra una real de 8,3; HSBC: amortización negativa), y que un anual de transición se trataba como un año. La fila que falta salta con `MonthEnd(3)` desde un fin de mes. Manda el código vivo.
+
 **Files:**
 - Create: `analizador/lineas_yf.py`
 - Test: `tests/test_analizador_lineas_yf.py`
@@ -1643,6 +1645,29 @@ def test_un_ano_que_falta_corta_la_serie():
     assert len(fundamentos_anuales(anuales, "MXN").ejercicios) == 3
 
 
+def test_una_fila_sin_ancla_entre_dos_anos_se_salta_y_no_corta_la_serie():
+    # El anual de RY trae columnas a fechas trimestrales con sólo el BPA y el
+    # recuento de doce meses móviles: no son años y no deben cortar la serie.
+    anuales = _anuales(
+        ["2022-10-31", "2023-07-31", "2023-10-31", "2024-07-31", "2024-10-31"],
+        ingresos=[50.0, NAN, 55.0, NAN, 60.0],
+        bpa_diluido=[1.0, 1.1, 1.2, 1.3, 1.4],
+    )
+    f = fundamentos_anuales(anuales, "CAD")
+    assert [e.fin for e in f.ejercicios] == [
+        date(2024, 10, 31), date(2023, 10, 31), date(2022, 10, 31)
+    ]
+
+
+def test_un_ano_que_esta_pero_sin_ingresos_corta_la_serie_por_la_distancia():
+    # Saltar la fila sin ancla no puede convertirse en saltarse un año: el
+    # siguiente con ancla está a dos años, y la distancia corta.
+    anuales = _anuales(
+        ["2023-12-31", "2024-12-31", "2025-12-31"], ingresos=[1.0, NAN, 1.0]
+    )
+    assert len(fundamentos_anuales(anuales, "USD").ejercicios) == 1
+
+
 def test_un_banco_sin_ingresos_se_ancla_en_el_beneficio():
     anuales = _anuales(["2024-12-31", "2025-12-31"], beneficio_neto=[50.0, 55.0])
     assert len(fundamentos_anuales(anuales, "USD").ejercicios) == 2
@@ -1765,8 +1790,12 @@ def fundamentos_anuales(anuales: pd.DataFrame, moneda: str) -> "Fundamentos | No
     El ancla es la de `valoracion.fundamentos.desde_lineas`: los ingresos si
     algún año los tiene, y si no el beneficio, que es lo que declara un banco.
     El más reciente es el último año con ancla; los demás van hacia atrás, y la
-    serie se corta en el primer año que falta o que no dista un año del
-    anterior. El balance es el del cierre del más reciente.
+    serie se corta en el primer año que no dista un año del anterior. Una fila
+    sin ancla se salta en vez de cortar: el anual de RY trae columnas a fechas
+    trimestrales con sólo el BPA de doce meses móviles, y cortar en ellas le
+    dejaría un solo ejercicio. Un año que de verdad falta lo detecta la
+    distancia al siguiente con ancla. El balance es el del cierre del más
+    reciente.
     """
     if anuales.empty:
         return None
@@ -1774,8 +1803,6 @@ def fundamentos_anuales(anuales: pd.DataFrame, moneda: str) -> "Fundamentos | No
     elegidos: list = []
     for fecha, fila in anuales.sort_index(ascending=False).iterrows():
         if pd.isna(fila[ancla]):
-            if elegidos:
-                break
             continue
         if elegidos:
             dias = (elegidos[-1][0] - fecha).days
