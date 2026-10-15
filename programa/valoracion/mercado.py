@@ -192,6 +192,41 @@ def consenso_desde_estimacion(
     return _opcional(fila.get("growth"))
 
 
+def estado_a_plano(estado: "pd.DataFrame | None") -> dict:
+    """Un estado de yfinance como `{fila: {fecha ISO: valor}}`, con NaN como None.
+
+    La caché es JSON estricto: un NaN se escribiría como el literal `NaN`, que
+    un lector estricto rechaza.
+    """
+    if estado is None or estado.empty:
+        return {}
+    plano: dict = {}
+    for fila, valores in estado.iterrows():
+        plano[str(fila)] = {
+            pd.Timestamp(columna).date().isoformat(): _opcional(valor)
+            for columna, valor in valores.items()
+        }
+    return plano
+
+
+def estado_de_plano(plano: object) -> pd.DataFrame:
+    """La inversa de `estado_a_plano`, con la columna más reciente primero, como
+    las entrega yfinance. Lanza `TypeError` si no tiene la forma de un estado."""
+    if not isinstance(plano, dict):
+        raise TypeError("estado guardado sin forma de diccionario")
+    if not plano:
+        return pd.DataFrame()
+    columnas = {
+        fila: {
+            pd.Timestamp(fecha): (math.nan if valor is None else float(valor))
+            for fecha, valor in valores.items()
+        }
+        for fila, valores in plano.items()
+    }
+    estado = pd.DataFrame(columnas).T
+    return estado.reindex(columns=sorted(estado.columns, reverse=True)).astype("float64")
+
+
 # --- Red ------------------------------------------------------------------------
 #
 # Cada función devuelve el dato y un motivo con nombre, como
@@ -210,6 +245,12 @@ VALIDEZ = {
     "beta": timedelta(days=1),
     "tasa_efectiva": timedelta(days=1),
     "consenso": timedelta(days=1),
+    # La identidad viaja en la misma llamada que el precio: un ETF no tiene
+    # perfil, y su precio sólo está aquí.
+    "identidad": timedelta(minutes=15),
+    # Los estados cambian una vez por trimestre.
+    "estados": timedelta(days=1),
+    "tipo_de_cambio": timedelta(days=1),
 }
 
 # Hasta dónde sirve lo guardado cuando la red falla. Pasado esto, mejor decir
@@ -226,6 +267,12 @@ ANTIGUEDAD_MAXIMA = {
     "tasa_efectiva": timedelta(days=400),
     # El consenso se revisa con cada resultado trimestral.
     "consenso": timedelta(days=30),
+    # Qué es un ticker no cambia de un día a otro; su precio sí, y lleva su hora.
+    "identidad": timedelta(days=7),
+    # Un trimestre nuevo llega cada noventa días.
+    "estados": timedelta(days=30),
+    # Una semana de tipo de cambio mueve la valoración unas décimas.
+    "tipo_de_cambio": timedelta(days=7),
 }
 
 
@@ -292,6 +339,32 @@ CLAVES_DE_IDENTIDAD = (
     "marketCap",
     "currentPrice",
     "regularMarketPrice",
+)
+
+# Lo que `identidad` guarda de `info`: qué es el ticker, dónde cotiza y en qué
+# moneda, y su precio con la hora. Nada de beta: ver la docstring de `Perfil`.
+CLAVES_IDENTIDAD_INFO = (
+    "quoteType",
+    "exchange",
+    "currency",
+    "financialCurrency",
+    "sector",
+    "industry",
+    "country",
+    "longName",
+    "shortName",
+    "currentPrice",
+    "regularMarketPrice",
+    "regularMarketTime",
+)
+
+ESTADOS = (
+    "quarterly_income_stmt",
+    "quarterly_balance_sheet",
+    "quarterly_cashflow",
+    "income_stmt",
+    "balance_sheet",
+    "cashflow",
 )
 
 
@@ -399,3 +472,75 @@ def consenso(ticker: str, moneda_estados: str) -> "tuple[float | None, str]":
     if motivo != "ok":
         return None, motivo
     return (valor, "ok") if valor is not None else (None, "sin_consenso")
+
+
+def identidad(ticker: str) -> "tuple[dict | None, str]":
+    """Las claves de `info` que dicen qué es un ticker, aunque no tenga capitalización.
+
+    Va aparte de `perfil` porque un ETF no tiene capitalización y `perfil` lo
+    descarta con `sin_precio`; el Analizador necesita saber que es un ETF para
+    enseñarlo sin valorarlo. Igual que en `perfil`, un `info` sin ninguna clave
+    de identidad no dice nada --la red, un error de Yahoo o un símbolo que no
+    conoce-- y no se guarda.
+    """
+
+    def pedir():
+        info = yf.Ticker(ticker).info
+        return info if isinstance(info, dict) else None
+
+    def interpretar(info):
+        if not any(clave in info for clave in CLAVES_DE_IDENTIDAD):
+            return None
+        return {"identidad": {clave: info.get(clave) for clave in CLAVES_IDENTIDAD_INFO}}
+
+    def leer(datos):
+        return dict(datos["identidad"])
+
+    return _traer("identidad", ticker, pedir, interpretar, leer)
+
+
+def estados(ticker: str) -> "tuple[dict | None, str]":
+    """Los seis estados de yfinance, trimestrales y anuales, como DataFrames."""
+
+    def pedir():
+        objeto = yf.Ticker(ticker)
+        return {nombre: getattr(objeto, nombre) for nombre in ESTADOS}
+
+    def interpretar(crudos):
+        # Como `history()`, los estados no lanzan cuando falla la red: llegan
+        # vacíos. Con los seis vacíos no se sabe nada, y guardarlo como «no hay
+        # estados» es el defecto que la revisión de M encontró en el precio.
+        planos = {nombre: estado_a_plano(crudos.get(nombre)) for nombre in ESTADOS}
+        if not any(planos.values()):
+            return None
+        return {"estados": planos}
+
+    def leer(datos):
+        return {nombre: estado_de_plano(datos["estados"][nombre]) for nombre in ESTADOS}
+
+    return _traer("estados", ticker, pedir, interpretar, leer)
+
+
+def tipo_de_cambio(origen: str, destino: str) -> "tuple[float | None, str]":
+    """Cuántas unidades de `destino` vale una de `origen`, al último cierre.
+
+    El par de Yahoo es `<ORIGEN><DESTINO>=X`: `TWDUSD=X` da dólares por cada
+    dólar taiwanés. Una moneda consigo misma vale 1 sin salir a la red.
+    """
+    if origen == destino:
+        return 1.0, "ok"
+    simbolo = f"{origen}{destino}=X"
+
+    def pedir():
+        return yf.Ticker(simbolo).history(period="5d")["Close"]
+
+    def interpretar(cierres):
+        if _sin_cierres(cierres):
+            return None
+        ultimo = float(pd.to_numeric(cierres, errors="coerce").dropna().iloc[-1])
+        return {"valor": ultimo if ultimo > 0 else None}
+
+    valor, motivo = _traer("tipo_de_cambio", simbolo, pedir, interpretar, _valor)
+    if motivo != "ok":
+        return None, motivo
+    return (float(valor), "ok") if valor is not None else (None, "sin_tipo_de_cambio")

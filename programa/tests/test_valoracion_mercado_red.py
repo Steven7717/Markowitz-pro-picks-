@@ -320,6 +320,9 @@ def _llamar(fuente):
         "beta": lambda: mercado.beta("MU"),
         "tasa_efectiva": lambda: mercado.tasa_efectiva("MU"),
         "consenso": lambda: mercado.consenso("MU", "USD"),
+        "identidad": lambda: mercado.identidad("MU"),
+        "estados": lambda: mercado.estados("MU"),
+        "tipo_de_cambio": lambda: mercado.tipo_de_cambio("TWD", "USD"),
     }[fuente]()
 
 
@@ -330,7 +333,11 @@ def _red_buena(fuente):
         return {"side_effect": lambda simbolo: dobles[simbolo]}
     if fuente == "tasa_libre":
         return {"return_value": _con_historial([5.1, 5.24])}
-    estado = pd.DataFrame({"2025": [0.19]}, index=["Tax Rate For Calcs"])
+    if fuente == "tipo_de_cambio":
+        return {"return_value": _con_historial([0.0309, 0.0311])}
+    if fuente == "estados":
+        return {"return_value": _ticker(**_estados_dobles())}
+    estado =pd.DataFrame({"2025": [0.19]}, index=["Tax Rate For Calcs"])
     estimacion = pd.DataFrame({"growth": [0.1648], "currency": ["USD"]}, index=["+1y"])
     return {
         "return_value": _ticker(info=INFO, income_stmt=estado, revenue_estimate=estimacion)
@@ -343,7 +350,17 @@ FALLOS = {
     "beta": "sin_red",
     "tasa_efectiva": "sin_red",
     "consenso": "sin_red",
+    "identidad": "sin_red",
+    "estados": "sin_red",
+    "tipo_de_cambio": "sin_red",
 }
+
+
+def _igual(a, b):
+    """`==` no sirve para DataFrames; los estados se comparan con su propia igualdad."""
+    if isinstance(a[0], dict) and a[0] and isinstance(next(iter(a[0].values())), pd.DataFrame):
+        return a[1] == b[1] and all(a[0][k].equals(b[0][k]) for k in a[0])
+    return a == b
 
 
 @pytest.mark.parametrize("fuente", list(FALLOS))
@@ -353,7 +370,7 @@ def test_lo_guardado_sirve_de_respaldo_dentro_de_su_edad_maxima(fuente, tmp_path
     assert bueno[1] == "ok"
     _envejecer(tmp_path, mercado.ANTIGUEDAD_MAXIMA[fuente].days - 1)
     with patch.object(mercado.yf, "Ticker", side_effect=OSError("sin red")) as fabrica:
-        assert _llamar(fuente) == bueno
+        assert _igual(_llamar(fuente), bueno)
     fabrica.assert_called()
 
 
@@ -364,3 +381,79 @@ def test_lo_guardado_mas_viejo_que_su_edad_maxima_no_sirve(fuente, tmp_path):
     _envejecer(tmp_path, mercado.ANTIGUEDAD_MAXIMA[fuente].days + 1)
     with patch.object(mercado.yf, "Ticker", side_effect=OSError("sin red")):
         assert _llamar(fuente) == (None, FALLOS[fuente])
+
+
+# --- La identidad, los estados y el tipo de cambio ----------------------------
+
+INFO_ETF = {
+    "quoteType": "ETF",
+    "exchange": "PCX",
+    "currency": "USD",
+    "regularMarketPrice": 769.6,
+    "regularMarketTime": 1_791_835_140,
+    "longName": "State Street SPDR S&P 500 ETF Trust",
+}
+
+
+def test_la_identidad_de_un_etf_se_lee_aunque_no_tenga_capitalizacion():
+    with patch.object(mercado.yf, "Ticker", return_value=_ticker(info=INFO_ETF)):
+        identidad, motivo = mercado.identidad("SPY")
+    assert motivo == "ok"
+    assert identidad["quoteType"] == "ETF"
+    assert identidad["regularMarketPrice"] == 769.6
+    # Y `perfil`, que exige capitalización, no lo valora: es lo que se quiere.
+    with patch.object(mercado.yf, "Ticker", return_value=_ticker(info=INFO_ETF)):
+        assert mercado.perfil("SPY") == (None, "sin_precio")
+
+
+def test_la_identidad_solo_guarda_las_claves_que_sirven():
+    with patch.object(mercado.yf, "Ticker", return_value=_ticker(info=INFO)):
+        identidad, _ = mercado.identidad("MU")
+    assert set(identidad) == set(mercado.CLAVES_IDENTIDAD_INFO)
+    assert "beta" not in identidad
+
+
+def test_una_identidad_sin_claves_no_se_guarda(tmp_path):
+    with patch.object(mercado.yf, "Ticker", return_value=_ticker(info={"trailingPegRatio": None})):
+        assert mercado.identidad("ZZZZQ") == (None, "sin_red")
+    assert _escritos(tmp_path) == []
+
+
+def _estados_dobles():
+    estado = pd.DataFrame({pd.Timestamp("2026-06-30"): [2.5e11]}, index=["Total Revenue"])
+    vacio = empty_df()
+    return {nombre: (estado if nombre == "income_stmt" else vacio) for nombre in mercado.ESTADOS}
+
+
+def test_los_estados_se_descargan_y_vuelven_como_dataframes():
+    with patch.object(mercado.yf, "Ticker", return_value=_ticker(**_estados_dobles())):
+        estados, motivo = mercado.estados("WALMEX.MX")
+    assert motivo == "ok"
+    assert set(estados) == set(mercado.ESTADOS)
+    assert estados["income_stmt"].loc["Total Revenue"].iloc[0] == 2.5e11
+    assert estados["cashflow"].empty
+
+
+def test_seis_estados_vacios_no_se_guardan(tmp_path):
+    vacios = {nombre: empty_df() for nombre in mercado.ESTADOS}
+    with patch.object(mercado.yf, "Ticker", return_value=_ticker(**vacios)):
+        assert mercado.estados("WALMEX.MX") == (None, "sin_red")
+    assert _escritos(tmp_path) == []
+
+
+def test_el_tipo_de_cambio_de_una_moneda_consigo_misma_no_sale_a_la_red():
+    with patch.object(mercado.yf, "Ticker", side_effect=AssertionError("a la red no")):
+        assert mercado.tipo_de_cambio("MXN", "MXN") == (1.0, "ok")
+
+
+def test_el_tipo_de_cambio_es_el_ultimo_cierre_del_par():
+    doble = _con_historial([0.0309, 0.0311])
+    with patch.object(mercado.yf, "Ticker", return_value=doble) as fabrica:
+        assert mercado.tipo_de_cambio("TWD", "USD") == (pytest.approx(0.0311), "ok")
+    fabrica.assert_called_with("TWDUSD=X")
+
+
+def test_un_tipo_de_cambio_vacio_no_se_guarda(tmp_path):
+    with patch.object(mercado.yf, "Ticker", return_value=_con_historial([])):
+        assert mercado.tipo_de_cambio("TWD", "USD") == (None, "sin_red")
+    assert _escritos(tmp_path) == []

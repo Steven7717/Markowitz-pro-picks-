@@ -1,3 +1,5 @@
+import json
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -257,3 +259,42 @@ def test_un_consenso_en_otra_moneda_se_descarta():
 def test_sin_estimacion_no_hay_consenso():
     assert consenso_desde_estimacion(pd.DataFrame(), "USD") is None
     assert consenso_desde_estimacion(None, "USD") is None
+
+
+# --- Los estados de yfinance, ida y vuelta a la caché --------------------------
+
+from valoracion.mercado import estado_a_plano, estado_de_plano  # noqa: E402
+
+
+def _estado():
+    return pd.DataFrame(
+        {
+            pd.Timestamp("2026-06-30"): [2.5e11, float("nan")],
+            pd.Timestamp("2026-03-31"): [2.45e11, -2.4e9],
+        },
+        index=["Total Revenue", "Capital Expenditure"],
+    )
+
+
+def test_un_estado_va_a_la_cache_con_nan_como_null_y_vuelve_igual():
+    plano = estado_a_plano(_estado())
+    assert plano["Capital Expenditure"]["2026-06-30"] is None
+    json.dumps(plano, allow_nan=False)
+    vuelta = estado_de_plano(plano)
+    pd.testing.assert_frame_equal(vuelta, _estado().astype("float64"), check_names=False)
+
+
+def test_el_estado_vuelve_con_la_columna_mas_reciente_primero():
+    vuelta = estado_de_plano(estado_a_plano(_estado().iloc[:, ::-1]))
+    assert list(vuelta.columns) == [pd.Timestamp("2026-06-30"), pd.Timestamp("2026-03-31")]
+
+
+def test_un_estado_vacio_es_un_plano_vacio_y_vuelve_vacio():
+    assert estado_a_plano(pd.DataFrame()) == {}
+    assert estado_a_plano(None) == {}
+    assert estado_de_plano({}).empty
+
+
+def test_un_plano_que_no_es_un_diccionario_no_se_lee():
+    with pytest.raises(TypeError):
+        estado_de_plano(["Total Revenue"])
