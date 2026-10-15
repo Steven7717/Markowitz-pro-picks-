@@ -26,11 +26,16 @@ import pandas as pd
 
 from fundamentals.concepts import LINEAS
 
-# Privadas y aun así importadas: son la duración de un trimestre con que
-# `fundamentals.panel` decide qué es un trimestre, y el límite con que descarta
+# Privadas y aun así importadas: son la duración de un trimestre y de un año con
+# que `fundamentals.panel` decide qué es cada cosa, y el límite con que descarta
 # una media derivada que se aleja demasiado de la anual. Una segunda copia aquí
 # es como se separan.
-from fundamentals.panel import _DIAS_TRIMESTRE, _FACTOR_MAXIMO_MEDIA, _TRIMESTRES_POR_ANO
+from fundamentals.panel import (
+    _DIAS_ANO,
+    _DIAS_TRIMESTRE,
+    _FACTOR_MAXIMO_MEDIA,
+    _TRIMESTRES_POR_ANO,
+)
 
 # Cada línea del motor, la hoja de la que sale y sus filas candidatas por orden.
 # La primera con dato **en cada fecha** gana, como en `resolve_lines`.
@@ -71,11 +76,31 @@ _FLUJOS = (
 )
 _MEDIAS = ("acciones_diluidas",)
 
+# Las líneas que no pueden ser negativas. Yahoo trae a veces trimestres que no
+# cuadran con su año (WALMEX: 0,0 de intereses en cada trimestre y 9.115 M en el
+# anual; HSBC: tres trimestres de amortización que suman más que el año;
+# GFNORTEO: unos ingresos trimestrales negativos), y la resta los convierte en un
+# trimestre absurdo con aspecto de medido. En estas líneas el signo delata el
+# descuadre. El beneficio operativo, el neto y el flujo operativo pueden ser
+# negativos de verdad: no hay forma general de blindarlos, y se rellenan sin
+# más guarda que la aritmética.
+_NO_NEGATIVAS = (
+    "ingresos",
+    "coste_de_ventas",
+    "depreciacion_amortizacion",
+    "gasto_por_intereses",
+    "capex",
+    "acciones_diluidas",
+)
+
 # Los trimestres de un ejercicio que cierra en `fin` caen entre unos 273 días
 # antes y `fin`; el cuarto trimestre del ejercicio anterior, a unos 365. Tres
 # trimestres largos (300 días) separan los dos casos con margen, también en los
 # calendarios de 52/53 semanas.
 _ANTES_DEL_CIERRE = pd.Timedelta(days=3 * _DIAS_TRIMESTRE[1])
+# El cuarto trimestre cierra el mismo día que su ejercicio, pero las dos fechas
+# pueden diferir unos días: una semana lo absorbe sin acercarse al primer
+# trimestre del ejercicio siguiente, que cae unos 90 días después.
 _DESPUES_DEL_CIERRE = pd.Timedelta(days=7)
 
 
@@ -93,6 +118,18 @@ def _fila(estado: pd.DataFrame, candidatas: "tuple[str, ...]") -> pd.Series:
     return serie
 
 
+def _fecha(columna) -> pd.Timestamp:
+    """La fecha de cierre de una columna, sin zona y sin hora.
+
+    `mercado.estados` no las trae, pero una hoja con zona y otra sin ella no se
+    pueden ni ordenar juntas, y la misma fecha a dos horas serían dos filas.
+    """
+    fecha = pd.Timestamp(columna)
+    if fecha.tz is not None:
+        fecha = fecha.tz_localize(None)
+    return fecha.normalize()
+
+
 def lineas_desde_estados(
     resultados: "pd.DataFrame | None",
     balance: "pd.DataFrame | None",
@@ -108,7 +145,7 @@ def lineas_desde_estados(
     hojas = {"resultados": resultados, "balance": balance, "flujos": flujos}
     fechas = sorted(
         {
-            pd.Timestamp(columna)
+            _fecha(columna)
             for hoja in hojas.values()
             if hoja is not None and not hoja.empty
             for columna in hoja.columns
@@ -121,7 +158,7 @@ def lineas_desde_estados(
         if hoja is None or hoja.empty:
             continue
         serie = _fila(hoja, candidatas)
-        serie.index = pd.DatetimeIndex([pd.Timestamp(c) for c in serie.index])
+        serie.index = pd.DatetimeIndex([_fecha(c) for c in serie.index])
         serie = serie[~serie.index.duplicated(keep="first")]
         lineas[linea] = serie.reindex(indice)
     lineas["capex"] = -lineas["capex"]
@@ -134,6 +171,13 @@ def rejilla_trimestral(lineas: pd.DataFrame) -> pd.DataFrame:
     El que falta lleva la fecha de tres meses después del anterior: así las
     distancias entre fechas siguen siendo las de un trimestre, que es lo que
     miran `valoracion.fundamentos` y `fundamentals.panel`.
+
+    Da por hecho que Yahoo pone cada cierre el último día de su mes. En los 37
+    tickers revisados siempre es así, también en los calendarios de 52/53
+    semanas: el 27 de septiembre de AAPL sale como 30 de septiembre, y el 3 de
+    enero de SNA como 31 de diciembre. Con las fechas sin redondear, un cierre
+    a primeros de mes caería en el trimestre natural siguiente, y la rejilla
+    podría inventar una fila o descartar una real.
     """
     if lineas.empty:
         return lineas
@@ -149,8 +193,10 @@ def rejilla_trimestral(lineas: pd.DataFrame) -> pd.DataFrame:
         fecha = por_trimestre.get(trimestre)
         if fecha is None:
             # `DateOffset(months=3)` conserva el día del mes: del 30 de
-            # septiembre daría el 30 de diciembre, que no es el cierre de nadie.
-            # Desde un fin de mes se salta de fin de mes en fin de mes.
+            # septiembre daría el 30 de diciembre, y del 28 de febrero el 28 de
+            # mayo, que no son el cierre de nadie. Desde un fin de mes se salta
+            # de fin de mes en fin de mes; desde otro día, `MonthEnd(3)` caería
+            # en el mismo trimestre (del 28 de enero, al 31 de marzo).
             salto = pd.offsets.MonthEnd(3) if anterior.is_month_end else pd.DateOffset(months=3)
             fecha = anterior + salto
         fechas.append(fecha)
@@ -160,25 +206,49 @@ def rejilla_trimestral(lineas: pd.DataFrame) -> pd.DataFrame:
     return rejilla
 
 
+def _de_doce_meses(anuales: pd.DataFrame) -> pd.DataFrame:
+    """Los anuales que cierran un año después del anterior con dato.
+
+    Un ejercicio de transición de seis meses no es un año, y restarle tres
+    trimestres no da el que falta. «Con dato» es con ingresos o beneficio neto:
+    el anual de RY trae además columnas a fechas trimestrales con sólo el BPA y
+    el recuento de doce meses móviles, y si contasen como el anterior ningún
+    año suyo sería un año. El primero, sin anterior, vale.
+    """
+    anuales = anuales.sort_index()
+    con_dato = anuales[["ingresos", "beneficio_neto"]].notna().any(axis=1).to_numpy()
+    validos, anterior = [], None
+    for fin, tiene_dato in zip(anuales.index, con_dato):
+        validos.append(anterior is None or _DIAS_ANO[0] <= (fin - anterior).days <= _DIAS_ANO[1])
+        if tiene_dato:
+            anterior = fin
+    return anuales[validos]
+
+
 def rellenar_desde_anual(trimestres: pd.DataFrame, anuales: pd.DataFrame) -> pd.DataFrame:
     """El flujo del trimestre que falta, como el año menos los otros tres.
 
     Es la aritmética de `fundamentals.panel._cuartos_derivados`, que reconstruye
     el cuarto trimestre que la SEC no declara suelto, llevada a cualquier
-    trimestre: dentro de un ejercicio con exactamente un trimestre vacío y el
-    anual declarado, el vacío es el año menos los tres. Con dos vacíos no hay
-    aritmética que valga, y se quedan vacíos.
+    trimestre: dentro de un ejercicio de doce meses con exactamente un trimestre
+    vacío y el anual declarado, el vacío es el año menos los tres. Con dos
+    vacíos no hay aritmética que valga, y se quedan vacíos.
 
     Sólo para flujos: un saldo de balance es una foto, y la del cierre no dice
     nada de la de septiembre. El recuento medio de acciones es una media: cuatro
     veces el anual menos los tres, y sólo si lo que sale no se aleja más del
     doble o la mitad del anual, que es la guarda de `fundamentals.panel`.
+
+    En las líneas que no pueden ser negativas, la resta sólo vale si los tres
+    conocidos no son todos 0,0, que es lo que pone Yahoo cuando no tiene el
+    desglose; si ninguno es negativo, y si lo que sale queda entre 0 y el total
+    del año (el anual, o cuatro veces el anual en la media).
     """
     if trimestres.empty or anuales.empty:
         return trimestres
     rellenas = trimestres.copy()
     fechas = rellenas.index
-    for fin, ano in anuales.iterrows():
+    for fin, ano in _de_doce_meses(anuales).iterrows():
         dentro = (fechas > fin - _ANTES_DEL_CIERRE) & (fechas <= fin + _DESPUES_DEL_CIERRE)
         posiciones = np.flatnonzero(dentro)
         if len(posiciones) != _TRIMESTRES_POR_ANO:
@@ -191,8 +261,14 @@ def rellenar_desde_anual(trimestres: pd.DataFrame, anuales: pd.DataFrame) -> pd.
             vacios = valores.isna().to_numpy()
             if vacios.sum() != 1:
                 continue
+            conocidos = valores[~vacios]
             media = linea in _MEDIAS
-            valor = (_TRIMESTRES_POR_ANO if media else 1) * anual - valores[~vacios].sum()
+            total = (_TRIMESTRES_POR_ANO if media else 1) * anual
+            valor = total - conocidos.sum()
+            if linea in _NO_NEGATIVAS and (
+                (conocidos == 0).all() or (conocidos < 0).any() or not 0 < valor < total
+            ):
+                continue
             if media and not (
                 anual / _FACTOR_MAXIMO_MEDIA <= valor <= anual * _FACTOR_MAXIMO_MEDIA
             ):

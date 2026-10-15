@@ -71,6 +71,15 @@ def test_sin_ninguna_hoja_no_hay_lineas():
     assert lineas_desde_estados(None, pd.DataFrame(), None).empty
 
 
+def test_una_fecha_con_zona_y_hora_es_la_misma_fila_que_sin_ellas():
+    resultados = hoja(["2026-06-30 16:00-04:00"], {"Total Revenue": [2.0]})
+    balance = hoja(["2026-06-30"], {"Total Assets": [5.0]})
+    lineas = lineas_desde_estados(resultados, balance, None)
+    assert list(lineas.index) == [pd.Timestamp("2026-06-30")]
+    assert lineas["ingresos"].iloc[0] == 2.0
+    assert lineas["activos_totales"].iloc[0] == 5.0
+
+
 # --- La rejilla trimestral ----------------------------------------------------
 
 
@@ -114,6 +123,17 @@ def test_desde_un_fin_de_mes_la_fila_que_falta_cae_en_fin_de_mes():
     # de diciembre, y el ejercicio de un 4T que falta acabaría un día antes.
     lineas = _trimestres(["2025-06-30", "2025-09-30", "2026-03-31"], [1.0, 2.0, 4.0])
     assert rejilla_trimestral(lineas).index[2] == pd.Timestamp("2025-12-31")
+
+
+def test_desde_el_28_de_febrero_la_fila_que_falta_cae_el_31_de_mayo():
+    lineas = _trimestres(["2025-02-28", "2025-08-31"], [1.0, 3.0])
+    assert rejilla_trimestral(lineas).index[1] == pd.Timestamp("2025-05-31")
+
+
+def test_fuera_de_un_fin_de_mes_la_fila_que_falta_conserva_el_dia():
+    # `MonthEnd(3)` desde el 28 de enero daría el 31 de marzo: el mismo trimestre.
+    lineas = _trimestres(["2025-01-28", "2025-07-29"], [1.0, 3.0])
+    assert rejilla_trimestral(lineas).index[1] == pd.Timestamp("2025-04-28")
 
 
 # --- El trimestre que falta, desde el anual -----------------------------------
@@ -176,3 +196,65 @@ def test_una_media_que_saldria_absurda_no_se_rellena():
     anual = _anual("2025-12-31", acciones_diluidas=30.0)
     rellena = rellenar_desde_anual(_rejilla_walmex(), anual)
     assert np.isnan(rellena.loc["2025-09-30", "acciones_diluidas"])
+
+
+def test_tres_trimestres_a_cero_no_son_un_desglose():
+    # WALMEX: Yahoo pone 0,0 de intereses en cada trimestre y 9.115 M en el
+    # anual. Rellenar metería el año entero en el 3T 2025.
+    rejilla = _rejilla_walmex()
+    rejilla["gasto_por_intereses"] = [0.0, 0.0, NAN, 0.0, 0.0, 0.0]
+    rellena = rellenar_desde_anual(rejilla, _anual("2025-12-31", gasto_por_intereses=9115.0))
+    assert np.isnan(rellena.loc["2025-09-30", "gasto_por_intereses"])
+
+
+def test_una_amortizacion_que_saldria_negativa_no_se_rellena():
+    # HSBC 1T 2025: los tres trimestres conocidos suman más que el año.
+    rejilla = _rejilla_walmex()
+    rejilla["depreciacion_amortizacion"] = [100.0, 120.0, NAN, 130.0, 110.0, 115.0]
+    rellena = rellenar_desde_anual(
+        rejilla, _anual("2025-12-31", depreciacion_amortizacion=300.0)
+    )
+    assert np.isnan(rellena.loc["2025-09-30", "depreciacion_amortizacion"])
+
+
+def test_unos_ingresos_negativos_entre_los_conocidos_no_rellenan():
+    # GFNORTEO: un 2T 2025 con ingresos negativos inflaría el 3T rellenado.
+    rejilla = _rejilla_walmex()
+    rejilla.loc["2025-06-30", "ingresos"] = -246.0
+    rellena = rellenar_desde_anual(rejilla, _anual("2025-12-31", ingresos=1011.0))
+    assert np.isnan(rellena.loc["2025-09-30", "ingresos"])
+
+
+def test_un_beneficio_negativo_si_se_rellena():
+    # Perder dinero en un trimestre es posible: el signo no delata nada.
+    rejilla = _rejilla_walmex()
+    rejilla["beneficio_neto"] = [10.0, 12.0, NAN, 15.0, 11.0, 13.0]
+    rellena = rellenar_desde_anual(rejilla, _anual("2025-12-31", beneficio_neto=20.0))
+    assert rellena.loc["2025-09-30", "beneficio_neto"] == pytest.approx(-17.0)
+
+
+def test_un_anual_de_transicion_no_es_un_ano():
+    # Un ejercicio de seis meses: restarle tres trimestres no da el que falta.
+    fechas = ["2024-09-30", "2024-12-31", "2025-03-31", "2025-06-30"]
+    rejilla = pd.DataFrame(NAN, index=pd.DatetimeIndex(fechas), columns=list(LINEAS))
+    rejilla["beneficio_neto"] = [10.0, 10.0, NAN, 10.0]
+    anuales = pd.DataFrame(
+        NAN, index=pd.DatetimeIndex(["2024-12-31", "2025-06-30"]), columns=list(LINEAS)
+    )
+    anuales["beneficio_neto"] = [40.0, 20.0]
+    rellena = rellenar_desde_anual(rejilla, anuales)
+    assert np.isnan(rellena.loc["2025-03-31", "beneficio_neto"])
+
+
+def test_las_filas_del_anual_solo_con_bpa_no_cuentan_como_ejercicio_anterior():
+    # RY: su anual trae columnas a fechas trimestrales con sólo el BPA y el
+    # recuento de doce meses móviles. Si contasen, ningún año suyo sería un año.
+    anuales = pd.DataFrame(
+        NAN,
+        index=pd.DatetimeIndex(["2024-12-31", "2025-09-30", "2025-12-31"]),
+        columns=list(LINEAS),
+    )
+    anuales["ingresos"] = [950.0, NAN, 1011.0]
+    anuales["bpa_diluido"] = [3.0, 3.1, 3.2]
+    rellena = rellenar_desde_anual(_rejilla_walmex(), anuales)
+    assert rellena.loc["2025-09-30", "ingresos"] == pytest.approx(1011.0 - 241.0 - 246.0 - 283.0)
