@@ -387,6 +387,23 @@ def _conservables(fuente: str, clave: str, seccion: str, nombres, legible) -> di
     return conservables
 
 
+def _caducados(fuente: str, datos: dict, nombres) -> set:
+    """Los `nombres` cuyo `datos["desde"]` pasa ya de `ANTIGUEDAD_MAXIMA[fuente]`.
+
+    Lo usa `leer`. El respaldo de `_traer` mide la edad del fichero, que lo
+    conservado rejuvenece: sin esto, con la red caída del todo, un valor
+    conservado en la escritura del día 29 se serviría hasta el día 58. Una
+    entrada sin `desde` vale como hasta ahora.
+    """
+    ahora = datetime.now(timezone.utc)
+    caducados = set()
+    for nombre in nombres:
+        desde = _instante(datos.get("desde"), nombre)
+        if desde is not None and ahora - desde > ANTIGUEDAD_MAXIMA[fuente]:
+            caducados.add(nombre)
+    return caducados
+
+
 CLAVES_DE_IDENTIDAD = (
     "quoteType",
     "currency",
@@ -587,7 +604,10 @@ def identidad(ticker: str) -> "tuple[dict | None, str]":
         # `ValueError`, que `_traer` no reconoce como forma antigua.
         if not isinstance(datos["identidad"], dict):
             raise TypeError("identidad guardada sin forma de diccionario")
-        return dict(datos["identidad"])
+        identidad = dict(datos["identidad"])
+        for clave in _caducados("identidad", datos, CLAVES_CLASIFICACION):
+            identidad[clave] = None
+        return identidad
 
     return _traer("identidad", ticker, pedir, interpretar, leer)
 
@@ -635,7 +655,14 @@ def estados(ticker: str) -> "tuple[dict | None, str]":
         return {"estados": planos, "desde": desde}
 
     def leer(datos):
-        return {nombre: estado_de_plano(datos["estados"][nombre]) for nombre in ESTADOS}
+        caducados = _caducados("estados", datos, ESTADOS)
+        return {
+            nombre: (
+                pd.DataFrame() if nombre in caducados
+                else estado_de_plano(datos["estados"][nombre])
+            )
+            for nombre in ESTADOS
+        }
 
     return _traer("estados", ticker, pedir, interpretar, leer)
 
@@ -668,8 +695,13 @@ def tipo_de_cambio(origen: str, destino: str) -> "tuple[float | None, str]":
 
     def leer(datos):
         # Una entrada con `valor: null`, de cuando un par sin cierres válidos se
-        # guardaba, lanza `TypeError` y no se sirve.
-        return float(datos["valor"])
+        # guardaba, o con un valor que no es un tipo de cambio --texto, cero,
+        # negativo, NaN-- lanza `TypeError` y no se sirve: `float()` lanzaría
+        # `ValueError` en cada llamada, o daría por bueno un cero.
+        valor = _opcional(datos["valor"])
+        if valor is None or valor <= 0:
+            raise TypeError("tipo de cambio guardado sin valor válido")
+        return valor
 
     valor, motivo = _traer("tipo_de_cambio", simbolo, pedir, interpretar, leer)
     if motivo != "ok":

@@ -650,9 +650,49 @@ def test_sin_un_cierre_valido_no_se_sabe_el_tipo_de_cambio_ni_se_guarda(cierres,
     assert _escritos(tmp_path) == []
 
 
-def test_un_tipo_de_cambio_guardado_sin_valor_no_se_sirve(tmp_path):
-    # La forma de antes, cuando un par sin cierres válidos se guardaba.
-    mercado.cache.guardar(tmp_path, "tipo_de_cambio", "TWDUSD=X", {"valor": None})
+@pytest.mark.parametrize("guardado", [None, "abc", 0, -1, "NaN"])
+def test_un_tipo_de_cambio_guardado_sin_valor_valido_no_se_sirve(guardado, tmp_path):
+    # `None` es la forma de antes, cuando un par sin cierres válidos se guardaba;
+    # los demás, una caché que no escribió este código.
+    mercado.cache.guardar(tmp_path, "tipo_de_cambio", "TWDUSD=X", {"valor": guardado})
     with patch.object(mercado.yf, "Ticker", return_value=_con_historial([0.0311])) as fabrica:
         assert mercado.tipo_de_cambio("TWD", "USD") == (pytest.approx(0.0311), "ok")
     fabrica.assert_called()
+
+
+def test_sin_red_un_estado_conservado_no_sobrevive_a_su_tope(tmp_path, monkeypatch):
+    # El respaldo de `_traer` mide la edad del fichero, que lo conservado
+    # rejuvenece: sin mirar el `desde`, un estado conservado el día 29 se
+    # serviría sin red hasta el 58.
+    with patch.object(mercado.yf, "Ticker", return_value=_ticker(**_seis_estados(1.0))):
+        mercado.estados("MU")
+    monkeypatch.setitem(mercado.VALIDEZ, "estados", timedelta(seconds=-1))
+    _retrasar(tmp_path, 25)
+    sin_flujos = {**_seis_estados(2.0), "cashflow": empty_df()}
+    with patch.object(mercado.yf, "Ticker", return_value=_ticker(**sin_flujos)):
+        assert not mercado.estados("MU")[0]["cashflow"].empty
+    # Escritura de hace 6 días; el `cashflow` llegó lleno hace 31.
+    _retrasar(tmp_path, 6)
+    with patch.object(mercado.yf, "Ticker", side_effect=OSError("sin red")) as fabrica:
+        estados, motivo = mercado.estados("MU")
+    fabrica.assert_called()
+    assert motivo == "ok"
+    assert estados["cashflow"].empty
+    assert estados["income_stmt"].loc["Total Revenue"].iloc[0] == 2.0
+
+
+def test_sin_red_una_clasificacion_rellenada_no_sobrevive_a_su_tope(tmp_path, monkeypatch):
+    with patch.object(mercado.yf, "Ticker", return_value=_ticker(info={**INFO, "sector": "Technology"})):
+        mercado.identidad("MU")
+    monkeypatch.setitem(mercado.VALIDEZ, "identidad", timedelta(seconds=-1))
+    _retrasar(tmp_path, 5)
+    with patch.object(mercado.yf, "Ticker", return_value=_ticker(info=PARCIAL)):
+        assert mercado.identidad("MU")[0]["sector"] == "Technology"
+    # Escritura de hace 3 días; el sector llegó hace 8.
+    _retrasar(tmp_path, 3)
+    with patch.object(mercado.yf, "Ticker", side_effect=OSError("sin red")) as fabrica:
+        identidad, motivo = mercado.identidad("MU")
+    fabrica.assert_called()
+    assert motivo == "ok"
+    assert identidad["regularMarketPrice"] == 990.0
+    assert (identidad["sector"], identidad["industry"], identidad["country"]) == (None, None, None)
