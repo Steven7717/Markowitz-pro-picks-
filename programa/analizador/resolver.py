@@ -50,15 +50,20 @@ _LARGO_MAXIMO = 20
 # otra cosa.
 _FORMA = re.compile(r"^\^?[A-Z0-9]+(?:[.\-=&][A-Z0-9]+)*$")
 _SEPARADORES = re.compile(r"[,\s]+")
-# Lo que se pega de una web o de Excel trae caracteres sin anchura que en
+# Lo que se pega de una web o de Excel trae caracteres de formato que en
 # pantalla no se ven, y harían inválido un ticker que se lee bien. NFKC no los
-# quita, así que se borran aparte.
-_INVISIBLES = dict.fromkeys(map(ord, "\u200b\u200c\u200d\ufeff"))
+# quita, así que se borran aparte. Se borra la categoría entera (`Cf`) y no una
+# lista: además de los de anchura cero y la marca de orden de bytes, caen las
+# marcas de dirección (U+200E, U+200F) que se cuelan al copiar de algunas webs,
+# el unidor de palabras (U+2060) y el guion blando (U+00AD); una lista se
+# queda corta con el siguiente. Ninguno puede formar parte de un ticker.
+_FORMATO = "Cf"
 
 
 def _limpiar(texto: str) -> str:
     """El texto como se ve: NFKC lleva el ancho completo (`ＭＵ，`) a `MU,`."""
-    return unicodedata.normalize("NFKC", texto).translate(_INVISIBLES)
+    normal = unicodedata.normalize("NFKC", texto)
+    return "".join(c for c in normal if unicodedata.category(c) != _FORMATO)
 
 
 def tiene_sufijo(ticker: str) -> bool:

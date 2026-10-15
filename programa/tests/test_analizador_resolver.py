@@ -91,6 +91,11 @@ def test_separar_limpia_los_invisibles_de_lo_que_se_pega():
     assert separar("MU\u200b, \ufeffTSM") == (["MU", "TSM"], [])
 
 
+def test_separar_limpia_las_marcas_de_direccion():
+    # La marca de izquierda a derecha se cuela al copiar de algunas webs.
+    assert separar("MU\u200e, TSM") == (["MU", "TSM"], [])
+
+
 def test_separar_lleva_el_ancho_completo_a_su_forma_normal():
     # NFKC convierte también la coma de ancho completo, y con eso separa.
     assert separar("ＭＵ，ＴＳＭ") == (["MU", "TSM"], [])
