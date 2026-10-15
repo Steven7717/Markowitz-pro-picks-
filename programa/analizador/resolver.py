@@ -126,20 +126,32 @@ def separar(texto: "str | None") -> "tuple[list[str], list[str]]":
 
 # --- La clase de cada ticker -----------------------------------------------------
 #
-# | Clase            | Presenta          | Números                     |
-# |------------------|-------------------|-----------------------------|
-# | `sec`            | 10-K              | EDGAR, como los candidatos  |
-# | `extranjera_sec` | 20-F o 40-F       | yfinance                    |
-# | `sin_sec`        | nada en EDGAR     | yfinance                    |
-# | `etf`            | —                 | ninguno: no se valora       |
+# | Clase            | Último informe anual        | Números                     |
+# |------------------|-----------------------------|-----------------------------|
+# | `sec`            | 10-K                        | EDGAR, como los candidatos  |
+# | `extranjera_sec` | 20-F o 40-F                 | yfinance                    |
+# | `sin_sec`        | ningún 10-K, 20-F ni 40-F,  | yfinance                    |
+# |                  | o un ticker con sufijo de   |                             |
+# |                  | bolsa                       |                             |
+# | `etf`            | —                           | ninguno: no se valora       |
+#
+# La clase sale del último informe anual y no de la historia: una emisora que
+# pasó del 10-K al 20-F es extranjera hoy. En `sin_sec` caen una salida a bolsa
+# reciente que sólo ha presentado 10-Q, y RY.TO o SHOP.TO, cuyo emisor sí
+# presenta en EDGAR.
 #
 # Los motivos de un ticker sin clase son claves, no textos: `sin_red` (Yahoo no
 # devolvió nada), `tipo_no_soportado` (un índice, un fondo, una divisa o una
 # cripto), `sin_red_edgar` y `sin_identidad_edgar`. Las etiquetas las pone N2.
 
 RAIZ_CACHE = Path(__file__).resolve().parent / ".cache"
-# Qué informes anuales presenta una empresa no cambia en meses.
+# Qué informe anual presenta una empresa no cambia en meses.
 VALIDEZ_FORMULARIOS = timedelta(days=30)
+# Un `()` es lo único que puede ser un falso negativo: una salida a bolsa
+# presenta su primer 10-K en cualquier momento, y un «EDGAR no la conoce» puede
+# venir de una lista de tickers que no se pudo bajar y que `_consultar_sec` no
+# supo reconocer como tal. Dura un día.
+VALIDEZ_SIN_FORMULARIOS = timedelta(days=1)
 # Para que `cache.leer` devuelva lo guardado tenga la edad que tenga: sin red,
 # un formulario de hace meses sigue diciendo la verdad.
 _CUALQUIER_EDAD = timedelta(days=36_500)
@@ -175,6 +187,14 @@ class Resuelto:
 
 
 def identidad_desde_info(ticker: str, info: dict) -> Identidad:
+    """La `Identidad` desde el `info` de Yahoo, el que devuelve `mercado.identidad`.
+
+    El precio es el actual y, si falta o no es positivo, el de mercado: un ETF no
+    trae `currentPrice`. La moneda de los estados cae a la del precio cuando
+    Yahoo no da `financialCurrency`: sólo difieren cuando la empresa informa en
+    otra moneda de la que cotiza, como TSM, que cotiza en USD e informa en TWD.
+    Lo demás que falte queda en `None`, y qué se enseña sin ello lo decide N2.
+    """
     precio = _num(info.get("currentPrice"))
     if not precio > 0:
         precio = _num(info.get("regularMarketPrice"))
@@ -210,40 +230,80 @@ def clase_de(
 
 
 def _consultar_sec(ticker: str) -> "tuple[str, ...] | None":
-    """Qué informes anuales presenta el ticker en EDGAR.
+    """El último informe anual del ticker en EDGAR: `("10-K",)`, `("20-F",)` o `("40-F",)`.
 
-    `()` si EDGAR no conoce el ticker, que es un hecho y se guarda; `None` si no
-    se pudo saber. Aislada para los tests. Sólo las llamadas a edgartools van
-    dentro del `try`, para que un defecto propio no se disfrace de «sin red».
+    Decide el último informe, no la historia: una emisora que pasó del 10-K al
+    20-F es extranjera hoy aunque presentase 10-K durante años. `()` si EDGAR no
+    conoce el ticker o no tiene ningún informe anual, que es un hecho y se
+    guarda; `None` si no se pudo saber. Aislada para los tests. Sólo las
+    llamadas a edgartools van dentro del `try`, para que un defecto propio no se
+    disfrace de «sin red».
     """
     from edgar import Company
     from edgar.exceptions import NotFoundError
 
     try:
+        # Privada de edgartools, comprobada en la 5.52: la lista viva de tickers
+        # de la SEC, que se consulta cuando el ticker falta del parquet
+        # empaquetado. Con guarda porque cualquier versión puede quitarla; sin
+        # ella queda la validez corta de `VALIDEZ_SIN_FORMULARIOS`.
+        from edgar.reference.tickers import _get_live_company_cik_lookup
+    except ImportError:
+        _get_live_company_cik_lookup = None
+
+    formas = list(FORMULARIOS_ANUALES)
+    try:
         empresa = Company(ticker)
-        presentados = tuple(
-            forma for forma in FORMULARIOS_ANUALES if len(empresa.get_filings(form=forma)) > 0
-        )
+        # Primero la ventana reciente, que llega con la propia empresa en una
+        # sola petición. La carga completa baja todos los ficheros de paginación
+        # --JPM, 71 peticiones y 8,5 s en frío con la 5.52-- y sólo hace falta si
+        # en la ventana no hay ningún informe anual. Sin enmiendas: un 10-K/A no
+        # cambia qué informe presenta la empresa.
+        recientes = empresa.get_filings(form=formas, amendments=False, trigger_full_load=False)
+        ultimo = recientes.latest() if recientes is not None and len(recientes) else None
+        if ultimo is None:
+            todas = empresa.get_filings(form=formas, amendments=False)
+            ultimo = todas.latest() if todas is not None and len(todas) else None
     except NotFoundError:
+        if _get_live_company_cik_lookup is not None and _get_live_company_cik_lookup() is None:
+            # La lista viva de la SEC no se pudo bajar y edgartools memoriza el
+            # fallo todo el proceso: desde entonces no conoce ningún ticker que
+            # falte del parquet, como AAGH, que presenta 10-K. «No la conoce»
+            # sería falso. Se limpia para reintentar.
+            _get_live_company_cik_lookup.cache_clear()
+            return None
         return ()
     except Exception:
         # edgartools lanza de todo según qué falle --transporte, identidad
         # rechazada, una respuesta a medias-- y aquí sólo importa que no se supo.
         return None
-    return presentados
+    return () if ultimo is None else (ultimo.form,)
+
+
+def _formularios_guardados(datos: object) -> "tuple[str, ...] | None":
+    """Lo guardado como formularios, o `None` si no lo es y no debe servirse.
+
+    Una entrada con algo que no sea uno de `FORMULARIOS_ANUALES` --un fichero
+    tocado a mano, o de una versión que guardaba otra cosa-- no se sirve ni como
+    vigente ni como respaldo sin red: `clase_de` la leería como `sin_sec` sin
+    que nadie lo supiera.
+    """
+    if not isinstance(datos, list) or not all(f in FORMULARIOS_ANUALES for f in datos):
+        return None
+    return tuple(datos)
 
 
 def formularios_sec(ticker: str) -> "tuple[tuple[str, ...] | None, str]":
-    """Los informes anuales del ticker en EDGAR, de la caché si vale y si no de la red."""
+    """El último informe anual del ticker en EDGAR, de la caché si vale y si no de la red."""
     if not (os.environ.get("EDGAR_IDENTITY") or "").strip():
         # La SEC rechaza las peticiones sin contacto, y el rechazo llega como un
         # fallo de red: mejor decir qué falta.
         return None, "sin_identidad_edgar"
     guardado = cache.leer(RAIZ_CACHE, "formularios", ticker, _CUALQUIER_EDAD)
-    previo = None
-    if guardado is not None and isinstance(guardado.datos, list):
-        previo = tuple(guardado.datos)
-        if guardado.cuando + VALIDEZ_FORMULARIOS > datetime.now(timezone.utc):
+    previo = None if guardado is None else _formularios_guardados(guardado.datos)
+    if previo is not None:
+        validez = VALIDEZ_FORMULARIOS if previo else VALIDEZ_SIN_FORMULARIOS
+        if guardado.cuando + validez > datetime.now(timezone.utc):
             return previo, "ok"
     encontrados = _consultar_sec(ticker)
     if encontrados is None:
@@ -267,7 +327,9 @@ def resolver(ticker: str) -> Resuelto:
             return Resuelto(ticker, None, identidad, motivo)
     else:
         # Un ETF, un tipo no soportado o una emisora con sufijo de bolsa: la
-        # clase no depende de EDGAR, y preguntar costaría un segundo por ticker.
+        # clase no depende de EDGAR, y preguntar costaría al menos una petición
+        # a la SEC por ticker, y decenas si su último informe anual queda fuera
+        # de la ventana reciente.
         formularios = ()
     clase, motivo = clase_de(identidad, formularios)
     return Resuelto(ticker, clase, identidad, motivo)

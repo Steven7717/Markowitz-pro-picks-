@@ -91,9 +91,14 @@ def test_separar_limpia_los_invisibles_de_lo_que_se_pega():
     assert separar("MU\u200b, \ufeffTSM") == (["MU", "TSM"], [])
 
 
-def test_separar_limpia_las_marcas_de_direccion():
-    # La marca de izquierda a derecha se cuela al copiar de algunas webs.
-    assert separar("MU\u200e, TSM") == (["MU", "TSM"], [])
+@pytest.mark.parametrize(
+    "formato",
+    # Las marcas de dirección, que se cuelan al copiar de algunas webs, el
+    # unidor de palabras y el guion blando.
+    ["\u200e", "\u200f", "\u2060", "\u00ad"],
+)
+def test_separar_limpia_todo_caracter_de_formato(formato):
+    assert separar(f"MU{formato}, TSM") == (["MU", "TSM"], [])
 
 
 def test_separar_lleva_el_ancho_completo_a_su_forma_normal():
@@ -120,11 +125,15 @@ def test_tiene_sufijo(ticker, esperado):
     assert tiene_sufijo(ticker) is esperado
 
 
-from datetime import timedelta  # noqa: E402
-from unittest.mock import patch  # noqa: E402
+from datetime import datetime, timedelta  # noqa: E402
+from types import SimpleNamespace  # noqa: E402
+from unittest.mock import MagicMock, patch  # noqa: E402
+
+from edgar.exceptions import CompanyNotFoundError, TransportError  # noqa: E402
 
 from analizador import resolver  # noqa: E402
 from analizador.resolver import Identidad, clase_de, identidad_desde_info  # noqa: E402
+from noticias import cache  # noqa: E402
 
 INFO_MU = {
     "quoteType": "EQUITY",
@@ -201,7 +210,8 @@ def test_los_formularios_se_preguntan_una_vez_y_se_guardan(cache_aislada):
 def test_un_ticker_que_edgar_no_conoce_no_presenta_nada_y_se_guarda(cache_aislada):
     with patch.object(resolver, "_consultar_sec", return_value=()):
         assert resolver.formularios_sec("ZZZZ") == ((), "ok")
-    assert list(cache_aislada.rglob("*.json"))
+    with patch.object(resolver, "_consultar_sec", side_effect=AssertionError("no")):
+        assert resolver.formularios_sec("ZZZZ") == ((), "ok")
 
 
 def test_sin_red_y_sin_nada_guardado_lo_dice(cache_aislada):
@@ -222,6 +232,155 @@ def test_sin_identidad_de_edgar_no_se_pregunta(cache_aislada, monkeypatch):
     monkeypatch.delenv("EDGAR_IDENTITY")
     with patch.object(resolver, "_consultar_sec", side_effect=AssertionError("no")):
         assert resolver.formularios_sec("MU") == (None, "sin_identidad_edgar")
+
+
+def _dentro_de(dias):
+    """Un `datetime` con el reloj adelantado: lo guardado ahora parece de hace `dias`."""
+
+    class Adelantado(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime.now(tz) + timedelta(days=dias)
+
+    return Adelantado
+
+
+def test_un_desconocido_guardado_hace_dos_dias_se_vuelve_a_preguntar(cache_aislada, monkeypatch):
+    # «No la conoce» es lo único que puede ser un falso negativo: dura un día.
+    with patch.object(resolver, "_consultar_sec", return_value=()):
+        resolver.formularios_sec("AAGH")
+    monkeypatch.setattr(resolver, "datetime", _dentro_de(2))
+    with patch.object(resolver, "_consultar_sec", return_value=("10-K",)) as consulta:
+        assert resolver.formularios_sec("AAGH") == (("10-K",), "ok")
+    consulta.assert_called_once_with("AAGH")
+
+
+def test_un_informe_guardado_hace_dos_dias_no_se_vuelve_a_preguntar(cache_aislada, monkeypatch):
+    with patch.object(resolver, "_consultar_sec", return_value=("10-K",)):
+        resolver.formularios_sec("MU")
+    monkeypatch.setattr(resolver, "datetime", _dentro_de(2))
+    with patch.object(resolver, "_consultar_sec", side_effect=AssertionError("no")):
+        assert resolver.formularios_sec("MU") == (("10-K",), "ok")
+
+
+def test_una_cache_caducada_con_red_se_vuelve_a_preguntar_y_se_sobrescribe(
+    cache_aislada, monkeypatch
+):
+    with patch.object(resolver, "_consultar_sec", return_value=("10-K",)):
+        resolver.formularios_sec("TEVA")
+    monkeypatch.setattr(resolver, "datetime", _dentro_de(31))
+    with patch.object(resolver, "_consultar_sec", return_value=("20-F",)) as consulta:
+        assert resolver.formularios_sec("TEVA") == (("20-F",), "ok")
+    consulta.assert_called_once_with("TEVA")
+    monkeypatch.setattr(resolver, "datetime", datetime)
+    with patch.object(resolver, "_consultar_sec", side_effect=AssertionError("no")):
+        assert resolver.formularios_sec("TEVA") == (("20-F",), "ok")
+
+
+def test_si_no_se_puede_guardar_el_resultado_vale_igual(cache_aislada):
+    with patch.object(resolver, "_consultar_sec", return_value=("10-K",)), patch.object(
+        resolver.cache, "guardar", side_effect=OSError("disco lleno")
+    ):
+        assert resolver.formularios_sec("MU") == (("10-K",), "ok")
+
+
+@pytest.mark.parametrize("datos", [[1, 2], ["10-k"], [["10-K"]], ["10-K/A"]])
+def test_una_cache_de_formularios_rota_no_se_sirve(cache_aislada, datos):
+    cache.guardar(cache_aislada, "formularios", "MU", datos)
+    # Ni como respaldo sin red...
+    with patch.object(resolver, "_consultar_sec", return_value=None):
+        assert resolver.formularios_sec("MU") == (None, "sin_red_edgar")
+    # ...ni como vigente.
+    with patch.object(resolver, "_consultar_sec", return_value=("10-K",)) as consulta:
+        assert resolver.formularios_sec("MU") == (("10-K",), "ok")
+    consulta.assert_called_once_with("MU")
+
+
+# --- `_consultar_sec`, con edgartools sustituido ----------------------------------
+
+
+class _Presentaciones:
+    """Lo que devuelve `get_filings`: su longitud y `latest()`, la de fecha mayor."""
+
+    def __init__(self, presentaciones):
+        self._presentaciones = list(presentaciones)
+
+    def __len__(self):
+        return len(self._presentaciones)
+
+    def latest(self):
+        if not self._presentaciones:
+            return None
+        forma, _ = max(self._presentaciones, key=lambda p: p[1])
+        return SimpleNamespace(form=forma)
+
+
+class _Empresa:
+    """Una empresa de edgartools: la ventana reciente y, aparte, la historia entera."""
+
+    def __init__(self, recientes=(), historia=()):
+        self._recientes = recientes
+        self._historia = historia
+        self.pedidas = []
+
+    def get_filings(self, *, form=None, amendments=True, trigger_full_load=True):
+        self.pedidas.append(
+            {"formas": set(form), "enmiendas": amendments, "completa": trigger_full_load}
+        )
+        return _Presentaciones(self._historia if trigger_full_load else self._recientes)
+
+
+def _consultar(ticker, empresa):
+    with patch("edgar.Company", return_value=empresa):
+        return resolver._consultar_sec(ticker)
+
+
+def test_la_clase_sale_del_ultimo_informe_anual_y_no_de_la_historia():
+    # Una emisora que pasó del 10-K al 20-F es extranjera hoy.
+    empresa = _Empresa(recientes=[("10-K", "2025-02-20"), ("20-F", "2026-03-10")])
+    assert _consultar("TEVA", empresa) == ("20-F",)
+    # Sólo la ventana reciente, sin enmiendas: la historia entera son decenas de
+    # peticiones.
+    assert empresa.pedidas == [
+        {"formas": set(resolver.FORMULARIOS_ANUALES), "enmiendas": False, "completa": False}
+    ]
+
+
+def test_sin_informe_anual_reciente_se_carga_la_historia():
+    empresa = _Empresa(recientes=[], historia=[("10-K", "2014-03-01"), ("10-K", "2015-03-01")])
+    assert _consultar("JPM", empresa) == ("10-K",)
+    assert [p["completa"] for p in empresa.pedidas] == [False, True]
+    assert all(p["enmiendas"] is False for p in empresa.pedidas)
+
+
+def test_sin_informe_anual_en_ninguna_no_presenta_nada():
+    # Una salida a bolsa reciente que sólo ha presentado 10-Q.
+    assert _consultar("NUEVA", _Empresa()) == ()
+
+
+def test_un_ticker_que_la_sec_no_conoce_no_presenta_nada():
+    viva = MagicMock(return_value={"MU": 723125})
+    with patch("edgar.Company", side_effect=CompanyNotFoundError("ZZZZ")), patch(
+        "edgar.reference.tickers._get_live_company_cik_lookup", viva
+    ):
+        assert resolver._consultar_sec("ZZZZ") == ()
+    viva.cache_clear.assert_not_called()
+
+
+def test_sin_la_lista_viva_de_la_sec_no_se_sabe_y_se_reintentara():
+    # edgartools memoriza el `None` de la lista viva todo el proceso, y desde
+    # entonces no conoce ningún ticker que falte del parquet empaquetado.
+    viva = MagicMock(return_value=None)
+    with patch("edgar.Company", side_effect=CompanyNotFoundError("AAGH")), patch(
+        "edgar.reference.tickers._get_live_company_cik_lookup", viva
+    ):
+        assert resolver._consultar_sec("AAGH") is None
+    viva.cache_clear.assert_called_once_with()
+
+
+def test_un_fallo_de_transporte_no_se_sabe():
+    with patch("edgar.Company", side_effect=TransportError("se agotó el tiempo")):
+        assert resolver._consultar_sec("MU") is None
 
 
 def _resolver(ticker, info, formularios=("10-K",)):
