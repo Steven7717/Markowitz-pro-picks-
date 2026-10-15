@@ -337,7 +337,7 @@ def _red_buena(fuente):
         return {"return_value": _con_historial([0.0309, 0.0311])}
     if fuente == "estados":
         return {"return_value": _ticker(**_estados_dobles())}
-    estado =pd.DataFrame({"2025": [0.19]}, index=["Tax Rate For Calcs"])
+    estado = pd.DataFrame({"2025": [0.19]}, index=["Tax Rate For Calcs"])
     estimacion = pd.DataFrame({"growth": [0.1648], "currency": ["USD"]}, index=["+1y"])
     return {
         "return_value": _ticker(info=INFO, income_stmt=estado, revenue_estimate=estimacion)
@@ -457,3 +457,115 @@ def test_un_tipo_de_cambio_vacio_no_se_guarda(tmp_path):
     with patch.object(mercado.yf, "Ticker", return_value=_con_historial([])):
         assert mercado.tipo_de_cambio("TWD", "USD") == (None, "sin_red")
     assert _escritos(tmp_path) == []
+
+
+# --- Arreglos de la revisión --------------------------------------------------
+
+ANUALES = ("income_stmt", "balance_sheet", "cashflow")
+
+
+def _seis_estados(valor):
+    return {
+        nombre: pd.DataFrame({pd.Timestamp("2026-06-30"): [valor]}, index=["Total Revenue"])
+        for nombre in mercado.ESTADOS
+    }
+
+
+def test_un_estado_que_llega_vacio_no_pisa_el_guardado(monkeypatch):
+    # Cada estado es una petición aparte, y yfinance devuelve vacío el que
+    # falla: un 429 en la cuarta da tres llenos y tres vacíos.
+    with patch.object(mercado.yf, "Ticker", return_value=_ticker(**_seis_estados(1.0))):
+        assert mercado.estados("MU")[1] == "ok"
+    monkeypatch.setitem(mercado.VALIDEZ, "estados", timedelta(seconds=-1))
+    a_medias = {**_seis_estados(2.0), **{nombre: empty_df() for nombre in ANUALES}}
+    with patch.object(mercado.yf, "Ticker", return_value=_ticker(**a_medias)) as fabrica:
+        estados, motivo = mercado.estados("MU")
+    fabrica.assert_called()
+    assert motivo == "ok"
+    for nombre in ANUALES:
+        assert estados[nombre].loc["Total Revenue"].iloc[0] == 1.0
+    # Lo que sí llegó lleno es lo nuevo: no se ha servido lo guardado entero.
+    assert estados["quarterly_income_stmt"].loc["Total Revenue"].iloc[0] == 2.0
+
+
+def test_un_estado_vacio_de_verdad_sigue_vacio():
+    # NESN.SW publica semestralmente: sus trimestrales de resultados y de
+    # flujos llegan vacíos siempre, y no hay nada guardado que conservar.
+    semestral = {
+        **_seis_estados(1.0),
+        "quarterly_income_stmt": empty_df(),
+        "quarterly_cashflow": empty_df(),
+    }
+    with patch.object(mercado.yf, "Ticker", return_value=_ticker(**semestral)):
+        estados, motivo = mercado.estados("NESN.SW")
+    assert motivo == "ok"
+    assert estados["quarterly_income_stmt"].empty and estados["quarterly_cashflow"].empty
+
+
+def test_los_peniques_de_londres_se_cambian_como_libras_entre_cien():
+    # yfinance pasa el símbolo a mayúsculas: `GBpUSD=X` daría el tipo de la
+    # libra, cien veces mayor.
+    with patch.object(mercado.yf, "Ticker", return_value=_con_historial([1.30, 1.32])) as fabrica:
+        assert mercado.tipo_de_cambio("GBp", "USD") == (pytest.approx(0.0132), "ok")
+    fabrica.assert_called_with("GBPUSD=X")
+
+
+def test_a_peniques_el_tipo_de_cambio_se_multiplica_por_cien():
+    with patch.object(mercado.yf, "Ticker", return_value=_con_historial([0.75, 0.76])) as fabrica:
+        assert mercado.tipo_de_cambio("USD", "GBp") == (pytest.approx(76.0), "ok")
+    fabrica.assert_called_with("USDGBP=X")
+
+
+def test_una_moneda_frente_a_su_subunidad_no_sale_a_la_red():
+    with patch.object(mercado.yf, "Ticker", side_effect=AssertionError("a la red no")):
+        assert mercado.tipo_de_cambio("GBp", "GBP") == (pytest.approx(0.01), "ok")
+        assert mercado.tipo_de_cambio("GBP", "GBp") == (pytest.approx(100.0), "ok")
+
+
+def test_un_estado_guardado_con_una_fila_como_lista_no_se_sirve_y_se_va_a_la_red(tmp_path):
+    # La fila rota va en un estado que llega vacío: tampoco puede conservarse.
+    roto = {nombre: {} for nombre in mercado.ESTADOS}
+    roto["balance_sheet"] = {"Total Assets": [1.0]}
+    mercado.cache.guardar(tmp_path, "estados", "MU", {"estados": roto})
+    with patch.object(mercado.yf, "Ticker", return_value=_ticker(**_estados_dobles())) as fabrica:
+        estados, motivo = mercado.estados("MU")
+    fabrica.assert_called()
+    assert motivo == "ok"
+    assert estados["income_stmt"].loc["Total Revenue"].iloc[0] == 2.5e11
+    assert estados["balance_sheet"].empty
+
+
+def test_una_identidad_guardada_sin_forma_de_diccionario_no_se_sirve(tmp_path):
+    mercado.cache.guardar(tmp_path, "identidad", "MU", {"identidad": ["quoteType"]})
+    with patch.object(mercado.yf, "Ticker", return_value=_ticker(info=INFO)) as fabrica:
+        identidad, motivo = mercado.identidad("MU")
+    fabrica.assert_called()
+    assert motivo == "ok" and identidad["quoteType"] == "EQUITY"
+
+
+def test_una_identidad_parcial_no_pisa_la_guardada(tmp_path, monkeypatch):
+    with patch.object(mercado.yf, "Ticker", return_value=_ticker(info={**INFO, "sector": "Technology"})):
+        mercado.identidad("MU")
+    antes = {ruta: ruta.read_bytes() for ruta in _escritos(tmp_path)}
+    monkeypatch.setitem(mercado.VALIDEZ, "identidad", timedelta(seconds=-1))
+    # Si cae sólo quoteSummary, llegan el tipo, la moneda y el precio, sin más.
+    parcial = {"quoteType": "EQUITY", "currency": "USD", "regularMarketPrice": 990.0}
+    with patch.object(mercado.yf, "Ticker", return_value=_ticker(info=parcial)) as fabrica:
+        identidad, motivo = mercado.identidad("MU")
+    fabrica.assert_called()
+    assert motivo == "ok"
+    assert identidad["sector"] == "Technology"
+    assert {ruta: ruta.read_bytes() for ruta in _escritos(tmp_path)} == antes
+
+
+@pytest.mark.parametrize(
+    "cierres", [[0.031, 0.0], [0.031, float("inf")]], ids=["ultimo_a_cero", "ultimo_infinito"]
+)
+def test_el_tipo_de_cambio_es_el_ultimo_cierre_finito_y_positivo(cierres):
+    with patch.object(mercado.yf, "Ticker", return_value=_con_historial(cierres)):
+        assert mercado.tipo_de_cambio("TWD", "USD") == (pytest.approx(0.031), "ok")
+
+
+def test_sin_un_cierre_positivo_no_hay_tipo_de_cambio():
+    with patch.object(mercado.yf, "Ticker", return_value=_con_historial([0.0])):
+        assert mercado.tipo_de_cambio("TWD", "USD") == (None, "sin_tipo_de_cambio")

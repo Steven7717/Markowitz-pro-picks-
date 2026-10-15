@@ -298,3 +298,29 @@ def test_un_estado_vacio_es_un_plano_vacio_y_vuelve_vacio():
 def test_un_plano_que_no_es_un_diccionario_no_se_lee():
     with pytest.raises(TypeError):
         estado_de_plano(["Total Revenue"])
+
+
+def test_lo_que_no_es_un_numero_finito_va_a_null():
+    raro = pd.DataFrame(
+        {pd.Timestamp("2026-06-30"): ["texto", None, float("inf"), pd.Timestamp("2026-01-01")]},
+        index=["Texto", "Nada", "Infinito", "Fecha"],
+    )
+    plano = estado_a_plano(raro)
+    assert all(valores["2026-06-30"] is None for valores in plano.values())
+    json.dumps(plano, allow_nan=False)
+
+
+@pytest.mark.parametrize(
+    "plano",
+    [
+        {"Total Revenue": [2.5e11]},
+        {"Total Revenue": {"FY2025": 2.5e11}},
+        {"Total Revenue": {"2026-06-30": "n/d"}},
+    ],
+    ids=["fila_como_lista", "fecha_que_no_es_fecha", "valor_que_no_es_numero"],
+)
+def test_un_plano_mal_formado_lanza_type_error(plano):
+    # `_traer` sólo reconoce `TypeError` y `KeyError` como «forma de una
+    # versión anterior»; cualquier otra excepción saldría en cada llamada.
+    with pytest.raises(TypeError):
+        estado_de_plano(plano)

@@ -195,8 +195,10 @@ def consenso_desde_estimacion(
 def estado_a_plano(estado: "pd.DataFrame | None") -> dict:
     """Un estado de yfinance como `{fila: {fecha ISO: valor}}`, con NaN como None.
 
-    La caché es JSON estricto: un NaN se escribiría como el literal `NaN`, que
-    un lector estricto rechaza.
+    Es esta función la que deja el estado en JSON estricto, no la caché:
+    `cache.guardar` admite NaN y lo escribiría como el literal `NaN`, que un
+    lector estricto rechaza. Lo que no es un número finito --texto, `inf`, una
+    fecha-- también va a None.
     """
     if estado is None or estado.empty:
         return {}
@@ -216,15 +218,22 @@ def estado_de_plano(plano: object) -> pd.DataFrame:
         raise TypeError("estado guardado sin forma de diccionario")
     if not plano:
         return pd.DataFrame()
-    columnas = {
-        fila: {
-            pd.Timestamp(fecha): (math.nan if valor is None else float(valor))
-            for fecha, valor in valores.items()
+    try:
+        columnas = {
+            fila: {
+                pd.Timestamp(fecha): (math.nan if valor is None else float(valor))
+                for fecha, valor in valores.items()
+            }
+            for fila, valores in plano.items()
         }
-        for fila, valores in plano.items()
-    }
-    estado = pd.DataFrame(columnas).T
-    return estado.reindex(columns=sorted(estado.columns, reverse=True)).astype("float64")
+        estado = pd.DataFrame(columnas).T
+        return estado.reindex(columns=sorted(estado.columns, reverse=True)).astype("float64")
+    except (AttributeError, ValueError) as error:
+        # Una fila guardada como lista, una fecha «FY2025» o un valor «n/d».
+        # `_traer` sólo reconoce `TypeError` y `KeyError` como «forma de una
+        # versión anterior»; con otra excepción, la entrada lanzaría en cada
+        # llamada en lugar de ir a la red.
+        raise TypeError("estado guardado con una forma que no se lee") from error
 
 
 # --- Red ------------------------------------------------------------------------
@@ -248,7 +257,8 @@ VALIDEZ = {
     # La identidad viaja en la misma llamada que el precio: un ETF no tiene
     # perfil, y su precio sólo está aquí.
     "identidad": timedelta(minutes=15),
-    # Los estados cambian una vez por trimestre.
+    # Los estados cambian una vez por trimestre, pero un día y no más: así el
+    # trimestre nuevo se recoge el mismo día de resultados.
     "estados": timedelta(days=1),
     "tipo_de_cambio": timedelta(days=1),
 }
@@ -271,7 +281,8 @@ ANTIGUEDAD_MAXIMA = {
     "identidad": timedelta(days=7),
     # Un trimestre nuevo llega cada noventa días.
     "estados": timedelta(days=30),
-    # Una semana de tipo de cambio mueve la valoración unas décimas.
+    # Una semana como mucho: el peso mexicano en tensión se mueve un 2-5 % en
+    # una semana, y ese error pasa entero a la valoración convertida.
     "tipo_de_cambio": timedelta(days=7),
 }
 
@@ -333,6 +344,15 @@ def _valor(datos: dict) -> "float | None":
     return datos["valor"]
 
 
+def _guardado_reciente(fuente: str, clave: str) -> "dict | None":
+    """Lo guardado mientras aún podría servir de respaldo (`ANTIGUEDAD_MAXIMA`),
+    para que `interpretar` decida si lo descargado lo mejora o lo estropea."""
+    guardado = cache.leer(RAIZ_CACHE, fuente, clave, ANTIGUEDAD_MAXIMA[fuente])
+    if guardado is None or not guardado.vigente or not isinstance(guardado.datos, dict):
+        return None
+    return guardado.datos
+
+
 CLAVES_DE_IDENTIDAD = (
     "quoteType",
     "currency",
@@ -366,6 +386,21 @@ ESTADOS = (
     "balance_sheet",
     "cashflow",
 )
+
+# Lo que dice de qué es una empresa y sólo trae quoteSummary: si cae sólo esa
+# petición, `info` llega con el tipo, la moneda y el precio, sin ninguna de éstas.
+CLAVES_CLASIFICACION = ("sector", "industry", "country")
+
+# Yahoo cotiza algunas bolsas en la subunidad de su moneda: Londres en peniques
+# (GBp o GBX), Tel Aviv en agorot (ILA), Johannesburgo en céntimos (ZAc).
+# yfinance pasa el símbolo a mayúsculas, así que `GBpUSD=X` es `GBPUSD=X`: el
+# tipo de la libra, cien veces mayor, sin ningún error.
+SUBUNIDADES = {
+    "GBp": ("GBP", 100),
+    "GBX": ("GBP", 100),
+    "ILA": ("ILS", 100),
+    "ZAc": ("ZAR", 100),
+}
 
 
 def perfil(ticker: str) -> "tuple[Perfil | None, str]":
@@ -491,12 +526,48 @@ def identidad(ticker: str) -> "tuple[dict | None, str]":
     def interpretar(info):
         if not any(clave in info for clave in CLAVES_DE_IDENTIDAD):
             return None
-        return {"identidad": {clave: info.get(clave) for clave in CLAVES_IDENTIDAD_INFO}}
+        nueva = {clave: info.get(clave) for clave in CLAVES_IDENTIDAD_INFO}
+        # Si cae sólo quoteSummary, `info` pierde a la vez el sector, la
+        # industria y el país. Si lo guardado tenía alguno, eso es «no lo sé del
+        # todo» y no «ya no tiene sector»: `None` deja que `_traer` sirva lo
+        # guardado sin pisarlo ni darle una hora nueva, hasta su edad máxima.
+        # `perfil` tiene la misma exposición desde M y no se toca aquí.
+        previa = (_guardado_reciente("identidad", ticker) or {}).get("identidad")
+        if (
+            isinstance(previa, dict)
+            and any(previa.get(clave) for clave in CLAVES_CLASIFICACION)
+            and not any(nueva.get(clave) for clave in CLAVES_CLASIFICACION)
+        ):
+            return None
+        return {"identidad": nueva}
 
     def leer(datos):
+        # `dict()` aceptaría una lista de pares, y con otra lista lanzaría
+        # `ValueError`, que `_traer` no reconoce como forma antigua.
+        if not isinstance(datos["identidad"], dict):
+            raise TypeError("identidad guardada sin forma de diccionario")
         return dict(datos["identidad"])
 
     return _traer("identidad", ticker, pedir, interpretar, leer)
+
+
+def _estados_llenos_guardados(ticker: str) -> dict:
+    """De lo guardado dentro de su edad máxima, los estados llenos que se leen."""
+    previos = (_guardado_reciente("estados", ticker) or {}).get("estados")
+    if not isinstance(previos, dict):
+        return {}
+    llenos = {}
+    for nombre in ESTADOS:
+        plano = previos.get(nombre)
+        if not plano:
+            continue
+        try:
+            estado_de_plano(plano)
+        except TypeError:
+            # Uno roto no se conserva: lanzaría al leerlo, ya fuera de `_traer`.
+            continue
+        llenos[nombre] = plano
+    return llenos
 
 
 def estados(ticker: str) -> "tuple[dict | None, str]":
@@ -513,6 +584,18 @@ def estados(ticker: str) -> "tuple[dict | None, str]":
         planos = {nombre: estado_a_plano(crudos.get(nombre)) for nombre in ESTADOS}
         if not any(planos.values()):
             return None
+        # Pero cada estado es una petición aparte, y yfinance devuelve vacío el
+        # que falla, también por un 429: tres llenos y tres vacíos pueden ser un
+        # límite de peticiones en la cuarta. Exigir los seis llenos no sirve
+        # --NESN.SW publica semestralmente y sus trimestrales de resultados y de
+        # flujos llegan vacíos de verdad--, así que un estado que llega vacío no
+        # pisa uno lleno guardado. Lo conservado se guarda con la hora nueva: si
+        # Yahoo dejase de publicar un estado, se arrastraría el último. Y queda
+        # sin cubrir que la primera descarga ya sea parcial: eso se guarda y vale
+        # hasta la siguiente, un día después (`VALIDEZ`).
+        for nombre, plano in _estados_llenos_guardados(ticker).items():
+            if not planos[nombre]:
+                planos[nombre] = plano
         return {"estados": planos}
 
     def leer(datos):
@@ -525,11 +608,16 @@ def tipo_de_cambio(origen: str, destino: str) -> "tuple[float | None, str]":
     """Cuántas unidades de `destino` vale una de `origen`, al último cierre.
 
     El par de Yahoo es `<ORIGEN><DESTINO>=X`: `TWDUSD=X` da dólares por cada
-    dólar taiwanés. Una moneda consigo misma vale 1 sin salir a la red.
+    dólar taiwanés. Una subunidad (`SUBUNIDADES`) se cambia como su moneda y se
+    escala después. Una moneda consigo misma, o frente a su subunidad, no sale a
+    la red. Un par que Yahoo no conoce se ve igual que un fallo de red
+    (`sin_red`).
     """
-    if origen == destino:
-        return 1.0, "ok"
-    simbolo = f"{origen}{destino}=X"
+    base_origen, escala_origen = SUBUNIDADES.get(origen, (origen, 1))
+    base_destino, escala_destino = SUBUNIDADES.get(destino, (destino, 1))
+    if base_origen == base_destino:
+        return escala_destino / escala_origen, "ok"
+    simbolo = f"{base_origen}{base_destino}=X"
 
     def pedir():
         return yf.Ticker(simbolo).history(period="5d")["Close"]
@@ -537,10 +625,15 @@ def tipo_de_cambio(origen: str, destino: str) -> "tuple[float | None, str]":
     def interpretar(cierres):
         if _sin_cierres(cierres):
             return None
-        ultimo = float(pd.to_numeric(cierres, errors="coerce").dropna().iloc[-1])
-        return {"valor": ultimo if ultimo > 0 else None}
+        # `inf > 0` es verdadero y se guardaría como `Infinity`, y un último
+        # cierre a cero taparía uno bueno anterior: sólo valen los finitos y
+        # positivos.
+        validos = [x for x in map(_opcional, cierres) if x is not None and x > 0]
+        return {"valor": validos[-1] if validos else None}
 
     valor, motivo = _traer("tipo_de_cambio", simbolo, pedir, interpretar, _valor)
     if motivo != "ok":
         return None, motivo
-    return (float(valor), "ok") if valor is not None else (None, "sin_tipo_de_cambio")
+    if valor is None:
+        return None, "sin_tipo_de_cambio"
+    return float(valor) * escala_destino / escala_origen, "ok"
