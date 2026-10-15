@@ -10,6 +10,7 @@ ranking/.cache/
 noticias/.cache/
 seguimiento/.cache/
 valoracion/.cache/
+analizador/.cache/
 actas/*.tmp
 portafolios/*.tmp
 .venv/
