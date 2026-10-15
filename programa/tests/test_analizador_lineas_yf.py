@@ -225,6 +225,19 @@ def test_unos_ingresos_negativos_entre_los_conocidos_no_rellenan():
     assert np.isnan(rellena.loc["2025-09-30", "ingresos"])
 
 
+def test_unos_ingresos_negativos_rompen_el_trimestre_y_no_se_rellena_nada_del_ejercicio():
+    # GFNORTEO: su 2T 2025 trae ingresos de -13.555 M y beneficio de -670 M, y
+    # el beneficio del 3T rellenado salía en 28.296 M, 1,8 veces el resto. El
+    # trimestre está roto entero, no sólo en sus ingresos.
+    rejilla = _rejilla_walmex()
+    rejilla.loc["2025-06-30", "ingresos"] = -246.0
+    rejilla["beneficio_neto"] = [10.0, 12.0, NAN, 15.0, 11.0, 13.0]
+    rellena = rellenar_desde_anual(
+        rejilla, _anual("2025-12-31", ingresos=1011.0, beneficio_neto=60.0)
+    )
+    assert np.isnan(rellena.loc["2025-09-30", "beneficio_neto"])
+
+
 def test_un_beneficio_negativo_si_se_rellena():
     # Perder dinero en un trimestre es posible: el signo no delata nada.
     rejilla = _rejilla_walmex()

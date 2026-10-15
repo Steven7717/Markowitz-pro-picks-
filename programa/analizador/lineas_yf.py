@@ -76,14 +76,17 @@ _FLUJOS = (
 )
 _MEDIAS = ("acciones_diluidas",)
 
-# Las líneas que no pueden ser negativas. Yahoo trae a veces trimestres que no
-# cuadran con su año (WALMEX: 0,0 de intereses en cada trimestre y 9.115 M en el
-# anual; HSBC: tres trimestres de amortización que suman más que el año;
-# GFNORTEO: unos ingresos trimestrales negativos), y la resta los convierte en un
-# trimestre absurdo con aspecto de medido. En estas líneas el signo delata el
-# descuadre. El beneficio operativo, el neto y el flujo operativo pueden ser
-# negativos de verdad: no hay forma general de blindarlos, y se rellenan sin
-# más guarda que la aritmética.
+# Las líneas que no se rellenan si salen negativas o descuadradas. Yahoo trae a
+# veces trimestres que no cuadran con su año (WALMEX: 0,0 de intereses en cada
+# trimestre y 9.115 M en el anual; HSBC: tres trimestres de amortización que
+# suman más que el año; GFNORTEO: unos ingresos trimestrales negativos), y la
+# resta los convierte en un trimestre absurdo con aspecto de medido. En estas
+# líneas un negativo es casi siempre un descuadre. No es que no puedan serlo
+# --los ingresos de una aseguradora como MFC pueden ser negativos de verdad--,
+# pero dejar vacío el trimestre es la opción prudente. El beneficio operativo,
+# el neto y el flujo operativo pueden ser negativos de verdad y a menudo lo son:
+# no hay forma general de blindarlos, y se rellenan sin más guarda que la
+# aritmética y la de que ningún trimestre conocido de su ejercicio esté roto.
 _NO_NEGATIVAS = (
     "ingresos",
     "coste_de_ventas",
@@ -239,10 +242,11 @@ def rellenar_desde_anual(trimestres: pd.DataFrame, anuales: pd.DataFrame) -> pd.
     veces el anual menos los tres, y sólo si lo que sale no se aleja más del
     doble o la mitad del anual, que es la guarda de `fundamentals.panel`.
 
-    En las líneas que no pueden ser negativas, la resta sólo vale si los tres
-    conocidos no son todos 0,0, que es lo que pone Yahoo cuando no tiene el
-    desglose; si ninguno es negativo, y si lo que sale queda entre 0 y el total
-    del año (el anual, o cuatro veces el anual en la media).
+    En las líneas de `_NO_NEGATIVAS`, la resta sólo vale si los tres conocidos
+    no son todos 0,0, que es lo que pone Yahoo cuando no tiene el desglose, y si
+    lo que sale queda entre 0 y el total del año (el anual, o cuatro veces el
+    anual en la media). Un trimestre conocido con alguna de esas líneas en
+    negativo está roto, y entonces no se rellena nada de su ejercicio.
     """
     if trimestres.empty or anuales.empty:
         return trimestres
@@ -252,6 +256,13 @@ def rellenar_desde_anual(trimestres: pd.DataFrame, anuales: pd.DataFrame) -> pd.
         dentro = (fechas > fin - _ANTES_DEL_CIERRE) & (fechas <= fin + _DESPUES_DEL_CIERRE)
         posiciones = np.flatnonzero(dentro)
         if len(posiciones) != _TRIMESTRES_POR_ANO:
+            continue
+        # El signo no delata sólo su línea, sino el trimestre entero: el 2T 2025
+        # de GFNORTEO trae ingresos de -13.555 M y beneficio de -670 M, y el
+        # beneficio del 3T, rellenado como el año menos los otros tres, salía en
+        # 28.296 M, 1,8 veces el resto. De un ejercicio con un trimestre así no
+        # se rellena nada, tampoco las líneas que pueden ser negativas.
+        if (rellenas[list(_NO_NEGATIVAS)].iloc[posiciones] < 0).to_numpy().any():
             continue
         for linea in _FLUJOS:
             anual = ano[linea]
@@ -265,9 +276,7 @@ def rellenar_desde_anual(trimestres: pd.DataFrame, anuales: pd.DataFrame) -> pd.
             media = linea in _MEDIAS
             total = (_TRIMESTRES_POR_ANO if media else 1) * anual
             valor = total - conocidos.sum()
-            if linea in _NO_NEGATIVAS and (
-                (conocidos == 0).all() or (conocidos < 0).any() or not 0 < valor < total
-            ):
+            if linea in _NO_NEGATIVAS and ((conocidos == 0).all() or not 0 < valor < total):
                 continue
             if media and not (
                 anual / _FACTOR_MAXIMO_MEDIA <= valor <= anual * _FACTOR_MAXIMO_MEDIA
