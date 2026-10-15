@@ -3387,7 +3387,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 `entradas` sale a la red una vez y deja todo en la moneda de la valoración; `valorar` es puro, y es lo que llamarán los deslizadores de N2 sin volver a pedir nada.
 
-Una valoración que no se calcula puede terminar ahora con dos motivos que M no tenía: `sin_bono_m` (una emisora en pesos sin el Bono M de Banxico, normalmente por no tener token) y `sin_tipo_de_cambio` (Yahoo no dio el par de divisas). `sin_tasa_libre` no sirve para el primero: su etiqueta culpa a Yahoo, y aquí sería falso.
+Una valoración que no se calcula puede terminar ahora con un motivo que M no tenía: `sin_bono_m`, una emisora en pesos sin el Bono M de Banxico, normalmente por no tener token. `sin_tasa_libre` no sirve: su etiqueta culpa a Yahoo, y aquí sería falso. Un tipo de cambio que no llega se dice `sin_red`, que es lo que devuelve `mercado.tipo_de_cambio` desde la revisión de la Task 3: un par que Yahoo no conoce no se distingue de un fallo de red.
 
 **Files:**
 - Create: `analizador/valorar.py`
@@ -3401,7 +3401,6 @@ En `tests/test_medidores_valoracion.py`, añade dos casos a la tabla de `test_ca
 
 ```python
         ("sin_bono_m", "Bono M"),
-        ("sin_tipo_de_cambio", "tipo de cambio"),
 ```
 
 y los dos motivos a `_MOTIVOS_DE_UNA_FALLIDA`:
@@ -3409,7 +3408,7 @@ y los dos motivos a `_MOTIVOS_DE_UNA_FALLIDA`:
 ```python
 _MOTIVOS_DE_UNA_FALLIDA = (
     "sin_red", "sin_precio", "sin_tasa_libre", "sin_estados", "sin_historia", "error_interno",
-    "sin_bono_m", "sin_tipo_de_cambio",
+    "sin_bono_m",
 )
 ```
 
@@ -3647,8 +3646,8 @@ def test_tsm_convierte_los_estados_a_dolares_y_compara_el_consenso_en_su_moneda(
 def test_sin_tipo_de_cambio_no_hay_entradas():
     perfil_cad = perfil(ticker="RY.TO", moneda="CAD", moneda_estados="CAD")
     red = _Red(perfil=(perfil_cad, "ok"), estados=(_estados_walmex(), "ok"))
-    with red, patch.object(v.mercado, "tipo_de_cambio", return_value=(None, "sin_tipo_de_cambio")):
-        assert v.entradas(Resuelto("RY.TO", "sin_sec", None, None)) == (None, "sin_tipo_de_cambio")
+    with red, patch.object(v.mercado, "tipo_de_cambio", return_value=(None, "sin_red")):
+        assert v.entradas(Resuelto("RY.TO", "sin_sec", None, None)) == (None, "sin_red")
 
 
 def test_sin_estados_de_yahoo_no_hay_entradas():
@@ -3661,23 +3660,21 @@ def test_sin_estados_de_yahoo_no_hay_entradas():
 Run: `uv run pytest tests/test_analizador_valorar.py tests/test_medidores_valoracion.py -q`
 Expected: FAIL con `ModuleNotFoundError` y con los motivos nuevos sin etiqueta.
 
-- [ ] **Step 3: Los dos motivos nuevos**
+- [ ] **Step 3: El motivo nuevo**
 
 En `valoracion/votos.py`, añade a `MOTIVOS`:
 
 ```python
         "sin_bono_m",
-        "sin_tipo_de_cambio",
 ```
 
 En `medidores_valoracion.py`, añade a `MOTIVO` (junto a `sin_tasa_libre`):
 
 ```python
     "sin_bono_m": "Banxico no dio el rendimiento del Bono M a 10 años (falta el token o no respondió)",
-    "sin_tipo_de_cambio": "Yahoo Finance no devolvió el tipo de cambio",
 ```
 
-Ninguna de las dos lleva «:»: una fallida se pinta como «Sin valoración: …» y un test exige un solo «:».
+No lleva «:»: una fallida se pinta como «Sin valoración: …» y un test exige un solo «:».
 
 - [ ] **Step 4: Implementar `analizador/valorar.py`**
 
@@ -4020,9 +4017,9 @@ def test_un_ticker_sin_clase_dice_por_que():
 
 def test_sin_entradas_la_valoracion_es_una_fallida_con_su_motivo():
     with patch.object(analisis.resolver, "resolver", return_value=_resuelto()), \
-            patch.object(analisis, "entradas", return_value=(None, "sin_tipo_de_cambio")):
+            patch.object(analisis, "entradas", return_value=(None, "sin_precio")):
         a = analisis.analizar("IN0", None, {})
-    assert a.valoracion["motivo"] == "sin_tipo_de_cambio"
+    assert a.valoracion["motivo"] == "sin_precio"
     assert isinstance(a.valoracion["version"], str)
 
 
@@ -4510,10 +4507,11 @@ N se parte en tres planes que se ejecutan en orden: **N1, los datos** (`docs/sup
 seguida de los once puntos de «Lo que el sondeo del 2026-10-14 cambió del spec» de este plan, uno por párrafo y con sus cifras, y de estos dos:
 
 ```markdown
-- **Dos motivos nuevos para una valoración que no se calcula**: `sin_bono_m`
+- **Un motivo nuevo para una valoración que no se calcula**: `sin_bono_m`
   (una emisora en pesos sin el Bono M, normalmente por no tener token de
-  Banxico; el deslizador de la tasa libre lo resuelve) y `sin_tipo_de_cambio`.
-  `sin_tasa_libre` no servía: su etiqueta culpa a Yahoo.
+  Banxico; el deslizador de la tasa libre lo resuelve). `sin_tasa_libre` no
+  servía: su etiqueta culpa a Yahoo. Un tipo de cambio que no llega es
+  `sin_red`.
 - **La tabla de «Cachés y frescura»**: los estados de yfinance, la identidad y
   los tipos de cambio van en `valoracion/.cache/` (estados un día, identidad
   quince minutos, tipos de cambio un día), y `analizador/.cache/` sólo guarda
