@@ -263,6 +263,22 @@ def test_un_informe_guardado_hace_dos_dias_no_se_vuelve_a_preguntar(cache_aislad
         assert resolver.formularios_sec("MU") == (("10-K",), "ok")
 
 
+def test_sin_red_un_desconocido_de_hace_dos_dias_no_se_sirve(cache_aislada, monkeypatch):
+    with patch.object(resolver, "_consultar_sec", return_value=()):
+        resolver.formularios_sec("AAGH")
+    monkeypatch.setattr(resolver, "datetime", _dentro_de(2))
+    with patch.object(resolver, "_consultar_sec", return_value=None):
+        assert resolver.formularios_sec("AAGH") == (None, "sin_red_edgar")
+
+
+def test_sin_red_un_informe_de_hace_sesenta_dias_se_sirve(cache_aislada, monkeypatch):
+    with patch.object(resolver, "_consultar_sec", return_value=("10-K",)):
+        resolver.formularios_sec("MU")
+    monkeypatch.setattr(resolver, "datetime", _dentro_de(60))
+    with patch.object(resolver, "_consultar_sec", return_value=None):
+        assert resolver.formularios_sec("MU") == (("10-K",), "ok")
+
+
 def test_una_cache_caducada_con_red_se_vuelve_a_preguntar_y_se_sobrescribe(
     cache_aislada, monkeypatch
 ):

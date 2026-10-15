@@ -307,7 +307,10 @@ def formularios_sec(ticker: str) -> "tuple[tuple[str, ...] | None, str]":
             return previo, "ok"
     encontrados = _consultar_sec(ticker)
     if encontrados is None:
-        return (previo, "ok") if previo is not None else (None, "sin_red_edgar")
+        # Sin red, un formulario de verdad vale tenga la edad que tenga, pero un
+        # `()` no: si llega aquí ya pasó de `VALIDEZ_SIN_FORMULARIOS`, y servirlo
+        # alargaría el falso negativo que esa validez corta quiere acotar.
+        return (previo, "ok") if previo else (None, "sin_red_edgar")
     try:
         cache.guardar(RAIZ_CACHE, "formularios", ticker, list(encontrados))
     except OSError:
