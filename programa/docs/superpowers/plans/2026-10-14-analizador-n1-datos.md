@@ -66,6 +66,8 @@ Antes de escribir este plan se miró yfinance, EDGAR y Banxico en vivo (MU, WALM
 
 ### Task 1: La forma del ticker
 
+> **Ejecutada y superada** (43f9f20, c8f8747). La revisión añadió el `&` (`PE&OLES.MX`, `M&M.NS`), `_limpiar` (NFKC y caracteres invisibles de lo que se pega de una web), el choque documentado de `MKC.V` con el sufijo de TSX Venture y tests de casos reales. Manda el código vivo.
+
 **Files:**
 - Create: `analizador/__init__.py`
 - Create: `analizador/resolver.py`
@@ -270,6 +272,8 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 ### Task 2: El sector GICS de cualquier ticker
 
+> **Ejecutada y superada** (9d4ec40, 598e5d5). La revisión: una celda vacía de la tabla del S&P 500 (NaN) recurre a Yahoo, y el docstring dice que Yahoo clasifica con Morningstar (≈4 % de empresas en otro sector). Manda el código vivo.
+
 **Files:**
 - Create: `analizador/sectores.py`
 - Test: `tests/test_analizador_sectores.py`
@@ -374,6 +378,8 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ---
 
 ### Task 3: La identidad, los estados y el tipo de cambio, por `mercado`
+
+> **Ejecutada y superada** (9787dbc, adde07b). La revisión encontró que un estado que llega vacío (yfinance se traga los 429) pisaba el guardado, y que Londres cotiza en peniques (`GBp`) y yfinance lo leía como libras: `mercado.SUBUNIDADES`. Además, Yahoo da la capitalización de Londres en libras (SHEL.L: capitalización ÷ precio = acciones ÷ 100), que corrigen `divisas.perfil_en` (Task 7) y `kpis.kpis_yf` (Task 12). Manda el código vivo.
 
 `valoracion/mercado.py` es la única puerta a yfinance, con caché, respaldo cuando falla la red y motivos con nombre. Las tres fuentes nuevas entran por ella y reutilizan `_traer`.
 
@@ -1878,6 +1884,16 @@ def test_el_precio_se_lleva_a_la_moneda_de_la_valoracion():
     assert (p.precio, p.capitalizacion, p.moneda, p.moneda_estados) == (70.0, 700.0, "USD", "USD")
 
 
+def test_en_londres_la_capitalizacion_va_en_libras_y_el_precio_en_peniques():
+    # SHEL.L el 2026-10-14: precio 3.911,5 peniques, capitalización 222.520
+    # millones de libras y 5.688,9 millones de acciones. Capitalización ÷ precio
+    # sin corregir da las acciones entre cien.
+    shel = perfil(precio=3911.5, capitalizacion=222_519_934_976.0, moneda="GBp")
+    p = perfil_en(shel, 0.013237, "USD")
+    assert p.precio == pytest.approx(3911.5 * 0.013237)
+    assert p.capitalizacion / p.precio == pytest.approx(5_688_864_370.0, rel=1e-6)
+
+
 def test_el_cociente_de_la_adr():
     # TSM: yfinance da el recuento en base ADR, así que cuadra.
     tsm = perfil(precio=430.0, capitalizacion=2_230_183_788_544.0)
@@ -2084,13 +2100,19 @@ def convertir(fundamentos: Fundamentos, tipo: float, moneda: str) -> Fundamentos
 def perfil_en(perfil: Perfil, tipo: float, moneda: str) -> Perfil:
     """El precio y la capitalización en la moneda de la valoración, para votar.
 
-    El recuento de acciones (capitalización ÷ precio) no cambia: es lo que
-    desactiva la trampa de la ADR, como en M.
+    `tipo` es el del precio. El recuento de acciones (capitalización ÷ precio)
+    tiene que salir el de verdad: es lo que desactiva la trampa de la ADR,
+    como en M. Por eso una cotización en subunidades se corrige: Yahoo da el
+    precio de Londres en peniques y la capitalización en libras (SHEL.L:
+    capitalización ÷ precio = acciones ÷ 100), así que la capitalización se
+    convierte con el tipo de la moneda principal, que es el de la subunidad por
+    su escala (`mercado.SUBUNIDADES`).
     """
+    _, escala = mercado.SUBUNIDADES.get(perfil.moneda, (perfil.moneda, 1))
     return replace(
         perfil,
         precio=perfil.precio * tipo,
-        capitalizacion=perfil.capitalizacion * tipo,
+        capitalizacion=perfil.capitalizacion * tipo * escala,
         moneda=moneda,
         moneda_estados=moneda,
     )
@@ -2102,6 +2124,9 @@ def cociente_adr(acciones_estados: "float | None", perfil: Perfil) -> "float | N
     Cerca de 1 es lo normal. TSM da 1 con yfinance, que ya trae su recuento en
     base ADR; con el XBRL del 20-F daría 5. El valor por acción se divide
     siempre por el de la cotización, así que esto no corrige nada: avisa.
+    `perfil` es el ya convertido por `perfil_en`, que corrige la capitalización
+    de las cotizaciones en subunidades; con el de Yahoo tal cual, una empresa de
+    Londres saldría con un cociente de 100.
     """
     try:
         estados = float(acciones_estados)
@@ -3243,6 +3268,25 @@ def test_el_precio_va_en_la_moneda_de_los_estados_al_tipo_de_cada_fecha():
     assert filas["per"].iloc[-1] == pytest.approx(320.0 / 4.0)
 
 
+def test_un_precio_en_peniques_se_cambia_con_la_libra_y_se_divide_por_cien():
+    # SHEL.L cotiza en peniques y presenta en dólares: el par es GBPUSD=X, y el
+    # precio en dólares es el de peniques por el tipo y entre cien.
+    trimestrales = _trimestrales()
+    dobles = _precios({"SHEL.L": 3900.0, "GBPUSD=X": 1.3})
+    with patch.object(kpis, "_precios_por_periodo", side_effect=dobles):
+        filas = kpis.kpis_yf("SHEL.L", trimestrales, pd.DataFrame(), "GBp", "USD")
+    assert filas["per"].iloc[-1] == pytest.approx(3900.0 * 1.3 / 100 / 4.0)
+
+
+def test_peniques_frente_a_libras_no_se_baja_ningun_tipo_de_cambio():
+    trimestrales = _trimestrales()
+    dobles = _precios({"X.L": 400.0})
+    with patch.object(kpis, "_precios_por_periodo", side_effect=dobles) as precios:
+        filas = kpis.kpis_yf("X.L", trimestrales, pd.DataFrame(), "GBp", "GBP")
+    assert precios.call_count == 1
+    assert filas["per"].iloc[-1] == pytest.approx(4.0 / 4.0)
+
+
 def test_en_la_misma_moneda_no_se_baja_ningun_tipo_de_cambio():
     trimestrales = _trimestrales()
     with patch.object(kpis, "_precios_por_periodo", side_effect=_precios({"WALMEX.MX": 48.0})) as precios:
@@ -3272,6 +3316,7 @@ import pandas as pd
 
 from analizador.lineas_yf import kpis_trimestrales
 from fundamentals.fetch import CorridaAbortada
+from valoracion.mercado import SUBUNIDADES
 
 # Privada y aun así importada: es el precio del día en que se publicaron las
 # cuentas de cada trimestre, con el plazo del 10-Q o del 10-K. Una segunda
@@ -3311,11 +3356,15 @@ def kpis_yf(
     """
     cierres = pd.DatetimeIndex(anuales.index)
     precios, _ = _precios_por_periodo(ticker, trimestrales.index, cierres, min_obs=1)
-    if moneda_precio != moneda_estados:
-        par = f"{moneda_precio}{moneda_estados}=X"
+    # Una cotización en subunidades (Londres, en peniques) se cambia con su
+    # moneda principal y se divide por la escala: yfinance pasa el par a
+    # mayúsculas, y «GBpUSD=X» sería el tipo de la libra, cien veces mayor.
+    base, escala = SUBUNIDADES.get(moneda_precio, (moneda_precio, 1))
+    if base != moneda_estados:
+        par = f"{base}{moneda_estados}=X"
         tipos, _ = _precios_por_periodo(par, trimestrales.index, cierres, min_obs=1)
         precios = precios * tipos
-    return kpis_trimestrales(trimestrales, precios)
+    return kpis_trimestrales(trimestrales, precios / escala)
 ```
 
 - [ ] **Step 4: Comprobar que pasan**
@@ -3738,11 +3787,12 @@ def entradas(resuelto: Resuelto, cache_dir=None) -> "tuple[Entradas | None, str]
         procedencia = {"fuente": "tesoro_10", "serie": mercado.BONO_10}
     beta, motivo_beta = mercado.beta(ticker, divisa.indice_beta)
     tasa, motivo_tasa = mercado.tasa_efectiva(ticker)
+    perfil_valoracion = divisas.perfil_en(perfil, divisa.tipo_precio, divisa.moneda_valoracion)
     return (
         Entradas(
             ticker=ticker,
             fundamentos=divisas.convertir(fundamentos, divisa.tipo_estados, divisa.moneda_valoracion),
-            perfil=divisas.perfil_en(perfil, divisa.tipo_precio, divisa.moneda_valoracion),
+            perfil=perfil_valoracion,
             divisa=divisa,
             r_f=r_f,
             procedencia_r_f=procedencia,
@@ -3751,7 +3801,7 @@ def entradas(resuelto: Resuelto, cache_dir=None) -> "tuple[Entradas | None, str]
             tasa=tasa,
             consenso=consenso,
             motivos={"beta": motivo_beta, "tasa": motivo_tasa, "consenso": motivo_consenso},
-            cociente_adr=divisas.cociente_adr(acciones_estados, perfil),
+            cociente_adr=divisas.cociente_adr(acciones_estados, perfil_valoracion),
         ),
         "ok",
     )
