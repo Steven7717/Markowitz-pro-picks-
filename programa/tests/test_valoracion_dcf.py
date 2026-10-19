@@ -224,14 +224,10 @@ def test_sin_margen_positivo_el_inverso_no_responde(margen):
 
 # --- La sensibilidad ---------------------------------------------------------
 
-from dataclasses import replace as _replace  # noqa: E402
-
-from valoracion.criterio import HOLGURA_GORDON as _HOLGURA  # noqa: E402
-from valoracion.dcf import Datos as _Datos  # noqa: E402
+from valoracion.criterio import DELTA_WACC_ESCENARIOS, HOLGURA_GORDON  # noqa: E402
 from valoracion.dcf import sensibilidad  # noqa: E402
-from valoracion.dcf import valor_por_accion as _valor_por_accion  # noqa: E402
 
-DATOS_SENSIBILIDAD = _Datos(
+DATOS_SENSIBILIDAD = Datos(
     ingresos=1000.0, margen=0.2, wacc=0.09, g_perpetuo=0.025,
     deuda=100.0, efectivo=50.0, acciones=10.0,
 )
@@ -239,28 +235,55 @@ DATOS_SENSIBILIDAD = _Datos(
 
 def test_la_casilla_central_es_el_valor_base():
     s = sensibilidad(DATOS_SENSIBILIDAD, 0.08)
-    assert s.valores[2][2] == pytest.approx(_valor_por_accion(DATOS_SENSIBILIDAD, 0.08))
+    assert s.valores[2][2] == pytest.approx(valor_por_accion(DATOS_SENSIBILIDAD, 0.08))
     assert s.waccs == pytest.approx((0.07, 0.08, 0.09, 0.10, 0.11))
     assert s.gs == pytest.approx((0.015, 0.02, 0.025, 0.03, 0.035))
 
 
 def test_cada_casilla_es_el_dcf_con_ese_coste_y_ese_crecimiento_perpetuo():
     s = sensibilidad(DATOS_SENSIBILIDAD, 0.08)
-    otro = _replace(DATOS_SENSIBILIDAD, wacc=0.11, g_perpetuo=0.015)
-    assert s.valores[4][0] == pytest.approx(_valor_por_accion(otro, 0.08))
+    otro = replace(DATOS_SENSIBILIDAD, wacc=0.11, g_perpetuo=0.015)
+    assert s.valores[4][0] == pytest.approx(valor_por_accion(otro, 0.08))
+
+
+def test_las_filas_vecinas_de_la_central_son_los_costes_de_los_escenarios():
+    # Ata `PASOS_WACC` a `DELTA_WACC_ESCENARIOS`: la tabla y el rango pesimista
+    # y optimista mueven el coste de capital con el mismo paso.
+    s = sensibilidad(DATOS_SENSIBILIDAD, 0.08)
+    mas = valor_por_accion(DATOS_SENSIBILIDAD, 0.08, DATOS_SENSIBILIDAD.wacc + DELTA_WACC_ESCENARIOS)
+    menos = valor_por_accion(DATOS_SENSIBILIDAD, 0.08, DATOS_SENSIBILIDAD.wacc - DELTA_WACC_ESCENARIOS)
+    assert s.valores[3][2] == pytest.approx(mas)
+    assert s.valores[1][2] == pytest.approx(menos)
 
 
 def test_sin_holgura_de_gordon_la_casilla_sale_vacia_y_no_recortada():
-    s = sensibilidad(_replace(DATOS_SENSIBILIDAD, wacc=0.045), 0.08)
+    s = sensibilidad(replace(DATOS_SENSIBILIDAD, wacc=0.045), 0.08)
     vacias = 0
     for wacc, fila in zip(s.waccs, s.valores):
         for g, valor in zip(s.gs, fila):
-            sin_holgura = wacc - g < _HOLGURA - 1e-12
+            sin_holgura = wacc - g < HOLGURA_GORDON - 1e-12
             assert (valor is None) == sin_holgura
             vacias += sin_holgura
     assert vacias > 0
 
 
+@pytest.mark.parametrize("wacc", [0.02, 0.07 - 0.05])
+def test_con_un_coste_de_capital_no_positivo_la_casilla_sale_vacia(wacc):
+    # Gordon sólo mira la diferencia: con coste 0 % y crecimiento −1 % hay
+    # holgura y la casilla daba un número. `0.07 - 0.05` deja el coste de la
+    # primera fila en 3e-18, un cero que el redondeo vuelve positivo.
+    s = sensibilidad(replace(DATOS_SENSIBILIDAD, wacc=wacc, g_perpetuo=0.0), 0.08)
+    assert s.valores[0] == (None,) * 5
+    assert s.valores[1][0] is not None
+
+
+def test_un_valor_negativo_sale_como_numero_y_no_vacio():
+    # Una deuda mayor que la empresa da un valor por acción negativo: es un
+    # resultado, no una casilla sin Gordon.
+    s = sensibilidad(replace(DATOS_SENSIBILIDAD, deuda=60000.0), 0.08)
+    assert all(isinstance(v, float) and v < 0 for fila in s.valores for v in fila)
+
+
 def test_mas_coste_de_capital_vale_menos():
     columna = [fila[2] for fila in sensibilidad(DATOS_SENSIBILIDAD, 0.08).valores]
-    assert columna == sorted(columna, reverse=True)
+    assert all(a > b for a, b in zip(columna, columna[1:]))

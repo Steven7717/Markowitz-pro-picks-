@@ -637,27 +637,54 @@ def test_sin_tasa_libre_ni_estados_valorar_dice_sin_tasa_libre(red_doble):
 
 # --- Los datos del DCF, para la sensibilidad ---------------------------------
 
-from tests.dobles_valoracion import ejercicio as _ejercicio  # noqa: E402
-from tests.dobles_valoracion import fundamentos as _fundamentos  # noqa: E402
-from tests.dobles_valoracion import perfil as _perfil  # noqa: E402
-from valoracion.dcf import margen_fcff as _margen_fcff  # noqa: E402
-from valoracion.dcf import valor_por_accion as _valor_por_accion  # noqa: E402
-from valoracion.motor import calcular as _calcular  # noqa: E402
-from valoracion.motor import datos_dcf  # noqa: E402
-from valoracion.supuestos import deducir as _deducir  # noqa: E402
+from valoracion.motor import datos_dcf, puente  # noqa: E402
 
 
 def test_los_datos_del_dcf_son_los_del_voto_de_flujos():
-    f, p = _fundamentos(), _perfil()
-    s = _deducir(f, p, 0.05, None, 0.25, 0.10)
-    datos, motivo = datos_dcf(f, s, deuda=200.0, efectivo=50.0, acciones=10.0)
+    f, p = fundamentos(), perfil()
+    s = deducir(f, p, 0.05, None, 0.25, 0.10)
+    datos, motivo = datos_dcf(f, s, *puente(f, p))
     assert motivo is None
-    assert datos.margen == pytest.approx(_margen_fcff(f, 0.25))
-    v = _calcular(f, p, s, None)
-    assert v.valor.base == pytest.approx(_valor_por_accion(datos, s.g_ref.valor))
+    assert datos.margen == pytest.approx(dcf.margen_fcff(f, 0.25))
+    v = calcular(f, p, s, None)
+    assert v.valor.base == pytest.approx(dcf.valor_por_accion(datos, s.g_ref.valor))
 
 
-def test_los_datos_del_dcf_dicen_por_que_no_los_hay():
-    f = _fundamentos(ejercicios=[_ejercicio(2026 - i, flujo_operativo=50.0) for i in range(4)])
-    s = _deducir(f, _perfil(), 0.05, None, 0.25, 0.10)
-    assert datos_dcf(f, s, deuda=200.0, efectivo=50.0, acciones=10.0) == (None, "quema_caja")
+@pytest.mark.parametrize(
+    "ejercicios, motivo",
+    [
+        ([ejercicio(2026)], "sin_historia"),
+        ([ejercicio(2026 - i, capex=math.nan) for i in range(4)], "sin_flujo_libre"),
+        ([ejercicio(2026 - i, flujo_operativo=50.0) for i in range(4)], "quema_caja"),
+    ],
+)
+def test_los_datos_del_dcf_dicen_por_que_no_los_hay(ejercicios, motivo):
+    f = fundamentos(ejercicios=ejercicios)
+    s = deducir(f, perfil(), 0.05, None, 0.25, 0.10)
+    assert datos_dcf(f, s, *puente(f, perfil())) == (None, motivo)
+
+
+def test_sin_holgura_de_gordon_hay_datos_y_la_tabla_dice_desde_que_coste_hay_valor():
+    # El voto dice `wacc_bajo_crecimiento`, pero `datos_dcf` no mira la
+    # holgura: la tabla enseña desde qué coste vuelve a haber valor.
+    f, p = fundamentos(), perfil()
+    s = deducir(f, p, 0.05, None, 0.25, 0.10)
+    s = replace(s, wacc=replace(s.wacc, valor=s.g_perpetuo.valor + 0.005))
+    datos, motivo = datos_dcf(f, s, *puente(f, p))
+    assert motivo is None and datos.wacc == s.wacc.valor
+    tabla = dcf.sensibilidad(datos, s.g_ref.valor)
+    assert tabla.valores[2][2] is None
+    assert tabla.valores[3][2] is not None
+    assert calcular(f, p, s, None).votos["flujos"].motivo == "wacc_bajo_crecimiento"
+
+
+def test_el_puente_es_el_que_usa_calcular():
+    # Deuda sin declarar: `_o_cero` la cuenta como cero. Las acciones son
+    # capitalización ÷ precio, 1.500 ÷ 50.
+    f, p = fundamentos(deuda_total=math.nan), perfil(precio=50.0, capitalizacion=1500.0)
+    assert puente(f, p) == (0.0, 50.0, 30.0)
+    s = deducir(f, p, 0.05, None, 0.25, 0.10)
+    with patch.object(dcf, "valor_por_accion", wraps=dcf.valor_por_accion) as espia:
+        calcular(f, p, s, None)
+    datos = espia.call_args_list[0].args[0]
+    assert (datos.deuda, datos.efectivo, datos.acciones) == puente(f, p)

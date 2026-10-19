@@ -161,11 +161,23 @@ def sensibilidad(datos: Datos, g: float) -> Sensibilidad:
     Las casillas sin holgura de Gordon salen vacías, no recortadas: recortar el
     coste de capital para que cuadre sería cambiar el escenario sin decirlo,
     que es la regla de `valor_empresa`.
+
+    Las de coste de capital no positivo también salen vacías: descontar a un
+    coste no positivo no es un valor. Gordon sólo mira la diferencia, y con
+    coste 0 % y crecimiento −1 % daría un número. `valor_empresa` no lo mira
+    porque los supuestos del programa no llegan ahí; la rejilla, que resta dos
+    puntos a unos supuestos que se pueden mover, sí. Un coste positivo sólo
+    por el redondeo cuenta como cero, por lo mismo que `_RUIDO_FLOTANTE`.
     """
     waccs = tuple(datos.wacc + paso for paso in PASOS_WACC)
     gs = tuple(datos.g_perpetuo + paso for paso in PASOS_G_PERPETUO)
     valores = tuple(
-        tuple(valor_por_accion(replace(datos, wacc=wacc, g_perpetuo=gp), g) for gp in gs)
+        tuple(
+            valor_por_accion(replace(datos, wacc=wacc, g_perpetuo=gp), g)
+            if wacc > _RUIDO_FLOTANTE
+            else None
+            for gp in gs
+        )
         for wacc in waccs
     )
     return Sensibilidad(waccs, gs, valores)

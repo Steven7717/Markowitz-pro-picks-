@@ -91,12 +91,33 @@ def _o_cero(valor: float) -> float:
     return valor if math.isfinite(valor) else 0.0
 
 
-def datos_dcf(fundamentos, supuestos, deuda, efectivo, acciones):
-    """Lo que el DCF necesita, o el motivo por el que no se puede hacer.
+def puente(fundamentos: Fundamentos, perfil: Perfil) -> "tuple[float, float, float]":
+    """Del valor de la empresa al de cada acción: `(deuda, efectivo, acciones)`.
+
+    Las acciones son capitalización ÷ precio: el recuento en la base en la que
+    está el precio. Es lo que desactiva la trampa de las ADR en N. Vive aquí, y
+    no dentro de `calcular`, para que la sensibilidad lo tome del mismo sitio
+    que el voto en vez de recalcularlo a mano.
+    """
+    acciones = perfil.capitalizacion / perfil.precio
+    return _o_cero(fundamentos.deuda_total), _o_cero(fundamentos.efectivo), acciones
+
+
+def datos_dcf(
+    fundamentos, supuestos, deuda, efectivo, acciones
+) -> "tuple[dcf.Datos | None, str | None]":
+    """Lo que el DCF necesita, o el motivo por el que faltan los datos.
 
     Devuelve `(Datos, None)` o `(None, motivo)`. Es la primera mitad de la
     lectura de flujos, aparte para que la tabla de sensibilidad use exactamente
-    los datos con que se votó.
+    los datos con que se votó; la deuda, el efectivo y las acciones salen de
+    `puente`.
+
+    La holgura de Gordon no se mira aquí: con un coste de capital que no supera
+    al crecimiento perpetuo hay datos y ningún motivo, y lo decide
+    `valor_por_accion`, casilla a casilla. Es a propósito: el voto dice
+    `wacc_bajo_crecimiento`, pero la tabla enseña desde qué coste vuelve a
+    haber valor.
     """
     g_ref = supuestos.g_ref.valor
     if g_ref is None or not fundamentos.ultimo.ingresos > 0:
@@ -198,12 +219,10 @@ def calcular(
 ) -> Valoracion:
     """Las cuatro lecturas, los tres votos y el veredicto. Sin red.
 
-    Las acciones son capitalización ÷ precio: el recuento en la base en la que
-    está el precio. Es lo que desactiva la trampa de las ADR en N.
+    La deuda, el efectivo y las acciones salen de `puente`.
     """
     precio = perfil.precio
-    acciones = perfil.capitalizacion / perfil.precio
-    deuda, efectivo = _o_cero(fundamentos.deuda_total), _o_cero(fundamentos.efectivo)
+    deuda, efectivo, acciones = puente(fundamentos, perfil)
     if perfil.industria in INDUSTRIAS_FINANCIERAS:
         metodo = "residual"
         flujos, valor, lectura = _lectura_residual(fundamentos, supuestos, acciones, precio)
