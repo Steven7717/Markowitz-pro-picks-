@@ -452,13 +452,43 @@ def test_la_tasa_libre_lleva_la_procedencia_que_se_le_da():
     assert s.r_f.procedencia == bono
 
 
-def _base():
-    return _deducir(_fundamentos(), _perfil(), 0.05, _Beta(1.2, 0.4, 104, "^GSPC"), 0.21, 0.10)
+from dataclasses import fields as _campos  # noqa: E402
+
+from valoracion.criterio import BLUME as _BLUME  # noqa: E402
+
+_BETA = _Beta(1.2, 0.4, 104, "^GSPC")
+
+
+def _base(tasa=0.21):
+    return _deducir(_fundamentos(), _perfil(), 0.05, _BETA, tasa, 0.10)
+
+
+def _exacta(r_f=0.05, gasto=20.0, beta=_BETA):
+    """Como `_base`, pero con una deuda de 250 sobre una capitalización de 1.000.
+
+    El peso de la deuda es 0,2 justo, así que el redondeo de su procedencia no
+    mete error y la comparación con `deducir` puede ser estricta. El coste de la
+    deuda medido es `gasto / 250`.
+    """
+    ejercicios = [_ejercicio(2026 - i, gasto_financiero=gasto) for i in range(4)]
+    f = _fundamentos(ejercicios=ejercicios, deuda_total=250.0)
+    return _deducir(f, _perfil(), r_f, beta, 0.21, 0.10)
+
+
+def _costes(s):
+    return (s.k_e.valor, s.wacc.valor)
 
 
 def test_sin_cambios_los_supuestos_son_los_mismos():
     s = _base()
     assert aplicar(s, {}) is s
+
+
+def test_mover_un_supuesto_a_su_propio_valor_no_cuenta():
+    # La pantalla diría «movido por ti; el programa decía 1.13» junto a 1.13.
+    s = _base()
+    assert aplicar(s, {"beta": s.beta.valor}) is s
+    assert movidos(aplicar(s, {"beta": s.beta.valor, "g_ref": 0.3})) == ("g_ref",)
 
 
 def test_mover_el_crecimiento_no_toca_el_coste_de_capital():
@@ -470,14 +500,35 @@ def test_mover_el_crecimiento_no_toca_el_coste_de_capital():
 
 
 def test_mover_la_beta_recalcula_el_capital_propio_y_el_de_capital():
-    s = _base()
+    s = _exacta()
     n = aplicar(s, {"beta": 2.0})
-    assert n.k_e.valor == pytest.approx(0.05 + 2.0 * s.prima.valor)
+    a, b = _BLUME
+    esperado = _exacta(beta=_Beta((2.0 - b) / a, 0.4, 104, "^GSPC"))
+    assert _costes(n) == pytest.approx(_costes(esperado))
     assert n.k_e.procedencia == {**s.k_e.procedencia, "recalculado": True}
-    peso = s.wacc.procedencia["peso_deuda"]
-    esperado = (1 - peso) * n.k_e.valor + peso * s.k_d.valor * (1 - s.t.valor)
-    assert n.wacc.valor == pytest.approx(esperado)
-    assert n.wacc.procedencia["recalculado"] is True
+    assert n.wacc.procedencia == {**s.wacc.procedencia, "recalculado": True}
+
+
+def test_mover_la_prima_da_los_costes_de_deducir(monkeypatch):
+    n = aplicar(_exacta(), {"prima": 0.06})
+    monkeypatch.setattr("valoracion.supuestos.PRIMA_RIESGO", 0.06)
+    assert _costes(n) == pytest.approx(_costes(_exacta()))
+
+
+def test_mover_el_coste_de_la_deuda_da_el_coste_de_capital_de_deducir():
+    s = _exacta()
+    n = aplicar(s, {"k_d": 0.12})
+    assert n.k_e == s.k_e
+    assert n.wacc.valor == pytest.approx(_exacta(gasto=0.12 * 250).wacc.valor)
+
+
+def test_mover_los_impuestos_da_el_coste_de_capital_de_deducir():
+    # Con el peso de la deuda redondeado (1/6 en `_base`): el error del redondeo
+    # es de segundo orden y queda por debajo de la millonésima.
+    s = _base()
+    n = aplicar(s, {"t": s.t.valor + 0.01})
+    assert n.k_e == s.k_e
+    assert n.wacc.valor == pytest.approx(_base(tasa=s.t.valor + 0.01).wacc.valor, rel=1e-6)
 
 
 def test_mover_la_tasa_libre_arrastra_al_coste_de_la_deuda_sin_dato():
@@ -490,7 +541,67 @@ def test_mover_la_tasa_libre_arrastra_al_coste_de_la_deuda_sin_dato():
     assert n.k_d.procedencia["recalculado"] is True
 
 
-def test_un_coste_de_la_deuda_medido_no_sigue_a_la_tasa_libre():
+def test_mover_la_tasa_libre_y_el_coste_de_la_deuda_a_la_vez():
+    # El coste de la deuda sin dato sigue a la tasa libre, salvo que el usuario
+    # lo mueva también.
+    s = _exacta(gasto=float("nan"))
+    assert s.k_d.procedencia["fuente"] == "sin_dato"
+    n = aplicar(s, {"r_f": 0.07, "k_d": 0.09})
+    assert n.k_d.valor == 0.09
+    assert n.k_d.procedencia["fuente"] == "usuario"
+    assert _costes(n) == pytest.approx(_costes(_exacta(r_f=0.07, gasto=0.09 * 250)))
+
+
+@pytest.mark.parametrize(
+    "antes, despues, gasto",
+    [
+        (0.02, 0.05, 20.0),
+        (0.05, 0.02, 20.0),
+        (0.05, 0.07, 5.0),
+        (0.05, 0.01, 5.0),
+        (0.05, 0.10, 50.0),
+        (0.05, 0.11, 25.0),
+        (0.05, 0.07, 23.33),
+    ],
+    ids=[
+        "g_perpetuo_recortado_deja_de_estarlo",
+        "g_perpetuo_pasa_a_recortado",
+        "k_d_acotado_por_abajo_sube_con_la_tasa",
+        "k_d_acotado_por_abajo_deja_de_estarlo",
+        "k_d_acotado_por_arriba",
+        "k_d_sin_acotar_pasa_a_acotado",
+        "k_d_sin_acotar_conserva_su_valor_exacto",
+    ],
+)
+def test_mover_la_tasa_libre_da_lo_mismo_que_deducir_con_ella(antes, despues, gasto):
+    # Lo que en `deducir` depende de la tasa libre (el crecimiento a perpetuidad
+    # recortado a ella, la banda del coste de la deuda) se rehace con la nueva.
+    n = aplicar(_exacta(r_f=antes, gasto=gasto), {"r_f": despues})
+    esperado = _exacta(r_f=despues, gasto=gasto)
+    for campo in _campos(esperado):
+        if campo.name == "r_f":
+            continue
+        nuevo, deducido = getattr(n, campo.name), getattr(esperado, campo.name)
+        assert nuevo.valor == pytest.approx(deducido.valor), campo.name
+        sin_marca = {k: v for k, v in nuevo.procedencia.items() if k != "recalculado"}
+        assert sin_marca == deducido.procedencia, campo.name
+
+
+def test_un_crecimiento_perpetuo_que_cambia_con_la_tasa_libre_lo_dice():
+    s = _base()
+    assert aplicar(s, {"r_f": 0.02}).g_perpetuo.procedencia == {
+        "fuente": "recortado_a_r_f",
+        "base": 0.025,
+        "recalculado": True,
+    }
+    assert aplicar(s, {"r_f": 0.07}).g_perpetuo == s.g_perpetuo
+
+
+def test_un_crecimiento_perpetuo_movido_no_lo_rehace_la_tasa_libre():
+    assert aplicar(_base(), {"r_f": 0.02, "g_perpetuo": 0.03}).g_perpetuo.valor == 0.03
+
+
+def test_un_coste_de_la_deuda_medido_dentro_de_la_banda_no_sigue_a_la_tasa_libre():
     s = _base()
     assert s.k_d.procedencia["fuente"] == "gasto_entre_deuda"
     assert aplicar(s, {"r_f": 0.07}).k_d == s.k_d
@@ -503,16 +614,57 @@ def test_en_una_financiera_el_coste_de_capital_sigue_vacio():
     assert n.k_e.procedencia["recalculado"] is True
 
 
+@pytest.mark.parametrize("nombre", ["k_d", "t"])
+def test_en_una_financiera_no_se_mueve_lo_que_no_se_usa(nombre):
+    # El distintivo diría «con tus supuestos» sin ningún cambio visible.
+    s = _deducir(_fundamentos(), _perfil(industria="Banks - Regional"), 0.05, None, 0.21, 0.10)
+    with pytest.raises(ValueError, match=rf"\b{nombre}\b"):
+        aplicar(s, {nombre: 0.08})
+
+
 def test_lo_derivado_no_se_mueve_a_mano():
     with pytest.raises(ValueError, match="k_e"):
         aplicar(_base(), {"k_e": 0.1})
     assert "k_e" not in MOVIBLES and "wacc" not in MOVIBLES
 
 
-@pytest.mark.parametrize("valor", [float("nan"), float("inf"), "x", None])
+@pytest.mark.parametrize("valor", [float("nan"), float("inf"), "x", None, True, False])
 def test_un_valor_que_no_es_un_numero_finito_se_rechaza(valor):
     with pytest.raises(ValueError):
         aplicar(_base(), {"g_ref": valor})
+
+
+@pytest.mark.parametrize(
+    "nombre, valor",
+    [("payout", -0.1), ("payout", 1.1), ("t", -0.01), ("t", 1.0)],
+)
+def test_un_reparto_o_unos_impuestos_imposibles_se_rechazan(nombre, valor):
+    # No se acotan en silencio: la pantalla diría «movido por ti» con un valor
+    # que el usuario no eligió.
+    with pytest.raises(ValueError, match=rf"\b{nombre}\b"):
+        aplicar(_base(), {nombre: valor})
+
+
+@pytest.mark.parametrize("nombre, valor", [("payout", 0.0), ("payout", 1.0), ("t", 0.0)])
+def test_los_extremos_posibles_se_aceptan(nombre, valor):
+    assert getattr(aplicar(_base(), {nombre: valor}), nombre).valor == valor
+
+
+def test_un_coste_del_capital_propio_nulo_se_rechaza():
+    # Los mínimos naturales de dos deslizadores: con ellos, `epv` dividía entre cero.
+    with pytest.raises(ValueError, match="k_e"):
+        aplicar(_base(), {"r_f": 0.0, "beta": 0.0})
+
+
+def test_un_coste_de_capital_negativo_se_rechaza():
+    with pytest.raises(ValueError, match="wacc"):
+        aplicar(_base(), {"k_d": -1.0})
+
+
+def test_una_beta_negativa_sola_es_valida():
+    # Las mineras de oro la tienen: lo que importa es el coste que resulta.
+    n = aplicar(_base(), {"beta": -0.5})
+    assert n.k_e.valor == pytest.approx(0.05 - 0.5 * n.prima.valor)
 
 
 def test_movidos_dice_cuales_movio_el_usuario_en_el_orden_de_siempre():

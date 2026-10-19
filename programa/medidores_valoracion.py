@@ -541,7 +541,8 @@ def _movido(nombre: str, p: dict) -> str:
     """Un supuesto que movió el usuario, con lo que decía el programa."""
     programa = p.get("programa")
     if programa is None:
-        # Una tasa libre que el programa no tenía: un Bono M sin token.
+        # El programa no tenía ese supuesto (sin dato, o sin Bono M) y lo puso
+        # el usuario.
         return "puesto por ti"
     valor = _decimales(programa, 2) if nombre == "beta" else _pct(programa)
     return f"movido por ti; el programa decía {valor}"

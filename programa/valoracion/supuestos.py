@@ -306,9 +306,16 @@ def deducir(
 MOVIBLES = ("r_f", "beta", "prima", "k_d", "t", "g_ref", "g_perpetuo", "roe_ref", "payout")
 _HACEN_K_E = {"r_f", "beta", "prima"}
 _HACEN_WACC = _HACEN_K_E | {"k_d", "t"}
+# En una financiera no hay coste de capital: el coste de la deuda y los
+# impuestos no entran en ninguna cuenta, y moverlos haría decir «con tus
+# supuestos» sin ningún cambio visible.
+_SIN_USO_EN_FINANCIERA = {"k_d", "t"}
 
 
 def _numero_finito(nombre: str, valor: object) -> float:
+    # Para Python un booleano es un entero, pero no es la cifra de un deslizador.
+    if isinstance(valor, bool):
+        raise ValueError(f"{nombre}: {valor!r} no es un número")
     try:
         numero = float(valor)
     except (TypeError, ValueError):
@@ -318,49 +325,148 @@ def _numero_finito(nombre: str, valor: object) -> float:
     return numero
 
 
-def _recalculado(supuesto: Supuesto, valor: "float | None") -> Supuesto:
-    return Supuesto(valor, {**supuesto.procedencia, "recalculado": True})
+def _cambios(supuestos: Supuestos, cambios: dict) -> "dict[str, float]":
+    """Los cambios que de verdad mueven algo, como números y ya comprobados.
+
+    Un cambio al valor que ya tenía no cuenta: la pantalla diría «movido por ti;
+    el programa decía 1.13» junto a 1.13. Lo imposible no se acota en silencio,
+    porque diría «movido por ti» con un valor que el usuario no eligió.
+    """
+    desconocidos = sorted(set(cambios) - set(MOVIBLES))
+    if desconocidos:
+        raise ValueError(f"No se pueden mover a mano: {', '.join(desconocidos)}")
+    numeros = {nombre: _numero_finito(nombre, valor) for nombre, valor in cambios.items()}
+    reales = {n: v for n, v in numeros.items() if v != getattr(supuestos, n).valor}
+    if supuestos.wacc.procedencia.get("fuente") == "financiera":
+        sin_uso = sorted(_SIN_USO_EN_FINANCIERA & set(reales))
+        if sin_uso:
+            raise ValueError(
+                f"En una financiera no se usan, así que no se mueven: {', '.join(sin_uso)}"
+            )
+    # Un reparto negativo rompe la monotonía del beneficio residual, y la
+    # bisección del implícito converge a cualquier punto.
+    if "payout" in reales and not 0.0 <= reales["payout"] <= 1.0:
+        raise ValueError(f"payout: {reales['payout']} fuera de [0, 1]")
+    # Con unos impuestos del 100 % o más, (1 − t) deja de ser positivo.
+    if "t" in reales and not 0.0 <= reales["t"] < 1.0:
+        raise ValueError(f"t: {reales['t']} fuera de [0, 1)")
+    return reales
+
+
+def _recalculado(
+    antes: Supuesto, valor: "float | None", procedencia: "dict | None" = None
+) -> Supuesto:
+    """`antes` rehecho con un valor nuevo, conservando su fuente y con la marca.
+
+    Si no cambió nada, `antes` tal cual: un «recalculado» junto a la misma cifra
+    confunde igual que un «movido por ti».
+    """
+    procedencia = antes.procedencia if procedencia is None else procedencia
+    if valor == antes.valor and procedencia == antes.procedencia:
+        return antes
+    return Supuesto(valor, {**procedencia, "recalculado": True})
+
+
+def _coste_deuda_con(k_d: Supuesto, r_f_antes: float, r_f: float) -> Supuesto:
+    """El coste de la deuda que `coste_deuda` daría con la tasa libre `r_f`.
+
+    Uno «sin dato» es la tasa libre por definición, así que la sigue. Uno medido
+    se vuelve a acotar a la banda nueva partiendo del bruto: su valor exacto si
+    estaba dentro de la banda vieja; si estaba en un borde, el bruto sólo queda
+    en la procedencia, redondeado a cuatro decimales.
+    """
+    if k_d.procedencia.get("fuente") == "sin_dato":
+        return _recalculado(k_d, r_f)
+    if k_d.procedencia.get("fuente") != "gasto_entre_deuda":
+        return k_d
+    dentro = r_f_antes < k_d.valor < r_f_antes + COSTE_DEUDA_PRIMA_MAXIMA
+    bruto = k_d.valor if dentro else k_d.procedencia["bruto"]
+    return _recalculado(k_d, _acotar(bruto, (r_f, r_f + COSTE_DEUDA_PRIMA_MAXIMA)))
+
+
+def _perpetuo_con(g_perpetuo: Supuesto, r_f: float) -> Supuesto:
+    """El crecimiento a perpetuidad que `crecimiento_perpetuo` daría con la tasa libre `r_f`."""
+    p = g_perpetuo.procedencia
+    if p.get("fuente") == "recortado_a_r_f":
+        # Recortado, la procedencia guarda la base y no la moneda; las bases del
+        # criterio son distintas entre sí, así que la base dice la moneda.
+        moneda = next(m for m, base in CRECIMIENTO_PERPETUO.items() if base == p["base"])
+    else:
+        moneda = p["moneda"]
+    nuevo = crecimiento_perpetuo(moneda, r_f)
+    return _recalculado(g_perpetuo, nuevo.valor, nuevo.procedencia)
+
+
+def _wacc_en_diferencias(antes: Supuestos, despues: Supuestos) -> float:
+    """El coste de capital del programa más lo que cambian sus partes.
+
+    El peso de la deuda sólo queda en la procedencia, redondeado a cuatro
+    decimales. Aplicado a las diferencias y no a los costes enteros, el error
+    que mete es de segundo orden (la diferencia de pesos, menos de media
+    diezmilésima, por lo que cambian los costes) y nulo si nada cambia.
+    """
+    p = antes.wacc.procedencia.get("peso_deuda") or 0.0
+    return (
+        antes.wacc.valor
+        + (1 - p) * (despues.k_e.valor - antes.k_e.valor)
+        + p * (despues.k_d.valor * (1 - despues.t.valor) - antes.k_d.valor * (1 - antes.t.valor))
+    )
 
 
 def aplicar(supuestos: Supuestos, cambios: dict) -> Supuestos:
     """Los supuestos con lo que el usuario movió, y lo que depende de ello recalculado.
 
+    Recibe los supuestos del programa, los de `deducir`, y no unos ya movidos:
+    lo recalculado se rehace a partir de ellos, y «programa» es lo que decían.
+
     Lo movido lleva `{"fuente": "usuario", "programa": <lo que decía el
     programa>}`; lo recalculado conserva su fuente y gana `"recalculado": True`,
-    para que la pantalla diga las dos cosas. **Lo movido no se guarda en ningún
-    sitio**: lo que va al acta es siempre la valoración con los supuestos del
-    programa, comparable entre actas.
+    para que la pantalla diga las dos cosas. Lo que queda con la misma cifra no
+    se marca. **Lo movido no se guarda en ningún sitio**: lo que va al acta es
+    siempre la valoración con los supuestos del programa, comparable entre actas.
 
-    El coste de capital se recalcula con el peso de la deuda de su procedencia,
-    que va redondeado a cuatro decimales: el error que eso mete es de
-    diezmilésimas de punto. Un coste de la deuda «sin dato» es la tasa libre por
-    definición, así que la sigue; uno medido, no.
+    Mover la tasa libre rehace lo que en `deducir` depende de ella: el coste de
+    la deuda (`_coste_deuda_con`) y el crecimiento a perpetuidad, que no puede
+    pasarla. El coste de capital se recalcula en diferencias
+    (`_wacc_en_diferencias`).
+
+    Rechaza con `ValueError` lo que rompe las fórmulas: un reparto fuera de
+    [0, 1], unos impuestos fuera de [0, 1), y un coste del capital propio o de
+    capital que quede en cero o por debajo (`epv` divide entre ellos). Una beta
+    negativa sola sí vale: las mineras de oro la tienen, y lo que importa es el
+    coste que resulta.
     """
-    if not cambios:
+    reales = _cambios(supuestos, cambios)
+    if not reales:
         return supuestos
-    desconocidos = sorted(set(cambios) - set(MOVIBLES))
-    if desconocidos:
-        raise ValueError(f"No se pueden mover a mano: {', '.join(desconocidos)}")
-    nuevos = {
-        nombre: Supuesto(
-            _numero_finito(nombre, valor),
-            {"fuente": "usuario", "programa": getattr(supuestos, nombre).valor},
-        )
-        for nombre, valor in cambios.items()
-    }
-    s = replace(supuestos, **nuevos)
-    if (
-        "r_f" in cambios
-        and "k_d" not in cambios
-        and s.k_d.procedencia.get("fuente") == "sin_dato"
-    ):
-        s = replace(s, k_d=_recalculado(s.k_d, s.r_f.valor))
-    if _HACEN_K_E & set(cambios):
+    s = replace(
+        supuestos,
+        **{
+            nombre: Supuesto(
+                valor, {"fuente": "usuario", "programa": getattr(supuestos, nombre).valor}
+            )
+            for nombre, valor in reales.items()
+        },
+    )
+    if "r_f" in reales:
+        if "k_d" not in reales:
+            s = replace(s, k_d=_coste_deuda_con(s.k_d, supuestos.r_f.valor, s.r_f.valor))
+        if "g_perpetuo" not in reales:
+            s = replace(s, g_perpetuo=_perpetuo_con(s.g_perpetuo, s.r_f.valor))
+    if _HACEN_K_E & set(reales):
         s = replace(s, k_e=_recalculado(s.k_e, s.r_f.valor + s.beta.valor * s.prima.valor))
-    if _HACEN_WACC & set(cambios) and s.wacc.valor is not None:
-        peso = s.wacc.procedencia.get("peso_deuda") or 0.0
-        wacc = (1 - peso) * s.k_e.valor + peso * s.k_d.valor * (1 - s.t.valor)
-        s = replace(s, wacc=_recalculado(s.wacc, wacc))
+        if not s.k_e.valor > 0:
+            raise ValueError(
+                f"k_e: con esos supuestos el coste del capital propio sale {s.k_e.valor:.2%}"
+                ", y tiene que ser positivo"
+            )
+    if _HACEN_WACC & set(reales) and s.wacc.valor is not None:
+        s = replace(s, wacc=_recalculado(s.wacc, _wacc_en_diferencias(supuestos, s)))
+        if not s.wacc.valor > 0:
+            raise ValueError(
+                f"wacc: con esos supuestos el coste de capital sale {s.wacc.valor:.2%}"
+                ", y tiene que ser positivo"
+            )
     return s
 
 
