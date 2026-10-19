@@ -6,9 +6,11 @@
 | MXN     | pesos        | Bono M a 10 años, de Banxico  | `^MXX` (IPC)  |
 | otra    | dólares      | `^TNX`                        | `^GSPC`       |
 
-En el tercer caso los estados se convierten a dólares al tipo del día y la
-valoración no lleva prima por riesgo país, y se dice (`Divisa.convertida`). El
-precio se lleva a la moneda de la valoración para votar: un valor en dólares
+En el tercer caso los estados se convierten a dólares al tipo del día, y se
+dice (`Divisa.convertida`). Que la valoración lleve o no prima por riesgo país
+no lo dice la moneda de los estados sino el país de la empresa: NPN.JO o
+TEVA.TA presentan en dólares y se valoran sin ella, igual que TSM. El precio se
+lleva a la moneda de la valoración para votar: un valor en dólares
 frente a un precio en dólares canadienses no dice nada.
 
 El Bono M se usa tal cual, sin restarle el diferencial soberano que Damodaran
@@ -19,7 +21,7 @@ dice.
 
 import math
 from dataclasses import dataclass, fields, replace
-from datetime import date, timedelta
+from datetime import date
 
 from seguimiento import banxico
 from valoracion import mercado
@@ -29,15 +31,13 @@ from valoracion.mercado import Perfil
 # «Valores Gubernamentales. Resultados de la subasta semanal. Tasa de
 # rendimiento. Bono tasa fija 10 años», en porcentaje. Buscada en el catálogo
 # del SIE el 2026-10-14; la fija un test `red` contra el título de sus
-# metadatos. Es de subasta, no de mercado secundario: el último dato puede
-# tener semanas, y su fecha va en la procedencia.
+# metadatos, que llega en la Task 15 (`tests/test_analizador_red.py`). Es de
+# subasta, no de mercado secundario: el último dato puede tener semanas, y su
+# fecha va en la procedencia.
 SERIE_BONO_M_10 = "SF44071"
 INDICE_MXN = "^MXX"
 # Las monedas con tasa libre propia. Cualquier otra se valora en dólares.
 MONEDAS_PROPIAS = ("USD", "MXN")
-# La subasta del bono a diez años es cada pocas semanas: cuatro meses de
-# ventana traen siempre la última.
-DIAS_BONO_M = 120
 # Recuento de los estados entre el de la cotización. Fuera de este margen el
 # recuento de los estados no es el de la cotización: una ADR con un ratio
 # distinto de 1, o una clase de acción que no es la que cotiza.
@@ -61,12 +61,12 @@ class Divisa:
 
     @property
     def convertida(self) -> bool:
-        """Si los estados se pasaron a dólares: entonces no hay prima por riesgo país."""
+        """Si los estados se pasaron a dólares. No dice nada de la prima por riesgo país."""
         return self.moneda_estados != self.moneda_valoracion
 
     def a_dict(self) -> dict:
         datos = {campo.name: getattr(self, campo.name) for campo in fields(self)}
-        return {**datos, "sin_prima_pais": self.convertida}
+        return {**datos, "estados_convertidos": self.convertida}
 
 
 def moneda_de_valoracion(moneda_estados: str) -> str:
@@ -118,7 +118,10 @@ def perfil_en(perfil: Perfil, tipo: float, moneda: str) -> Perfil:
     precio de Londres en peniques y la capitalización en libras (SHEL.L:
     capitalización ÷ precio = acciones ÷ 100), así que la capitalización se
     convierte con el tipo de la moneda principal, que es el de la subunidad por
-    su escala (`mercado.SUBUNIDADES`).
+    su escala (`mercado.SUBUNIDADES`). Johannesburgo, Tel Aviv y Kuwait hacen
+    lo mismo: precio en ZAc, ILA o KWF y capitalización en la moneda principal
+    (comprobado el 2026-10-19 con NPN.JO, TEVA.TA y NBK.KW). Si Yahoo dejase de
+    hacerlo, la única red sería `cociente_adr`, que daría ≈ 0,01 y avisaría.
     """
     _, escala = mercado.SUBUNIDADES.get(perfil.moneda, (perfil.moneda, 1))
     return replace(
@@ -168,9 +171,13 @@ def bono_m(
     hoy = hoy or date.today()
     clave = banxico.token() if clave is None else clave
     otra_raiz = {} if raiz is None else {"raiz": raiz}
-    serie = banxico.traer(
-        SERIE_BONO_M_10, hoy - timedelta(days=DIAS_BONO_M), hoy, clave, **otra_raiz
-    )
+    # `traer` guarda en caché por serie y `desde`: con un `desde` que se mueve
+    # cada día, el dato de ayer no serviría de respaldo si hoy Banxico no
+    # responde. Anclado al 1 de enero del año anterior, la clave cambia una vez
+    # al año y la ventana va de 12 a 24 meses, unas 20 subastas (la mayor
+    # separación medida entre dos fue de 56 días).
+    desde = date(hoy.year - 1, 1, 1)
+    serie = banxico.traer(SERIE_BONO_M_10, desde, hoy, clave, **otra_raiz)
     if serie.motivo != "ok":
         return None, serie.motivo, None
     if serie.datos is None or serie.datos.empty:

@@ -40,6 +40,20 @@ def test_convertir_multiplica_todo_lo_que_es_dinero():
     assert math.isnan(e.gasto_financiero)
 
 
+def test_lo_que_se_convierte_son_los_siete_campos_de_dinero():
+    # `_DINERO` se define por exclusión: un campo nuevo de `Ejercicio` que no
+    # fuese dinero se multiplicaría sin que nada fallase. Este test lo para.
+    assert set(divisas._DINERO) == {
+        "ingresos",
+        "flujo_operativo",
+        "capex",
+        "gasto_financiero",
+        "beneficio_operativo",
+        "beneficio_neto",
+        "patrimonio_neto",
+    }
+
+
 def test_convertir_a_la_misma_moneda_no_cambia_nada():
     f = fundamentos()
     assert convertir(f, 1.0, "USD") is f
@@ -105,7 +119,7 @@ def test_sin_tipo_de_cambio_no_hay_divisa_y_se_dice_por_que():
         assert divisas.divisa("CAD", "CAD") == (None, "sin_red")
 
 
-def test_la_divisa_como_diccionario_dice_si_falta_la_prima_pais():
+def test_la_divisa_como_diccionario_dice_si_se_convirtieron_los_estados():
     d = Divisa("TWD", "USD", "USD", 0.031, 1.0, "^GSPC")
     assert d.a_dict() == {
         "moneda_estados": "TWD",
@@ -114,7 +128,7 @@ def test_la_divisa_como_diccionario_dice_si_falta_la_prima_pais():
         "tipo_estados": 0.031,
         "tipo_precio": 1.0,
         "indice_beta": "^GSPC",
-        "sin_prima_pais": True,
+        "estados_convertidos": True,
     }
 
 
@@ -128,7 +142,26 @@ def test_el_bono_m_es_el_ultimo_dato_en_tanto_por_uno_con_su_fecha():
         )
     serie, desde, hasta, clave = traer.call_args.args
     assert serie == "SF44071" and hasta == date(2026, 10, 14)
-    assert (hasta - desde).days == divisas.DIAS_BONO_M
+    assert desde == date(2025, 1, 1)
+
+
+def test_el_bono_m_pide_el_mismo_desde_dos_dias_seguidos():
+    # `traer` guarda en caché por serie y `desde`: un `desde` que se moviese
+    # cada día dejaría sin respaldo el dato de ayer cuando Banxico no responde.
+    datos = pd.Series([9.25], index=pd.DatetimeIndex(["2026-09-24"]))
+    with patch.object(divisas.banxico, "traer", return_value=Serie(datos, "ok")) as traer:
+        divisas.bono_m("t" * 64, hoy=date(2026, 10, 14))
+        divisas.bono_m("t" * 64, hoy=date(2026, 10, 15))
+    ayer, hoy = (llamada.args[1] for llamada in traer.call_args_list)
+    assert ayer == hoy
+
+
+def test_el_bono_m_pasa_la_carpeta_de_la_cache(tmp_path):
+    # El test `red` depende de esto para no escribir en la caché de verdad.
+    datos = pd.Series([9.25], index=pd.DatetimeIndex(["2026-09-24"]))
+    with patch.object(divisas.banxico, "traer", return_value=Serie(datos, "ok")) as traer:
+        divisas.bono_m("t" * 64, hoy=date(2026, 10, 14), raiz=tmp_path)
+    assert traer.call_args.kwargs == {"raiz": tmp_path}
 
 
 def test_sin_token_el_bono_m_lo_dice():
