@@ -1854,6 +1854,8 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 ### Task 7: La moneda de la valoración, el Bono M y la ADR
 
+> **Ejecutada y superada** (aa03319, b94f5c0). Recorrida en vivo con SHEL.L, AZN.L, GSK.L, ULVR.L, TSM, RY.TO, WALMEX.MX, AMX y FMX: las unidades salen bien en los nueve. La revisión ancló el `desde` del Bono M al 1 de enero del año anterior (con un `desde` móvil la clave de la caché cambiaba cada día y se perdía el respaldo sin red), y `a_dict` dice `estados_convertidos`, que es lo que mide; la prima país la decide la Task 13. Manda el código vivo.
+
 **Files:**
 - Create: `analizador/divisas.py`
 - Test: `tests/test_analizador_divisas.py`
@@ -3463,7 +3465,12 @@ Una valoración que no se calcula puede terminar ahora con un motivo que M no te
 - Create: `analizador/valorar.py`
 - Modify: `valoracion/votos.py` (`MOTIVOS`)
 - Modify: `medidores_valoracion.py` (`MOTIVO`)
-- Test: `tests/test_analizador_valorar.py`, `tests/test_medidores_valoracion.py`
+- Modify: `valoracion/mercado.py` (`beta` con el precio convertido)
+- Test: `tests/test_analizador_valorar.py`, `tests/test_medidores_valoracion.py`, `tests/test_valoracion_mercado.py`, `tests/test_valoracion_mercado_red.py`
+
+**La beta de un precio en otra moneda que la de la valoración.** AMX cotiza en dólares y presenta en pesos: se valora en pesos y su beta va contra el IPC. Regresar el precio en dólares contra un índice en pesos mezcla dos monedas, la misma clase de error que la docstring de `Perfil` cuenta con WALMEX contra el S&P 500. Medido el 2026-10-19 a 104 semanas: AMX (en dólares) da 1,036 contra el IPC y AMXB.MX (en pesos) 0,834; FMX 0,841 frente a FEMSAUBD.MX 0,644. Son unos 0,2 de beta, un punto de coste del capital. Por eso `mercado.beta` gana un par de divisas con el que pasar el precio a la moneda del índice antes de regresar.
+
+**La prima por riesgo país.** `Divisa.a_dict` dice si los estados se convirtieron (`estados_convertidos`), que no es lo mismo: TEVA o NPN presentan en dólares y se valoran sin prima por riesgo país igual que TSM. `valorar` añade `sin_prima_pais`, que es verdadero cuando se valora en dólares una empresa de fuera de EE. UU.; en pesos, el Bono M ya lleva el riesgo de México.
 
 - [ ] **Step 1: Escribir los tests**
 
@@ -3528,7 +3535,7 @@ def test_la_valoracion_con_los_supuestos_del_programa_es_json_estricto_y_lleva_l
     plano = v.valorar(_entradas(), 0.6, hoy=date(2026, 10, 14))
     json.dumps(plano, allow_nan=False)
     assert plano["version"] == "m1" and "veredicto" in plano
-    assert plano["divisa"] == {**USD.a_dict()}
+    assert plano["divisa"] == {**USD.a_dict(), "sin_prima_pais": False}
     assert plano["votos"]["pares"]["voto"] == "barata"
 
 
@@ -3625,7 +3632,7 @@ def test_una_empresa_de_la_sec_se_valora_con_edgar_en_dolares():
     assert motivo == "ok"
     assert e.divisa == USD
     assert e.procedencia_r_f == {"fuente": "tesoro_10", "serie": "^TNX"}
-    assert ("beta", ("MU", "^GSPC")) in red.llamadas
+    assert ("beta", ("MU", "^GSPC", None)) in red.llamadas
 
 
 def test_sin_perfil_no_hay_entradas():
@@ -3678,7 +3685,7 @@ def test_walmex_se_valora_en_pesos_con_el_bono_m_y_contra_el_ipc():
     assert e.divisa.moneda_valoracion == "MXN" and e.divisa.indice_beta == "^MXX"
     assert e.r_f == 0.0925
     assert e.procedencia_r_f == {"fuente": "bono_m_10", "serie": "SF44071", "fecha": "2026-09-24"}
-    assert ("beta", ("WALMEX.MX", "^MXX")) in red.llamadas
+    assert ("beta", ("WALMEX.MX", "^MXX", None)) in red.llamadas
     assert e.fundamentos.fuente == "yfinance" and len(e.fundamentos.ejercicios) == 4
     assert e.cociente_adr == pytest.approx(17.16e9 / (8.2158e11 / 47.71), rel=1e-3)
     plano = v.valorar(e, None)
@@ -3713,6 +3720,29 @@ def test_tsm_convierte_los_estados_a_dolares_y_compara_el_consenso_en_su_moneda(
     assert v.valorar(e, None)["divisa"]["sin_prima_pais"] is True
 
 
+def test_una_adr_en_dolares_con_estados_en_pesos_regresa_su_precio_en_pesos():
+    perfil_amx = perfil(ticker="AMX", precio=22.885, capitalizacion=6.83e10, moneda="USD",
+                        moneda_estados="MXN", pais="Mexico")
+
+    def tipo_de_cambio(origen, destino):
+        return {("MXN", "MXN"): (1.0, "ok"), ("USD", "MXN"): (18.40, "ok")}[(origen, destino)]
+
+    amx = Resuelto("AMX", "extranjera_sec", None, None)
+    red = _Red(perfil=(perfil_amx, "ok"), estados=(_estados_walmex(), "ok"))
+    with red, patch.object(v.mercado, "tipo_de_cambio", side_effect=tipo_de_cambio), \
+            patch.object(v.divisas, "bono_m", return_value=(0.0925, "ok", date(2026, 9, 24))):
+        e, _ = v.entradas(amx)
+    assert e.divisa.moneda_valoracion == "MXN"
+    assert ("beta", ("AMX", "^MXX", "USDMXN=X")) in red.llamadas
+    # En pesos el Bono M ya lleva el riesgo de México.
+    assert v.valorar(e, None)["divisa"]["sin_prima_pais"] is False
+
+
+def test_una_extranjera_que_presenta_en_dolares_tambien_va_sin_prima_pais():
+    teva = _entradas(perfil=perfil(pais="Israel"))
+    assert v.valorar(teva, None)["divisa"]["sin_prima_pais"] is True
+
+
 def test_sin_tipo_de_cambio_no_hay_entradas():
     perfil_cad = perfil(ticker="RY.TO", moneda="CAD", moneda_estados="CAD")
     red = _Red(perfil=(perfil_cad, "ok"), estados=(_estados_walmex(), "ok"))
@@ -3745,6 +3775,119 @@ En `medidores_valoracion.py`, añade a `MOTIVO` (junto a `sin_tasa_libre`):
 ```
 
 No lleva «:»: una fallida se pinta como «Sin valoración: …» y un test exige un solo «:».
+
+- [ ] **Step 3b: La beta con el precio convertido, en `valoracion/mercado.py`**
+
+Tests, al final de `tests/test_valoracion_mercado.py`:
+
+```python
+from valoracion.mercado import precio_convertido  # noqa: E402
+
+
+def test_el_precio_convertido_es_el_precio_por_el_tipo_de_cada_semana():
+    fechas = pd.date_range("2025-01-03", periods=3, freq="W-FRI")
+    precio = pd.Series([10.0, 11.0, 12.0], index=fechas)
+    tipo = pd.Series([18.0, 18.5, 19.0], index=fechas)
+    assert precio_convertido(precio, tipo).tolist() == [180.0, 203.5, 228.0]
+
+
+def test_el_precio_convertido_solo_tiene_las_semanas_con_los_dos_datos():
+    fechas = pd.date_range("2025-01-03", periods=3, freq="W-FRI")
+    precio = pd.Series([10.0, 11.0, 12.0], index=fechas)
+    tipo = pd.Series([18.0, float("nan")], index=fechas[:2])
+    assert len(precio_convertido(precio, tipo)) == 1
+```
+
+Y al final de `tests/test_valoracion_mercado_red.py`:
+
+```python
+def test_la_beta_con_par_regresa_el_precio_convertido():
+    g = np.random.default_rng(7)
+    m = g.normal(0.002, 0.02, 104)
+    a = 2 * m + g.normal(0, 0.002, 104)
+    # Un tipo de cambio constante no cambia ningún rendimiento: la beta es la misma.
+    dobles = {
+        "AMX": _con_historial(_cierres(a)),
+        "^MXX": _con_historial(_cierres(m)),
+        "USDMXN=X": _con_historial(_cierres(np.zeros(104))),
+    }
+    with patch.object(mercado.yf, "Ticker", side_effect=lambda s: dobles[s]) as fabrica:
+        beta, motivo = mercado.beta("AMX", "^MXX", "USDMXN=X")
+    assert motivo == "ok" and beta.bruta == pytest.approx(2.0, abs=0.1)
+    assert {c.args[0] for c in fabrica.call_args_list} == {"AMX", "^MXX", "USDMXN=X"}
+
+
+def test_la_beta_con_y_sin_par_no_comparten_cache(tmp_path):
+    dobles = _dobles_de_beta()
+    dobles["USDMXN=X"] = _con_historial(_cierres(np.zeros(104)))
+    with patch.object(mercado.yf, "Ticker", side_effect=lambda s: dobles[s]):
+        mercado.beta("MU", "^GSPC")
+        mercado.beta("MU", "^GSPC", "USDMXN=X")
+    assert len(_escritos(tmp_path)) == 2
+
+
+def test_sin_cierres_del_tipo_de_cambio_no_hay_beta_ni_se_guarda(tmp_path):
+    dobles = _dobles_de_beta()
+    dobles["USDMXN=X"] = _con_historial([])
+    with patch.object(mercado.yf, "Ticker", side_effect=lambda s: dobles[s]):
+        assert mercado.beta("MU", "^GSPC", "USDMXN=X") == (None, "sin_red")
+    assert _escritos(tmp_path) == []
+```
+
+Implementación en `valoracion/mercado.py`. La función pura, junto a `regresion_beta`:
+
+```python
+def precio_convertido(precio: pd.Series, tipo: pd.Series) -> pd.Series:
+    """El precio semanal por el tipo de cambio de esa misma semana.
+
+    Para regresar contra un índice en otra moneda: AMX cotiza en dólares y su
+    índice, el IPC, en pesos. Sólo quedan las semanas con los dos datos.
+    """
+    juntos = pd.concat([_semanal(precio), _semanal(tipo)], axis=1, join="inner").dropna()
+    return juntos.iloc[:, 0] * juntos.iloc[:, 1]
+```
+
+Y `beta` gana el par, que entra en la clave de la caché:
+
+```python
+def beta(
+    ticker: str, indice: str = INDICE, par: "str | None" = None
+) -> "tuple[Beta | None, str]":
+    """La beta del ticker contra el índice. Con `par` (`USDMXN=X`), el precio se
+    pasa a la moneda del índice semana a semana antes de regresar: un precio en
+    dólares contra un índice en pesos mezclaría dos monedas."""
+
+    def pedir():
+        activo = yf.Ticker(ticker).history(period="2y", interval="1wk")["Close"]
+        referencia = yf.Ticker(indice).history(period="2y", interval="1wk")["Close"]
+        tipo = (
+            None if par is None else yf.Ticker(par).history(period="2y", interval="1wk")["Close"]
+        )
+        return activo, referencia, tipo
+
+    def interpretar(series):
+        activo, referencia, tipo = series
+        # `history()` no lanza cuando falla la red: devuelve un marco vacío. Eso
+        # es "no lo sé"; un historial corto pero real (una salida a bolsa
+        # reciente) es un hecho estable, y ése sí se guarda como "sin beta".
+        if _sin_cierres(activo) or _sin_cierres(referencia):
+            return None
+        if tipo is not None:
+            if _sin_cierres(tipo):
+                return None
+            activo = precio_convertido(activo, tipo)
+        encontrada = regresion_beta(activo, referencia, indice)
+        return {"beta": None if encontrada is None else asdict(encontrada)}
+```
+
+(el resto de la función, `leer` y la llamada a `_traer`, igual), con la clave:
+
+```python
+    clave = f"{ticker}|{indice}" if par is None else f"{ticker}|{indice}|{par}"
+    encontrada, motivo = _traer("beta", clave, pedir, interpretar, leer)
+```
+
+Comprueba que los tests de `beta` que ya existen siguen pasando: sin par, nada cambia, ni la clave.
 
 - [ ] **Step 4: Implementar `analizador/valorar.py`**
 
@@ -3852,7 +3995,15 @@ def entradas(resuelto: Resuelto, cache_dir=None) -> "tuple[Entradas | None, str]
     else:
         r_f, motivo_r_f = mercado.tasa_libre()
         procedencia = {"fuente": "tesoro_10", "serie": mercado.BONO_10}
-    beta, motivo_beta = mercado.beta(ticker, divisa.indice_beta)
+    # La beta se regresa con el precio en la moneda de la valoración, que es la
+    # del índice: AMX en dólares contra el IPC en pesos mezclaría dos monedas.
+    base_precio, _ = mercado.SUBUNIDADES.get(perfil.moneda, (perfil.moneda, 1))
+    par_beta = (
+        None
+        if base_precio == divisa.moneda_valoracion
+        else f"{base_precio}{divisa.moneda_valoracion}=X"
+    )
+    beta, motivo_beta = mercado.beta(ticker, divisa.indice_beta, par_beta)
     tasa, motivo_tasa = mercado.tasa_efectiva(ticker)
     perfil_valoracion = divisas.perfil_en(perfil, divisa.tipo_precio, divisa.moneda_valoracion)
     return (
@@ -3901,6 +4052,22 @@ def supuestos_de(entradas: Entradas, cambios: "dict | None" = None) -> "Supuesto
     return aplicar(supuestos, cambios)
 
 
+def _sin_prima_pais(entradas: Entradas) -> bool:
+    """Si se valora en dólares una empresa de fuera de EE. UU.
+
+    Con la tasa libre del Tesoro y la prima de un mercado maduro, a una empresa
+    de Taiwán o de Israel le falta la prima por riesgo país. En pesos no: el
+    Bono M ya lleva el riesgo soberano de México. Sin país conocido no se
+    afirma nada.
+    """
+    pais = entradas.perfil.pais
+    return (
+        entradas.divisa.moneda_valoracion == "USD"
+        and pais is not None
+        and pais != "United States"
+    )
+
+
 def _sin_tasa(entradas: Entradas) -> str:
     return "sin_bono_m" if entradas.divisa.moneda_valoracion == "MXN" else "sin_tasa_libre"
 
@@ -3917,7 +4084,8 @@ def valorar(
     `cociente_adr`) las ignora quien no las conoce: `medidores_valoracion` y
     `aprobacion.carga.valoracion_de` sólo miran las suyas.
     """
-    extra = {"divisa": entradas.divisa.a_dict(), "cociente_adr": entradas.cociente_adr}
+    divisa = {**entradas.divisa.a_dict(), "sin_prima_pais": _sin_prima_pais(entradas)}
+    extra = {"divisa": divisa, "cociente_adr": entradas.cociente_adr}
     supuestos = supuestos_de(entradas, cambios)
     if supuestos is None:
         return {**plano.fallida(_sin_tasa(entradas), hoy), **extra}
@@ -3960,7 +4128,7 @@ Expected: todos pasan.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add analizador/valorar.py valoracion/votos.py medidores_valoracion.py tests/test_analizador_valorar.py tests/test_medidores_valoracion.py
+git add analizador/valorar.py valoracion/votos.py medidores_valoracion.py valoracion/mercado.py tests/test_analizador_valorar.py tests/test_medidores_valoracion.py tests/test_valoracion_mercado.py tests/test_valoracion_mercado_red.py
 git commit -m "feat: la valoracion de cualquier ticker, una vez a la red y luego aritmetica pura
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
