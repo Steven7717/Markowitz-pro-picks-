@@ -220,3 +220,47 @@ def test_sin_margen_positivo_el_inverso_no_responde(margen):
     # decrece: la bisección sólo vale para una función creciente.
     implicito = crecimiento_implicito(replace(DATOS, margen=margen), 50.0)
     assert implicito.valor is None and implicito.fuera_de_limites is None
+
+
+# --- La sensibilidad ---------------------------------------------------------
+
+from dataclasses import replace as _replace  # noqa: E402
+
+from valoracion.criterio import HOLGURA_GORDON as _HOLGURA  # noqa: E402
+from valoracion.dcf import Datos as _Datos  # noqa: E402
+from valoracion.dcf import sensibilidad  # noqa: E402
+from valoracion.dcf import valor_por_accion as _valor_por_accion  # noqa: E402
+
+DATOS_SENSIBILIDAD = _Datos(
+    ingresos=1000.0, margen=0.2, wacc=0.09, g_perpetuo=0.025,
+    deuda=100.0, efectivo=50.0, acciones=10.0,
+)
+
+
+def test_la_casilla_central_es_el_valor_base():
+    s = sensibilidad(DATOS_SENSIBILIDAD, 0.08)
+    assert s.valores[2][2] == pytest.approx(_valor_por_accion(DATOS_SENSIBILIDAD, 0.08))
+    assert s.waccs == pytest.approx((0.07, 0.08, 0.09, 0.10, 0.11))
+    assert s.gs == pytest.approx((0.015, 0.02, 0.025, 0.03, 0.035))
+
+
+def test_cada_casilla_es_el_dcf_con_ese_coste_y_ese_crecimiento_perpetuo():
+    s = sensibilidad(DATOS_SENSIBILIDAD, 0.08)
+    otro = _replace(DATOS_SENSIBILIDAD, wacc=0.11, g_perpetuo=0.015)
+    assert s.valores[4][0] == pytest.approx(_valor_por_accion(otro, 0.08))
+
+
+def test_sin_holgura_de_gordon_la_casilla_sale_vacia_y_no_recortada():
+    s = sensibilidad(_replace(DATOS_SENSIBILIDAD, wacc=0.045), 0.08)
+    vacias = 0
+    for wacc, fila in zip(s.waccs, s.valores):
+        for g, valor in zip(s.gs, fila):
+            sin_holgura = wacc - g < _HOLGURA - 1e-12
+            assert (valor is None) == sin_holgura
+            vacias += sin_holgura
+    assert vacias > 0
+
+
+def test_mas_coste_de_capital_vale_menos():
+    columna = [fila[2] for fila in sensibilidad(DATOS_SENSIBILIDAD, 0.08).valores]
+    assert columna == sorted(columna, reverse=True)

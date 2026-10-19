@@ -91,10 +91,16 @@ def _o_cero(valor: float) -> float:
     return valor if math.isfinite(valor) else 0.0
 
 
-def _lectura_flujos(fundamentos, supuestos, deuda, efectivo, acciones, precio):
+def datos_dcf(fundamentos, supuestos, deuda, efectivo, acciones):
+    """Lo que el DCF necesita, o el motivo por el que no se puede hacer.
+
+    Devuelve `(Datos, None)` o `(None, motivo)`. Es la primera mitad de la
+    lectura de flujos, aparte para que la tabla de sensibilidad use exactamente
+    los datos con que se votó.
+    """
     g_ref = supuestos.g_ref.valor
     if g_ref is None or not fundamentos.ultimo.ingresos > 0:
-        return Voto(NO_APLICA, "sin_historia"), None, None
+        return None, "sin_historia"
     margen = dcf.margen_fcff(fundamentos, supuestos.t.valor)
     if margen is None:
         # Igual que `epv_por_accion` separa `sin_beneficio_operativo` de
@@ -103,19 +109,29 @@ def _lectura_flujos(fundamentos, supuestos, deuda, efectivo, acciones, precio):
         # nunca; decir «sin historia» de ellas sería falso y despistaría.
         con_ingresos = sum(1 for e in fundamentos.ejercicios if e.ingresos > 0)
         motivo = "sin_flujo_libre" if con_ingresos >= MIN_ANOS_HISTORIA else "sin_historia"
-        return Voto(NO_APLICA, motivo), None, None
+        return None, motivo
     if margen <= 0:
         # Quema caja: valorarla exigiría inventar cuándo deja de hacerlo.
-        return Voto(NO_APLICA, "quema_caja"), None, None
-    datos = dcf.Datos(
-        ingresos=fundamentos.ultimo.ingresos,
-        margen=margen,
-        wacc=supuestos.wacc.valor,
-        g_perpetuo=supuestos.g_perpetuo.valor,
-        deuda=deuda,
-        efectivo=efectivo,
-        acciones=acciones,
+        return None, "quema_caja"
+    return (
+        dcf.Datos(
+            ingresos=fundamentos.ultimo.ingresos,
+            margen=margen,
+            wacc=supuestos.wacc.valor,
+            g_perpetuo=supuestos.g_perpetuo.valor,
+            deuda=deuda,
+            efectivo=efectivo,
+            acciones=acciones,
+        ),
+        None,
     )
+
+
+def _lectura_flujos(fundamentos, supuestos, deuda, efectivo, acciones, precio):
+    datos, motivo = datos_dcf(fundamentos, supuestos, deuda, efectivo, acciones)
+    if datos is None:
+        return Voto(NO_APLICA, motivo), None, None
+    g_ref = supuestos.g_ref.valor
     base = dcf.valor_por_accion(datos, g_ref)
     if base is None:
         return Voto(NO_APLICA, "wacc_bajo_crecimiento"), None, None

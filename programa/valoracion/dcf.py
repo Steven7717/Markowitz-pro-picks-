@@ -12,7 +12,7 @@ aquí para que las dos copias no se separen.
 """
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from valoracion.criterio import (
     ANOS_ALTO_CRECIMIENTO,
@@ -137,3 +137,35 @@ def margen_fcff(fundamentos: Fundamentos, t: float) -> "float | None":
     if anos < MIN_ANOS_HISTORIA:
         return None
     return flujos / ingresos
+
+
+# La tabla que describe el spec de M (sección 5): el coste de capital ±2 puntos
+# de uno en uno y el crecimiento perpetuo ±1 punto de medio en medio.
+PASOS_WACC = (-0.02, -0.01, 0.0, 0.01, 0.02)
+PASOS_G_PERPETUO = (-0.01, -0.005, 0.0, 0.005, 0.01)
+
+
+@dataclass(frozen=True)
+class Sensibilidad:
+    """El valor base por acción en una rejilla: filas de coste de capital,
+    columnas de crecimiento perpetuo. `None` donde no se cumple Gordon."""
+
+    waccs: "tuple[float, ...]"
+    gs: "tuple[float, ...]"
+    valores: "tuple[tuple[float | None, ...], ...]"
+
+
+def sensibilidad(datos: Datos, g: float) -> Sensibilidad:
+    """Cuánto se mueve el valor base con el coste de capital y el crecimiento perpetuo.
+
+    Las casillas sin holgura de Gordon salen vacías, no recortadas: recortar el
+    coste de capital para que cuadre sería cambiar el escenario sin decirlo,
+    que es la regla de `valor_empresa`.
+    """
+    waccs = tuple(datos.wacc + paso for paso in PASOS_WACC)
+    gs = tuple(datos.g_perpetuo + paso for paso in PASOS_G_PERPETUO)
+    valores = tuple(
+        tuple(valor_por_accion(replace(datos, wacc=wacc, g_perpetuo=gp), g) for gp in gs)
+        for wacc in waccs
+    )
+    return Sensibilidad(waccs, gs, valores)

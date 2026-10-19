@@ -633,3 +633,31 @@ def test_sin_tasa_libre_ni_estados_valorar_dice_sin_tasa_libre(red_doble):
         "valoracion.motor.desde_sec", return_value=(None, "sin_estados")
     ):
         assert valorar("TST", 0.3, hoy=HOY)["motivo"] == "sin_tasa_libre"
+
+
+# --- Los datos del DCF, para la sensibilidad ---------------------------------
+
+from tests.dobles_valoracion import ejercicio as _ejercicio  # noqa: E402
+from tests.dobles_valoracion import fundamentos as _fundamentos  # noqa: E402
+from tests.dobles_valoracion import perfil as _perfil  # noqa: E402
+from valoracion.dcf import margen_fcff as _margen_fcff  # noqa: E402
+from valoracion.dcf import valor_por_accion as _valor_por_accion  # noqa: E402
+from valoracion.motor import calcular as _calcular  # noqa: E402
+from valoracion.motor import datos_dcf  # noqa: E402
+from valoracion.supuestos import deducir as _deducir  # noqa: E402
+
+
+def test_los_datos_del_dcf_son_los_del_voto_de_flujos():
+    f, p = _fundamentos(), _perfil()
+    s = _deducir(f, p, 0.05, None, 0.25, 0.10)
+    datos, motivo = datos_dcf(f, s, deuda=200.0, efectivo=50.0, acciones=10.0)
+    assert motivo is None
+    assert datos.margen == pytest.approx(_margen_fcff(f, 0.25))
+    v = _calcular(f, p, s, None)
+    assert v.valor.base == pytest.approx(_valor_por_accion(datos, s.g_ref.valor))
+
+
+def test_los_datos_del_dcf_dicen_por_que_no_los_hay():
+    f = _fundamentos(ejercicios=[_ejercicio(2026 - i, flujo_operativo=50.0) for i in range(4)])
+    s = _deducir(f, _perfil(), 0.05, None, 0.25, 0.10)
+    assert datos_dcf(f, s, deuda=200.0, efectivo=50.0, acciones=10.0) == (None, "quema_caja")
