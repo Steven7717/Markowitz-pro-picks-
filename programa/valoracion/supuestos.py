@@ -7,12 +7,12 @@ disco»: a un fichero de datos no se escribe nada cuyo valor sea una decisión d
 redacción.
 
 M no tiene forma de cambiar supuestos: en Revisar candidatos no hay
-deslizadores. La función que aplica los cambios del usuario la añade N, que es
-quien la usa.
+deslizadores. `aplicar` es la de N: mueve lo que el usuario pide y recalcula lo
+que depende de ello, sin volver a la red.
 """
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, fields, replace
 
 import numpy as np
 
@@ -250,6 +250,7 @@ def deducir(
     tasa: "float | None",
     consenso: "float | None",
     motivos: "dict | None" = None,
+    procedencia_r_f: "dict | None" = None,
 ) -> Supuestos:
     """Los supuestos del programa. Siempre los mismos para los mismos datos.
 
@@ -261,6 +262,10 @@ def deducir(
     fallo de red parcial cambia la valoración (con CF, el coste del capital
     propio pasaba del 5,9 % al 8,4 %), y sin el motivo la pantalla le daba una
     causa falsa. Es opcional para no romper a quien llama sin red.
+
+    `procedencia_r_f` dice de dónde salió la tasa libre; por defecto, del
+    Tesoro de EE. UU. a 10 años. Para una emisora en pesos es el Bono M (ver
+    `analizador.divisas`).
     """
     motivos = motivos if isinstance(motivos, dict) else {}
     b = beta_ajustada(beta, motivos.get("beta"))
@@ -280,7 +285,7 @@ def deducir(
             k_e, k_d.valor, t.valor, perfil.capitalizacion, fundamentos.deuda_total
         )
     return Supuestos(
-        r_f=Supuesto(r_f, {"fuente": "tesoro_10", "serie": BONO_10}),
+        r_f=Supuesto(r_f, procedencia_r_f or {"fuente": "tesoro_10", "serie": BONO_10}),
         beta=b,
         prima=Supuesto(PRIMA_RIESGO, {"fuente": "damodaran", "fecha": PRIMA_RIESGO_FECHA}),
         k_e=Supuesto(k_e, {"fuente": "capm"}),
@@ -291,4 +296,78 @@ def deducir(
         g_perpetuo=crecimiento_perpetuo(fundamentos.moneda, r_f),
         roe_ref=roe_referencia(fundamentos),
         payout=payout(perfil.payout),
+    )
+
+
+# Lo que el usuario puede mover. El coste del capital propio y el de capital no
+# se mueven a mano: se recalculan de lo que sí se mueve, y moverlos sueltos
+# dejaría en pantalla una tasa libre, una beta y una prima que no dan el coste
+# que se usó.
+MOVIBLES = ("r_f", "beta", "prima", "k_d", "t", "g_ref", "g_perpetuo", "roe_ref", "payout")
+_HACEN_K_E = {"r_f", "beta", "prima"}
+_HACEN_WACC = _HACEN_K_E | {"k_d", "t"}
+
+
+def _numero_finito(nombre: str, valor: object) -> float:
+    try:
+        numero = float(valor)
+    except (TypeError, ValueError):
+        raise ValueError(f"{nombre}: {valor!r} no es un número") from None
+    if not math.isfinite(numero):
+        raise ValueError(f"{nombre}: {valor!r} no es un número finito")
+    return numero
+
+
+def _recalculado(supuesto: Supuesto, valor: "float | None") -> Supuesto:
+    return Supuesto(valor, {**supuesto.procedencia, "recalculado": True})
+
+
+def aplicar(supuestos: Supuestos, cambios: dict) -> Supuestos:
+    """Los supuestos con lo que el usuario movió, y lo que depende de ello recalculado.
+
+    Lo movido lleva `{"fuente": "usuario", "programa": <lo que decía el
+    programa>}`; lo recalculado conserva su fuente y gana `"recalculado": True`,
+    para que la pantalla diga las dos cosas. **Lo movido no se guarda en ningún
+    sitio**: lo que va al acta es siempre la valoración con los supuestos del
+    programa, comparable entre actas.
+
+    El coste de capital se recalcula con el peso de la deuda de su procedencia,
+    que va redondeado a cuatro decimales: el error que eso mete es de
+    diezmilésimas de punto. Un coste de la deuda «sin dato» es la tasa libre por
+    definición, así que la sigue; uno medido, no.
+    """
+    if not cambios:
+        return supuestos
+    desconocidos = sorted(set(cambios) - set(MOVIBLES))
+    if desconocidos:
+        raise ValueError(f"No se pueden mover a mano: {', '.join(desconocidos)}")
+    nuevos = {
+        nombre: Supuesto(
+            _numero_finito(nombre, valor),
+            {"fuente": "usuario", "programa": getattr(supuestos, nombre).valor},
+        )
+        for nombre, valor in cambios.items()
+    }
+    s = replace(supuestos, **nuevos)
+    if (
+        "r_f" in cambios
+        and "k_d" not in cambios
+        and s.k_d.procedencia.get("fuente") == "sin_dato"
+    ):
+        s = replace(s, k_d=_recalculado(s.k_d, s.r_f.valor))
+    if _HACEN_K_E & set(cambios):
+        s = replace(s, k_e=_recalculado(s.k_e, s.r_f.valor + s.beta.valor * s.prima.valor))
+    if _HACEN_WACC & set(cambios) and s.wacc.valor is not None:
+        peso = s.wacc.procedencia.get("peso_deuda") or 0.0
+        wacc = (1 - peso) * s.k_e.valor + peso * s.k_d.valor * (1 - s.t.valor)
+        s = replace(s, wacc=_recalculado(s.wacc, wacc))
+    return s
+
+
+def movidos(supuestos: Supuestos) -> "tuple[str, ...]":
+    """Los supuestos que movió el usuario, en el orden de `Supuestos`."""
+    return tuple(
+        campo.name
+        for campo in fields(supuestos)
+        if getattr(supuestos, campo.name).procedencia.get("fuente") == "usuario"
     )

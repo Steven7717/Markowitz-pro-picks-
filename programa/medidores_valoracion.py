@@ -473,6 +473,10 @@ def procedencia(nombre: str, supuesto: dict) -> str:
     )
     textos = {
         ("r_f", "tesoro_10"): f"Tesoro de EE. UU. a 10 años ({p.get('serie')})",
+        ("r_f", "bono_m_10"): (
+            f"Bono M a 10 años de Banxico ({p.get('serie')}), subasta del {p.get('fecha')}; "
+            "sin restar el diferencial soberano"
+        ),
         ("beta", "regresion"): (
             f"regresión semanal de {p.get('semanas')} semanas contra {p.get('indice')} "
             f"(R² {_decimales(p.get('r2'), 2)}), con el ajuste de Blume"
@@ -525,7 +529,22 @@ def procedencia(nombre: str, supuesto: dict) -> str:
         ),
         ("payout", "por_defecto"): f"sin dato: se supone el {_pct(PAYOUT_SIN_DATO)}",
     }
-    return textos.get((nombre, fuente), "")
+    if fuente == "usuario":
+        return _movido(nombre, p)
+    texto = textos.get((nombre, fuente), "")
+    if texto and p.get("recalculado") is True:
+        texto += " (recalculado con tus supuestos)"
+    return texto
+
+
+def _movido(nombre: str, p: dict) -> str:
+    """Un supuesto que movió el usuario, con lo que decía el programa."""
+    programa = p.get("programa")
+    if programa is None:
+        # Una tasa libre que el programa no tenía: un Bono M sin token.
+        return "puesto por ti"
+    valor = _decimales(programa, 2) if nombre == "beta" else _pct(programa)
+    return f"movido por ti; el programa decía {valor}"
 
 
 def _metodo_residual(valoracion: dict) -> bool:

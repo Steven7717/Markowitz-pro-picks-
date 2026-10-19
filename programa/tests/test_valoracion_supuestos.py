@@ -429,3 +429,92 @@ def test_una_deuda_negativa_no_pesa_en_el_coste_de_capital():
     assert s.valor == pytest.approx(0.10)
     assert s.procedencia["peso_deuda"] == 0.0
     assert s.procedencia["deuda_declarada"] is True
+
+
+# --- La procedencia de la tasa libre y `aplicar` ------------------------------
+
+from tests.dobles_valoracion import ejercicio as _ejercicio  # noqa: E402
+from tests.dobles_valoracion import fundamentos as _fundamentos  # noqa: E402
+from tests.dobles_valoracion import perfil as _perfil  # noqa: E402
+from valoracion.mercado import Beta as _Beta  # noqa: E402
+from valoracion.supuestos import MOVIBLES, aplicar, movidos  # noqa: E402
+from valoracion.supuestos import deducir as _deducir  # noqa: E402
+
+
+def test_sin_procedencia_la_tasa_libre_es_el_tesoro():
+    s = _deducir(_fundamentos(), _perfil(), 0.05, None, None, None)
+    assert s.r_f.procedencia == {"fuente": "tesoro_10", "serie": "^TNX"}
+
+
+def test_la_tasa_libre_lleva_la_procedencia_que_se_le_da():
+    bono = {"fuente": "bono_m_10", "serie": "SF44071", "fecha": "2026-09-24"}
+    s = _deducir(_fundamentos(), _perfil(), 0.0925, None, None, None, procedencia_r_f=bono)
+    assert s.r_f.procedencia == bono
+
+
+def _base():
+    return _deducir(_fundamentos(), _perfil(), 0.05, _Beta(1.2, 0.4, 104, "^GSPC"), 0.21, 0.10)
+
+
+def test_sin_cambios_los_supuestos_son_los_mismos():
+    s = _base()
+    assert aplicar(s, {}) is s
+
+
+def test_mover_el_crecimiento_no_toca_el_coste_de_capital():
+    s = _base()
+    n = aplicar(s, {"g_ref": 0.30})
+    assert n.g_ref.valor == 0.30
+    assert n.g_ref.procedencia == {"fuente": "usuario", "programa": s.g_ref.valor}
+    assert (n.k_e, n.wacc) == (s.k_e, s.wacc)
+
+
+def test_mover_la_beta_recalcula_el_capital_propio_y_el_de_capital():
+    s = _base()
+    n = aplicar(s, {"beta": 2.0})
+    assert n.k_e.valor == pytest.approx(0.05 + 2.0 * s.prima.valor)
+    assert n.k_e.procedencia == {**s.k_e.procedencia, "recalculado": True}
+    peso = s.wacc.procedencia["peso_deuda"]
+    esperado = (1 - peso) * n.k_e.valor + peso * s.k_d.valor * (1 - s.t.valor)
+    assert n.wacc.valor == pytest.approx(esperado)
+    assert n.wacc.procedencia["recalculado"] is True
+
+
+def test_mover_la_tasa_libre_arrastra_al_coste_de_la_deuda_sin_dato():
+    # Sin gasto financiero declarado, el coste de la deuda ES la tasa libre.
+    ejercicios = [_ejercicio(2026 - i, gasto_financiero=float("nan")) for i in range(4)]
+    s = _deducir(_fundamentos(ejercicios=ejercicios), _perfil(), 0.05, None, 0.21, 0.10)
+    assert s.k_d.procedencia["fuente"] == "sin_dato"
+    n = aplicar(s, {"r_f": 0.07})
+    assert n.k_d.valor == 0.07
+    assert n.k_d.procedencia["recalculado"] is True
+
+
+def test_un_coste_de_la_deuda_medido_no_sigue_a_la_tasa_libre():
+    s = _base()
+    assert s.k_d.procedencia["fuente"] == "gasto_entre_deuda"
+    assert aplicar(s, {"r_f": 0.07}).k_d == s.k_d
+
+
+def test_en_una_financiera_el_coste_de_capital_sigue_vacio():
+    s = _deducir(_fundamentos(), _perfil(industria="Banks - Regional"), 0.05, None, 0.21, 0.10)
+    n = aplicar(s, {"beta": 1.5})
+    assert n.wacc.valor is None
+    assert n.k_e.procedencia["recalculado"] is True
+
+
+def test_lo_derivado_no_se_mueve_a_mano():
+    with pytest.raises(ValueError, match="k_e"):
+        aplicar(_base(), {"k_e": 0.1})
+    assert "k_e" not in MOVIBLES and "wacc" not in MOVIBLES
+
+
+@pytest.mark.parametrize("valor", [float("nan"), float("inf"), "x", None])
+def test_un_valor_que_no_es_un_numero_finito_se_rechaza(valor):
+    with pytest.raises(ValueError):
+        aplicar(_base(), {"g_ref": valor})
+
+
+def test_movidos_dice_cuales_movio_el_usuario_en_el_orden_de_siempre():
+    assert movidos(aplicar(_base(), {"g_ref": 0.3, "beta": 2.0})) == ("beta", "g_ref")
+    assert movidos(_base()) == ()

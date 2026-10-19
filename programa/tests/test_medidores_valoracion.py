@@ -1716,3 +1716,37 @@ def test_una_tarjeta_vieja_no_lleva_distintivo():
 @pytest.mark.parametrize("valoracion", [fallida("sin_precio"), "x", {"veredicto": ["mixtas"]}])
 def test_una_tarjeta_con_valoracion_sin_veredicto_no_lleva_distintivo(valoracion):
     assert "mpp-veredicto" not in medidores.tarjeta_candidato({**FICHA, "valoracion": valoracion})
+
+
+# --- Las fuentes nuevas del Analizador ----------------------------------------
+
+
+def test_la_tasa_libre_del_bono_m_dice_su_serie_su_fecha_y_lo_que_no_resta():
+    supuesto = {
+        "valor": 0.0925,
+        "procedencia": {"fuente": "bono_m_10", "serie": "SF44071", "fecha": "2026-09-24"},
+    }
+    texto = mv.procedencia("r_f", supuesto)
+    assert "Bono M a 10 años" in texto
+    assert "SF44071" in texto and "2026-09-24" in texto
+    assert "diferencial soberano" in texto
+
+
+@pytest.mark.parametrize(
+    "nombre, programa, esperado",
+    [
+        ("g_ref", 0.2, "movido por ti; el programa decía 20.0%"),
+        ("beta", 0.9, "movido por ti; el programa decía 0.90"),
+        ("r_f", None, "puesto por ti"),
+    ],
+)
+def test_un_supuesto_movido_dice_lo_que_decia_el_programa(nombre, programa, esperado):
+    supuesto = {"valor": 0.1, "procedencia": {"fuente": "usuario", "programa": programa}}
+    assert mv.procedencia(nombre, supuesto) == esperado
+
+
+def test_lo_recalculado_con_los_supuestos_del_usuario_lo_dice():
+    supuesto = {"valor": 0.1, "procedencia": {"fuente": "capm", "recalculado": True}}
+    assert mv.procedencia("k_e", supuesto) == (
+        "tasa libre más beta por prima (recalculado con tus supuestos)"
+    )
