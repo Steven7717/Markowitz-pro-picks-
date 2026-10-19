@@ -238,6 +238,22 @@ def test_unos_ingresos_negativos_rompen_el_trimestre_y_no_se_rellena_nada_del_ej
     assert np.isnan(rellena.loc["2025-09-30", "beneficio_neto"])
 
 
+def test_un_interes_negativo_no_impide_rellenar_los_ingresos_ni_el_beneficio():
+    # NVO: el 4T 2025 que deriva Yahoo trae un gasto por intereses negativo, y
+    # los ingresos de su 1T 2025 rellenado (78.087 M DKK) cuadran con lo publicado.
+    fechas = ["2025-03-31", "2025-06-30", "2025-09-30", "2025-12-31"]
+    rejilla = pd.DataFrame(NAN, index=pd.DatetimeIndex(fechas), columns=list(LINEAS))
+    rejilla["ingresos"] = [NAN, 76.9, 75.0, 77.0]
+    rejilla["beneficio_neto"] = [NAN, 26.0, 20.0, 25.0]
+    rejilla["gasto_por_intereses"] = [NAN, 1.0, 1.5, -0.5]
+    anual = _anual("2025-12-31", ingresos=307.0, beneficio_neto=100.0, gasto_por_intereses=5.0)
+    rellena = rellenar_desde_anual(rejilla, anual)
+    assert rellena.loc["2025-03-31", "ingresos"] == pytest.approx(307.0 - 76.9 - 75.0 - 77.0)
+    assert rellena.loc["2025-03-31", "beneficio_neto"] == pytest.approx(100.0 - 26.0 - 20.0 - 25.0)
+    # La guarda de su propia línea sigue: el interés del 1T no se rellena.
+    assert np.isnan(rellena.loc["2025-03-31", "gasto_por_intereses"])
+
+
 def test_un_beneficio_negativo_si_se_rellena():
     # Perder dinero en un trimestre es posible: el signo no delata nada.
     rejilla = _rejilla_walmex()
@@ -419,3 +435,87 @@ def test_lineas_de_junta_las_seis_hojas():
     trimestrales, anuales = lineas_de(estados)
     assert trimestrales.loc["2025-09-30", "ingresos"] == pytest.approx(241.0)
     assert anuales.loc["2025-12-31", "ingresos"] == 1011.0
+
+
+# --- Los arreglos de la revisión de la Task 6 ---------------------------------
+
+
+def test_el_trimestre_roto_pierde_sus_flujos_y_conserva_su_balance():
+    # GFNORTEO 2T 2025: con ingresos de -13.555 M y beneficio de -670 M, su
+    # margen neto salía en +0,049 con el signo al revés, y su ROE en -0,0027
+    # entre vecinos de 0,23-0,27.
+    fechas = ["2025-12-31", "2025-06-30", "2025-03-31"]
+    resultados = hoja(
+        fechas,
+        {
+            "Total Revenue": [57.8, -13.6, 63.4],
+            "Net Income Common Stockholders": [15.9, -0.67, 15.3],
+        },
+    )
+    balance = hoja(fechas, {"Stockholders Equity": [270.0, 265.0, 260.0]})
+    trimestrales, _ = lineas_de(
+        {"quarterly_income_stmt": resultados, "quarterly_balance_sheet": balance}
+    )
+    roto = trimestrales.loc["2025-06-30"]
+    assert np.isnan(roto["ingresos"]) and np.isnan(roto["beneficio_neto"])
+    assert roto["patrimonio_neto"] == 265.0
+    assert trimestrales.loc["2025-03-31", "ingresos"] == 63.4
+
+
+def test_el_trimestre_reconstruido_recibe_su_bpa_por_identidad():
+    # yfinance no trae el BPA del trimestre que `rellenar_desde_anual`
+    # reconstruye, y sin él ninguna ventana de cuatro que lo contenga tiene PER
+    # de doce meses. Pasa en 25 de 79 tickers: WALMEX, AMXB, Samsung, TSM...
+    fechas = ["2026-06-30", "2026-03-31", "2025-12-31", "2025-06-30", "2025-03-31"]
+    beneficio = [12.0, 11.0, 15.0, 12.0, 10.0]
+    acciones = [17.16, 17.29, 17.38, 17.27, 17.35]
+    resultados = hoja(
+        fechas,
+        {
+            "Total Revenue": [251.0, 245.0, 283.0, 246.0, 241.0],
+            "Net Income Common Stockholders": beneficio,
+            "Diluted Average Shares": acciones,
+            "Diluted EPS": [b / a for b, a in zip(beneficio, acciones)],
+        },
+    )
+    anual = hoja(
+        ["2025-12-31"],
+        {
+            "Total Revenue": [1011.0],
+            "Net Income Common Stockholders": [50.0],
+            "Diluted Average Shares": [17.33],
+        },
+    )
+    trimestrales, _ = lineas_de({"quarterly_income_stmt": resultados, "income_stmt": anual})
+    tercero = trimestrales.loc["2025-09-30"]
+    assert tercero["beneficio_neto"] == pytest.approx(50.0 - 10.0 - 12.0 - 15.0)
+    assert tercero["bpa_diluido"] == pytest.approx(
+        tercero["beneficio_neto"] / tercero["acciones_diluidas"]
+    )
+
+
+def test_una_fila_sin_ningun_kpi_no_ocupa_un_trimestre():
+    # TM 2025-03-31, 6861.T o 4063.T: sólo el BPA y el recuento. Con los
+    # diecisiete KPIs en NaN ocuparía uno de los cuatro trimestres de la ventana.
+    lineas = _rejilla()
+    lineas.loc["2025-03-31", ["ingresos", "beneficio_operativo", "beneficio_neto"]] = NAN
+    kpis = kpis_trimestrales(lineas, pd.Series(20.0, index=lineas.index))
+    assert pd.Timestamp("2025-03-31") not in kpis.index
+    assert len(kpis) == 5
+
+
+def test_sin_lineas_el_frame_vacio_tiene_la_forma_del_panel():
+    vacias = pd.DataFrame(columns=list(LINEAS), dtype="float64")
+    kpis = kpis_trimestrales(vacias, pd.Series(dtype="float64"))
+    assert list(kpis.columns) == [*TODOS_LOS_KPIS, "trimestre"]
+    assert (kpis[list(TODOS_LOS_KPIS)].dtypes == "float64").all()
+    assert kpis.index.name == "periodo"
+
+
+def test_un_ejercicio_de_transicion_de_seis_meses_corta_la_serie():
+    # Seis meses en 2024-06 contra doce en 2025-06: `_cagr` daría un 110 %.
+    anuales = _anuales(
+        ["2023-12-31", "2024-06-30", "2025-06-30"], ingresos=[100.0, 50.0, 105.0]
+    )
+    f = fundamentos_anuales(anuales, "USD")
+    assert [e.fin for e in f.ejercicios] == [date(2025, 6, 30)]

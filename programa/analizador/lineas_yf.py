@@ -50,6 +50,10 @@ from fundamentals.panel import (
 # Privada y aun así importada: es el cubo de trimestre natural del panel de la
 # SEC, y los dos paneles se juntan por él.
 from fundamentals.run import _trimestre_natural
+
+# Privada y aun así importada: `_num` es como `valoracion.fundamentos` lee una
+# cifra (NaN para todo lo que no es un número finito), y un ejercicio de yfinance
+# tiene que leerse igual que uno de la SEC.
 from valoracion.fundamentos import Ejercicio, Fundamentos, _num
 
 # Cada línea del motor, la hoja de la que sale y sus filas candidatas por orden.
@@ -94,14 +98,17 @@ _MEDIAS = ("acciones_diluidas",)
 # Las líneas que no se rellenan si salen negativas o descuadradas. Yahoo trae a
 # veces trimestres que no cuadran con su año (WALMEX: 0,0 de intereses en cada
 # trimestre y 9.115 M en el anual; HSBC: tres trimestres de amortización que
-# suman más que el año; GFNORTEO: unos ingresos trimestrales negativos), y la
-# resta los convierte en un trimestre absurdo con aspecto de medido. En estas
-# líneas un negativo es casi siempre un descuadre. No es que no puedan serlo
-# --los ingresos de una aseguradora como MFC pueden ser negativos de verdad--,
-# pero dejar vacío el trimestre es la opción prudente. El beneficio operativo,
-# el neto y el flujo operativo pueden ser negativos de verdad y a menudo lo son:
-# no hay forma general de blindarlos, y se rellenan sin más guarda que la
-# aritmética y la de que ningún trimestre conocido de su ejercicio esté roto.
+# suman más que el año), y la resta los convierte en un trimestre absurdo con
+# aspecto de medido. En estas líneas un negativo entre los trimestres conocidos
+# delata el descuadre, y esa línea no se rellena. No es que no puedan serlo: los
+# ingresos de una aseguradora como MFC pueden ser negativos de verdad, su
+# amortización lo es siempre por convención de signo, y el 4T que deriva Yahoo
+# trae a veces intereses negativos (TM, SONY, SAP, NVO). Dejar vacía la línea es
+# la opción prudente, y las demás del trimestre se rellenan. Unos ingresos
+# negativos son más que eso: ver `_trimestres_rotos`. El beneficio operativo, el
+# neto y el flujo operativo pueden ser negativos de verdad y a menudo lo son: no
+# hay forma general de blindarlos, y se rellenan sin más guarda que la
+# aritmética y la de que el ejercicio no tenga un trimestre roto.
 _NO_NEGATIVAS = (
     "ingresos",
     "coste_de_ventas",
@@ -224,23 +231,50 @@ def rejilla_trimestral(lineas: pd.DataFrame) -> pd.DataFrame:
     return rejilla
 
 
+def _dias_desde_el_anterior(anuales: pd.DataFrame) -> pd.Series:
+    """Los días de cada anual desde el cierre anterior con dato; NaN en el primero.
+
+    «Con dato» es con ingresos o beneficio neto: el anual de RY trae además
+    columnas a fechas trimestrales con sólo el BPA y el recuento de doce meses
+    móviles, y si contasen como el anterior ningún año suyo sería un año.
+    """
+    anuales = anuales.sort_index()
+    con_dato = anuales[["ingresos", "beneficio_neto"]].notna().any(axis=1).to_numpy()
+    dias, anterior = [], None
+    for fin, tiene_dato in zip(anuales.index, con_dato):
+        dias.append(np.nan if anterior is None else (fin - anterior).days)
+        if tiene_dato:
+            anterior = fin
+    return pd.Series(dias, index=anuales.index, dtype="float64")
+
+
 def _de_doce_meses(anuales: pd.DataFrame) -> pd.DataFrame:
     """Los anuales que cierran un año después del anterior con dato.
 
     Un ejercicio de transición de seis meses no es un año, y restarle tres
-    trimestres no da el que falta. «Con dato» es con ingresos o beneficio neto:
-    el anual de RY trae además columnas a fechas trimestrales con sólo el BPA y
-    el recuento de doce meses móviles, y si contasen como el anterior ningún
-    año suyo sería un año. El primero, sin anterior, vale.
+    trimestres no da el que falta. El primero, sin anterior, vale.
     """
-    anuales = anuales.sort_index()
-    con_dato = anuales[["ingresos", "beneficio_neto"]].notna().any(axis=1).to_numpy()
-    validos, anterior = [], None
-    for fin, tiene_dato in zip(anuales.index, con_dato):
-        validos.append(anterior is None or _DIAS_ANO[0] <= (fin - anterior).days <= _DIAS_ANO[1])
-        if tiene_dato:
-            anterior = fin
-    return anuales[validos]
+    dias = _dias_desde_el_anterior(anuales)
+    validos = dias.isna() | dias.between(*_DIAS_ANO)
+    return anuales.sort_index()[validos.to_numpy()]
+
+
+def _trimestres_rotos(lineas: pd.DataFrame) -> pd.Series:
+    """Los trimestres con ingresos negativos: ninguno de sus flujos se puede leer.
+
+    El 2T 2025 de GFNORTEO trae ingresos de -13.555 M y beneficio de -670 M. El
+    beneficio del 3T, rellenado como el año menos los otros tres, salía en
+    28.296 M, 1,8 veces el resto; su margen neto, en +0,049 con el signo al
+    revés, y su ROE en -0,0027 entre vecinos de 0,23-0,27. Con unos ingresos
+    negativos los márgenes no significan nada, sean un error de Yahoo o reales,
+    como en una aseguradora con pérdidas de inversión.
+
+    Sólo los ingresos. Un interés o una amortización negativos son una rareza de
+    su línea (ver `_NO_NEGATIVAS`), y tirar el trimestre entero por ellos dejaba
+    sin rellenar el 1T 2025 de NVO, cuyos 78.087 M DKK cuadran con lo publicado,
+    y a MFC sin sus tres PER.
+    """
+    return lineas["ingresos"] < 0
 
 
 def rellenar_desde_anual(trimestres: pd.DataFrame, anuales: pd.DataFrame) -> pd.DataFrame:
@@ -258,10 +292,10 @@ def rellenar_desde_anual(trimestres: pd.DataFrame, anuales: pd.DataFrame) -> pd.
     doble o la mitad del anual, que es la guarda de `fundamentals.panel`.
 
     En las líneas de `_NO_NEGATIVAS`, la resta sólo vale si los tres conocidos
-    no son todos 0,0, que es lo que pone Yahoo cuando no tiene el desglose, y si
-    lo que sale queda entre 0 y el total del año (el anual, o cuatro veces el
-    anual en la media). Un trimestre conocido con alguna de esas líneas en
-    negativo está roto, y entonces no se rellena nada de su ejercicio.
+    no son todos 0,0, que es lo que pone Yahoo cuando no tiene el desglose; si
+    ninguno es negativo, y si lo que sale queda entre 0 y el total del año (el
+    anual, o cuatro veces el anual en la media). De un ejercicio con un
+    trimestre roto (`_trimestres_rotos`) no se rellena nada.
     """
     if trimestres.empty or anuales.empty:
         return trimestres
@@ -272,12 +306,9 @@ def rellenar_desde_anual(trimestres: pd.DataFrame, anuales: pd.DataFrame) -> pd.
         posiciones = np.flatnonzero(dentro)
         if len(posiciones) != _TRIMESTRES_POR_ANO:
             continue
-        # El signo no delata sólo su línea, sino el trimestre entero: el 2T 2025
-        # de GFNORTEO trae ingresos de -13.555 M y beneficio de -670 M, y el
-        # beneficio del 3T, rellenado como el año menos los otros tres, salía en
-        # 28.296 M, 1,8 veces el resto. De un ejercicio con un trimestre así no
-        # se rellena nada, tampoco las líneas que pueden ser negativas.
-        if (rellenas[list(_NO_NEGATIVAS)].iloc[posiciones] < 0).to_numpy().any():
+        # Tampoco las líneas que pueden ser negativas: restar un trimestre roto
+        # del año es lo que daba a GFNORTEO un 3T con 1,8 veces el beneficio.
+        if _trimestres_rotos(rellenas.iloc[posiciones]).any():
             continue
         for linea in _FLUJOS:
             anual = ano[linea]
@@ -291,7 +322,9 @@ def rellenar_desde_anual(trimestres: pd.DataFrame, anuales: pd.DataFrame) -> pd.
             media = linea in _MEDIAS
             total = (_TRIMESTRES_POR_ANO if media else 1) * anual
             valor = total - conocidos.sum()
-            if linea in _NO_NEGATIVAS and ((conocidos == 0).all() or not 0 < valor < total):
+            if linea in _NO_NEGATIVAS and (
+                (conocidos == 0).all() or (conocidos < 0).any() or not 0 < valor < total
+            ):
                 continue
             if media and not (
                 anual / _FACTOR_MAXIMO_MEDIA <= valor <= anual * _FACTOR_MAXIMO_MEDIA
@@ -306,8 +339,16 @@ def lineas_de(estados: dict) -> "tuple[pd.DataFrame, pd.DataFrame]":
 
     `estados` es lo que devuelve `valoracion.mercado.estados`. Las trimestrales
     pasan por las mismas reconciliaciones que el panel de la SEC, en el mismo
-    orden; con yfinance casi nunca tocan nada, pero dos caminos para el mismo
-    dato se separan, y el que se queda atrás no da error.
+    orden, y no son de adorno: yfinance no trae el BPA del trimestre que
+    `rellenar_desde_anual` reconstruye, y `completar_bpa_por_identidad` se lo da
+    como beneficio entre acciones. Sin él, ninguna ventana de cuatro que lo
+    contenga tendría PER de doce meses; pasa en 25 de 79 tickers (WALMEX, AMXB,
+    Samsung, TSM...).
+
+    Los flujos de un trimestre roto (`_trimestres_rotos`) se vacían después de
+    rellenar, que ya no lo usa, y antes de reconciliar, para que ningún BPA
+    salga de su beneficio. La fila conserva su balance: es una foto del cierre,
+    y no depende de unos ingresos que no se pueden leer.
     """
     anuales = lineas_desde_estados(
         estados.get("income_stmt"), estados.get("balance_sheet"), estados.get("cashflow")
@@ -318,6 +359,8 @@ def lineas_de(estados: dict) -> "tuple[pd.DataFrame, pd.DataFrame]":
         estados.get("quarterly_cashflow"),
     )
     trimestrales = rellenar_desde_anual(rejilla_trimestral(trimestrales), anuales)
+    if not trimestrales.empty:
+        trimestrales.loc[_trimestres_rotos(trimestrales), list(_FLUJOS)] = np.nan
     trimestrales = completar_bpa_por_identidad(reconciliar_recuento_de_acciones(trimestrales))
     return trimestrales, anuales
 
@@ -327,19 +370,32 @@ def kpis_trimestrales(lineas: pd.DataFrame, precios: pd.Series) -> pd.DataFrame:
 
     `lineas` viene en rejilla: los KPIs se calculan con la fila vacía en su sitio
     --es lo que mantiene el `shift(4)` en el mismo trimestre del año anterior--,
-    y esa fila sale después, porque no es un trimestre medido. `precios` va
-    indexado por las mismas fechas y en la moneda de los estados.
+    y después salen las filas sin ningún KPI. Entre ellas está la vacía, que no
+    es un trimestre medido, y también la que sólo trae el BPA y el recuento (TM
+    2025-03-31, 6861.T, 4063.T): con los diecisiete en NaN, en el panel de
+    referencia ocuparía uno de los cuatro trimestres de la ventana.
+
+    `fundamentals.kpis` tiene suelos económicos pensados en dólares: 1e8 para
+    una partida de balance que hace de denominador y 1e6 para el gasto
+    financiero. Quien llama tiene que pasar las líneas en dólares, y `precios`
+    en la misma moneda e indexado por las mismas fechas, para que los suelos
+    valgan lo mismo que en el panel de referencia; lo hace
+    `analizador.kpis.kpis_yf`. Aquí no se convierte nada.
     """
-    columnas = [*TODOS_LOS_KPIS, "trimestre"]
     if lineas.empty:
-        return pd.DataFrame(columns=columnas)
+        # Como el panel vacío de `fundamentals.run.build_panel`.
+        return pd.DataFrame(
+            columns=[*TODOS_LOS_KPIS, "trimestre"],
+            index=pd.DatetimeIndex([], name="periodo"),
+            dtype="float64",
+        )
     kpis = pd.concat(
         [compute_levels(lineas), compute_growth(lineas), compute_valuation(lineas, precios)],
         axis=1,
     ).reindex(columns=list(TODOS_LOS_KPIS))
     kpis["trimestre"] = _trimestre_natural(lineas.index)
     kpis.index.name = "periodo"
-    return kpis[lineas.notna().any(axis=1).to_numpy()]
+    return kpis[kpis[list(TODOS_LOS_KPIS)].notna().any(axis=1).to_numpy()]
 
 
 def fundamentos_anuales(anuales: pd.DataFrame, moneda: str) -> "Fundamentos | None":
@@ -358,13 +414,22 @@ def fundamentos_anuales(anuales: pd.DataFrame, moneda: str) -> "Fundamentos | No
     dejaría un solo ejercicio. Un año que de verdad falta lo detecta la
     distancia al siguiente con ancla. El balance es el del cierre del más
     reciente.
+
+    Un ejercicio de transición no entra. Se mide como en `_de_doce_meses`, por
+    la distancia al cierre anterior con dato, pero sólo cuenta el lado corto:
+    seis meses entre 2023-12 y 2024-06 harían que `_cagr` diese un 110 % hasta
+    2025-06. Al saltarlo, el ejercicio anterior queda a más de un año y la serie
+    se corta ahí. El lado largo, el año que sigue a un hueco, `_de_doce_meses`
+    lo descarta y aquí no: la distancia ya corta la serie en el hueco, y
+    descartarlo le quitaría ese año, sea el más reciente o el más antiguo.
     """
     if anuales.empty:
         return None
     ancla = "ingresos" if anuales["ingresos"].notna().any() else "beneficio_neto"
+    corto = _dias_desde_el_anterior(anuales) < _DIAS_ANO[0]
     elegidos: list = []
     for fecha, fila in anuales.sort_index(ascending=False).iterrows():
-        if pd.isna(fila[ancla]):
+        if pd.isna(fila[ancla]) or corto[fecha]:
             continue
         if elegidos:
             dias = (elegidos[-1][0] - fecha).days
