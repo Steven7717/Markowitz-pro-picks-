@@ -2527,6 +2527,8 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 ### Task 9: La tabla de sensibilidad del DCF
 
+> **Ejecutada y superada** (7d6a530, dad574e). M no cambia en 40.000 combinaciones. La revisión: una casilla con coste de capital no positivo sale vacía, como una sin holgura; `datos_dcf` no mira la holgura de Gordon (la decide `valor_por_accion` casilla a casilla), y el puente del DCF (deuda, efectivo y acciones) vive en `motor.puente`, que usan `calcular` y la tabla de la Task 13. Manda el código vivo.
+
 **Files:**
 - Modify: `valoracion/dcf.py`
 - Modify: `valoracion/motor.py`
@@ -3582,6 +3584,14 @@ def test_la_sensibilidad_usa_los_mismos_datos_que_el_voto():
     assert tabla.valores[2][2] == pytest.approx(plano["valor"]["base"])
 
 
+def test_sin_holgura_de_gordon_hay_tabla_con_la_casilla_central_vacia():
+    e = _entradas()
+    tabla = v.sensibilidad(e, {"g_perpetuo": 0.085})
+    assert tabla is not None
+    assert tabla.valores[2][2] is None
+    assert any(valor is not None for fila in tabla.valores for valor in fila)
+
+
 def test_una_financiera_no_tiene_tabla_de_sensibilidad():
     e = _entradas(perfil=perfil(industria="Banks - Regional"))
     assert v.sensibilidad(e, None) is None
@@ -3907,7 +3917,6 @@ va al acta. Con cambios, la de los deslizadores, que no se guarda en ningún
 sitio.
 """
 
-import math
 from dataclasses import dataclass
 
 from analizador import divisas
@@ -3918,7 +3927,7 @@ from valoracion import dcf, mercado, plano
 from valoracion.criterio import INDUSTRIAS_FINANCIERAS
 from valoracion.fundamentos import Fundamentos, desde_sec
 from valoracion.mercado import Beta, Perfil
-from valoracion.motor import calcular, datos_dcf
+from valoracion.motor import calcular, datos_dcf, puente
 from valoracion.supuestos import Supuestos, aplicar, deducir
 
 # Privada y aun así importada: es la misma validación que `aplicar` hace con
@@ -4098,29 +4107,27 @@ def valorar(
 def sensibilidad(entradas: Entradas, cambios: "dict | None" = None) -> "dcf.Sensibilidad | None":
     """La tabla de sensibilidad del DCF con los mismos datos con que se votó.
 
-    None si no hay DCF: una financiera (se valora por beneficio residual), sin
-    tasa libre, o cuando el voto de flujos no aplica.
+    None si no hay DCF que tabular: una financiera (se valora por beneficio
+    residual), sin tasa libre, o sin datos para el DCF (sin historia, sin flujo
+    libre, quema caja). Con el coste de capital sin holgura sobre el
+    crecimiento perpetuo sí hay tabla: la casilla central sale vacía y las
+    demás enseñan desde qué coste vuelve a haber valor.
     """
     if entradas.perfil.industria in INDUSTRIAS_FINANCIERAS:
         return None
     supuestos = supuestos_de(entradas, cambios)
     if supuestos is None:
         return None
-    deuda = entradas.fundamentos.deuda_total
-    efectivo = entradas.fundamentos.efectivo
-    datos, _ = datos_dcf(
-        entradas.fundamentos,
-        supuestos,
-        deuda if math.isfinite(deuda) else 0.0,
-        efectivo if math.isfinite(efectivo) else 0.0,
-        entradas.perfil.capitalizacion / entradas.perfil.precio,
-    )
+    # El mismo puente que `calcular`: si la tabla tratara la deuda o las
+    # acciones de otra forma, su casilla central no sería el valor base.
+    deuda, efectivo, acciones = puente(entradas.fundamentos, entradas.perfil)
+    datos, _ = datos_dcf(entradas.fundamentos, supuestos, deuda, efectivo, acciones)
     if datos is None:
         return None
     return dcf.sensibilidad(datos, supuestos.g_ref.valor)
 ```
 
-La deuda y el efectivo sin declarar cuentan como cero, igual que en `valoracion.motor._o_cero`: si la tabla los tratara distinto, su casilla central no sería el valor base.
+La tabla usa `valoracion.motor.puente`, el mismo puente que `calcular` (deuda y efectivo sin declarar a cero, y las acciones como capitalización ÷ precio): su casilla central es el valor base. `puente` lo añadió la revisión de la Task 9.
 
 - [ ] **Step 5: Comprobar que pasan**
 
