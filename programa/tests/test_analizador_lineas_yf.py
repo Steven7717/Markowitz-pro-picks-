@@ -450,6 +450,7 @@ def test_el_trimestre_roto_pierde_sus_flujos_y_conserva_su_balance():
         {
             "Total Revenue": [57.8, -13.6, 63.4],
             "Net Income Common Stockholders": [15.9, -0.67, 15.3],
+            "Diluted EPS": [5.63, -0.22, 5.0],
         },
     )
     balance = hoja(fechas, {"Stockholders Equity": [270.0, 265.0, 260.0]})
@@ -458,6 +459,8 @@ def test_el_trimestre_roto_pierde_sus_flujos_y_conserva_su_balance():
     )
     roto = trimestrales.loc["2025-06-30"]
     assert np.isnan(roto["ingresos"]) and np.isnan(roto["beneficio_neto"])
+    # El BPA declarado tampoco: entraría en el PER de doce meses y en su crecimiento.
+    assert np.isnan(roto["bpa_diluido"])
     assert roto["patrimonio_neto"] == 265.0
     assert trimestrales.loc["2025-03-31", "ingresos"] == 63.4
 
@@ -519,3 +522,18 @@ def test_un_ejercicio_de_transicion_de_seis_meses_corta_la_serie():
     )
     f = fundamentos_anuales(anuales, "USD")
     assert [e.fin for e in f.ejercicios] == [date(2025, 6, 30)]
+
+
+def test_una_fila_con_solo_beneficio_no_hace_corto_al_ano_que_la_sigue():
+    # La serie se ancla en los ingresos: una fila de doce meses móviles con sólo
+    # el beneficio no es un cierre suyo, y medir desde ella haría de 2025-12 un
+    # ejercicio de seis meses.
+    anuales = _anuales(
+        ["2023-12-31", "2024-12-31", "2025-06-30", "2025-12-31"],
+        ingresos=[100.0, 105.0, NAN, 110.0],
+        beneficio_neto=[10.0, 11.0, 12.0, 13.0],
+    )
+    f = fundamentos_anuales(anuales, "USD")
+    assert [e.fin for e in f.ejercicios] == [
+        date(2025, 12, 31), date(2024, 12, 31), date(2023, 12, 31)
+    ]

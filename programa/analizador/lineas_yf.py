@@ -231,15 +231,18 @@ def rejilla_trimestral(lineas: pd.DataFrame) -> pd.DataFrame:
     return rejilla
 
 
-def _dias_desde_el_anterior(anuales: pd.DataFrame) -> pd.Series:
+def _dias_desde_el_anterior(
+    anuales: pd.DataFrame, columnas: "tuple[str, ...]" = ("ingresos", "beneficio_neto")
+) -> pd.Series:
     """Los días de cada anual desde el cierre anterior con dato; NaN en el primero.
 
-    «Con dato» es con ingresos o beneficio neto: el anual de RY trae además
-    columnas a fechas trimestrales con sólo el BPA y el recuento de doce meses
-    móviles, y si contasen como el anterior ningún año suyo sería un año.
+    «Con dato» es con alguna de `columnas`, y por defecto con ingresos o
+    beneficio neto: el anual de RY trae además columnas a fechas trimestrales
+    con sólo el BPA y el recuento de doce meses móviles, y si contasen como el
+    anterior ningún año suyo sería un año.
     """
     anuales = anuales.sort_index()
-    con_dato = anuales[["ingresos", "beneficio_neto"]].notna().any(axis=1).to_numpy()
+    con_dato = anuales[list(columnas)].notna().any(axis=1).to_numpy()
     dias, anterior = [], None
     for fin, tiene_dato in zip(anuales.index, con_dato):
         dias.append(np.nan if anterior is None else (fin - anterior).days)
@@ -347,8 +350,10 @@ def lineas_de(estados: dict) -> "tuple[pd.DataFrame, pd.DataFrame]":
 
     Los flujos de un trimestre roto (`_trimestres_rotos`) se vacían después de
     rellenar, que ya no lo usa, y antes de reconciliar, para que ningún BPA
-    salga de su beneficio. La fila conserva su balance: es una foto del cierre,
-    y no depende de unos ingresos que no se pueden leer.
+    salga de su beneficio. Con ellos se vacía el BPA que declara: no es un
+    flujo para `rellenar_desde_anual`, pero entraría en el PER de doce meses y
+    en `crecimiento_bpa`. La fila conserva su balance: es una foto del cierre, y
+    no depende de unos ingresos que no se pueden leer.
     """
     anuales = lineas_desde_estados(
         estados.get("income_stmt"), estados.get("balance_sheet"), estados.get("cashflow")
@@ -360,7 +365,7 @@ def lineas_de(estados: dict) -> "tuple[pd.DataFrame, pd.DataFrame]":
     )
     trimestrales = rellenar_desde_anual(rejilla_trimestral(trimestrales), anuales)
     if not trimestrales.empty:
-        trimestrales.loc[_trimestres_rotos(trimestrales), list(_FLUJOS)] = np.nan
+        trimestrales.loc[_trimestres_rotos(trimestrales), [*_FLUJOS, "bpa_diluido"]] = np.nan
     trimestrales = completar_bpa_por_identidad(reconciliar_recuento_de_acciones(trimestrales))
     return trimestrales, anuales
 
@@ -416,17 +421,20 @@ def fundamentos_anuales(anuales: pd.DataFrame, moneda: str) -> "Fundamentos | No
     reciente.
 
     Un ejercicio de transición no entra. Se mide como en `_de_doce_meses`, por
-    la distancia al cierre anterior con dato, pero sólo cuenta el lado corto:
-    seis meses entre 2023-12 y 2024-06 harían que `_cagr` diese un 110 % hasta
-    2025-06. Al saltarlo, el ejercicio anterior queda a más de un año y la serie
-    se corta ahí. El lado largo, el año que sigue a un hueco, `_de_doce_meses`
-    lo descarta y aquí no: la distancia ya corta la serie en el hueco, y
-    descartarlo le quitaría ese año, sea el más reciente o el más antiguo.
+    la distancia al cierre anterior, pero sólo cuenta el lado corto: seis meses
+    entre 2023-12 y 2024-06 harían que `_cagr` diese un 110 % hasta 2025-06. Al
+    saltarlo, el ejercicio anterior queda a más de un año y la serie se corta
+    ahí. El lado largo, el año que sigue a un hueco, `_de_doce_meses` lo
+    descarta y aquí no: la distancia ya corta la serie en el hueco, y
+    descartarlo le quitaría ese año, sea el más reciente o el más antiguo. El
+    cierre anterior es el anterior con ancla, no con ingresos o beneficio como
+    en `_de_doce_meses`: en una serie de ingresos, una fila de doce meses
+    móviles con sólo el beneficio haría corto al año que la sigue.
     """
     if anuales.empty:
         return None
     ancla = "ingresos" if anuales["ingresos"].notna().any() else "beneficio_neto"
-    corto = _dias_desde_el_anterior(anuales) < _DIAS_ANO[0]
+    corto = _dias_desde_el_anterior(anuales, columnas=(ancla,)) < _DIAS_ANO[0]
     elegidos: list = []
     for fecha, fila in anuales.sort_index(ascending=False).iterrows():
         if pd.isna(fila[ancla]) or corto[fecha]:
