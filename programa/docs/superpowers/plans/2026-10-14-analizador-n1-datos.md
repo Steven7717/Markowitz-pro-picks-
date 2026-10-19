@@ -2217,6 +2217,8 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 ### Task 8: La tasa libre con su procedencia, y `aplicar`
 
+> **Ejecutada y superada** (6f5d434, e3287c1). La revisión encontró que mover la tasa libre no rehacía el crecimiento perpetuo (que `deducir` recorta a ella) ni el tope del coste de la deuda medido: en pesos, la misma tasa del 3 % daba 581 puesta a mano y 646 movida desde el Bono M; ahora 581,41 y 581,38. `aplicar` rechaza con `ValueError` lo que rompe las fórmulas (coste del capital ≤ 0, que dividía por cero en el EPV; reparto fuera de [0, 1]; tasa fuera de [0, 1)), no cuenta un cambio a su propio valor y recalcula el coste de capital en diferencias. Manda el código vivo.
+
 `deducir` fijaba la procedencia de la tasa libre al Tesoro de EE. UU.; con el Bono M tiene que decir otra cosa. Y `aplicar` es la función que M dejó a N: los deslizadores de la pantalla mueven supuestos sin volver a la red.
 
 **Files:**
