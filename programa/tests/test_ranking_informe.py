@@ -96,7 +96,7 @@ def test_distingue_la_escala_del_compuesto_de_la_de_los_pilares():
     assert "Compuesto (z dentro del sector) +1.42" in texto
     # Los pilares NO son "frente a todo el universo", que es lo que decia
     # esta linea: cada z de KPI sale de zscore_within_sector
-    # (fundamentals/run.py:_anadir_zscores), asi que el pilar es una media
+    # (fundamentals/run.py:anadir_zscores), asi que el pilar es una media
     # de z sectoriales. La distincion que este test protege sigue siendo la
     # misma -- media de z frente a z re-estandarizado -- pero contada sin
     # afirmar de paso algo que el motor no hace.

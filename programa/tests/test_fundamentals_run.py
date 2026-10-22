@@ -417,3 +417,21 @@ def test_a_price_download_that_reports_nothing_is_not_read_as_a_failure():
         )
     assert fallo is False
     assert precios.notna().all()
+
+
+def test_el_minimo_de_sesiones_se_puede_bajar_para_paneles_cortos():
+    """yfinance da cinco trimestres: la ventana de precios es de poco más de un
+    año, y el mínimo por defecto del cargador (252 sesiones) la descartaría."""
+    panel = _panel_de_cierres()
+    with patch("research.loader.load_ohlcv", return_value=(panel, None)) as carga:
+        _precios_por_periodo("AAA", pd.DatetimeIndex([pd.Timestamp("2025-03-31")]), min_obs=1)
+    assert carga.call_args.kwargs["min_obs"] == 1
+    with patch("research.loader.load_ohlcv", return_value=(panel, None)) as carga:
+        _precios_por_periodo("AAA", pd.DatetimeIndex([pd.Timestamp("2025-03-31")]))
+    assert carga.call_args.kwargs["min_obs"] == 252
+
+
+def test_anadir_zscores_es_publica():
+    from fundamentals.run import anadir_zscores
+
+    assert callable(anadir_zscores)

@@ -33,6 +33,10 @@ class Resultado:
     exclusiones: dict[str, int]
     cobertura_panel: object
     corrida: dict
+    # El panel crudo, para la referencia sectorial del Analizador: los KPIs sin
+    # sus z (se recalculan al insertar una empresa que no estaba), el trimestre
+    # natural y el sector de cada fila.
+    panel: "pd.DataFrame | None" = None
 
 
 def _contexto(ficha: dict) -> str:
@@ -172,6 +176,13 @@ def construir_ranking(
     supervivientes = tabla.loc[motivos.isna()]
     exclusiones = motivos.dropna().value_counts().to_dict()
 
+    # El panel vacío de `build_panel` no trae el índice (ticker, periodo), así
+    # que no hay a quién ponerle sector: sin filas no hay referencia que dejar.
+    crudo = None
+    if not panel.empty:
+        crudo = panel.drop(columns=[c for c in panel.columns if str(c).startswith("z_")])
+        crudo["sector_gics"] = sectores.reindex(crudo.index.get_level_values("ticker")).to_numpy()
+
     return Resultado(
         tabla=supervivientes,
         fichas=fichas,
@@ -190,11 +201,13 @@ def construir_ranking(
             "tamano_top": int(n),
             "con_llm": bool(con_llm),
         },
+        panel=crudo,
     )
 
 
 def guardar(resultado: Resultado, destino: Path) -> None:
-    """Write the four outputs. fichas.json is the contract with sub-project C.
+    """Write the four outputs, and the panel the Analizador compares against.
+    fichas.json is the contract with sub-project C.
 
     allow_nan=False on the json.dumps call is that contract, fixed in Task 8
     (see tests/test_ranking_fichas.py:test_la_ficha_es_serializable_a_json_estricto):
@@ -218,3 +231,7 @@ def guardar(resultado: Resultado, destino: Path) -> None:
         json.dumps(resultado.corrida, ensure_ascii=False, indent=2, allow_nan=False),
         encoding="utf-8",
     )
+    if resultado.panel is not None and not resultado.panel.empty:
+        # Para el Analizador: la referencia sectorial es la de la última vez que
+        # se generaron candidatos, y se escribe con ellos para que no se separen.
+        resultado.panel.reset_index().to_parquet(destino / "panel.parquet", index=False)

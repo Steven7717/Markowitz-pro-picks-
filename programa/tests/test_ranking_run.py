@@ -398,6 +398,7 @@ def test_panel_vacio_no_revienta():
     assert resultado.fichas == []
     assert resultado.tabla.empty
     assert resultado.exclusiones == {}
+    assert resultado.panel is None
 
 
 def test_menos_candidatos_que_el_top_no_revienta_ni_rellena():
@@ -522,3 +523,36 @@ def test_guardar_con_una_valoracion_real_sigue_siendo_json_estricto(sin_red, val
     guardar(construir_ranking(con_llm=False, n=5), tmp_path)
     fichas = json.loads((tmp_path / "fichas.json").read_text(encoding="utf-8"))
     assert [f["valoracion"] for f in fichas] == [plano] * 5
+
+
+# --- El panel de referencia del Analizador ----------------------------------
+
+
+def test_el_resultado_lleva_el_panel_crudo_con_su_sector(sin_red):
+    resultado = construir_ranking(con_llm=False, n=5)
+    panel = resultado.panel
+    # Sin los z: se recalculan al insertar una empresa que no estaba.
+    assert not any(str(c).startswith("z_") for c in panel.columns)
+    assert {"trimestre", "sector_gics", *TODOS_LOS_KPIS} <= set(panel.columns)
+    assert list(panel.index.names) == ["ticker", "periodo"]
+    assert panel.xs("TE0", level="ticker")["sector_gics"].unique().tolist() == ["Tech"]
+
+
+def test_guardar_escribe_el_panel_en_parquet(sin_red, tmp_path: Path):
+    resultado = construir_ranking(con_llm=False, n=5)
+    guardar(resultado, tmp_path)
+    leido = pd.read_parquet(tmp_path / "panel.parquet")
+    assert len(leido) == len(resultado.panel)
+    assert set(leido.columns) == {"ticker", "periodo", *resultado.panel.columns}
+    fila = leido.iloc[0]
+    original = resultado.panel.loc[(fila["ticker"], pd.Timestamp(fila["periodo"]))]
+    assert fila["margen_bruto"] == original["margen_bruto"]
+    assert fila["sector_gics"] == original["sector_gics"]
+
+
+def test_sin_panel_no_se_escribe_parquet(sin_red, tmp_path: Path):
+    resultado = construir_ranking(con_llm=False, n=5)
+    resultado.panel = None
+    guardar(resultado, tmp_path)
+    assert not (tmp_path / "panel.parquet").exists()
+    assert (tmp_path / "fichas.json").exists()

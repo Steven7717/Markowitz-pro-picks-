@@ -60,6 +60,7 @@ def _precios_por_periodo(
     ticker: str,
     periodos: pd.DatetimeIndex,
     cierres_anuales: pd.DatetimeIndex | None = None,
+    min_obs: int = 252,
 ) -> tuple[pd.Series, bool]:
     """Closing price at the date each quarter's results became public.
 
@@ -126,6 +127,11 @@ def _precios_por_periodo(
     calendario de splits no se distingue un split de 2x de una fusión que emite
     el doble de acciones, y equivocarse pondría una capitalización inventada
     donde ahora hay un hueco visible en la cobertura del pilar.
+
+    `min_obs` pasa al cargador. El de siempre (un año de sesiones) sirve al
+    panel de la SEC, de doce trimestres; el Analizador lo baja a 1, porque con
+    los cinco trimestres de yfinance la ventana es de poco más de un año y el
+    cargador la descartaría entera.
     """
     from research.loader import load_ohlcv
 
@@ -153,6 +159,7 @@ def _precios_por_periodo(
         [ticker],
         start=(publicacion.min() - pd.Timedelta(days=10)).strftime("%Y-%m-%d"),
         end=(publicacion.max() + pd.Timedelta(days=10)).strftime("%Y-%m-%d"),
+        min_obs=min_obs,
     )
     # `load_ohlcv` ya sabe si la descarga falló y su informe se estaba tirando a
     # la basura en este mismo renglón. Un doble de test puede devolver `None` en
@@ -306,13 +313,17 @@ def build_panel(
     metadatos = pd.DataFrame(filas_meta).set_index("ticker")
 
     if con_zscore:
-        panel = _anadir_zscores(panel, metadatos)
+        panel = anadir_zscores(panel, metadatos)
 
     return panel, metadatos, cobertura
 
 
-def _anadir_zscores(panel: pd.DataFrame, metadatos: pd.DataFrame) -> pd.DataFrame:
-    """Score each company against sector peers within the same calendar quarter.
+def anadir_zscores(panel: pd.DataFrame, metadatos: pd.DataFrame) -> pd.DataFrame:
+    """Pública porque el Analizador (`analizador/referencia.py`) la aplica al
+    panel con una empresa insertada: los z tienen que salir de la misma función
+    que los del ranking.
+
+    Score each company against sector peers within the same calendar quarter.
 
     Grouping by calendar quarter rather than by row date is what makes the
     comparison fair: Apple's quarter ends in late June and JPMorgan's on the
