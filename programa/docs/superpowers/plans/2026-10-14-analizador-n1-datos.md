@@ -4242,6 +4242,29 @@ def test_sin_sector_no_hay_pares_y_se_dice():
     assert a.sector is None and a.motivo_referencia == "sin_sector"
 
 
+def test_un_sector_con_menos_pares_de_los_que_pide_el_z_no_tiene_referencia():
+    # Con ella dentro, Utilities tendría dos empresas: menos de `MIN_PARES`, sin
+    # z, y la ficha saldría «pilar sin datos», que culparía a la empresa.
+    panel = panel_crudo().drop(index=["UT0", "UT1", "UT2", "UT3"], level="ticker")
+    resuelto = _resuelto("UT0", sector="Utilities")
+    with patch.object(analisis.resolver, "resolver", return_value=resuelto), \
+            patch.object(analisis.kpis, "kpis_sec", side_effect=AssertionError("no hace falta")), \
+            _Valoracion():
+        a = analisis.analizar("UT0", panel, {})
+    assert a.referencia is None and a.motivo_referencia == "sector_sin_pares"
+
+
+def test_con_los_pares_justos_si_hay_referencia():
+    crudo = panel_crudo()
+    propias = crudo.xs("UT0", level="ticker").drop(columns="sector_gics")
+    panel = crudo.drop(index=["UT0", "UT1", "UT2"], level="ticker")
+    with patch.object(analisis.resolver, "resolver", return_value=_resuelto("UT0", sector="Utilities")), \
+            patch.object(analisis.kpis, "kpis_sec", return_value=(propias, "ok")), \
+            _Valoracion():
+        a = analisis.analizar("UT0", panel, {})
+    assert a.motivo_referencia is None and a.referencia is not None
+
+
 def test_si_no_hay_filas_propias_el_motivo_es_el_suyo():
     panel = panel_crudo().drop(index="IN0", level="ticker")
     with patch.object(analisis.resolver, "resolver", return_value=_resuelto()), \
@@ -4319,7 +4342,7 @@ from analizador.referencia import Referencia
 from analizador.resolver import Identidad, Resuelto
 from analizador.sectores import sector_gics
 from analizador.valorar import Entradas, entradas, valorar
-from fundamentals.sectors import load_sectors
+from fundamentals.sectors import MIN_PARES, load_sectors
 from valoracion import mercado, plano
 
 
@@ -4328,8 +4351,9 @@ class Analisis:
     """Todo lo que se sabe de un ticker. `motivo` dice por qué no hay análisis.
 
     Con clase, `motivo` es None y lo que falta va en su sitio:
-    `motivo_referencia` (`sin_panel`, `sin_sector`, `sin_estados`,
-    `sin_trimestres_comparables`, o el de la red) y la valoración, que es una
+    `motivo_referencia` (`sin_panel`, `sin_sector`, `sector_sin_pares`,
+    `sin_estados`, `sin_precio`, `sin_trimestres_comparables`, o el de la red) y
+    la valoración, que es una
     fallida con su motivo. Un ETF sólo tiene identidad.
     """
 
@@ -4364,10 +4388,11 @@ def _filas_propias(resuelto: Resuelto) -> "tuple[pd.DataFrame | None, str]":
     tipo_a_usd, motivo = mercado.tipo_de_cambio(moneda_estados, "USD")
     if tipo_a_usd is None:
         return None, motivo
-    filas = kpis.kpis_yf(
+    # `kpis_yf` dice `sin_precio` si no hay precio: unas filas sin valoración
+    # saldrían excluidas por un pilar sin datos, que culparía a la empresa.
+    return kpis.kpis_yf(
         resuelto.ticker, trimestrales, anuales, moneda_precio, moneda_estados, tipo_a_usd
     )
-    return filas, "ok"
 
 
 def _frente_al_sector(
@@ -4379,6 +4404,12 @@ def _frente_al_sector(
         return referencia.frente_al_sector(resuelto.ticker, panel), None
     if sector is None:
         return None, "sin_sector"
+    # Un sector que ni con ella dentro llega a `MIN_PARES` no tiene z: la ficha
+    # saldría «pilar sin datos», que culparía a la empresa. La clave es la del
+    # ranking, y se mira antes de bajar nada.
+    pares = panel.index.get_level_values("ticker")[panel["sector_gics"] == sector].nunique()
+    if pares + 1 < MIN_PARES:
+        return None, "sector_sin_pares"
     propias, motivo = _filas_propias(resuelto)
     if propias is None:
         return None, motivo
