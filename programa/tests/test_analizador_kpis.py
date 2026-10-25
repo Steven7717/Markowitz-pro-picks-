@@ -36,6 +36,12 @@ def test_si_la_sec_no_responde_no_hay_filas():
         assert kpis.kpis_sec("VEEV") == (None, "sin_estados")
 
 
+def test_si_falta_el_precio_no_se_culpa_a_la_sec():
+    abortada = CorridaAbortada("sin_precios", "x", CoverageReport(requested=["VEEV"]))
+    with patch.object(kpis, "build_panel", side_effect=abortada):
+        assert kpis.kpis_sec("VEEV") == (None, "sin_precio")
+
+
 def test_un_panel_vacio_no_son_filas():
     vacio = pd.DataFrame(columns=[*TODOS_LOS_KPIS, "trimestre"])
     vacio.index = pd.MultiIndex.from_arrays([[], []], names=["ticker", "periodo"])

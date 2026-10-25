@@ -21,9 +21,14 @@ def kpis_sec(ticker: str) -> "tuple[pd.DataFrame | None, str]":
     """Las filas del panel de la SEC de un ticker, indexadas por fecha de cierre."""
     try:
         panel, _, _ = build_panel([ticker])
-    except CorridaAbortada:
-        # Con un solo ticker, abortar es que la fuente no responde o rechaza la
-        # identidad: no es la empresa, pero para esta ficha el efecto es el mismo.
+    except CorridaAbortada as abortada:
+        # Con un universo de uno, que no llegue el precio también aborta
+        # `build_panel`: decir `sin_estados` culparía a la SEC de un fallo de
+        # Yahoo, que es de donde baja `load_ohlcv`.
+        if abortada.causa == "sin_precios":
+            return None, "sin_precio"
+        # Si no, es que la fuente no responde o rechaza la identidad: no es la
+        # empresa, pero para esta ficha el efecto es el mismo.
         return None, "sin_estados"
     if panel.empty or ticker not in panel.index.get_level_values("ticker"):
         return None, "sin_estados"
