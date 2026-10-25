@@ -1,6 +1,7 @@
 """La ficha de un ticker frente a su sector, con las funciones del ranking."""
 
-from datetime import date
+import os
+from datetime import date, datetime
 from unittest.mock import patch
 
 import numpy as np
@@ -10,7 +11,7 @@ import pytest
 from analizador.referencia import cargar_panel, frente_al_sector
 from fundamentals.kpis import TODOS_LOS_KPIS
 from fundamentals.run import anadir_zscores
-from ranking.run import construir_ranking
+from ranking.run import construir_ranking, guardar
 
 SECTORES = {"Information Technology": 6, "Health Care": 6, "Utilities": 5}
 TRIMESTRES = ["2025Q3", "2025Q4", "2026Q1", "2026Q2"]
@@ -119,9 +120,78 @@ def test_cargar_panel_lee_lo_que_escribe_guardar(tmp_path):
     crudo = panel_crudo()
     ruta = tmp_path / "panel.parquet"
     crudo.reset_index().to_parquet(ruta, index=False)
+    # Una fecha pasada: con la de hoy, devolver `date.today()` también pasaría.
+    pasado = datetime(2026, 1, 15, 12, 0).timestamp()
+    os.utime(ruta, (pasado, pasado))
     panel, fecha = cargar_panel(ruta)
-    assert fecha == date.today()
+    assert fecha == date(2026, 1, 15)
     assert frente_al_sector("IN0", panel).ficha == frente_al_sector("IN0", crudo).ficha
+
+
+def test_el_panel_que_deja_guardar_da_la_misma_ficha(tmp_path):
+    # El contrato entre `ranking.run.guardar` y `cargar_panel`, con el fichero
+    # que escribe la generación de candidatos y no con uno hecho a mano.
+    crudo = panel_crudo()
+    resultado = _ranking(crudo)
+    guardar(resultado, tmp_path)
+    panel, _ = cargar_panel(tmp_path / "panel.parquet")
+    ticker = resultado.fichas[0]["ticker"]
+    assert frente_al_sector(ticker, panel).ficha == frente_al_sector(ticker, crudo).ficha
+
+
+def _sin_panel(ruta):
+    panel, fecha = cargar_panel(ruta)
+    return panel is None and fecha is None
+
+
+def test_cualquier_fallo_al_leer_el_panel_es_como_si_no_hubiera(tmp_path):
+    # pyarrow lanza más que `ValueError` y `OSError` con bytes alterados.
+    ruta = tmp_path / "panel.parquet"
+    panel_crudo().reset_index().to_parquet(ruta, index=False)
+    with patch("pandas.read_parquet", side_effect=KeyError("numpy_type")):
+        assert _sin_panel(ruta)
+
+
+def test_un_periodo_que_no_es_fecha_es_como_si_no_hubiera_panel(tmp_path):
+    crudo = panel_crudo().reset_index()
+    # Uno distinto por fila: repetidos, los pararía la guarda de duplicados y
+    # no la lectura de la fecha.
+    crudo["periodo"] = [f"no es una fecha {i}" for i in range(len(crudo))]
+    ruta = tmp_path / "panel.parquet"
+    crudo.to_parquet(ruta, index=False)
+    assert _sin_panel(ruta)
+
+
+def test_un_panel_vacio_es_como_si_no_hubiera(tmp_path):
+    ruta = tmp_path / "panel.parquet"
+    panel_crudo().iloc[0:0].reset_index().to_parquet(ruta, index=False)
+    assert _sin_panel(ruta)
+
+
+def test_un_panel_con_filas_repetidas_es_como_si_no_hubiera(tmp_path):
+    crudo = panel_crudo().reset_index()
+    ruta = tmp_path / "panel.parquet"
+    pd.concat([crudo, crudo.iloc[[0]]]).to_parquet(ruta, index=False)
+    assert _sin_panel(ruta)
+
+
+def test_una_columna_de_mas_en_el_panel_se_ignora(tmp_path):
+    crudo = panel_crudo()
+    ruta = tmp_path / "panel.parquet"
+    crudo.assign(comentario="texto").reset_index().to_parquet(ruta, index=False)
+    panel, _ = cargar_panel(ruta)
+    assert "comentario" not in panel.columns
+    assert frente_al_sector("IN0", panel).ficha == frente_al_sector("IN0", crudo).ficha
+
+
+def test_un_trimestre_como_period_da_la_misma_ficha_que_en_texto():
+    crudo = panel_crudo()
+    sin_el, propias = _sin(crudo, "HE2")
+    como_period = propias.assign(trimestre=pd.PeriodIndex(propias["trimestre"], freq="Q"))
+    assert (
+        frente_al_sector("HE2", sin_el, "Health Care", como_period).ficha
+        == frente_al_sector("HE2", sin_el, "Health Care", propias).ficha
+    )
 
 
 def test_sin_panel_en_disco_no_hay_panel(tmp_path):

@@ -6,7 +6,9 @@ trimestre natural y el sector de cada fila. La referencia es la de la última
 vez que se generaron candidatos, y su fecha se enseña.
 
 **Si el ticker está en el panel**, su ficha sale idéntica a la de Revisar
-candidatos. **Si no está**, sus filas se insertan en su sector, trimestre a
+candidatos en sector, pilares, nota, destacados, flojos y cobertura; no en el
+puesto, que es el global (abajo), ni en `desplazo_a`, que aquí siempre va
+vacío porque sin la selección con tope no desplaza a nadie. **Si no está**, sus filas se insertan en su sector, trimestre a
 trimestre, y se le aplican las mismas funciones que al ranking: el z por sector
 con el mismo tope, la media de la ventana, los pilares, las guardas y la nota
 compuesta. Insertarla mueve un poco la media y la dispersión de su sector, y
@@ -61,24 +63,35 @@ class Referencia:
 def cargar_panel(ruta: "Path | None" = None) -> "tuple[pd.DataFrame | None, date | None]":
     """El panel de referencia y la fecha en que se escribió, o `(None, None)`.
 
-    Un fichero que no se puede leer, o al que le falta una columna, se trata
-    como ausente: la pantalla ofrece reconstruirlo, que es gratis. No es
-    historial que se pierda, al revés que un archivo de la IA.
+    Un fichero que no se puede leer, al que le falta una columna, vacío o con
+    un `(ticker, periodo)` repetido se trata como ausente: la pantalla ofrece
+    reconstruirlo, que es gratis. No es historial que se pierda, al revés que
+    un archivo de la IA.
     """
     ruta = Path(ruta or RUTA_PANEL)
     if not ruta.exists():
         return None, None
+    # `except Exception` a propósito: es un fichero que se regenera gratis, y
+    # cualquier fallo al leerlo equivale a que no hay panel. Y no se puede
+    # acotar: con bytes alterados pyarrow no se queda en `ArrowInvalid` (un
+    # `ValueError`) ni en `ArrowIOError` (un `OSError`), sino que también lanza
+    # su `ArrowException` base, `KeyError` o `TypeError`.
     try:
         crudo = pd.read_parquet(ruta)
-    except (OSError, ValueError, ImportError):
-        # pyarrow lanza `ArrowInvalid`, que es un `ValueError`, con un fichero
-        # que no es parquet, y `ArrowIOError`, que es un `OSError`, al leerlo.
+        if not set(_COLUMNAS) <= set(crudo.columns):
+            return None, None
+        # Sólo las columnas que se usan: una de más, de texto, rompería los z.
+        crudo = crudo[list(_COLUMNAS)].copy()
+        crudo["periodo"] = pd.to_datetime(crudo["periodo"])
+        panel = crudo.set_index(["ticker", "periodo"]).sort_index()
+        fecha = date.fromtimestamp(ruta.stat().st_mtime)
+    except Exception:
         return None, None
-    if not set(_COLUMNAS) <= set(crudo.columns):
+    # Sin filas no hay sector que comparar, y con un `(ticker, periodo)`
+    # repetido los z no se pueden alinear con sus filas.
+    if panel.empty or panel.index.has_duplicates:
         return None, None
-    crudo["periodo"] = pd.to_datetime(crudo["periodo"])
-    panel = crudo.set_index(["ticker", "periodo"]).sort_index()
-    return panel, date.fromtimestamp(ruta.stat().st_mtime)
+    return panel, fecha
 
 
 def frente_al_sector(
@@ -109,6 +122,9 @@ def frente_al_sector(
         if propias.empty:
             return None
         filas = propias.reindex(columns=[*TODOS_LOS_KPIS, "trimestre"]).copy()
+        # En texto, como el del panel: un `Period` formaría grupos aparte en
+        # `anadir_zscores`, sin pares, y todos sus z saldrían vacíos.
+        filas["trimestre"] = propias["trimestre"].astype(str)
         filas["sector_gics"] = sector
         filas.index = pd.MultiIndex.from_arrays(
             [[ticker] * len(filas), pd.DatetimeIndex(propias.index)],
