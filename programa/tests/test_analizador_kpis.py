@@ -190,5 +190,15 @@ def test_sin_trimestres_no_es_un_fallo_de_precio():
     vacias = _trimestrales().iloc[:0]
     with patch.object(kpis, "_precios_por_periodo", side_effect=_precios({"X.MX": NAN})):
         filas, motivo = kpis.kpis_yf("X.MX", vacias, pd.DataFrame(), "MXN", "MXN", 0.054)
-    assert motivo == "sin_estados"
+    assert motivo == "sin_historia"
     assert filas is None
+
+
+def test_con_algun_precio_hay_filas_aunque_falten_los_demas():
+    # «Sin precio» es no tener ni uno: los trimestres que sí lo tienen se
+    # valoran, y los otros quedan sin múltiplos, como en el panel de la SEC.
+    dobles = _precios({"X.MX": [NAN, NAN, 40.0, 44.0, 48.0]})
+    with patch.object(kpis, "_precios_por_periodo", side_effect=dobles):
+        filas, motivo = kpis.kpis_yf("X.MX", _trimestrales(), pd.DataFrame(), "MXN", "MXN", 1.0)
+    assert motivo == "ok"
+    assert filas["per"].iloc[-1] == pytest.approx(48.0 / 4.0)

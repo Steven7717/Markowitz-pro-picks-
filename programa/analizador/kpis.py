@@ -70,8 +70,9 @@ def kpis_yf(
     """Los KPIs trimestrales de un ticker de yfinance.
 
     Devuelve `(filas, "ok")`; `(None, "sin_precio")` si Yahoo no dio ni un
-    precio o ni un tipo de cambio; o `(None, "sin_estados")` si no hay
-    trimestres.
+    precio o ni un tipo de cambio; o `(None, "sin_historia")` si no hay
+    trimestres, la misma clave con que `analizador.analisis` dice eso mismo
+    (`sin_estados` habla de la SEC).
 
     El precio de cada trimestre es el del día en que sus cuentas se hicieron
     públicas, con los plazos de `fundamentals.run`. Son los de la SEC, 45 días
@@ -97,7 +98,7 @@ def kpis_yf(
     # Antes que el precio: sin trimestres la serie de precios sale vacía, y
     # pasaría por «sin precio» lo que es que no hay cuentas.
     if trimestrales.empty:
-        return None, "sin_estados"
+        return None, "sin_historia"
     cierres = _cierres_de_ejercicio(anuales)
     precios, _ = _precios_por_periodo(ticker, trimestrales.index, cierres, min_obs=1)
     # Una cotización en subunidades (Londres, en peniques) se cambia con su
