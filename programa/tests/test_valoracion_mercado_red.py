@@ -696,3 +696,53 @@ def test_sin_red_una_clasificacion_rellenada_no_sobrevive_a_su_tope(tmp_path, mo
     assert motivo == "ok"
     assert identidad["regularMarketPrice"] == 990.0
     assert (identidad["sector"], identidad["industry"], identidad["country"]) == (None, None, None)
+
+
+def test_la_beta_con_par_regresa_el_precio_convertido():
+    g = np.random.default_rng(7)
+    m = g.normal(0.002, 0.02, 104)
+    a = 2 * m + g.normal(0, 0.002, 104)
+    # Un tipo de cambio constante no cambia ningún rendimiento: la beta es la misma.
+    dobles = {
+        "AMX": _con_historial(_cierres(a)),
+        "^MXX": _con_historial(_cierres(m)),
+        "USDMXN=X": _con_historial(_cierres(np.zeros(104))),
+    }
+    with patch.object(mercado.yf, "Ticker", side_effect=lambda s: dobles[s]) as fabrica:
+        beta, motivo = mercado.beta("AMX", "^MXX", "USDMXN=X")
+    assert motivo == "ok" and beta.bruta == pytest.approx(2.0, abs=0.1)
+    assert {c.args[0] for c in fabrica.call_args_list} == {"AMX", "^MXX", "USDMXN=X"}
+
+
+def test_la_beta_con_par_se_mide_con_el_precio_ya_convertido():
+    # Con un tipo constante, la prueba de arriba no distingue si se convirtió.
+    # Aquí el precio en dólares sólo tiene ruido y el tipo de cambio sigue al
+    # índice: en pesos el activo se mueve con el IPC (beta cerca de 1); sin
+    # convertir no tendría nada que ver con él (beta cerca de 0).
+    g = np.random.default_rng(7)
+    m = g.normal(0.002, 0.02, 104)
+    dobles = {
+        "AMX": _con_historial(_cierres(g.normal(0, 0.002, 104))),
+        "^MXX": _con_historial(_cierres(m)),
+        "USDMXN=X": _con_historial(_cierres(m)),
+    }
+    with patch.object(mercado.yf, "Ticker", side_effect=lambda s: dobles[s]):
+        beta, motivo = mercado.beta("AMX", "^MXX", "USDMXN=X")
+    assert motivo == "ok" and beta.bruta == pytest.approx(1.0, abs=0.1)
+
+
+def test_la_beta_con_y_sin_par_no_comparten_cache(tmp_path):
+    dobles = _dobles_de_beta()
+    dobles["USDMXN=X"] = _con_historial(_cierres(np.zeros(104)))
+    with patch.object(mercado.yf, "Ticker", side_effect=lambda s: dobles[s]):
+        mercado.beta("MU", "^GSPC")
+        mercado.beta("MU", "^GSPC", "USDMXN=X")
+    assert len(_escritos(tmp_path)) == 2
+
+
+def test_sin_cierres_del_tipo_de_cambio_no_hay_beta_ni_se_guarda(tmp_path):
+    dobles = _dobles_de_beta()
+    dobles["USDMXN=X"] = _con_historial([])
+    with patch.object(mercado.yf, "Ticker", side_effect=lambda s: dobles[s]):
+        assert mercado.beta("MU", "^GSPC", "USDMXN=X") == (None, "sin_red")
+    assert _escritos(tmp_path) == []

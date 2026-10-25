@@ -154,6 +154,16 @@ def regresion_beta(
     )
 
 
+def precio_convertido(precio: pd.Series, tipo: pd.Series) -> pd.Series:
+    """El precio semanal por el tipo de cambio de esa misma semana.
+
+    Para regresar contra un índice en otra moneda: AMX cotiza en dólares y su
+    índice, el IPC, en pesos. Sólo quedan las semanas con los dos datos.
+    """
+    juntos = pd.concat([_semanal(precio), _semanal(tipo)], axis=1, join="inner").dropna()
+    return juntos.iloc[:, 0] * juntos.iloc[:, 1]
+
+
 def tasa_libre_desde_cierres(cierres: pd.Series) -> "float | None":
     """`^TNX` cotiza el rendimiento en puntos: 5,24 es un 5,24 %."""
     validos = pd.to_numeric(cierres, errors="coerce").dropna()
@@ -498,26 +508,40 @@ def tasa_libre() -> "tuple[float | None, str]":
     return float(valor), "ok"
 
 
-def beta(ticker: str, indice: str = INDICE) -> "tuple[Beta | None, str]":
+def beta(
+    ticker: str, indice: str = INDICE, par: "str | None" = None
+) -> "tuple[Beta | None, str]":
+    """La beta del ticker contra el índice. Con `par` (`USDMXN=X`), el precio se
+    pasa a la moneda del índice semana a semana antes de regresar: un precio en
+    dólares contra un índice en pesos mezclaría dos monedas."""
+
     def pedir():
         activo = yf.Ticker(ticker).history(period="2y", interval="1wk")["Close"]
         referencia = yf.Ticker(indice).history(period="2y", interval="1wk")["Close"]
-        return activo, referencia
+        tipo = (
+            None if par is None else yf.Ticker(par).history(period="2y", interval="1wk")["Close"]
+        )
+        return activo, referencia, tipo
 
     def interpretar(series):
-        activo, referencia = series
+        activo, referencia, tipo = series
         # `history()` no lanza cuando falla la red: devuelve un marco vacío. Eso
         # es "no lo sé"; un historial corto pero real (una salida a bolsa
         # reciente) es un hecho estable, y ése sí se guarda como "sin beta".
         if _sin_cierres(activo) or _sin_cierres(referencia):
             return None
+        if tipo is not None:
+            if _sin_cierres(tipo):
+                return None
+            activo = precio_convertido(activo, tipo)
         encontrada = regresion_beta(activo, referencia, indice)
         return {"beta": None if encontrada is None else asdict(encontrada)}
 
     def leer(datos):
         return None if datos["beta"] is None else Beta(**datos["beta"])
 
-    encontrada, motivo = _traer("beta", f"{ticker}|{indice}", pedir, interpretar, leer)
+    clave = f"{ticker}|{indice}" if par is None else f"{ticker}|{indice}|{par}"
+    encontrada, motivo = _traer("beta", clave, pedir, interpretar, leer)
     if motivo != "ok":
         return None, motivo
     # `regresion_beta` devuelve None por historial corto, pero también por un

@@ -83,6 +83,7 @@ MOTIVO = {
     "sin_pares": "sin pares del sector con los que comparar",
     "sin_precio": "Yahoo Finance no devolvió el precio",
     "sin_tasa_libre": "Yahoo Finance no devolvió la tasa libre de riesgo",
+    "sin_bono_m": "Banxico no dio el rendimiento del Bono M a 10 años (falta el token o no respondió)",
     "financiera": "se valora por beneficio residual (entidades financieras)",
     "patrimonio_negativo": "patrimonio negativo: no hay base sobre la que medir la rentabilidad",
     "sin_beneficio_operativo": (

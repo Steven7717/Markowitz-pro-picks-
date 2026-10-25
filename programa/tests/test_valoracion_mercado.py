@@ -324,3 +324,20 @@ def test_un_plano_mal_formado_lanza_type_error(plano):
     # versión anterior»; cualquier otra excepción saldría en cada llamada.
     with pytest.raises(TypeError):
         estado_de_plano(plano)
+
+
+from valoracion.mercado import precio_convertido  # noqa: E402
+
+
+def test_el_precio_convertido_es_el_precio_por_el_tipo_de_cada_semana():
+    fechas = pd.date_range("2025-01-03", periods=3, freq="W-FRI")
+    precio = pd.Series([10.0, 11.0, 12.0], index=fechas)
+    tipo = pd.Series([18.0, 18.5, 19.0], index=fechas)
+    assert precio_convertido(precio, tipo).tolist() == [180.0, 203.5, 228.0]
+
+
+def test_el_precio_convertido_solo_tiene_las_semanas_con_los_dos_datos():
+    fechas = pd.date_range("2025-01-03", periods=3, freq="W-FRI")
+    precio = pd.Series([10.0, 11.0, 12.0], index=fechas)
+    tipo = pd.Series([18.0, float("nan")], index=fechas[:2])
+    assert len(precio_convertido(precio, tipo)) == 1

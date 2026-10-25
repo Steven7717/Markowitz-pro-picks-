@@ -165,6 +165,7 @@ def test_ninguna_etiqueta_de_motivo_dice_no_aplica_ni_no_se_pudo(clave):
         ("sin_red", "Yahoo Finance no devolvió datos"),
         ("sin_estados", "estados financieros de la SEC"),
         ("error_interno", "error interno"),
+        ("sin_bono_m", "Bono M"),
     ],
 )
 def test_cada_motivo_dice_de_que_se_trata(clave, idea):
@@ -176,6 +177,7 @@ def test_cada_motivo_dice_de_que_se_trata(clave, idea):
 # los estados (`valorar`) y el que anota `ranking/run.py` cuando algo revienta.
 _MOTIVOS_DE_UNA_FALLIDA = (
     "sin_red", "sin_precio", "sin_tasa_libre", "sin_estados", "sin_historia", "error_interno",
+    "sin_bono_m",
 )
 
 

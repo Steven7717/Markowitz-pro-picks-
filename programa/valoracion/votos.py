@@ -33,6 +33,7 @@ MOTIVOS = frozenset(
         "sin_precio",
         "sin_red",
         "sin_tasa_libre",
+        "sin_bono_m",
         "financiera",
         "patrimonio_negativo",
         "sin_estados",
