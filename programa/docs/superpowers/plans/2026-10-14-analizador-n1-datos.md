@@ -2899,6 +2899,8 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 ### Task 11: La ficha frente al sector
 
+> **Ejecutada y superada** (b39842f, e61b030, 83fc7d7 y un ajuste). La ficha, el compuesto, el puesto global y la exclusión coinciden exactamente con `construir_ranking` en 468 tickers de 12 paneles sintéticos (NaN, historia corta, sectores de dos, sector `None`), y sacar y reinsertar un ticker da lo mismo en 456 casos, también los que una guarda deja fuera. El test de la ficha idéntica baraja el panel: sin eso, quitar el `sort_index()` no lo notaba nadie. La revisión encontró que `cargar_panel` lanzaba con un fichero alterado (pyarrow lanza su `ArrowException` base, `KeyError` o `TypeError`, no sólo `ValueError`/`OSError`): ahora todo cae en un `except Exception`, porque el panel se regenera gratis; además se queda sólo con sus columnas y trata como ausente un panel vacío o con filas repetidas, y el `trimestre` insertado va como texto. El puesto es el global y `desplazo_a` va vacío: la ficha es idéntica a la de candidatos salvo en eso. Cuesta ~0,3 s por ticker con el panel real. Manda el código vivo.
+
 **Files:**
 - Create: `analizador/referencia.py`
 - Test: `tests/test_analizador_referencia.py`
