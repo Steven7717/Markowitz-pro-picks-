@@ -1,3 +1,4 @@
+import io
 import json
 import logging
 from dataclasses import dataclass
@@ -216,6 +217,16 @@ def guardar(resultado: Resultado, destino: Path) -> None:
     flag here, the writer would silently drop the guarantee the fichas
     themselves are built to uphold.
     """
+    # El panel es la referencia sectorial del Analizador y sólo vale junto a los
+    # candidatos con que se generó. Se convierte a bytes antes de escribir
+    # nada: si la conversión falla, la carpeta se queda como estaba en vez de
+    # mezclar fichas nuevas con el panel viejo.
+    panel_parquet = None
+    if resultado.panel is not None and not resultado.panel.empty:
+        buffer = io.BytesIO()
+        resultado.panel.reset_index().to_parquet(buffer, index=False)
+        panel_parquet = buffer.getvalue()
+
     destino = Path(destino)
     destino.mkdir(parents=True, exist_ok=True)
 
@@ -231,7 +242,10 @@ def guardar(resultado: Resultado, destino: Path) -> None:
         json.dumps(resultado.corrida, ensure_ascii=False, indent=2, allow_nan=False),
         encoding="utf-8",
     )
-    if resultado.panel is not None and not resultado.panel.empty:
-        # Para el Analizador: la referencia sectorial es la de la última vez que
-        # se generaron candidatos, y se escribe con ellos para que no se separen.
-        resultado.panel.reset_index().to_parquet(destino / "panel.parquet", index=False)
+    if panel_parquet is None:
+        # Sin panel, el de la corrida anterior mentiría: el Analizador
+        # compararía contra una referencia que no es la de estos candidatos. Sin
+        # fichero, en cambio, ofrece reconstruirlo.
+        (destino / "panel.parquet").unlink(missing_ok=True)
+    else:
+        (destino / "panel.parquet").write_bytes(panel_parquet)

@@ -542,12 +542,13 @@ def test_guardar_escribe_el_panel_en_parquet(sin_red, tmp_path: Path):
     resultado = construir_ranking(con_llm=False, n=5)
     guardar(resultado, tmp_path)
     leido = pd.read_parquet(tmp_path / "panel.parquet")
-    assert len(leido) == len(resultado.panel)
-    assert set(leido.columns) == {"ticker", "periodo", *resultado.panel.columns}
-    fila = leido.iloc[0]
-    original = resultado.panel.loc[(fila["ticker"], pd.Timestamp(fila["periodo"]))]
-    assert fila["margen_bruto"] == original["margen_bruto"]
-    assert fila["sector_gics"] == original["sector_gics"]
+    # Entero y con el índice que reconstruye el Analizador: en el panel de
+    # prueba todos los KPIs valen 1.0, así que comparar una celda acertaría
+    # con cualquier fila.
+    leido["periodo"] = pd.to_datetime(leido["periodo"])
+    pd.testing.assert_frame_equal(
+        leido.set_index(["ticker", "periodo"]).sort_index(), resultado.panel.sort_index()
+    )
 
 
 def test_sin_panel_no_se_escribe_parquet(sin_red, tmp_path: Path):
@@ -556,3 +557,31 @@ def test_sin_panel_no_se_escribe_parquet(sin_red, tmp_path: Path):
     guardar(resultado, tmp_path)
     assert not (tmp_path / "panel.parquet").exists()
     assert (tmp_path / "fichas.json").exists()
+
+
+@pytest.mark.parametrize("sin_panel", [None, pd.DataFrame()], ids=["none", "vacio"])
+def test_sin_panel_se_borra_el_de_la_corrida_anterior(sin_red, tmp_path: Path, sin_panel):
+    """El parquet viejo junto a fichas nuevas sería una referencia que ya no
+    corresponde a los candidatos."""
+    guardar(construir_ranking(con_llm=False, n=5), tmp_path)
+    assert (tmp_path / "panel.parquet").exists()
+    resultado = construir_ranking(con_llm=False, n=5)
+    resultado.panel = sin_panel
+    guardar(resultado, tmp_path)
+    assert not (tmp_path / "panel.parquet").exists()
+    assert (tmp_path / "fichas.json").exists()
+
+
+def test_si_el_panel_no_se_puede_convertir_no_se_toca_nada(sin_red, tmp_path: Path):
+    """Fichas nuevas con el panel viejo serían la misma mezcla que la de arriba,
+    y la vista de candidatos sólo captura `CorridaAbortada`: el error sale de
+    `guardar`, pero la carpeta se queda como estaba."""
+    (tmp_path / "fichas.json").write_text("[]", encoding="utf-8")
+    (tmp_path / "panel.parquet").write_bytes(b"viejo")
+    resultado = construir_ranking(con_llm=False, n=5)
+    with patch.object(pd.DataFrame, "to_parquet", side_effect=OSError("sin espacio")):
+        with pytest.raises(OSError):
+            guardar(resultado, tmp_path)
+    assert (tmp_path / "fichas.json").read_text(encoding="utf-8") == "[]"
+    assert (tmp_path / "panel.parquet").read_bytes() == b"viejo"
+    assert not (tmp_path / "ranking.csv").exists()
