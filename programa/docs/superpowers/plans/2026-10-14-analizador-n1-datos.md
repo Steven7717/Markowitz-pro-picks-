@@ -2736,6 +2736,8 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 ### Task 10: El panel de referencia en disco
 
+> **Ejecutada y superada** (b14a578, b5b3fc6, 4417d7a). El ranking no cambia: mismas fichas, puestos y corrida, y los cuatro ficheros de siempre iguales byte a byte; el parquet reconstruye exactamente `Resultado.panel` y los z recalculados con `anadir_zscores` coinciden bit a bit. Con un universo vacío `build_panel` no trae el índice `(ticker, periodo)`, así que `Resultado.panel` es `None`. La revisión encontró que el `panel.parquet` de una corrida anterior sobrevivía junto a fichas nuevas (una corrida sin panel, o un fallo al escribirlo): `guardar` convierte el panel a bytes antes de escribir nada y borra el parquet viejo nada más crear la carpeta, de modo que cualquier fallo deja «sin panel» (que la Task 11 trata como ausente) y nunca uno ajeno a los candidatos. Manda el código vivo.
+
 Para comparar un ticker con sus pares hace falta el panel del S&P 500. `ranking/run.guardar` lo escribe junto a las fichas, así que la referencia es siempre la de la última vez que se generaron candidatos.
 
 **Files:**
