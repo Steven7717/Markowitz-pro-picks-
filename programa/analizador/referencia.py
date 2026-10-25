@@ -8,7 +8,9 @@ vez que se generaron candidatos, y su fecha se enseña.
 **Si el ticker está en el panel**, su ficha sale idéntica a la de Revisar
 candidatos en sector, pilares, nota, destacados, flojos y cobertura; no en el
 puesto, que es el global (abajo), ni en `desplazo_a`, que aquí siempre va
-vacío porque sin la selección con tope no desplaza a nadie. **Si no está**, sus filas se insertan en su sector, trimestre a
+vacío porque sin la selección con tope no desplaza a nadie.
+
+**Si no está**, sus filas se insertan en su sector, trimestre a
 trimestre, y se le aplican las mismas funciones que al ranking: el z por sector
 con el mismo tope, la media de la ventana, los pilares, las guardas y la nota
 compuesta. Insertarla mueve un poco la media y la dispersión de su sector, y
@@ -78,9 +80,8 @@ def cargar_panel(ruta: "Path | None" = None) -> "tuple[pd.DataFrame | None, date
     # su `ArrowException` base, `KeyError` o `TypeError`.
     try:
         crudo = pd.read_parquet(ruta)
-        if not set(_COLUMNAS) <= set(crudo.columns):
-            return None, None
-        # Sólo las columnas que se usan: una de más, de texto, rompería los z.
+        # Sólo las columnas que se usan: una de más, de texto, rompería los z,
+        # y una que falta lanza `KeyError` aquí mismo.
         crudo = crudo[list(_COLUMNAS)].copy()
         crudo["periodo"] = pd.to_datetime(crudo["periodo"])
         panel = crudo.set_index(["ticker", "periodo"]).sort_index()

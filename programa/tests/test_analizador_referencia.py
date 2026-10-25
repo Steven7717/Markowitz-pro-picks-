@@ -152,6 +152,8 @@ def test_cualquier_fallo_al_leer_el_panel_es_como_si_no_hubiera(tmp_path):
         assert _sin_panel(ruta)
 
 
+# pandas avisa de que no sabe adivinar el formato de la basura antes de fallar.
+@pytest.mark.filterwarnings("ignore:Could not infer format:UserWarning")
 def test_un_periodo_que_no_es_fecha_es_como_si_no_hubiera_panel(tmp_path):
     crudo = panel_crudo().reset_index()
     # Uno distinto por fila: repetidos, los pararía la guarda de duplicados y
