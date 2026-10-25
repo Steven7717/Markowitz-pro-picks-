@@ -50,7 +50,9 @@ def _ranking(crudo):
 def test_un_ticker_del_panel_da_exactamente_su_ficha_de_candidatos():
     crudo = panel_crudo()
     candidata = _ranking(crudo).fichas[0]
-    ref = frente_al_sector(candidata["ticker"], crudo)
+    # Barajado porque el panel de prueba ya trae cada sector y trimestre en el
+    # orden bueno: sin barajar, nadie notaría que `frente_al_sector` no ordena.
+    ref = frente_al_sector(candidata["ticker"], crudo.sample(frac=1, random_state=0))
     for clave in ("sector_gics", "pilares", "destacados", "flojos", "cobertura"):
         assert ref.ficha[clave] == candidata[clave]
     assert ref.compuesto == pytest.approx(candidata["compuesto"])
