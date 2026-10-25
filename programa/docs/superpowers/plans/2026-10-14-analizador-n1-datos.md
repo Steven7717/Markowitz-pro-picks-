@@ -3231,6 +3231,8 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 ### Task 12: Las filas de KPIs de un ticker que no está en el panel
 
+> **Ejecutada y superada** (3e301bd, 7a18889, 3432130 y un ajuste). `kpis_sec` da filas idénticas a las de ese ticker en un `build_panel` de varios (nada antes de los z depende del universo), y una empresa de la SEC sin sector conserva sus filas. En vivo, sin errores de factor: TSM, SHEL.L (peniques), WALMEX.MX, RY, NVO y TM/7203.T dan PER, márgenes y P/VL del orden de los de Yahoo, y yfinance da las ADR en base ADR (recuento, BPA y precio). La revisión cambió tres cosas: sin precio, la vía de la SEC dice `sin_precio` (con un universo de uno `build_panel` aborta) y no `sin_estados`; `kpis_yf` devuelve `(filas, motivo)` y dice `sin_precio` si no hay ni un precio en dólares, en vez de unas filas sin valoración que saldrían «pilar sin datos»; y los cierres de ejercicio son sólo los años con ancla (el anual de RY y TM trae columnas de doce meses móviles que cotizaban con 65 días en vez de 45). Los plazos de 45/65 días son los de la SEC y fuera de ella una aproximación. Manda el código vivo.
+
 **Files:**
 - Create: `analizador/kpis.py`
 - Test: `tests/test_analizador_kpis.py`
