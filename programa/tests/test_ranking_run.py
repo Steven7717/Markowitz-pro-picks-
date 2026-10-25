@@ -585,3 +585,23 @@ def test_si_el_panel_no_se_puede_convertir_no_se_toca_nada(sin_red, tmp_path: Pa
     assert (tmp_path / "fichas.json").read_text(encoding="utf-8") == "[]"
     assert (tmp_path / "panel.parquet").read_bytes() == b"viejo"
     assert not (tmp_path / "ranking.csv").exists()
+
+
+def test_si_falla_la_escritura_del_panel_no_queda_el_viejo(sin_red, tmp_path: Path):
+    """Un fallo del disco ya con las fichas nuevas escritas (un bloqueo de
+    Windows al abrir el fichero) deja la carpeta sin panel, que el Analizador
+    sabe tratar, y no con el de la corrida anterior."""
+    (tmp_path / "panel.parquet").write_bytes(b"viejo")
+    resultado = construir_ranking(con_llm=False, n=5)
+    escribir = Path.write_bytes
+
+    def falla_el_panel(ruta, datos):
+        if ruta.name == "panel.parquet":
+            raise PermissionError("bloqueado")
+        return escribir(ruta, datos)
+
+    with patch.object(Path, "write_bytes", falla_el_panel):
+        with pytest.raises(PermissionError):
+            guardar(resultado, tmp_path)
+    assert (tmp_path / "fichas.json").exists()
+    assert not (tmp_path / "panel.parquet").exists()

@@ -229,6 +229,12 @@ def guardar(resultado: Resultado, destino: Path) -> None:
 
     destino = Path(destino)
     destino.mkdir(parents=True, exist_ok=True)
+    # El panel de la corrida anterior se borra antes de escribir nada: sin
+    # panel, el de antes mentiría (el Analizador compararía contra una
+    # referencia que no es la de estos candidatos), y si la escritura falla a
+    # mitad la carpeta queda sin panel, no con el viejo. Sin fichero, el
+    # Analizador ofrece reconstruirlo.
+    (destino / "panel.parquet").unlink(missing_ok=True)
 
     resultado.tabla.to_csv(destino / "ranking.csv")
     (destino / "fichas.json").write_text(
@@ -242,10 +248,5 @@ def guardar(resultado: Resultado, destino: Path) -> None:
         json.dumps(resultado.corrida, ensure_ascii=False, indent=2, allow_nan=False),
         encoding="utf-8",
     )
-    if panel_parquet is None:
-        # Sin panel, el de la corrida anterior mentiría: el Analizador
-        # compararía contra una referencia que no es la de estos candidatos. Sin
-        # fichero, en cambio, ofrece reconstruirlo.
-        (destino / "panel.parquet").unlink(missing_ok=True)
-    else:
+    if panel_parquet is not None:
         (destino / "panel.parquet").write_bytes(panel_parquet)
