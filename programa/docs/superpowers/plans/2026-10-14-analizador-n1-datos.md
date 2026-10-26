@@ -4153,6 +4153,8 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 ### Task 14: Un ticker de punta a punta
 
+> **Ejecutada y superada** (e7e30b3, 7bc4523 y un ajuste). En vivo contra el panel real del S&P 500 (502 empresas, 423 supervivientes, 2026Q3), ningún motivo culpa a quien no es: MU y NVDA dan su ficha de candidatas idéntica; DUOL, TSM, AMX, WALMEX.MX, SHEL.L y 7203.T se insertan con un puesto creíble; SPY sólo identidad, ZZZZQ `sin_red`, CEF `sin_sector` sin bajar nada. La revisión añadió los tests de la rama de yfinance de `_filas_propias` (el par invertido o las monedas cruzadas pasaban los 11 tests), una guarda que dice `sin_precio` sin ninguna moneda en vez de pedir `NoneUSD=X`, y aisló `entradas` y `valorar` como `ranking.run._valoracion`: un defecto en la valoración deja `error_interno` en ella y conserva la clase, la identidad, la referencia y, si llegaron, las entradas. Coste: 10 tickers en frío 38 s (90 % red). Manda el código vivo.
+
 **Files:**
 - Create: `analizador/analisis.py`
 - Test: `tests/test_analizador_analisis.py`
