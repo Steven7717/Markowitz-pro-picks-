@@ -4663,6 +4663,8 @@ Expected: vacío, salvo un test nuevo commiteado si algún sabotaje no tumbó na
 
 ### Task 17: Suite completa y recorrido con datos reales
 
+> **Ejecutada** (10d218d) el 2026-10-25. Suite: 3166 passed, 5 skipped (antes del plan, 2791). El script añade la beta con su r², el precio y el valor base en la moneda del precio, y no dice `ref=ok` ni `adr=ok` donde no hay referencia o cociente. Recorrido de 16 tickers con el panel construido en memoria (unos 2 minutos; nada en `salidas/`): todos salen como se esperaba. MU 1/423 flujos; WALMEX.MX 132/424 en MXN con Bono M; TSM 25/424 desde TWD; JPM `pilar_sin_datos` residual; SPY etf; BRK-B residual pero `sin_datos` (su XBRL no trae recuento ni BPA diluidos: límite heredado de M); RY.TO residual desde CAD; AMX 234/424 en MXN, beta 0,81 contra el IPC; SHEL.L en peniques, beta real ≈ 0; DUOL 38/424 con sector de Yahoo; AAPL.MX par de sí misma (para N2); NVO desde DKK; 7203.T `en_rango` sin valor base (quema caja); BRK.B normalizado a BRK-B; ZZZZQ `sin_red`; ^GSPC `tipo_no_soportado`. Entre 0,4 y 2,6 s por ticker con la caché casi llena.
+
 **Files:**
 - Create: `scripts/sondear_analizador.py`
 
