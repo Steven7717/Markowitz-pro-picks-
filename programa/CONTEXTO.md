@@ -1729,7 +1729,7 @@ tumban al menos un test cada uno.
 | **Los suelos de `fundamentals.kpis` están en dólares** (1e8 de balance, 1e6 de gasto financiero): en wones, el del gasto financiero valdría 745 $ | Medido en la revisión de la Task 6; los KPIs pasan a dólares en la Task 12 |
 | El `desde` del Bono M era móvil: la clave de la caché cambiaba cada día y se perdía el respaldo sin red | Revisión de la Task 7 |
 | `Divisa.a_dict` decía `sin_prima_pais` cuando medía si los estados se convirtieron: NPN.JO o TEVA.TA presentan en dólares y van sin prima, igual que TSM | Revisión de la Task 7; la prima sale del país en la Task 13 |
-| La beta regresaba el precio en dólares de AMX contra el IPC en pesos: 1,036 frente a 0,834 de AMXB.MX; FMX 0,841 frente a 0,644 de FEMSAUBD.MX | Medido el 2026-10-19 al corregir el plan de la Task 13 |
+| La beta regresaba el precio en dólares de AMX contra el IPC en pesos: 1,036 frente a 0,834 de AMXB.MX; FMX 0,841 frente a 0,644 de FEMSAUBD.MX | La revisión de la Task 7, al recorrer AMX y FMX en vivo; medido el 2026-10-19 y corregido en el plan de la Task 13 (`mercado.beta` con par) |
 | **Mover la tasa libre no rehacía el crecimiento perpetuo ni el tope del coste de la deuda**: en pesos, la misma tasa del 3 % daba 581 puesta a mano y 646 movida desde el Bono M (ahora 581,41 y 581,38) | Revisión de la Task 8 |
 | `aplicar` aceptaba lo que rompe las fórmulas: coste del capital ≤ 0 (dividía por cero en el EPV), reparto fuera de [0, 1], tasa fuera de [0, 1) | Revisión de la Task 8 |
 | `aplicar` contaba como movido un cambio a su propio valor | Revisión de la Task 8 |
