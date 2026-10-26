@@ -1623,8 +1623,10 @@ pequeña de NASDAQ antes de comprarla no tenía con qué ponerla al lado. N1 apl
 a cualquier ticker la misma ficha frente al sector y el mismo valor intrínseco, y lo difícil
 no es la fórmula, que es la de M, sino que los números de fuera de la SEC
 lleguen en la misma base: la misma moneda, los mismos trimestres y las mismas
-líneas. **No tiene pantalla**: `analisis.analizar(ticker)` se llama desde un
-script, y lo que el usuario verá lo decide N2.
+líneas. **No tiene pantalla**: `analisis.analizar(ticker, panel,
+tabla_sectores=None)`, o `analisis.analizar_varios(tickers, ruta_panel=None,
+tabla_sectores=None)` para que cargue el panel, se llama desde un script, y lo
+que el usuario verá lo decide N2.
 
 ### Qué entrega
 
@@ -1813,10 +1815,13 @@ cuando se escriba; esto es lo que no puede olvidar:
   error.
 - **Cada motivo, con su rótulo y su causa.** `sin_red` también es un ticker que
   Yahoo no conoce; `sin_bono_m` lleva el motivo concreto en
-  `Entradas.motivo_r_f`; una valoración con pares `no_aplica/sin_pares` cuya
-  causa es la empresa la dice en `motivo_referencia` (BRK-B dice `sin_pares`
-  aunque su sector los tiene: lo que faltan son sus múltiplos); y una ficha con
-  veredicto y sin valor base (7203.T) necesita el suyo.
+  `Entradas.motivo_r_f`; una valoración con pares `no_aplica/sin_pares` no
+  dice si faltan los pares o los múltiplos de la empresa: sin ficha frente al
+  sector, la causa está en `motivo_referencia`, y con ficha, en
+  `referencia.exclusion == "pilar_sin_datos"` o en que su pilar de valoración
+  sea `None` (BRK-B está en el panel, su `motivo_referencia` es `None` y dice
+  `sin_pares` aunque su sector los tiene: lo que faltan son sus múltiplos); y
+  una ficha con veredicto y sin valor base (7203.T) necesita el suyo.
 - **AAPL.MX es par de sí misma**: entra junto a AAPL, con un valor base de
   137,6 $ frente a 183,0. Avisar, o tratar como la base un `X.MX` cuya base está
   en el panel.

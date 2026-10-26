@@ -12,7 +12,7 @@
 
 ## Por qué N se parte en tres planes
 
-El spec de N (`docs/superpowers/specs/2026-10-12-analizador-individual-design.md`) abarca subsistemas que se prueban por separado: los datos de cualquier ticker, la pantalla con el gráfico y el gate, y la IA. Este plan es **N1, los datos**: produce un paquete con tests y una función `analisis.analizar(ticker)` que se puede llamar desde un script. **N2** (la pantalla Analizador, que absorbe Noticias y calendario, con el gráfico, los deslizadores, «Analizar a fondo» y «Añadir a la revisión») y **N3** (los cuatro bloques de IA y el archivo `analisis/`) se escriben después, sobre el código real de N1.
+El spec de N (`docs/superpowers/specs/2026-10-12-analizador-individual-design.md`) abarca subsistemas que se prueban por separado: los datos de cualquier ticker, la pantalla con el gráfico y el gate, y la IA. Este plan es **N1, los datos**: produce un paquete con tests y una función `analisis.analizar(ticker, panel, tabla_sectores=None)` que se puede llamar desde un script, o `analisis.analizar_varios(tickers, ruta_panel=None, tabla_sectores=None)` si se quiere que cargue el panel. **N2** (la pantalla Analizador, que absorbe Noticias y calendario, con el gráfico, los deslizadores, «Analizar a fondo» y «Añadir a la revisión») y **N3** (los cuatro bloques de IA y el archivo `analisis/`) se escriben después, sobre el código real de N1.
 
 ## Lo que el sondeo del 2026-10-14 cambió del spec
 
