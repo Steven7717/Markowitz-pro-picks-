@@ -4784,6 +4784,8 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 ### Task 18: El spec y CONTEXTO.md
 
+> **Ejecutada** (9a8aa21, c8a9714) el 2026-10-25: la enmienda del spec lleva 26 puntos y CONTEXTO una sección de N1 con 45 defectos; la revisión final de N1 la dio por buena y sus menores se cerraron en 5198cf5, 01282b5, 18a5a2a, 0a03990 y 5132606.
+
 **Files:**
 - Modify: `docs/superpowers/specs/2026-10-12-analizador-individual-design.md`
 - Modify: `CONTEXTO.md`
