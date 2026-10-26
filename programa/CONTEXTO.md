@@ -1,20 +1,33 @@
 # Contexto del proyecto — para retomar en una sesión nueva
 
-**Última actualización:** 2026-10-14
-**Rama:** `master` · **Tests:** 2.791 pasando (`uv run pytest tests/ -q -m "not red"`), 5 omitidos —dos por permisos POSIX en Windows y tres sin `numpy_financial`— más 26 marcados `red`
+**Última actualización:** 2026-10-25
+**Rama:** `feat/analizador-individual`, sin fusionar · **Tests:** 3.166 pasando (`uv run pytest tests/ -q -m "not red"`), 5 omitidos —dos por permisos POSIX en Windows y tres sin `numpy_financial`— más 38 marcados `red`
 **Remoto:** `https://github.com/Steven7717/Markowitz-pro-picks-.git` — `master` es lo publicado
 **Estructura:** el programa vive en `programa/`; en la raíz sólo están los dos
 lanzadores y el `README.md`. Los comandos (`uv run pytest`, `uv run streamlit`)
 se ejecutan desde `programa/`, no desde la raíz.
 
-> **Al retomar:** todo está en `master` y publicado, y no queda nada sin
-> fusionar. Lo último que entró, el 2026-10-14, fue el sub-proyecto M: el valor
-> intrínseco de cada candidato en Revisar candidatos —cuatro lecturas, tres
-> votos y un veredicto, con sus supuestos y su procedencia—. Ver «Resultado del
-> sub-proyecto M». La rama `feat/valor-intrinseco` ya se borró. **Lo siguiente es
-> el N, el Analizador individual**: tiene spec
-> (`docs/superpowers/specs/2026-10-12-analizador-individual-design.md`) y su plan
-> aún no está escrito.
+> **Al retomar:** N1, la primera parte del Analizador individual, está hecho en
+> la rama `feat/analizador-individual`, **sin fusionar** a `master`. Es el
+> paquete `analizador/`, que analiza cualquier ticker —una empresa de la SEC,
+> una extranjera, una de la BMV o un ETF— con la misma ficha frente al sector y
+> el mismo valor intrínseco que los candidatos, todavía sin pantalla. Ver
+> «Sub-proyecto N, parte 1: los datos de cualquier ticker». **Lo siguiente es
+> escribir el plan de N2**, la pantalla, sobre el código real de N1; después
+> vendrá N3, la IA. El spec
+> (`docs/superpowers/specs/2026-10-12-analizador-individual-design.md`) lleva al
+> final sus enmiendas del 2026-10-14, que mandan sobre el texto de arriba.
+>
+> **Hay un test roto conocido, fuera de N:**
+> `tests/test_seguimiento_rendimiento.py::test_contraste_contra_numpy_financial`
+> llama a `numpy_financial.xirr`, que no existe. No está marcado `red`: se omite
+> porque `numpy_financial` no está instalado —son dos de los cinco omitidos, uno
+> por caso—, y por eso la suite no lo ve. Se arreglará al terminar N.
+>
+> Lo último que entró en `master`, el 2026-10-14, fue el sub-proyecto M: el
+> valor intrínseco de cada candidato en Revisar candidatos —cuatro lecturas,
+> tres votos y un veredicto, con sus supuestos y su procedencia—. Ver
+> «Resultado del sub-proyecto M». La rama `feat/valor-intrinseco` ya se borró.
 >
 > Antes, el 2026-09-28, entró el sub-proyecto L: la fila
 > «En pesos (MXN)» de Seguimiento —TWR y TIR en pesos con el FIX de cada día, y
@@ -73,7 +86,7 @@ El objetivo mayor es construir, **aguas arriba de esa app**, un sistema donde un
 | K | El panel de seguimiento | Monitor real de la cartera | ✅ **terminado** |
 | L | Rendimiento real en pesos (MXN) | TWR/TIR en pesos y reales (Fisher), vía Banxico | ✅ **terminado** |
 | M | Valor intrínseco | Veredicto por cuatro lecturas y tres votos en cada candidato | ✅ **terminado** |
-| N | Analizador individual | La mecánica de candidatos para cualquier ticker, con gráfico, noticias e IA | ⏳ **diseñado** |
+| N | Analizador individual | La mecánica de candidatos para cualquier ticker, con gráfico, noticias e IA | 🔨 **en curso**: N1 (datos) hecho; N2 (pantalla) y N3 (IA) pendientes |
 
 ## Resultado del sub-proyecto D
 
@@ -1591,6 +1604,262 @@ del spec—. Un veredicto firme de cada seis. No se movió ningún listón.
   - El beneficio residual está sin medir: el ranking deja fuera a los bancos y a
     las aseguradoras salvo MET.
 
+## Sub-proyecto N, parte 1: los datos de cualquier ticker
+
+Paquete `analizador/` (lógica, sin Streamlit), con **375 tests más** que antes
+del plan —de 2.791 a 3.166— y **12 marcados `red`**, que pasan contra yfinance,
+EDGAR y Banxico vivos el 2026-10-25. N se partió en tres planes que se ejecutan
+en orden: **N1, los datos**, que es éste; N2, la pantalla, y N3, la IA, que se
+escriben después sobre su código real. Está en la rama
+`feat/analizador-individual`, **sin fusionar**. Spec:
+`docs/superpowers/specs/2026-10-12-analizador-individual-design.md`, con sus
+enmiendas del 2026-10-14 al final, que mandan sobre el texto de arriba; plan:
+`docs/superpowers/plans/2026-10-14-analizador-n1-datos.md`, donde cada tarea
+lleva al principio lo que encontró su revisión.
+
+Hasta N, el programa sabía valorar las quince candidatas, todas del S&P 500,
+con estados de la SEC y en dólares. Quien quiere mirar WALMEX, TSM o una
+pequeña de NASDAQ antes de comprarla no tenía con qué ponerla al lado. N1 aplica
+a cualquier ticker la misma ficha frente al sector y el mismo valor intrínseco, y lo difícil
+no es la fórmula, que es la de M, sino que los números de fuera de la SEC
+lleguen en la misma base: la misma moneda, los mismos trimestres y las mismas
+líneas. **No tiene pantalla**: `analisis.analizar(ticker)` se llama desde un
+script, y lo que el usuario verá lo decide N2.
+
+### Qué entrega
+
+- **`analizador/resolver.py`**: la forma del ticker (`normalizar`, `separar`),
+  con una tabla cerrada de sufijos de bolsa —`BRK.B` da `BRK-B` y `WALMEX.MX` se
+  queda—, el `&` de `PE&OLES.MX` y la limpieza de lo que se pega de una web; la
+  identidad de Yahoo y la clase, `sec`, `extranjera_sec`, `sin_sec` o `etf`, por
+  el último informe anual en EDGAR. Sin clase, el motivo: `sin_red`,
+  `tipo_no_soportado`, `sin_red_edgar` o `sin_identidad_edgar`.
+- **`sectores.py`**: el sector GICS, de la tabla congelada del S&P 500 primero y,
+  si no está, del de Yahoo traducido con otra tabla congelada.
+- **`lineas_yf.py`**: los estados de yfinance en las columnas de
+  `fundamentals.concepts`, con el capex cambiado de signo, una fila por
+  trimestre natural, el trimestre que falta rellenado desde el anual cuando las
+  cifras cuadran, los KPIs trimestrales con las funciones de `fundamentals.kpis`
+  y los `Fundamentos` anuales de M.
+- **`divisas.py`**: en qué moneda se valora (dólares, pesos, o convertida a
+  dólares), la conversión de los estados y del perfil —con las subunidades de
+  Londres, Johannesburgo, Tel Aviv y Kuwait—, el Bono M de Banxico (`SF44071`) y
+  el cociente de la ADR con su aviso.
+- **`referencia.py`**: el panel del S&P 500 en disco (`cargar_panel`) y la ficha
+  frente al sector (`frente_al_sector`): idéntica a la de candidatos si el
+  ticker está en el panel, y con sus filas insertadas en su sector si no, con
+  las mismas funciones del ranking y el puesto global.
+- **`kpis.py`**: las filas de un ticker fuera del panel. `kpis_sec`, con un
+  `build_panel` de uno; `kpis_yf`, con el precio del día de publicación de cada
+  trimestre, en dólares.
+- **`valorar.py`**: `entradas` va una sola vez a la red; `valorar` y
+  `sensibilidad` son aritmética pura, con o sin cambios, que es lo que llamarán
+  los deslizadores sin volver a pedir nada.
+- **`analisis.py`**: `analizar` y `analizar_varios`, un ticker de punta a punta
+  en un `Analisis`. Un ticker que falla sólo se lleva su fila; un defecto propio
+  deja `error_interno` y su traceback en el log, y si es al valorar, la ficha se
+  queda.
+- **Fuera del paquete**: `valoracion/mercado.py` gana `identidad`, `estados`,
+  `tipo_de_cambio`, la beta con par (`tipo_sin_picos`) y `SUBUNIDADES`;
+  `valoracion/supuestos.py`, la procedencia de la tasa libre, `aplicar` y
+  `exigir_costes_positivos`; `valoracion/dcf.py`, `sensibilidad`;
+  `valoracion/motor.py`, `datos_dcf` y `puente`; `medidores_valoracion.py`, los
+  textos del Bono M, de `sin_bono_m` y de lo que mueve o pone el usuario;
+  `fundamentals/run.py`, `anadir_zscores` pública y `min_obs`; `ranking/run.py`,
+  `Resultado.panel` y **`salidas/panel.parquet`**, que cada corrida de candidatos
+  deja para el Analizador; y `scripts/sondear_analizador.py`, el recorrido con
+  datos reales, sin pantalla.
+
+### Decisiones que no hay que relitigar
+
+- **yfinance ya da TSM en base ADR.** El cociente de la ADR es una guarda que
+  avisa, no una corrección.
+- **Una fila por trimestre natural**, y el que falta se rellena como el año menos
+  los otros tres, sólo si las cifras cuadran.
+- **`Operating Income` → `EBIT`, fila a fila**, como `resolve_lines`.
+- **La valoración de yfinance usa ejercicios completos, sin TTM**:
+  `ejercicios[i]` es «hace i años».
+- **La clase sale del último informe anual en EDGAR**, no de `is_foreign`; un
+  ticker con sufijo de bolsa no se pregunta.
+- **El Bono M es `SF44071`**, de subasta, con su fecha en la procedencia y
+  fijado por un test `red`.
+- **Pares de divisa `<ORIGEN><DESTINO>=X`**; `^MXX` es el IPC.
+- **yfinance entra sólo por `valoracion/mercado.py`**, también la identidad, los
+  estados y los tipos de cambio; `analizador/.cache/` sólo guarda formularios de
+  EDGAR.
+- **El puesto es el global**, sin el tope por sector, y `desplazo_a` va vacío.
+- **Las filas posteriores al último trimestre del panel no entran.**
+- **Con el precio y los estados en monedas distintas**, cada fecha con su tipo
+  de cambio para los múltiplos.
+- **Los KPIs de yfinance van en dólares, con un único tipo**, para que los suelos
+  de `fundamentals.kpis` valgan lo mismo que en el panel.
+- **La beta con par usa el semanal de Yahoo sin sus picos**, que descarta el
+  diario, y el precio se regresa en la moneda del índice.
+- **`sin_bono_m`, no `sin_tasa_libre`**, para una emisora en pesos sin Bono M.
+
+### Cuarenta y cinco defectos, y la lección de M otra vez
+
+N1 se ejecutó tarea a tarea, de la 1 a la 14 cada una con su revisión, y las que
+tocan datos se pasaron por tickers reales —37 en la Task 5, 79 en la 6, nueve en
+la 7, el panel real del S&P 500 en la 14—. Las Tasks 15 y 16 no encontraron
+ninguno: los
+12 tests `red` pasan contra las fuentes vivas, y los 19 sabotajes de la 16
+tumban al menos un test cada uno.
+
+| Defecto | Cómo se detectó |
+|---|---|
+| La forma del ticker no admitía el `&` de `PE&OLES.MX` o `M&M.NS` | Revisión de la Task 1 |
+| Lo que se pega de una web traía formas Unicode sin normalizar y caracteres invisibles: `_limpiar` (NFKC), y luego toda la categoría `Cf`, marcas de dirección incluidas | Revisiones de las Tasks 1 y 4 |
+| Una celda de sector vacía (NaN) en la tabla del S&P 500 no recurría a Yahoo | Revisión de la Task 2 |
+| El sector de Yahoo, traducido, se daba por GICS, y Yahoo clasifica con Morningstar: 5 de 119 empresas del S&P 500 (un 4 %) caen en otro sector, como los envases SW, AVY y AMCR | Revisión de la Task 2 |
+| **Un estado que llega vacío —yfinance se traga los 429— pisaba el guardado** | Revisión de la Task 3 |
+| Londres cotiza en peniques (`GBp`) y yfinance lo leía como libras: `mercado.SUBUNIDADES` | Revisión de la Task 3 |
+| Yahoo da la capitalización de Londres en libras con el precio en peniques (SHEL.L: capitalización ÷ precio = acciones ÷ 100) | Revisión de la Task 3; lo corrigen `divisas.perfil_en` y `kpis.kpis_yf` |
+| Lo que la caché de estados conservaba no caducaba, y una identidad parcial (sin sector, industria ni país) no traía el precio nuevo | Revisión de la Task 3 |
+| Un tipo de cambio guardado sin valor válido (texto, cero, negativo, NaN) se servía | Revisión de la Task 3 |
+| **Un corte al bajar la lista de tickers de la SEC se guardaba 30 días como «EDGAR no la conoce»**: edgartools memoriza el fallo en el proceso. Ahora es `sin_red_edgar`, y un `()` vale un día, también sin red | Revisión de la Task 4 |
+| La clase salía de «alguna vez presentó» y no del último informe anual, y averiguarlo le costaba a JPM 71 peticiones | Revisión de la Task 4 |
+| El relleno desde el anual se fiaba de cifras de Yahoo que no cuadran: WALMEX, intereses a 0,0 en los trimestres y el año entero en el 3T (cobertura de 2,09 contra una real de 8,3); HSBC, amortización negativa | Revisión de la Task 5, con 37 tickers reales |
+| Un anual de transición se trataba como un año | Revisión de la Task 5 |
+| La fecha del trimestre que falta: desde un día que no es fin de mes, `MonthEnd(3)` caía en el mismo trimestre (del 28 de enero, al 31 de marzo) | Revisión de la Task 5 |
+| Un trimestre con ingresos negativos dejaba rellenar su ejercicio: GFNORTEO, 2T 2025 con ingresos de −13.555 M, y un 3T rellenado de 28.296 M, 1,8 veces el resto | Task 6 |
+| La guarda del trimestre roto era demasiado amplia y tiraba el 1T de NVO, que cuadra con lo publicado: se acotó a unos ingresos negativos | Revisión de la Task 6, con 79 tickers reales |
+| El trimestre roto entraba en los KPIs, también su BPA declarado (en el PER de doce meses y `crecimiento_bpa`), y salían filas sin ningún KPI | Revisión de la Task 6 |
+| Una fila de doce meses móviles con sólo el beneficio hacía corto al ejercicio siguiente | Revisión de la Task 6 |
+| **Los suelos de `fundamentals.kpis` están en dólares** (1e8 de balance, 1e6 de gasto financiero): en wones, el del gasto financiero valdría 745 $ | Medido en la revisión de la Task 6; los KPIs pasan a dólares en la Task 12 |
+| El `desde` del Bono M era móvil: la clave de la caché cambiaba cada día y se perdía el respaldo sin red | Revisión de la Task 7 |
+| `Divisa.a_dict` decía `sin_prima_pais` cuando medía si los estados se convirtieron: NPN.JO o TEVA.TA presentan en dólares y van sin prima, igual que TSM | Revisión de la Task 7; la prima sale del país en la Task 13 |
+| La beta regresaba el precio en dólares de AMX contra el IPC en pesos: 1,036 frente a 0,834 de AMXB.MX; FMX 0,841 frente a 0,644 de FEMSAUBD.MX | Medido el 2026-10-19 al corregir el plan de la Task 13 |
+| **Mover la tasa libre no rehacía el crecimiento perpetuo ni el tope del coste de la deuda**: en pesos, la misma tasa del 3 % daba 581 puesta a mano y 646 movida desde el Bono M (ahora 581,41 y 581,38) | Revisión de la Task 8 |
+| `aplicar` aceptaba lo que rompe las fórmulas: coste del capital ≤ 0 (dividía por cero en el EPV), reparto fuera de [0, 1], tasa fuera de [0, 1) | Revisión de la Task 8 |
+| `aplicar` contaba como movido un cambio a su propio valor | Revisión de la Task 8 |
+| Una casilla de la sensibilidad con coste de capital no positivo daba valor | Revisión de la Task 9 |
+| El puente del DCF (deuda, efectivo y acciones) estaba en dos sitios: si la tabla lo tratara de otra forma, su casilla central no sería el valor base | Revisión de la Task 9 |
+| **El `panel.parquet` de una corrida anterior sobrevivía junto a fichas nuevas** (una corrida sin panel, o un fallo al escribirlo) | Revisión de la Task 10 |
+| Con un universo vacío, `build_panel` no trae el índice `(ticker, periodo)`: `Resultado.panel` es `None` | Task 10 |
+| El test de la ficha idéntica no barajaba el panel: quitar el `sort_index()` no lo notaba nadie | Revisión de la Task 11 |
+| **`cargar_panel` lanzaba con un fichero alterado**: pyarrow lanza su `ArrowException` base, `KeyError` o `TypeError`, no sólo `ValueError`/`OSError`; y daba por bueno un panel vacío o con filas repetidas | Revisión de la Task 11 |
+| El `trimestre` de las filas insertadas no iba como texto, como el del panel | Revisión de la Task 11 |
+| Un sector sin pares en el panel salía «pilar sin datos», que culpa a la empresa | Revisión de la Task 11; `sector_sin_pares` en la Task 14 |
+| Sin precio, la vía de la SEC decía `sin_estados`: con un universo de uno, `build_panel` aborta | Revisión de la Task 12 |
+| Sin un solo precio en dólares, `kpis_yf` daba unas filas sin valoración que saldrían «pilar sin datos» | Revisión de la Task 12 |
+| Sin trimestres, `kpis_yf` decía `sin_precio`, y un precio parcial se tomaba por ninguno | Revisión de la Task 12 |
+| Los cierres de ejercicio incluían las columnas de doce meses móviles del anual de RY y TM, y esos trimestres cotizaban con 65 días en vez de 45 | Revisión de la Task 12 |
+| **El semanal de los pares `=X` de Yahoo trae velas corruptas**: CADUSD=X marcaba 0,911 entre dos semanas de 0,70, y RY.TO salía con beta 0,27 (r² 0,02) en vez de 0,46 | Revisión de la Task 13 |
+| El diario de los pares, que lo sustituyó, no es el cierre del día sino una foto a medianoche de Londres: AMX daba 0,90 en vez de 0,79 | Revisión de la Task 13 |
+| Con `period="2y"` el diario empieza una semana después que el semanal, y la primera semana de toda beta con par se descartaba | Revisión de la Task 13 |
+| La tasa libre puesta a mano sin Bono M no pasaba por las guardas de `aplicar`: con un −5 %, WALMEX salía con un coste del capital propio negativo y un valor base | Revisión de la Task 13 |
+| La rama de yfinance de `_filas_propias` no tenía tests: el par invertido o las monedas cruzadas pasaban los 11 que había | Revisión de la Task 14 |
+| Sin ninguna moneda se pedía `NoneUSD=X`, un 404 que culparía a la red | Revisión de la Task 14 |
+| Un defecto al valorar se llevaba la fila entera, ficha incluida | Revisión de la Task 14 |
+| El script del recorrido, como lo traía el plan, decía `ref=ok` y `adr=ok` donde no había referencia ni cociente | Ejecución de la Task 17 |
+
+**La lección de M —un motivo es una afirmación, y hay que medirla— se cumplió
+seis veces más**: un corte de EDGAR guardado como «no la conoce»; un sector sin
+pares y un precio que Yahoo no dio, presentados como «pilar sin datos»; ese
+mismo precio presentado como «sin estados» en la vía de la SEC; una empresa sin
+trimestres presentada como «sin precio», y un par de divisas inventado que
+habría salido «sin red». **Y N1 añade la suya: lo que devuelve yfinance tiene
+forma de dato aunque no lo sea.** Ocho de los cuarenta y cinco eran eso —un
+estado vacío, peniques leídos como libras, una capitalización en libras con el
+precio en peniques, cifras que no cuadran, unos ingresos negativos, columnas de
+doce meses móviles en el anual, velas semanales corruptas y un diario con un día
+de retraso—, y ninguno lanza: llegan como cualquier otro dato, y ninguna ficha
+inventada los habría tenido.
+
+### El recorrido de la Task 17
+
+`scripts/sondear_analizador.py` sobre dieciséis tickers, el 2026-10-25, con el
+panel del S&P 500 construido en memoria (unos dos minutos; nada en `salidas/`) y
+luego entre 0,4 y 2,6 s por ticker con la caché casi llena. Todos salen como se
+esperaba. El precio y el valor base van en la moneda del precio.
+
+| Ticker | Lo que sale |
+|---|---|
+| MU | `sec`, Information Technology del S&P 500. Puesto 1 de 423, su ficha de candidatas. Flujos; beta 2,53 (r² 0,30). 877,55 $ frente a un valor base de 695,29: en rango |
+| WALMEX.MX | `sin_sec`, Consumer Staples de Yahoo. 132 de 424. En pesos con el Bono M; beta 0,81 (r² 0,27) contra el IPC. 50,73 MXN frente a 41,62: en rango |
+| TSM | `extranjera_sec`, Information Technology de Yahoo. 25 de 424. Estados de TWD a dólares; beta 1,45 (r² 0,45). 418,51 $ frente a 287,74: en rango |
+| JPM | `sec`, Financials. Sin puesto: `pilar_sin_datos`, como en el ranking. Beneficio residual; beta 1,07 (r² 0,44). 331,58 $ frente a 395,92: en rango |
+| SPY | `etf`: sólo identidad |
+| BRK-B | `sec`, Financials, `pilar_sin_datos`. Residual; beta 0,38 (r² 0,12); 882,49 $ de valor base frente a 542,19, pero `sin_datos`: su XBRL no trae recuento ni BPA diluidos (los da en «Class A equivalent»), así que no tiene múltiplos ni voto de pares, y como financiera no vota EPV. Límite heredado de M. BRK-A da casi lo mismo en su base: 1.350.213 $ por A son 900 por B, y el 2 % de diferencia es la beta de cada clase |
+| BRK.B | Se normaliza a BRK-B |
+| RY.TO | `sin_sec`, Financials de Yahoo, `pilar_sin_datos`. Residual, con los estados de CAD a dólares; beta 0,46 (r² 0,21). 281,77 CAD frente a 267,25: en rango |
+| AMX | `extranjera_sec`, Communication Services de Yahoo. 234 de 424. Cotiza en dólares y se valora en pesos con el Bono M; beta 0,81 (r² 0,25) contra el IPC. 24,57 $ frente a 29,69: en rango |
+| SHEL.L | `sin_sec`, Energy de Yahoo. 149 de 424. Precio en peniques y estados en dólares; beta −0,006 con r² 0,000, que es real (SHEL en Nueva York da 0,018). 4.033 GBp frente a 5.080,14: infravalorada |
+| DUOL | `sec` de fuera del S&P 500, Information Technology de Yahoo. 38 de 424; beta 1,49 (r² 0,15). 143,04 $ frente a 354,58: en rango |
+| AAPL.MX | `sin_sec`, Information Technology de Yahoo. 217 de 424, al lado de la propia AAPL: es par de sí misma (para N2). 6.471,92 MXN frente a 2.566,49: en rango |
+| NVO | `extranjera_sec`, Health Care de Yahoo. 52 de 424. Estados de DKK a dólares; beta 1,10 (r² 0,10). 39,05 $ frente a 60,41: en rango |
+| 7203.T | `sin_sec`, Consumer Discretionary de Yahoo. 371 de 424; beta 0,36 (r² 0,04). 3.119 JPY y sin valor base: el voto de flujos es `no_aplica` porque quema caja (capex mayor que el flujo operativo, por su financiera cautiva), y deciden EPV y pares: en rango |
+| ZZZZQ | `sin_red` |
+| ^GSPC | `tipo_no_soportado` |
+
+### Lo que queda para N2 y N3
+
+- **N2, la pantalla**: la pantalla Analizador entera, que absorbe Noticias y
+  calendario; el gráfico de TradingView; los deslizadores con `aplicar` y
+  `sensibilidad`; «Analizar a fondo» desde candidatos; y el gate, «Añadir a la
+  revisión», con `Anadido.valoracion` en el acta.
+- **N3, la IA**: los cuatro bloques —tesis y riesgos, los 8-K, explicar la
+  valoración y contrastar con el MD&A— y su archivo `analisis/`.
+
+De las revisiones de N1 salieron avisos para N2. El detalle irá en su plan
+cuando se escriba; esto es lo que no puede olvidar:
+
+- **Los valores salen en la moneda de la valoración.** Para enseñarlos en la del
+  precio, que es lo que pide el spec, se dividen por `divisa.tipo_precio` (AMX:
+  554,5 MXN son 29,69 $). El margen de seguridad es el mismo en las dos.
+- **El puesto es el global**: «puesto global entre N», y que el «de 424» de las
+  insertadas, que se cuentan a sí mismas, frente al «de 423» no parezca un
+  error.
+- **Cada motivo, con su rótulo y su causa.** `sin_red` también es un ticker que
+  Yahoo no conoce; `sin_bono_m` lleva el motivo concreto en
+  `Entradas.motivo_r_f`; una valoración con pares `no_aplica/sin_pares` cuya
+  causa es la empresa la dice en `motivo_referencia` (BRK-B dice `sin_pares`
+  aunque su sector los tiene: lo que faltan son sus múltiplos); y una ficha con
+  veredicto y sin valor base (7203.T) necesita el suyo.
+- **AAPL.MX es par de sí misma**: entra junto a AAPL, con un valor base de
+  137,6 $ frente a 183,0. Avisar, o tratar como la base un `X.MX` cuya base está
+  en el panel.
+- **Un panel viejo deja fuera a los de yfinance** por `historia_corta`, cuando
+  el problema es el panel: enseñar su fecha y ofrecer regenerarlo si queda
+  atrás del último trimestre del ticker.
+- **El voto de pares vota aunque una guarda excluya a la empresa** (JPM y NU por
+  `pilar_sin_datos`; NESN.SW, 0700.HK y RIO.L por `historia_corta`, porque
+  publican cada semestre). En el ranking nunca pasa: enseñar la exclusión junto
+  al voto, o decidir que no vote.
+- **La beta, con su r²**: la de SHEL.L es −0,006 con r² ≈ 0, y es real.
+- **`sin_prima_pais` sale verdadero en las del S&P 500 domiciliadas fuera** (ACN,
+  MDT, LIN…), que se valoran igual que en M: decirlo sólo de las de fuera del
+  índice.
+- **Los deslizadores**: con `error_interno` se ocultan; cada llamada va en un
+  `try`, porque `aplicar` lanza `ValueError` con lo que rompe las fórmulas; y el
+  `Analisis` se guarda, porque moverlos sólo rehace `valorar` y
+  `frente_al_sector` cuesta unos 0,3 s por ticker.
+- **El coste**: 10 tickers en frío, 38 s, el 90 % de red; 15, cerca de un
+  minuto. Hace falta una barra de progreso.
+- **Las preferentes** (JPM-PC, T-PA) son `EQUITY` para Yahoo y comparten CIK con
+  la común: salen `sec` y se valorarían con los estados de la común. Sin
+  comprobar ni decidir.
+- **`separar("BRK B")` da BRK y B**, que es Barrick: enseñar el nombre largo de
+  cada fila, para que se note.
+
+### Lo que N1 no resuelve
+
+- **Un split posterior al último recuento deja el P/VL a la mitad** (HDB, con su
+  emisión gratuita 1:1 de agosto de 2025): el precio ajustado ya va en la base
+  nueva y el recuento en la vieja, y `reconciliar_recuento_de_acciones` no tiene
+  base reciente con que contrastarlo. Puede pasar también en la SEC.
+- **SHEL.L y 7203.T salen sin PER**: yfinance no trae el BPA ni el recuento de
+  algunos trimestres. Es la fuente.
+- **BRK-B sale `sin_datos`**, como en M: su XBRL no trae recuento ni BPA
+  diluidos.
+- **`research/loader._fetch_batch` guarda en caché una descarga vacía**, porque
+  yfinance se traga el error: un 429 de Yahoo con un par de divisas dejaría la
+  valoración vacía hasta que cambie la ventana. Comprobado con `USDXYZ=X`, que
+  deja un parquet de 0 filas. Es de fuera de N1, y candidato a tarea aparte.
+- **La caché de Banxico no se puede aislar en los tests `red`**: su `raiz` por
+  defecto se fija al definir la función.
+
 ## La auditoría (2026-09-13/14) — y el patrón que encontró
 
 Auditoría completa en seis frentes, arreglo, y **re-auditoría con agentes que no
@@ -2093,13 +2362,14 @@ para arreglar algo que se arregla solo no se escribe.
 
 ```bash
 # Todos estos se ejecutan desde programa/, no desde la raiz del repo.
-pytest tests/ -q -m "not red"       # 1.766 tests, sin red
+pytest tests/ -q -m "not red"       # 3.166 tests, sin red
 python -m research.run              # correr el estudio (~5 min, luego caché)
 streamlit run app.py                # la app: optimizador + pagina de revision
 python scripts/bootstrap_universe.py   # regenerar el snapshot del universo
 python scripts/bootstrap_sectors.py    # regenerar la tabla de sectores GICS
 python scripts/migrar_metricas_guardadas.py --simular    # ya ejecutado aqui el 2026-09-20; solo hace falta en otra instalacion
 python -c "from ranking.run import construir_ranking, guardar; guardar(construir_ranking(con_llm=False), 'salidas')"   # ranking sin LLM (~2 min)
+python scripts/sondear_analizador.py MU WALMEX.MX TSM JPM SPY BRK-B RY.TO   # el Analizador sobre tickers reales, sin pantalla; sin salidas/panel.parquet construye el panel en memoria (~2 min) y no escribe nada
 ```
 
 Los tests marcados `red` contrastan los KPIs nativos contra yfinance y necesitan conexión y `EDGAR_IDENTITY`:

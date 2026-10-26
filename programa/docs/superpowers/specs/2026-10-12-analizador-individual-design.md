@@ -1,7 +1,8 @@
 # Analizador individual — sub-proyecto N
 
 **Fecha:** 2026-10-12
-**Estado:** diseño aprobado, sin implementar
+**Estado:** N1 (los datos de cualquier ticker) implementado en la rama
+`feat/analizador-individual`; N2 (la pantalla) y N3 (la IA) pendientes
 **Depende de:** el sub-proyecto M, el valor intrínseco
 (`2026-10-12-valor-intrinseco-design.md`). N no empieza hasta que M esté en
 `master`.
@@ -398,7 +399,8 @@ candidatos y salta a esa pantalla. Lleva un motivo ya redactado y editable:
 | Qué | Dónde | Validez |
 |---|---|---|
 | Hechos de EDGAR | `fundamentals/.cache/`, la de siempre | — |
-| Estados de yfinance | `analizador/.cache/` (nueva, en `.gitignore`) | 1 día |
+| Estados de yfinance | `valoracion/.cache/`, la de M (ver «Enmiendas del 2026-10-14») | 1 día |
+| Formularios de EDGAR: qué informe anual presenta | `analizador/.cache/` (nueva, en `.gitignore`; ver «Enmiendas del 2026-10-14») | 30 días; «no presenta ninguno», 1 día |
 | Precio, beta, `r_f`, tipos de cambio | `valoracion/.cache/`, la de M | 15 minutos el precio, 1 día lo demás |
 | Bono M | `seguimiento/.cache/banxico/`, la de L | 1 día |
 | Noticias, hechos y calendario | `noticias/.cache/`, la de H | La de H |
@@ -469,3 +471,212 @@ Noticias.
   item, y el criterio de materialidad de H se construyó sobre ellos.
 - **Los datos de TradingView no son los del programa**: lo que se ve en el
   gráfico no se puede reutilizar en ningún cálculo.
+
+## Enmiendas del 2026-10-14, al planear y ejecutar N1
+
+N se parte en tres planes que se ejecutan en orden: **N1, los datos**
+(`docs/superpowers/plans/2026-10-14-analizador-n1-datos.md`), **N2, la
+pantalla** y **N3, la IA**. El sondeo de yfinance, EDGAR y Banxico del
+2026-10-14 cambió esto:
+
+- **TSM: yfinance ya da el recuento en base ADR.** `Diluted Average Shares` =
+  5.186 millones, igual que `sharesOutstanding`, y el BPA en TWD por ADR. La
+  trampa de la ADR que cuenta «Divisas» (un recuento cinco veces mayor en los
+  estados) no aparece con yfinance; sí aparecería con el XBRL del 20-F, que N no
+  usa. El cociente se sigue calculando y avisando (`divisas.cociente_adr`), como
+  guarda. Donde «La trampa de las ADR» y el punto 4 de «Cómo se prueba» dan por
+  hecho que el recuento de los estados de TSM es cinco veces el de
+  capitalización ÷ precio, manda esta enmienda.
+- **yfinance da 5 o 6 trimestres, a veces con un hueco** (a WALMEX le falta el
+  3T 2025 en resultados y flujos; su balance trae la columna vacía).
+  `fundamentals.kpis` compara con `shift(4)` y suma con `rolling(4)`, que
+  cuentan filas: con un hueco, el «mismo trimestre del año pasado» caería en
+  otro. `lineas_yf.rejilla_trimestral` da una fila a cada trimestre natural y
+  `lineas_yf.rellenar_desde_anual` recupera el flujo del trimestre que falta
+  como el año menos los otros tres, que es la aritmética de
+  `fundamentals.panel._cuartos_derivados`. La resta no se fía de cifras de Yahoo
+  que no cuadran: unos 0,0 que son falta de desglose, un negativo en una línea
+  que no puede serlo, o un ejercicio con un trimestre de ingresos negativos.
+- **BRK-B no trae `Operating Income`, sólo `EBIT`; JPM no trae ni coste de
+  ventas ni beneficio operativo.** La cadena `Operating Income` → `EBIT` de la
+  tabla de «Las demás» se resuelve fila a fila, como
+  `fundamentals.concepts.resolve_lines`.
+- **La valoración de yfinance usa ejercicios fiscales completos**, no un TTM
+  trimestral: con cinco trimestres sólo cabe un TTM, y mezclarlo con los
+  ejercicios anuales rompería que `ejercicios[i]` sea «hace i años», que es lo
+  que `supuestos._cagr` da por hecho. `estados_hasta` lo dice en pantalla.
+- **La clase sale de los formularios que la empresa presenta en EDGAR**, no del
+  atributo `is_foreign` de edgartools: RY presenta 40-F y edgartools la marca
+  `is_foreign = False`. 10-K → `sec`; 20-F o 40-F → `extranjera_sec`; ninguno, o
+  no está en EDGAR → `sin_sec`. Un ticker con sufijo de bolsa (`.MX`) no se
+  pregunta a EDGAR.
+- **El Bono M a 10 años es la serie `SF44071`** del SIE: «Valores
+  Gubernamentales. Resultados de la subasta semanal. Tasa de rendimiento. Bono
+  tasa fija 10 años», en porcentaje. Es de subasta y no de mercado secundario,
+  así que el último dato puede tener semanas (el 2026-10-14, el del
+  24/09/2026); su fecha va en la procedencia. Lo fija un test `red` contra el
+  título de sus metadatos.
+- **Los pares de divisa de Yahoo existen en los dos sentidos** (`TWDUSD=X` y
+  `USDTWD=X`, `MXNUSD=X`, `CADUSD=X`); se usa `<ORIGEN><DESTINO>=X`. `^MXX` es
+  el IPC.
+- **La identidad, los estados y el tipo de cambio se guardan en la caché de
+  `valoracion/mercado.py`** (`valoracion/.cache/`), no en una
+  `analizador/.cache/` aparte: `mercado` ya es la única puerta a yfinance, con
+  su caché, su respaldo y sus motivos con nombre, y una segunda puerta sería la
+  que se queda atrás. `analizador/.cache/` sólo guarda los formularios de EDGAR.
+- **El puesto hipotético es el global** —el orden por nota compuesta entre las
+  que pasan las guardas, sin el tope por sector—, que es el único que existe
+  para un ticker que no compite por las quince plazas. Para el primero de los
+  candidatos coincide con su puesto; para los demás puede no coincidir (con un
+  tope de 2 por sector difería en 11 de 96 candidatas; en la corrida real del
+  16/10 los quince coincidían). Donde el punto 5 de «Cómo se prueba» dice que el
+  puesto hipotético de un candidato real coincide con su puesto, manda esta
+  enmienda.
+- **Las filas de un ticker posteriores al último trimestre del panel no entran
+  en la comparación**: en ese trimestre no tiene pares, y su z saldría vacía y le
+  quitaría un trimestre de la ventana.
+- **Si el precio y los estados van en monedas distintas** (TSM: dólares y TWD),
+  los múltiplos del panel trimestral se calculan con el precio de cada fecha
+  convertido al tipo de cambio de esa misma fecha, que se baja con el mismo
+  cargador de precios.
+- **Un motivo nuevo para una valoración que no se calcula**: `sin_bono_m`
+  (una emisora en pesos sin el Bono M, normalmente por no tener token de
+  Banxico; el deslizador de la tasa libre lo resuelve). `sin_tasa_libre` no
+  servía: su etiqueta culpa a Yahoo. Un tipo de cambio que no llega es
+  `sin_red`. Donde «Divisas» y «Errores» dicen `sin_tasa_libre` para una
+  emisora en pesos sin token, manda esta enmienda. El motivo concreto
+  (`sin_token`, `token_invalido`, `sin_red`, `sin_dato`) no cabe en la
+  valoración fallida y viaja en `Entradas.motivo_r_f`.
+- **La tabla de «Cachés y frescura»**: los estados de yfinance, la identidad y
+  los tipos de cambio van en `valoracion/.cache/` (estados un día, identidad
+  quince minutos, tipos de cambio un día), y `analizador/.cache/` sólo guarda
+  los formularios de EDGAR (treinta días). Comprobado en el código el
+  2026-10-25: es `mercado.VALIDEZ`, donde la beta, también la que se regresa con
+  un par de divisas, sigue en un día, como en M; y en `resolver`, un «no
+  presenta ningún informe anual» vale un día y no treinta, también sin red,
+  porque puede ser una salida a bolsa a punto de presentar su primer 10-K o una
+  lista de tickers de la SEC que no se pudo bajar. Sin red, `mercado` sirve lo
+  guardado hasta `ANTIGUEDAD_MAXIMA`: los estados 30 días, la identidad y los
+  tipos de cambio 7, la beta 90.
+
+Al ejecutar N1 salió además esto, que también cambia lo que el spec dice o
+promete:
+
+- **Los KPIs de yfinance se calculan en dólares, con un único tipo.** Después de
+  llevar el precio de cada trimestre a la moneda de los estados (ver arriba «Si
+  el precio y los estados van en monedas distintas»), `kpis.kpis_yf` pasa las
+  líneas y el precio a dólares con **un solo** tipo, el último cierre. Los
+  suelos económicos de `fundamentals.kpis` están pensados en dólares —1e8 de
+  partida de balance y 1e6 de gasto financiero—, y en wones el del gasto financiero valdría 745 $: una pequeña de
+  la BMV o de KOSDAQ sacaría márgenes y coberturas que el panel de referencia le
+  taparía a una empresa de EE. UU. de su tamaño. Un tipo constante no cambia
+  ningún cociente ni ningún crecimiento; con el de cada fecha, la divisa
+  entraría en el crecimiento interanual. Vale también para una emisora en pesos:
+  sus KPIs van en dólares aunque se valore en pesos.
+- **Sin precio, las filas propias dicen `sin_precio`**, y no culpan a la
+  empresa ni a la SEC. Con un universo de uno, que Yahoo no dé el precio hace
+  abortar a `build_panel`, y `kpis.kpis_sec` dice `sin_precio` y no
+  `sin_estados`. `kpis.kpis_yf` devuelve `(filas, motivo)` y dice `sin_precio`
+  si no hay ni un precio en dólares, en vez de unas filas sin valoración que la
+  guarda excluiría por «pilar sin datos». Y sin ninguna moneda en la identidad,
+  `sin_precio` en vez de pedir `NoneUSD=X`, un 404 que culparía a la red. Sin
+  trimestres, en cambio, es `sin_historia`, aunque la serie de precios también
+  salga vacía.
+- **`sector_sin_pares` se comprueba antes de bajar nada.** Un sector que, con
+  el ticker dentro, no llega a `MIN_PARES` (3) empresas en el panel no tiene z,
+  y la ficha saldría «pilar sin datos», que culparía a la empresa.
+  `analizador.analisis` lo mira antes de bajar ninguna fila y dice
+  `sector_sin_pares`, la clave del ranking; `sin_sector` también sale sin bajar
+  nada. Amplía lo que «La referencia sectorial» dice de un sector que no está en
+  la tabla: también se queda sin pares, y se dice, el que está en la tabla y no
+  tiene pares en el panel.
+- **La beta con par usa el semanal de Yahoo sin sus picos, filtrado con el
+  diario.** El precio se regresa en la moneda del índice: AMX cotiza en dólares
+  y se valora en pesos contra el IPC, y regresar su precio en dólares contra un
+  índice en pesos mezcla dos monedas (medido el 2026-10-19 a 104 semanas: AMX
+  da 1,036 y AMXB.MX 0,834; FMX 0,841 y FEMSAUBD.MX 0,644; unos 0,2 de beta, un
+  punto de coste del capital). Así que `mercado.beta` gana un par con que
+  convertir el precio, y el par no se puede tomar tal cual: su **semanal** trae
+  velas corruptas (CADUSD=X marcaba 0,911 entre dos semanas de 0,70, y RY.TO
+  salía con beta 0,27 en vez de 0,46), y su **diario** no trae el cierre del día
+  sino una foto a medianoche de Londres, un día por detrás (con él, AMX daba
+  0,90 en vez de 0,79). Se usa el semanal, y el diario sólo para descartar las
+  semanas en que el semanal se aparta de él más de un 5 %
+  (`mercado.tipo_sin_picos`): en USDTRY, USDARS o el USDMXN de marzo de 2020 no
+  descarta ninguna buena, y a NPN.JO le quita seis picos de ZARUSD. El diario se
+  pide desde una semana antes, porque con `period="2y"` empieza una semana
+  después que el semanal y la primera semana se perdía siempre. Sin diario no
+  hay beta, y no se guarda. El activo y el índice siguen en semanal, como en M.
+- **La tasa libre puesta a mano pasa por las mismas guardas que un supuesto
+  movido.** Sin Bono M, la que pone el usuario entra por `deducir` y no por
+  `aplicar`, y las guardas de `aplicar` no la veían: con un −5 %, WALMEX salía
+  con un coste del capital propio negativo y un valor base. Ahora se le exige un
+  coste del capital propio y un WACC positivos
+  (`supuestos.exigir_costes_positivos`), juzgados sobre el resultado, después de
+  los demás cambios: con la beta movida a la vez, el coste intermedio con la
+  beta del programa no es el que se usa. Lo
+  que no pasa lanza `ValueError`, como en `aplicar`, y la procedencia dice
+  «puesto por ti».
+- **El panel de referencia se borra antes de escribir.** `ranking.run.guardar`
+  convierte el panel a bytes antes de escribir nada y borra el
+  `salidas/panel.parquet` viejo nada más crear la carpeta: cualquier fallo deja
+  «sin panel», y nunca uno ajeno a las fichas de al lado. Una corrida sin panel
+  —con un universo vacío `build_panel` no trae el índice `(ticker, periodo)` y
+  `Resultado.panel` es `None`— también borra el de la anterior, porque
+  compararía contra unos candidatos que ya no son estos. El ranking no cambia:
+  los cuatro ficheros de siempre salen iguales byte a byte.
+- **`cargar_panel` trata cualquier fallo como «no hay panel».** Con un fichero
+  alterado, pyarrow lanza su `ArrowException` base, `KeyError` o `TypeError`, no
+  sólo `ValueError` u `OSError`; como el panel se regenera gratis,
+  `referencia.cargar_panel` trata cualquier excepción como ausencia. Se queda
+  sólo con sus columnas, y un panel vacío o con filas repetidas también cuenta
+  como ausente. Amplía «Si el panel no existe»: vale igual para uno que no se
+  puede leer.
+- **Los cierres de ejercicio son sólo los años con ancla.** El precio de cada
+  trimestre es el del día en que se publicaron sus cuentas, 45 días después del
+  cierre de un trimestre y 65 después del de un ejercicio. Cuenta como cierre de
+  ejercicio sólo un año con ancla —los ingresos si algún año los tiene, y si no
+  el beneficio, que es lo que declara un banco—: el anual de yfinance de RY y TM
+  trae además columnas de doce meses móviles con sólo el BPA y el recuento (RY:
+  2025-01-31, 04-30 y 07-31; TM: 06-30 y 09-30), y tomadas por cierres esos
+  trimestres cotizaban con 65 días en vez de 45. La misma ancla decide qué
+  ejercicios entran en los `Fundamentos` anuales.
+- **Los plazos de la SEC son una aproximación fuera de ella.** Los 45 y 65 días
+  son los del 10-Q y el 10-K; Tencent publicó su ejercicio 77 días después del
+  cierre, y su precio queda 12 días antes de la publicación. «Los datos de
+  yfinance no tienen fecha de publicación» sigue valiendo para las cifras; la
+  fecha de los resultados sí la trae yfinance (`get_earnings_dates`), y N1 no la
+  usa.
+- **`sec` exige 10-K.** La clase sale del último informe anual (10-K, 20-F o
+  40-F) de la ventana reciente de EDGAR, sin enmiendas, y no de «alguna vez
+  presentó»: una emisora que pasó del 10-K al 20-F es extranjera hoy. Una salida
+  a bolsa que sólo ha presentado 10-Q cae en `sin_sec` y se analiza con
+  yfinance hasta su primer 10-K. Donde la tabla de «Las cuatro clases de ticker»
+  dice «`sec` (presenta 10-K/10-Q)», manda esta enmienda.
+- **El beneficio de yfinance es el de los accionistas comunes, y el EBIT de las
+  aseguradoras lleva las ganancias de inversiones.** `Net Income Common
+  Stockholders` cuadra con el BPA, y la SEC usa primero `NetIncomeLoss`: para
+  los emisores con preferentes, el ROE y el margen neto de las dos fuentes
+  difieren entre un 2 y un 8 % (JPM −1,9 %, RY −2,4 %, MFC −8 %), y una
+  extranjera queda comparada con pares medidos con la otra línea. Y el `EBIT`
+  que entra cuando falta `Operating Income` incluye, en las aseguradoras (MFC,
+  BRK-B), las ganancias de las inversiones. Matiza «el ROE de WALMEX y el de MU
+  salen de la misma fórmula»: la fórmula es la misma; la línea, no siempre.
+- **La prima por riesgo país la decide el país, no la moneda de los estados.**
+  `valorar` añade `sin_prima_pais`, verdadero cuando se valora en dólares una
+  empresa de fuera de EE. UU.: TSM, que presenta en TWD, pero también NPN.JO o
+  TEVA.TA, que presentan en dólares. En pesos nunca, porque el Bono M ya lleva
+  el riesgo de México, y sin país conocido no se afirma. `Divisa.a_dict` dice
+  aparte si los estados se convirtieron (`estados_convertidos`). Donde la tabla
+  de «Divisas» ata la falta de prima a convertir los estados, manda esta
+  enmienda. Sale verdadero también en las del S&P 500 domiciliadas fuera (ACN,
+  MDT, LIN…), que se valoran igual que en M: cómo se redacta lo decide N2.
+- **Un ticker que Yahoo no conoce sale `sin_red`.** Es el contrato de
+  `mercado`: desde fuera no se distingue de una conexión que falla (ZZZZQ, en el
+  recorrido de N1). La fila de «Errores» que enseña «Yahoo no conoce este
+  ticker» no se puede afirmar; N2 rotula «Yahoo no devolvió datos (sin conexión
+  o un símbolo que no conoce)».
+
+Donde estas enmiendas contradicen el texto de arriba, mandan ellas. El texto de
+arriba no se reescribe, salvo el estado de la cabecera y las dos filas de
+«Cachés y frescura» que remiten aquí.
