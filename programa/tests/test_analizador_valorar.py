@@ -37,6 +37,20 @@ def _entradas(**sobre):
     return v.Entradas(**valores)
 
 
+def _en_pesos(**sobre):
+    """Unas entradas en pesos como las deja `entradas`: la divisa, los
+    fundamentos y el perfil, en MXN. No da igual: `deducir` toma de la moneda
+    de los fundamentos el crecimiento perpetuo, 3,5 % en pesos y 2,5 % en
+    dólares."""
+    valores = dict(
+        divisa=MXN,
+        fundamentos=fundamentos(moneda="MXN"),
+        perfil=perfil(moneda="MXN", moneda_estados="MXN", pais="Mexico"),
+    )
+    valores.update(sobre)
+    return _entradas(**valores)
+
+
 def test_la_valoracion_con_los_supuestos_del_programa_es_json_estricto_y_lleva_la_divisa():
     plano = v.valorar(_entradas(), 0.6, hoy=date(2026, 10, 14))
     json.dumps(plano, allow_nan=False)
@@ -74,7 +88,7 @@ def test_valorar_es_puro_mismas_entradas_mismo_resultado():
 
 
 def test_una_emisora_en_pesos_sin_bono_m_no_se_valora_hasta_que_se_pone_la_tasa():
-    e = _entradas(divisa=MXN, r_f=None, motivo_r_f="sin_token",
+    e = _en_pesos(r_f=None, motivo_r_f="sin_token",
                   procedencia_r_f={"fuente": "bono_m_10", "serie": "SF44071", "fecha": None})
     assert v.valorar(e, None)["motivo"] == "sin_bono_m"
     con_tasa = v.valorar(e, None, cambios={"r_f": 0.092})
@@ -82,7 +96,12 @@ def test_una_emisora_en_pesos_sin_bono_m_no_se_valora_hasta_que_se_pone_la_tasa(
         "valor": 0.092,
         "procedencia": {"fuente": "usuario", "programa": None},
     }
-    assert "veredicto" in con_tasa
+    assert "veredicto" in con_tasa and con_tasa["moneda"] == "MXN"
+    # El de pesos: con unos fundamentos en dólares saldría el 2,5 %.
+    assert con_tasa["supuestos"]["g_perpetuo"] == {
+        "valor": 0.035,
+        "procedencia": {"fuente": "criterio", "moneda": "MXN"},
+    }
 
 
 def test_sin_tasa_libre_en_dolares_el_motivo_es_el_de_siempre():
@@ -90,7 +109,7 @@ def test_sin_tasa_libre_en_dolares_el_motivo_es_el_de_siempre():
 
 
 def test_una_tasa_puesta_a_mano_que_no_es_un_numero_se_rechaza():
-    e = _entradas(divisa=MXN, r_f=None)
+    e = _en_pesos(r_f=None)
     with pytest.raises(ValueError):
         v.valorar(e, None, cambios={"r_f": "nueve"})
 
@@ -99,8 +118,8 @@ def test_una_tasa_puesta_a_mano_pasa_las_mismas_guardas_que_una_movida():
     # Con r_f = −5 % el coste del capital propio sale negativo. Movida sobre el
     # Bono M, `aplicar` la rechaza; puesta a mano sin él, entra por `deducir`, y
     # WALMEX salía con un k_e del −1,33 % y un valor base de 161,96 MXN.
-    con_bono_m = _entradas(divisa=MXN, r_f=0.0925)
-    sin_bono_m = _entradas(divisa=MXN, r_f=None, motivo_r_f="sin_token")
+    con_bono_m = _en_pesos(r_f=0.0925)
+    sin_bono_m = _en_pesos(r_f=None, motivo_r_f="sin_token")
     with pytest.raises(ValueError, match="k_e"):
         v.valorar(con_bono_m, None, cambios={"r_f": -0.05})
     with pytest.raises(ValueError, match="k_e"):
@@ -113,8 +132,8 @@ def test_la_tasa_puesta_a_mano_se_juzga_con_los_demas_cambios_ya_hechos():
     # Con la beta del programa, un −5 % da un k_e negativo; con la beta en 3,
     # un 7,6 %. Lo que cuenta es el resultado, como con el Bono M.
     cambios = {"r_f": -0.05, "beta": 3.0}
-    con_bono_m = v.valorar(_entradas(divisa=MXN, r_f=0.0925), None, cambios=cambios)
-    sin_bono_m = v.valorar(_entradas(divisa=MXN, r_f=None), None, cambios=cambios)
+    con_bono_m = v.valorar(_en_pesos(r_f=0.0925), None, cambios=cambios)
+    sin_bono_m = v.valorar(_en_pesos(r_f=None), None, cambios=cambios)
     assert sin_bono_m["supuestos"]["k_e"]["valor"] == pytest.approx(0.076)
     assert con_bono_m["supuestos"]["k_e"]["valor"] == pytest.approx(0.076)
     assert "veredicto" in sin_bono_m
@@ -124,8 +143,8 @@ def test_una_tasa_puesta_a_mano_que_deja_el_coste_de_capital_negativo_se_rechaza
     # El k_e es positivo (−9 % + 2,34 × 4,2 % = 0,83 %), pero la tasa hunde el
     # coste de la deuda hasta el −1 %, y con mucha deuda el WACC sale negativo.
     # Ningún cambio llega a `aplicar` que rehaga el WACC: sólo lo ve esta guarda.
-    e = _entradas(divisa=MXN, r_f=None, beta=Beta(3.0, 0.4, 104, "^MXX"),
-                  fundamentos=fundamentos(deuda_total=5000.0))
+    e = _en_pesos(r_f=None, beta=Beta(3.0, 0.4, 104, "^MXX"),
+                  fundamentos=fundamentos(deuda_total=5000.0, moneda="MXN"))
     with pytest.raises(ValueError, match="wacc"):
         v.valorar(e, None, cambios={"r_f": -0.09})
 

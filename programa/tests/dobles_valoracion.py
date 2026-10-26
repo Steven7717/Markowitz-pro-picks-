@@ -28,11 +28,11 @@ def ejercicio(ano: int = 2026, **sobre) -> Ejercicio:
     return Ejercicio(**valores)
 
 
-def fundamentos(ejercicios=None, deuda_total=200.0, efectivo=50.0) -> Fundamentos:
+def fundamentos(ejercicios=None, deuda_total=200.0, efectivo=50.0, moneda="USD") -> Fundamentos:
     if ejercicios is None:
         ejercicios = [ejercicio(2026 - i) for i in range(4)]
     return Fundamentos(
-        moneda="USD",
+        moneda=moneda,
         fuente="sec",
         ejercicios=tuple(ejercicios),
         deuda_total=deuda_total,
