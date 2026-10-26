@@ -4624,6 +4624,8 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 ### Task 16: Sabotaje de las guardas
 
+> **Ejecutada** el 2026-10-25 sobre 6939319: los 19 sabotajes tumban al menos un test, sin escribir ninguno nuevo; cada fichero se restauró desde una copia y la suite quedó igual (3166 passed). Dos filas se aplicaron en su forma viva: la 8 (`fundamentos_anuales` ya no hace `break` al primer año sin ancla; se quitó el corte por distancia, que cazan tres tests; el `continue` literal es un mutante equivalente, porque la distancia sólo crece hacia atrás) y la 16 (`test_seis_estados_vacios_no_se_guardan` vive en `test_valoracion_mercado_red.py`, sin la marca `red`). Las revisiones de cada tarea ya habían saboteado las guardas que añadieron.
+
 Cada sabotaje se aplica, se corre el test indicado, se comprueba que **falla**, y se deshace con `git checkout -- <fichero>`. No se commitea nada. Si un sabotaje no tumba ningún test, el trabajo no es repetirlo: es averiguar qué otra cosa está devolviendo la respuesta correcta, y escribir el test que falta (ése sí se commitea).
 
 | # | Sabotaje | Test que debe caer |
