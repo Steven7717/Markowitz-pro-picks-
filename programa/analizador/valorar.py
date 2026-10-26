@@ -59,7 +59,7 @@ def _ultimo(serie) -> "float | None":
     return float(validos.iloc[-1]) if len(validos) else None
 
 
-def entradas(resuelto: Resuelto, cache_dir=None) -> "tuple[Entradas | None, str]":
+def entradas(resuelto: Resuelto) -> "tuple[Entradas | None, str]":
     """Todo lo que la valoración necesita, o el motivo por el que no se pudo traer.
 
     Primero el precio, porque sin él no hay acciones; después los estados,
@@ -75,7 +75,7 @@ def entradas(resuelto: Resuelto, cache_dir=None) -> "tuple[Entradas | None, str]
         return None, "sin_red" if motivo == "sin_red" else "sin_precio"
     acciones_estados = None
     if resuelto.clase == "sec":
-        fundamentos, motivo = desde_sec(ticker, cache_dir=cache_dir)
+        fundamentos, motivo = desde_sec(ticker)
     else:
         crudos, motivo = mercado.estados(ticker)
         if crudos is None:
