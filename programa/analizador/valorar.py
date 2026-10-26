@@ -35,8 +35,9 @@ class Entradas:
 
     `r_f` puede faltar: una emisora en pesos sin el Bono M de Banxico se queda
     sin tasa libre hasta que el usuario la ponga. `motivo_r_f` dice por qué
-    falta (`sin_token`, `token_invalido`, `sin_red`, `sin_dato`,
-    `sin_tasa_libre`). `cociente_adr` es el de `divisas.cociente_adr`, o None.
+    falta: con el Bono M, los de Banxico (`sin_token`, `token_invalido`,
+    `sin_red`, `respuesta_rara`) o `sin_dato`; con el Tesoro,
+    `sin_tasa_libre`. `cociente_adr` es el de `divisas.cociente_adr`, o None.
     """
 
     ticker: str

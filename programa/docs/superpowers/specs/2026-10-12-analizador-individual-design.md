@@ -545,8 +545,8 @@ pantalla** y **N3, la IA**. El sondeo de yfinance, EDGAR y Banxico del
   servía: su etiqueta culpa a Yahoo. Un tipo de cambio que no llega es
   `sin_red`. Donde «Divisas» y «Errores» dicen `sin_tasa_libre` para una
   emisora en pesos sin token, manda esta enmienda. El motivo concreto
-  (`sin_token`, `token_invalido`, `sin_red`, `sin_dato`) no cabe en la
-  valoración fallida y viaja en `Entradas.motivo_r_f`.
+  (`sin_token`, `token_invalido`, `sin_red`, `respuesta_rara`, `sin_dato`) no
+  cabe en la valoración fallida y viaja en `Entradas.motivo_r_f`.
 - **La tabla de «Cachés y frescura»**: los estados de yfinance, la identidad y
   los tipos de cambio van en `valoracion/.cache/` (estados un día, identidad
   quince minutos, tipos de cambio un día), y `analizador/.cache/` sólo guarda
@@ -618,9 +618,12 @@ promete:
   que no pasa lanza `ValueError`, como en `aplicar`, y la procedencia dice
   «puesto por ti».
 - **El panel de referencia se borra antes de escribir.** `ranking.run.guardar`
-  convierte el panel a bytes antes de escribir nada y borra el
-  `salidas/panel.parquet` viejo nada más crear la carpeta: cualquier fallo deja
-  «sin panel», y nunca uno ajeno a las fichas de al lado. Una corrida sin panel
+  borra el `salidas/panel.parquet` viejo nada más crear la carpeta: cualquier
+  fallo deja «sin panel», y nunca uno ajeno a las fichas de al lado. Y el panel
+  no hace lanzar a `guardar`: es prescindible y la vista de candidatos sólo
+  captura `CorridaAbortada`, así que si no se puede convertir o escribir, las
+  fichas se escriben igual, la carpeta queda sin panel y el fallo va al log
+  (revisión final de N1). Una corrida sin panel
   —con un universo vacío `build_panel` no trae el índice `(ticker, periodo)` y
   `Resultado.panel` es `None`— también borra el de la anterior, porque
   compararía contra unos candidatos que ya no son estos. El ranking no cambia:

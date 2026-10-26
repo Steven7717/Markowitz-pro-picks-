@@ -3,7 +3,10 @@
 Las filas de yfinance se traducen a las columnas que produce
 `fundamentals.concepts.resolve_lines`, y de ahí pasan por las mismas funciones
 de `fundamentals/kpis.py`. Así el ROE de WALMEX y el de MU salen de la misma
-fórmula y en la misma base trimestral.
+fórmula y en la misma base trimestral, aunque no siempre de la misma línea: el
+beneficio de yfinance es el de los accionistas comunes y la SEC usa primero
+`NetIncomeLoss`, y en los emisores con preferentes el ROE y el margen neto
+difieren entre un 2 y un 8 % (ver la enmienda del spec).
 
 Los nombres de fila se fijaron contra lo que yfinance 1.6 devuelve de verdad
 para MU, WALMEX.MX, TSM, JPM y BRK-B (sondeo del 2026-10-14); el test `red`

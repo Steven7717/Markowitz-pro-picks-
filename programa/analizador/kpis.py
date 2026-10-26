@@ -2,7 +2,8 @@
 
 Una empresa de la SEC pasa por el mismo motor que el ranking: `build_panel` con
 un universo de una. Las demás salen de yfinance (`analizador.lineas_yf`), con el
-precio de cada trimestre en la moneda de sus estados.
+precio del día en que se publicó cada trimestre; las líneas y el precio acaban
+en dólares con un único tipo, el del último cierre (ver `kpis_yf`).
 """
 
 import pandas as pd

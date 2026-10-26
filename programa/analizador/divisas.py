@@ -31,9 +31,9 @@ from valoracion.mercado import Perfil
 # «Valores Gubernamentales. Resultados de la subasta semanal. Tasa de
 # rendimiento. Bono tasa fija 10 años», en porcentaje. Buscada en el catálogo
 # del SIE el 2026-10-14; la fija un test `red` contra el título de sus
-# metadatos, que llega en la Task 15 (`tests/test_analizador_red.py`). Es de
-# subasta, no de mercado secundario: el último dato puede tener semanas, y su
-# fecha va en la procedencia.
+# metadatos (`tests/test_analizador_red.py`). Es de subasta, no de mercado
+# secundario: el último dato puede tener semanas, y su fecha va en la
+# procedencia.
 SERIE_BONO_M_10 = "SF44071"
 INDICE_MXN = "^MXX"
 # Las monedas con tasa libre propia. Cualquier otra se valora en dólares.
