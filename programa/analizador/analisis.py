@@ -3,7 +3,8 @@
 Sin Streamlit: N2 pinta lo que sale de aquí. Un ticker que falla sólo se lleva
 su fila, que es la política de la descarga de fundamentales y de la valoración
 de candidatos; y un defecto propio tampoco tumba a los demás, pero no se calla:
-el traceback va al log de la consola y la fila dice `error_interno`.
+el traceback va al log de la consola y la fila dice `error_interno`. Si el
+defecto es al valorar, sólo lo dice la valoración, y la ficha se queda.
 """
 
 import logging
@@ -59,6 +60,10 @@ def _filas_propias(resuelto: Resuelto) -> "tuple[pd.DataFrame | None, str]":
     # un par inventado («NoneTWD=X») sólo daría un precio vacío.
     moneda_precio = identidad.moneda or identidad.moneda_estados
     moneda_estados = identidad.moneda_estados or identidad.moneda
+    if moneda_estados is None:
+        # Sin ninguna, el par sería `NoneUSD=X`: un 404 de un par de segundos que
+        # culparía a la red. Es la clave de `entradas` sin moneda en el perfil.
+        return None, "sin_precio"
     # Los KPIs se calculan en dólares para que los suelos de `fundamentals.kpis`
     # valgan lo mismo que en el panel de referencia (ver `kpis.kpis_yf`).
     tipo_a_usd, motivo = mercado.tipo_de_cambio(moneda_estados, "USD")
@@ -93,6 +98,36 @@ def _frente_al_sector(
     return (encontrada, None) if encontrada is not None else (None, "sin_trimestres_comparables")
 
 
+def _valoracion(
+    resuelto: Resuelto, pilar: "float | None"
+) -> "tuple[Entradas | None, dict]":
+    """Las entradas y la valoración, o la fallida que dice por qué no hay valoración.
+
+    Un defecto al traerlas o al valorar no se lleva la fila: la identidad y la
+    ficha ya están hechas y siguen valiendo. Es la política de
+    `ranking.run._valoracion`: la valoración dice `error_interno` y el
+    traceback va al log de la consola. Las entradas que sí llegaron se quedan.
+    """
+    log = logging.getLogger(__name__)
+    try:
+        traidas, motivo = entradas(resuelto)
+    except Exception:
+        log.exception(
+            "Las entradas de %s fallaron por un defecto, no por falta de datos", resuelto.ticker
+        )
+        return None, plano.fallida("error_interno")
+    if traidas is None:
+        return None, plano.fallida(motivo)
+    try:
+        return traidas, valorar(traidas, pilar)
+    except Exception:
+        log.exception(
+            "La valoración de %s falló por un defecto del motor, no por falta de datos",
+            resuelto.ticker,
+        )
+        return traidas, plano.fallida("error_interno")
+
+
 def _analizar(ticker: str, panel: "pd.DataFrame | None", tabla_sectores: "dict | None") -> Analisis:
     resuelto = resolver.resolver(ticker)
     if resuelto.clase is None:
@@ -101,9 +136,8 @@ def _analizar(ticker: str, panel: "pd.DataFrame | None", tabla_sectores: "dict |
         return Analisis(ticker, "etf", resuelto.identidad, None)
     sector, fuente = sector_gics(ticker, resuelto.identidad.sector, tabla_sectores)
     encontrada, motivo_referencia = _frente_al_sector(resuelto, sector, panel)
-    traidas, motivo = entradas(resuelto)
     pilar = None if encontrada is None else encontrada.ficha["pilares"].get("valoracion")
-    valoracion = plano.fallida(motivo) if traidas is None else valorar(traidas, pilar)
+    traidas, valoracion = _valoracion(resuelto, pilar)
     return Analisis(
         ticker=ticker,
         clase=resuelto.clase,
