@@ -164,6 +164,20 @@ def precio_convertido(precio: pd.Series, tipo: pd.Series) -> pd.Series:
     return juntos.iloc[:, 0] * juntos.iloc[:, 1]
 
 
+def semanal_desde_diario(cierres: pd.Series) -> pd.Series:
+    """Cierres diarios en velas semanales como las de Yahoo: fechadas el lunes
+    de cada semana, con el último cierre de esa semana.
+
+    Para el tipo de cambio de `beta`. El semanal de Yahoo de los pares trae
+    picos falsos que el diario no tiene: CADUSD=X marcó 0,911 la semana del
+    16/12/2024, entre dos de 0,70 y 0,69. Fechado como las velas del activo,
+    `precio_convertido` las cruza semana a semana; antes, `_semanal` quita la
+    zona y la hora, igual que a ellas.
+    """
+    diario = _semanal(cierres)
+    return diario.resample("W-MON", label="left", closed="left").last().dropna()
+
+
 def tasa_libre_desde_cierres(cierres: pd.Series) -> "float | None":
     """`^TNX` cotiza el rendimiento en puntos: 5,24 es un 5,24 %."""
     validos = pd.to_numeric(cierres, errors="coerce").dropna()
@@ -513,13 +527,18 @@ def beta(
 ) -> "tuple[Beta | None, str]":
     """La beta del ticker contra el índice. Con `par` (`USDMXN=X`), el precio se
     pasa a la moneda del índice semana a semana antes de regresar: un precio en
-    dólares contra un índice en pesos mezclaría dos monedas."""
+    dólares contra un índice en pesos mezclaría dos monedas.
+
+    El par se baja en diario y se agrupa en semanas (`semanal_desde_diario`):
+    con el semanal de Yahoo, un pico falso de CADUSD=X dejaba a RY.TO con una
+    beta de 0,27 y un r² de 0,02, frente a 0,47 con el diario. El activo y el
+    índice siguen en semanal, como en M, para que su beta no cambie."""
 
     def pedir():
         activo = yf.Ticker(ticker).history(period="2y", interval="1wk")["Close"]
         referencia = yf.Ticker(indice).history(period="2y", interval="1wk")["Close"]
         tipo = (
-            None if par is None else yf.Ticker(par).history(period="2y", interval="1wk")["Close"]
+            None if par is None else yf.Ticker(par).history(period="2y", interval="1d")["Close"]
         )
         return activo, referencia, tipo
 
@@ -533,7 +552,7 @@ def beta(
         if tipo is not None:
             if _sin_cierres(tipo):
                 return None
-            activo = precio_convertido(activo, tipo)
+            activo = precio_convertido(activo, semanal_desde_diario(tipo))
         encontrada = regresion_beta(activo, referencia, indice)
         return {"beta": None if encontrada is None else asdict(encontrada)}
 

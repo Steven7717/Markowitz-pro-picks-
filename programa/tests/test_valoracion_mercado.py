@@ -341,3 +341,15 @@ def test_el_precio_convertido_solo_tiene_las_semanas_con_los_dos_datos():
     precio = pd.Series([10.0, 11.0, 12.0], index=fechas)
     tipo = pd.Series([18.0, float("nan")], index=fechas[:2])
     assert len(precio_convertido(precio, tipo)) == 1
+
+
+from valoracion.mercado import semanal_desde_diario  # noqa: E402
+
+
+def test_el_semanal_desde_el_diario_es_el_de_yahoo_el_lunes_con_el_cierre_de_la_semana():
+    # Diario de un par, con la zona de Londres en la que Yahoo fecha los `=X`.
+    dias = pd.bdate_range("2024-12-16", "2024-12-27", tz="Europe/London")
+    diario = pd.Series([float(i) for i in range(len(dias))], index=dias)
+    semanal = semanal_desde_diario(diario)
+    assert list(semanal.index) == [pd.Timestamp("2024-12-16"), pd.Timestamp("2024-12-23")]
+    assert semanal.tolist() == [4.0, 9.0]

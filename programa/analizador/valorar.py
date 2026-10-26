@@ -22,7 +22,7 @@ from valoracion.criterio import INDUSTRIAS_FINANCIERAS
 from valoracion.fundamentos import Fundamentos, desde_sec
 from valoracion.mercado import Beta, Perfil
 from valoracion.motor import calcular, datos_dcf, puente
-from valoracion.supuestos import Supuestos, aplicar, deducir
+from valoracion.supuestos import Supuestos, aplicar, deducir, exigir_costes_positivos
 
 # Privada y aun así importada: es la misma validación que `aplicar` hace con
 # cualquier supuesto movido, y la tasa que el usuario pone a mano lo es.
@@ -61,10 +61,12 @@ def _ultimo(serie) -> "float | None":
 def entradas(resuelto: Resuelto, cache_dir=None) -> "tuple[Entradas | None, str]":
     """Todo lo que la valoración necesita, o el motivo por el que no se pudo traer.
 
-    El mismo orden de preguntas que `valoracion.motor.valorar`: sin precio no
-    hay acciones, y sin estados no hay nada que proyectar. La tasa libre se trae
-    pero no se exige aquí: sin ella todavía se puede pintar todo lo demás, y el
-    deslizador la pide (ver `valorar`).
+    Primero el precio, porque sin él no hay acciones; después los estados,
+    porque sin ellos no hay nada que proyectar; y después los tipos de cambio,
+    porque sin ellos no se pueden pasar a la moneda de la valoración. La tasa
+    libre no corta: `valoracion.motor.valorar` la exige antes que los estados,
+    y aquí se trae pero no se exige, porque sin ella todavía se puede pintar
+    todo lo demás y el deslizador la pide (ver `valorar`).
     """
     ticker = resuelto.ticker
     perfil, motivo = mercado.perfil(ticker)
@@ -139,7 +141,8 @@ def supuestos_de(entradas: Entradas, cambios: "dict | None" = None) -> "Supuesto
     """
     cambios = dict(cambios or {})
     r_f, procedencia = entradas.r_f, entradas.procedencia_r_f
-    if r_f is None:
+    a_mano = r_f is None
+    if a_mano:
         if "r_f" not in cambios:
             return None
         r_f = _numero_finito("r_f", cambios.pop("r_f"))
@@ -154,6 +157,12 @@ def supuestos_de(entradas: Entradas, cambios: "dict | None" = None) -> "Supuesto
         entradas.motivos,
         procedencia_r_f=procedencia,
     )
+    if a_mano:
+        # La tasa puesta a mano entra por `deducir`, no por `aplicar`, y las
+        # guardas de `aplicar` no la ven: con un −5 %, WALMEX salía con un coste
+        # del capital propio negativo y un valor base. Se le exige lo mismo que
+        # a una tasa movida.
+        exigir_costes_positivos(supuestos)
     return aplicar(supuestos, cambios)
 
 

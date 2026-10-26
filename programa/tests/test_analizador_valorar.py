@@ -1,6 +1,7 @@
 """La valoración de cualquier ticker, con la red sustituida."""
 
 import json
+from contextlib import ExitStack
 from datetime import date
 from unittest.mock import patch
 
@@ -51,9 +52,25 @@ def test_con_cambios_la_valoracion_es_la_de_los_deslizadores():
     assert con["valor"]["base"] > sin["valor"]["base"]
 
 
+_RED = (
+    "perfil", "tasa_libre", "beta", "tasa_efectiva", "consenso", "estados", "tipo_de_cambio",
+)
+
+
 def test_valorar_es_puro_mismas_entradas_mismo_resultado():
     e = _entradas()
-    assert v.valorar(e, 0.1, hoy=date(2026, 10, 14)) == v.valorar(e, 0.1, hoy=date(2026, 10, 14))
+    red = AssertionError("salió a la red")
+    with ExitStack() as pila:
+        for nombre in _RED:
+            pila.enter_context(patch.object(v.mercado, nombre, side_effect=red))
+        pila.enter_context(patch.object(v.mercado.yf, "Ticker", side_effect=red))
+        pila.enter_context(patch.object(v.divisas, "bono_m", side_effect=red))
+        pila.enter_context(patch.object(v, "desde_sec", side_effect=red))
+        primera = v.valorar(e, 0.1, hoy=date(2026, 10, 14))
+        segunda = v.valorar(e, 0.1, hoy=date(2026, 10, 14))
+        con_cambios = v.valorar(e, 0.1, cambios={"g_ref": 0.30}, hoy=date(2026, 10, 14))
+        v.sensibilidad(e, {"g_ref": 0.30})
+    assert primera == segunda != con_cambios
 
 
 def test_una_emisora_en_pesos_sin_bono_m_no_se_valora_hasta_que_se_pone_la_tasa():
@@ -76,6 +93,20 @@ def test_una_tasa_puesta_a_mano_que_no_es_un_numero_se_rechaza():
     e = _entradas(divisa=MXN, r_f=None)
     with pytest.raises(ValueError):
         v.valorar(e, None, cambios={"r_f": "nueve"})
+
+
+def test_una_tasa_puesta_a_mano_pasa_las_mismas_guardas_que_una_movida():
+    # Con r_f = −5 % el coste del capital propio sale negativo. Movida sobre el
+    # Bono M, `aplicar` la rechaza; puesta a mano sin él, entra por `deducir`, y
+    # WALMEX salía con un k_e del −1,33 % y un valor base de 161,96 MXN.
+    con_bono_m = _entradas(divisa=MXN, r_f=0.0925)
+    sin_bono_m = _entradas(divisa=MXN, r_f=None, motivo_r_f="sin_token")
+    with pytest.raises(ValueError, match="k_e"):
+        v.valorar(con_bono_m, None, cambios={"r_f": -0.05})
+    with pytest.raises(ValueError, match="k_e"):
+        v.valorar(sin_bono_m, None, cambios={"r_f": -0.05})
+    with pytest.raises(ValueError, match="k_e"):
+        v.sensibilidad(sin_bono_m, {"r_f": -0.05})
 
 
 def test_la_sensibilidad_usa_los_mismos_datos_que_el_voto():
@@ -155,13 +186,13 @@ def test_sin_perfil_no_hay_entradas():
         assert v.entradas(SEC) == (None, "sin_precio")
 
 
-def _estados_walmex():
+def _estados_walmex(acciones=17.16e9):
     def hoja(fechas, filas):
         return pd.DataFrame(filas, index=[pd.Timestamp(f) for f in fechas]).T
 
     anios = ["2025-12-31", "2024-12-31", "2023-12-31", "2022-12-31"]
     return {
-        "quarterly_income_stmt": hoja(["2026-06-30"], {"Diluted Average Shares": [17.16e9]}),
+        "quarterly_income_stmt": hoja(["2026-06-30"], {"Diluted Average Shares": [acciones]}),
         "quarterly_balance_sheet": pd.DataFrame(),
         "quarterly_cashflow": pd.DataFrame(),
         "income_stmt": hoja(anios, {
@@ -247,8 +278,37 @@ def test_una_adr_en_dolares_con_estados_en_pesos_regresa_su_precio_en_pesos():
         e, _ = v.entradas(amx)
     assert e.divisa.moneda_valoracion == "MXN"
     assert ("beta", ("AMX", "^MXX", "USDMXN=X")) in red.llamadas
+    # Se vota con el precio en pesos, la moneda del valor.
+    assert e.perfil.moneda == "MXN"
+    assert e.perfil.precio == pytest.approx(22.885 * 18.40)
     # En pesos el Bono M ya lleva el riesgo de México.
     assert v.valorar(e, None)["divisa"]["sin_prima_pais"] is False
+
+
+def test_una_cotizacion_en_peniques_regresa_con_la_libra_y_vota_en_dolares():
+    # Yahoo da el precio en peniques y la capitalización en libras: 6.040
+    # millones de acciones, las mismas que en sus estados.
+    perfil_shel = perfil(ticker="SHEL.L", precio=2650.0, capitalizacion=1.6006e11,
+                         moneda="GBp", moneda_estados="USD", pais="United Kingdom")
+
+    def tipo_de_cambio(origen, destino):
+        return {("USD", "USD"): (1.0, "ok"), ("GBp", "USD"): (0.0127, "ok")}[(origen, destino)]
+
+    shel = Resuelto("SHEL.L", "sin_sec", None, None)
+    red = _Red(perfil=(perfil_shel, "ok"), estados=(_estados_walmex(acciones=6.04e9), "ok"))
+    with red, patch.object(v.mercado, "tipo_de_cambio", side_effect=tipo_de_cambio):
+        e, motivo = v.entradas(shel)
+    assert motivo == "ok"
+    # El par es el de la libra: «GBpUSD=X» Yahoo lo pasaría a GBPUSD=X sin avisar.
+    assert ("beta", ("SHEL.L", "^GSPC", "GBPUSD=X")) in red.llamadas
+    assert e.perfil.moneda == "USD"
+    assert e.perfil.precio == pytest.approx(2650.0 * 0.0127)
+    # Con el perfil de Yahoo tal cual, el cociente saldría cien veces mayor.
+    assert e.cociente_adr == pytest.approx(1.0, abs=0.01)
+
+
+def test_sin_pais_conocido_no_se_afirma_que_falte_la_prima_pais():
+    assert v.valorar(_entradas(perfil=perfil(pais=None)), None)["divisa"]["sin_prima_pais"] is False
 
 
 def test_una_extranjera_que_presenta_en_dolares_tambien_va_sin_prima_pais():

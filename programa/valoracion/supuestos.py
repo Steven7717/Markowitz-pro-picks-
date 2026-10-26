@@ -455,19 +455,31 @@ def aplicar(supuestos: Supuestos, cambios: dict) -> Supuestos:
             s = replace(s, g_perpetuo=_perpetuo_con(s.g_perpetuo, s.r_f.valor))
     if _HACEN_K_E & set(reales):
         s = replace(s, k_e=_recalculado(s.k_e, s.r_f.valor + s.beta.valor * s.prima.valor))
-        if not s.k_e.valor > 0:
-            raise ValueError(
-                f"k_e: con esos supuestos el coste del capital propio sale {s.k_e.valor:.2%}"
-                ", y tiene que ser positivo"
-            )
+        exigir_costes_positivos(s, ("k_e",))
     if _HACEN_WACC & set(reales) and s.wacc.valor is not None:
         s = replace(s, wacc=_recalculado(s.wacc, _wacc_en_diferencias(supuestos, s)))
-        if not s.wacc.valor > 0:
+        exigir_costes_positivos(s, ("wacc",))
+    return s
+
+
+_COSTES = {"k_e": "el coste del capital propio", "wacc": "el coste de capital"}
+
+
+def exigir_costes_positivos(supuestos: Supuestos, nombres=tuple(_COSTES)) -> None:
+    """Lanza `ValueError` si alguno de esos costes no es positivo: `epv` divide entre ellos.
+
+    Uno que no hay (el coste de capital de una financiera) no cuenta. Lo usa
+    `aplicar` con lo que el usuario mueve, y `analizador.valorar` con la tasa
+    libre que el usuario pone a mano cuando no hay Bono M: ésa entra por
+    `deducir` y no por `aplicar`, y sin esto se saltaría la guarda.
+    """
+    for nombre in nombres:
+        valor = getattr(supuestos, nombre).valor
+        if valor is not None and not valor > 0:
             raise ValueError(
-                f"wacc: con esos supuestos el coste de capital sale {s.wacc.valor:.2%}"
+                f"{nombre}: con esos supuestos {_COSTES[nombre]} sale {valor:.2%}"
                 ", y tiene que ser positivo"
             )
-    return s
 
 
 def movidos(supuestos: Supuestos) -> "tuple[str, ...]":

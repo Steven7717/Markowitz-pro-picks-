@@ -731,6 +731,39 @@ def test_la_beta_con_par_se_mide_con_el_precio_ya_convertido():
     assert motivo == "ok" and beta.bruta == pytest.approx(1.0, abs=0.1)
 
 
+
+def _par(diario, semanal):
+    """Un par cuyo `history` da el diario o el semanal según el intervalo pedido."""
+    doble = _ticker()
+    doble.history.side_effect = lambda **pedido: pd.DataFrame(
+        {"Close": diario if pedido.get("interval") == "1d" else semanal}
+    )
+    return doble
+
+
+def test_la_beta_con_par_toma_el_tipo_del_diario_y_no_del_semanal_de_yahoo():
+    # El semanal de CADUSD=X marcó 0,911 la semana del 16/12/2024, entre dos de
+    # 0,70 y 0,69, con el diario limpio: un +30 % y un −24 % que no existieron,
+    # y RY.TO salía con una beta de 0,27 y un r² de 0,02.
+    dobles = _dobles_de_beta()
+    semanas = dobles["MU"].history.return_value.index
+    dias = pd.bdate_range(semanas[0], periods=5 * len(semanas), tz="Europe/London")
+    # El diario se mueve entre semana pero cierra todos los viernes a 0,70: la
+    # vela de la semana es la del viernes, no la del lunes con que se fecha.
+    entre_semana = 0.70 * (1 + np.random.default_rng(3).normal(0, 0.05, len(dias)))
+    diario = pd.Series(np.where(dias.dayofweek == 4, 0.70, entre_semana), index=dias)
+    con_pico = pd.Series(0.70, index=semanas)
+    con_pico.iloc[10] = 0.911
+    dobles["CADUSD=X"] = _par(diario, con_pico)
+    with patch.object(mercado.yf, "Ticker", side_effect=lambda s: dobles[s]):
+        sin_par, _ = mercado.beta("MU", "^GSPC")
+        con_par, motivo = mercado.beta("MU", "^GSPC", "CADUSD=X")
+    # Un tipo constante no cambia ningún rendimiento: la beta es la de sin par.
+    assert motivo == "ok"
+    assert con_par.bruta == pytest.approx(sin_par.bruta)
+    assert con_par.r2 == pytest.approx(sin_par.r2)
+
+
 def test_la_beta_con_y_sin_par_no_comparten_cache(tmp_path):
     dobles = _dobles_de_beta()
     dobles["USDMXN=X"] = _con_historial(_cierres(np.zeros(104)))
