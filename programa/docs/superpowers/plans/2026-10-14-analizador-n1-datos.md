@@ -4486,6 +4486,8 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 ### Task 15: Tests contra las fuentes vivas
 
+> **Ejecutada** (46df8d4), idéntica a la tarea. Los 12 pasan contra las fuentes vivas el 2026-10-25: con las credenciales que guarda la app (`credenciales.aplicar(credenciales.cargar())`), 12 passed; sin `BANXICO_TOKEN` en el entorno, 11 passed y el del Bono M omitido, con WALMEX en `sin_bono_m`. yfinance no ha renombrado ninguna fila de `FILAS`. La caché de Banxico no se puede aislar (su `raiz` por defecto se fija al definir la función), como la tarea ya decía.
+
 **Files:**
 - Create: `tests/test_analizador_red.py`
 
