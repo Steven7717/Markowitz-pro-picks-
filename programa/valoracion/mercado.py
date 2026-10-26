@@ -559,10 +559,17 @@ def beta(
         tipo = None
         if par is not None:
             cambio = yf.Ticker(par)
-            tipo = (
-                cambio.history(period="2y", interval="1wk")["Close"],
-                cambio.history(period="2y", interval="1d")["Close"],
-            )
+            semanal = cambio.history(period="2y", interval="1wk")["Close"]
+            diario = semanal.iloc[:0]
+            if not _sin_cierres(semanal):
+                # Con `period="2y"`, el diario empieza una semana después que el
+                # semanal (USDMXN=X, el 2026-10-25: el 28/10/2024 frente al
+                # 21/10/2024), y su primera semana no tendría con qué compararse
+                # en `tipo_sin_picos`: se perdería siempre. Desde una semana
+                # antes de su lunes, la tiene.
+                desde = pd.Timestamp(semanal.index.min()) - timedelta(days=7)
+                diario = cambio.history(start=desde.date(), interval="1d")["Close"]
+            tipo = (semanal, diario)
         return activo, referencia, tipo
 
     def interpretar(series):

@@ -731,12 +731,32 @@ def test_la_beta_con_par_se_mide_con_el_precio_ya_convertido():
     assert motivo == "ok" and beta.bruta == pytest.approx(1.0, abs=0.1)
 
 
+def _dia(indice) -> pd.DatetimeIndex:
+    return pd.DatetimeIndex(indice).tz_localize(None).normalize()
+
+
 def _par(diario, semanal):
-    """Un par cuyo `history` da el diario o el semanal según el intervalo pedido."""
+    """Un par cuyo `history` da el diario o el semanal según el intervalo pedido.
+
+    Como Yahoo, el diario de `period="2y"` empieza una semana después que el
+    semanal (USDMXN=X, el 2026-10-25: el 28/10/2024 frente al 21/10/2024); con
+    `start=`, desde ese día.
+    """
+    diario = pd.Series(diario, dtype="float64")
+
+    def history(**pedido):
+        if pedido.get("interval") != "1d":
+            return pd.DataFrame({"Close": semanal})
+        if diario.empty:
+            return pd.DataFrame({"Close": diario})
+        if "start" in pedido:
+            desde = pd.Timestamp(pedido["start"])
+        else:
+            desde = _dia(semanal.index).min() + pd.offsets.Week(1)
+        return pd.DataFrame({"Close": diario[_dia(diario.index) >= desde]})
+
     doble = _ticker()
-    doble.history.side_effect = lambda **pedido: pd.DataFrame(
-        {"Close": diario if pedido.get("interval") == "1d" else semanal}
-    )
+    doble.history.side_effect = history
     return doble
 
 
@@ -745,13 +765,17 @@ def _par_de_yahoo(semanas, picos=()):
 
     El semanal, fechado el lunes, lleva el cierre del viernes. Cada vela diaria
     es una foto a medianoche: lleva el cierre del día hábil anterior, así que el
-    diario va un día por detrás. En las semanas de `picos` el semanal sale un
-    30 % por encima, como el de CADUSD=X del 16/12/2024.
+    diario va un día por detrás. El diario empieza una semana antes que el
+    semanal, para que `start=` tenga qué devolver. En las semanas de `picos` el
+    semanal sale un 30 % por encima, como el de CADUSD=X del 16/12/2024.
     """
-    dias = pd.bdate_range(semanas[0], periods=5 * len(semanas), tz="Europe/London")
+    dias = pd.bdate_range(
+        semanas[0] - pd.offsets.Week(1), periods=5 * (len(semanas) + 1), tz="Europe/London"
+    )
     cierres = 0.70 * np.cumprod(1 + np.random.default_rng(3).normal(0, 0.005, len(dias)))
     diario = pd.Series(np.r_[0.70, cierres[:-1]], index=dias)
-    semanal = pd.Series(cierres[4::5], index=semanas.tz_localize("Europe/London"))
+    # Los viernes de las semanas del semanal: el primero es el de la segunda del diario.
+    semanal = pd.Series(cierres[9::5], index=semanas.tz_localize("Europe/London"))
     for semana in picos:
         semanal.iloc[semana] *= 1.30
     return diario, semanal
@@ -798,6 +822,14 @@ def test_la_beta_con_par_usa_el_cierre_de_la_semana_y_no_la_foto_del_diario():
     assert beta.semanas == 104
     assert beta.bruta == pytest.approx(esperada.bruta)
     assert beta.r2 == pytest.approx(esperada.r2)
+
+
+def test_la_primera_semana_del_semanal_tiene_diario_con_que_compararse():
+    # Con el diario de `period="2y"`, la primera semana no tenía con qué
+    # compararse y se descartaba siempre: 103 semanas en vez de 104.
+    diario, semanal = _par_de_yahoo(_cierres_de("MU").index)
+    beta, motivo = _beta_con(_par(diario, semanal))
+    assert motivo == "ok" and beta.semanas == 104
 
 
 def test_sin_el_diario_del_par_no_hay_beta_ni_se_guarda(tmp_path):

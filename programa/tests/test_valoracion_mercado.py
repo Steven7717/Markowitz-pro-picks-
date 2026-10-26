@@ -358,3 +358,27 @@ def test_el_tipo_sin_picos_es_el_semanal_de_yahoo_sin_las_semanas_que_el_diario_
         pd.Timestamp("2024-12-09"): 0.712,
         pd.Timestamp("2024-12-23"): 0.690,
     }
+
+
+def test_una_semana_sin_diario_con_que_compararla_se_descarta():
+    # De ella no se puede saber si es un pico.
+    semanas = pd.date_range("2024-12-02", periods=3, freq="W-MON", tz="Europe/London")
+    semanal = pd.Series(0.70, index=semanas)
+    dias = pd.bdate_range("2024-12-02", periods=15, tz="Europe/London")
+    sin_la_segunda = (dias < semanas[1]) | (dias >= semanas[2])
+    diario = pd.Series(0.70, index=dias[sin_la_segunda])
+    assert list(tipo_sin_picos(semanal, diario).index) == [
+        pd.Timestamp("2024-12-02"),
+        pd.Timestamp("2024-12-16"),
+    ]
+
+
+def test_se_compara_con_la_ultima_vela_diaria_de_la_semana_y_no_con_la_primera():
+    # La vela del lunes es la foto de medianoche, con el cierre del viernes
+    # anterior. Si el lunes se mueve un 7 %, el semanal cierra ya movido, y la
+    # semana es buena: con la primera vela parecería un pico.
+    semanas = pd.date_range("2024-12-02", periods=2, freq="W-MON", tz="Europe/London")
+    semanal = pd.Series([0.70, 0.75], index=semanas)
+    dias = pd.bdate_range("2024-12-02", periods=10, tz="Europe/London")
+    diario = pd.Series([0.70] * 6 + [0.75] * 4, index=dias)
+    assert tipo_sin_picos(semanal, diario).tolist() == [0.70, 0.75]
