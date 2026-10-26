@@ -32,6 +32,9 @@ class Analisis:
     `sin_estados`, `sin_historia`, `sin_precio`, `sin_trimestres_comparables`,
     o el de la red) y la valoración, que es una fallida con su motivo. Un ETF
     sólo tiene identidad.
+
+    Una valoración `error_interno` puede venir con `entradas`: llegaron bien y
+    lo que falló fue la aritmética, que volvería a fallar con cada deslizador.
     """
 
     ticker: str
