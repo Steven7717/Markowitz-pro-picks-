@@ -216,25 +216,23 @@ def guardar(resultado: Resultado, destino: Path) -> None:
     `NaN`, which is not valid JSON and a strict parser rejects. Without this
     flag here, the writer would silently drop the guarantee the fichas
     themselves are built to uphold.
-    """
-    # El panel es la referencia sectorial del Analizador y sólo vale junto a los
-    # candidatos con que se generó. Se convierte a bytes antes de escribir
-    # nada: si la conversión falla, la carpeta se queda como estaba en vez de
-    # mezclar fichas nuevas con el panel viejo.
-    panel_parquet = None
-    if resultado.panel is not None and not resultado.panel.empty:
-        buffer = io.BytesIO()
-        resultado.panel.reset_index().to_parquet(buffer, index=False)
-        panel_parquet = buffer.getvalue()
 
+    El panel nunca hace lanzar a `guardar`: es prescindible (sin él, el
+    Analizador ofrece reconstruirlo) y las fichas no. La vista de candidatos
+    sólo captura `CorridaAbortada`, así que un fallo suyo enseñaría una traza y
+    dejaría lo marcado en la revisión anterior junto a candidatos nuevos. Si no
+    se puede convertir o escribir, la carpeta queda sin panel y la causa va al
+    log.
+    """
     destino = Path(destino)
     destino.mkdir(parents=True, exist_ok=True)
-    # El panel de la corrida anterior se borra antes de escribir nada: sin
-    # panel, el de antes mentiría (el Analizador compararía contra una
-    # referencia que no es la de estos candidatos), y si la escritura falla a
-    # mitad la carpeta queda sin panel, no con el viejo. Sin fichero, el
-    # Analizador ofrece reconstruirlo.
-    (destino / "panel.parquet").unlink(missing_ok=True)
+    # El panel de la corrida anterior se borra antes de escribir nada: sólo vale
+    # junto a los candidatos con que se generó, y sin el nuevo el de antes
+    # mentiría (el Analizador compararía contra una referencia que no es la de
+    # estos candidatos). Si algo falla a mitad, la carpeta queda sin panel, no
+    # con el viejo.
+    ruta_panel = destino / "panel.parquet"
+    ruta_panel.unlink(missing_ok=True)
 
     resultado.tabla.to_csv(destino / "ranking.csv")
     (destino / "fichas.json").write_text(
@@ -248,5 +246,21 @@ def guardar(resultado: Resultado, destino: Path) -> None:
         json.dumps(resultado.corrida, ensure_ascii=False, indent=2, allow_nan=False),
         encoding="utf-8",
     )
-    if panel_parquet is not None:
-        (destino / "panel.parquet").write_bytes(panel_parquet)
+    if resultado.panel is None or resultado.panel.empty:
+        return
+    # `Exception` y no `OSError`: la conversión puede fallar con lo que lance
+    # pyarrow (`ArrowTypeError` es un `TypeError`, `ArrowInvalid` un
+    # `ValueError`, `ArrowNotImplementedError` un `NotImplementedError`), y
+    # ninguno debe salir de aquí con las fichas ya escritas. Una escritura
+    # cortada a mitad puede dejar un parquet truncado; `cargar_panel` lo trata
+    # como ausente.
+    try:
+        buffer = io.BytesIO()
+        resultado.panel.reset_index().to_parquet(buffer, index=False)
+        ruta_panel.write_bytes(buffer.getvalue())
+    except Exception:
+        logging.getLogger(__name__).exception(
+            "No se pudo guardar el panel de referencia del Analizador en %s; "
+            "las fichas sí se guardaron y la carpeta queda sin panel",
+            ruta_panel,
+        )

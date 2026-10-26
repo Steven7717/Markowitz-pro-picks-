@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, call, patch
 
 import numpy as np
 import pandas as pd
+import pyarrow as pa
 import pytest
 
 from fundamentals.kpis import TODOS_LOS_KPIS
@@ -572,25 +573,38 @@ def test_sin_panel_se_borra_el_de_la_corrida_anterior(sin_red, tmp_path: Path, s
     assert (tmp_path / "fichas.json").exists()
 
 
-def test_si_el_panel_no_se_puede_convertir_no_se_toca_nada(sin_red, tmp_path: Path):
-    """Fichas nuevas con el panel viejo serían la misma mezcla que la de arriba,
-    y la vista de candidatos sólo captura `CorridaAbortada`: el error sale de
-    `guardar`, pero la carpeta se queda como estaba."""
+def test_si_el_panel_no_se_puede_convertir_se_guardan_las_fichas_sin_panel(
+    sin_red, tmp_path: Path, caplog
+):
+    """El panel es prescindible y las fichas no: un fallo de pyarrow al
+    convertirlo no puede tumbar `guardar`, porque la vista de candidatos sólo
+    captura `CorridaAbortada` y enseñaría una traza sin limpiar lo marcado. La
+    carpeta queda sin panel, no con el viejo, y la causa va al log."""
     (tmp_path / "fichas.json").write_text("[]", encoding="utf-8")
     (tmp_path / "panel.parquet").write_bytes(b"viejo")
     resultado = construir_ranking(con_llm=False, n=5)
-    with patch.object(pd.DataFrame, "to_parquet", side_effect=OSError("sin espacio")):
-        with pytest.raises(OSError):
-            guardar(resultado, tmp_path)
-    assert (tmp_path / "fichas.json").read_text(encoding="utf-8") == "[]"
-    assert (tmp_path / "panel.parquet").read_bytes() == b"viejo"
-    assert not (tmp_path / "ranking.csv").exists()
+    # Un `TypeError` de pyarrow, que no es ni `OSError` ni `ValueError`: es lo
+    # que da una columna de objetos con tipos mezclados.
+    error = pa.ArrowTypeError("Expected bytes, got a 'float' object")
+    with (
+        patch.object(pd.DataFrame, "to_parquet", side_effect=error),
+        caplog.at_level(logging.ERROR, logger="ranking.run"),
+    ):
+        guardar(resultado, tmp_path)
+    fichas = json.loads((tmp_path / "fichas.json").read_text(encoding="utf-8"))
+    assert fichas == json.loads(json.dumps(resultado.fichas))
+    assert not (tmp_path / "panel.parquet").exists()
+    assert "panel" in caplog.text and "ArrowTypeError" in caplog.text
 
 
-def test_si_falla_la_escritura_del_panel_no_queda_el_viejo(sin_red, tmp_path: Path):
+def test_si_falla_la_escritura_del_panel_se_guardan_las_fichas_sin_panel(
+    sin_red, tmp_path: Path, caplog
+):
     """Un fallo del disco ya con las fichas nuevas escritas (un bloqueo de
     Windows al abrir el fichero) deja la carpeta sin panel, que el Analizador
-    sabe tratar, y no con el de la corrida anterior."""
+    sabe tratar, y no con el de la corrida anterior; y no lanza, por lo mismo
+    que el de arriba."""
+    (tmp_path / "fichas.json").write_text("[]", encoding="utf-8")
     (tmp_path / "panel.parquet").write_bytes(b"viejo")
     resultado = construir_ranking(con_llm=False, n=5)
     escribir = Path.write_bytes
@@ -600,8 +614,12 @@ def test_si_falla_la_escritura_del_panel_no_queda_el_viejo(sin_red, tmp_path: Pa
             raise PermissionError("bloqueado")
         return escribir(ruta, datos)
 
-    with patch.object(Path, "write_bytes", falla_el_panel):
-        with pytest.raises(PermissionError):
-            guardar(resultado, tmp_path)
-    assert (tmp_path / "fichas.json").exists()
+    with (
+        patch.object(Path, "write_bytes", falla_el_panel),
+        caplog.at_level(logging.ERROR, logger="ranking.run"),
+    ):
+        guardar(resultado, tmp_path)
+    fichas = json.loads((tmp_path / "fichas.json").read_text(encoding="utf-8"))
+    assert fichas == json.loads(json.dumps(resultado.fichas))
     assert not (tmp_path / "panel.parquet").exists()
+    assert "panel" in caplog.text and "PermissionError" in caplog.text
