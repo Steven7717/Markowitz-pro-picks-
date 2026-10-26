@@ -157,13 +157,15 @@ def supuestos_de(entradas: Entradas, cambios: "dict | None" = None) -> "Supuesto
         entradas.motivos,
         procedencia_r_f=procedencia,
     )
+    movidos = aplicar(supuestos, cambios)
     if a_mano:
         # La tasa puesta a mano entra por `deducir`, no por `aplicar`, y las
         # guardas de `aplicar` no la ven: con un −5 %, WALMEX salía con un coste
         # del capital propio negativo y un valor base. Se le exige lo mismo que
-        # a una tasa movida.
-        exigir_costes_positivos(supuestos)
-    return aplicar(supuestos, cambios)
+        # a una tasa movida, y sobre el resultado: con la beta movida a la vez,
+        # el k_e intermedio, con la beta del programa, no es el que se usa.
+        exigir_costes_positivos(movidos)
+    return movidos
 
 
 def _sin_prima_pais(entradas: Entradas) -> bool:

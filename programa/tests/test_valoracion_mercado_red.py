@@ -731,7 +731,6 @@ def test_la_beta_con_par_se_mide_con_el_precio_ya_convertido():
     assert motivo == "ok" and beta.bruta == pytest.approx(1.0, abs=0.1)
 
 
-
 def _par(diario, semanal):
     """Un par cuyo `history` da el diario o el semanal según el intervalo pedido."""
     doble = _ticker()
@@ -741,27 +740,71 @@ def _par(diario, semanal):
     return doble
 
 
-def test_la_beta_con_par_toma_el_tipo_del_diario_y_no_del_semanal_de_yahoo():
+def _par_de_yahoo(semanas, picos=()):
+    """Un par como lo da Yahoo: `(diario, semanal)`, en la zona de Londres.
+
+    El semanal, fechado el lunes, lleva el cierre del viernes. Cada vela diaria
+    es una foto a medianoche: lleva el cierre del día hábil anterior, así que el
+    diario va un día por detrás. En las semanas de `picos` el semanal sale un
+    30 % por encima, como el de CADUSD=X del 16/12/2024.
+    """
+    dias = pd.bdate_range(semanas[0], periods=5 * len(semanas), tz="Europe/London")
+    cierres = 0.70 * np.cumprod(1 + np.random.default_rng(3).normal(0, 0.005, len(dias)))
+    diario = pd.Series(np.r_[0.70, cierres[:-1]], index=dias)
+    semanal = pd.Series(cierres[4::5], index=semanas.tz_localize("Europe/London"))
+    for semana in picos:
+        semanal.iloc[semana] *= 1.30
+    return diario, semanal
+
+
+def _beta_con(par):
+    """Activo y referencia de `_dobles_de_beta`, y la beta con `par` como CADUSD=X."""
+    dobles = _dobles_de_beta()
+    dobles["CADUSD=X"] = par
+    with patch.object(mercado.yf, "Ticker", side_effect=lambda s: dobles[s]):
+        return mercado.beta("MU", "^GSPC", "CADUSD=X")
+
+
+def _cierres_de(simbolo):
+    return _dobles_de_beta()[simbolo].history.return_value["Close"]
+
+
+def test_la_beta_con_par_descarta_la_semana_de_un_pico_del_semanal_de_yahoo():
     # El semanal de CADUSD=X marcó 0,911 la semana del 16/12/2024, entre dos de
     # 0,70 y 0,69, con el diario limpio: un +30 % y un −24 % que no existieron,
     # y RY.TO salía con una beta de 0,27 y un r² de 0,02.
-    dobles = _dobles_de_beta()
-    semanas = dobles["MU"].history.return_value.index
-    dias = pd.bdate_range(semanas[0], periods=5 * len(semanas), tz="Europe/London")
-    # El diario se mueve entre semana pero cierra todos los viernes a 0,70: la
-    # vela de la semana es la del viernes, no la del lunes con que se fecha.
-    entre_semana = 0.70 * (1 + np.random.default_rng(3).normal(0, 0.05, len(dias)))
-    diario = pd.Series(np.where(dias.dayofweek == 4, 0.70, entre_semana), index=dias)
-    con_pico = pd.Series(0.70, index=semanas)
-    con_pico.iloc[10] = 0.911
-    dobles["CADUSD=X"] = _par(diario, con_pico)
-    with patch.object(mercado.yf, "Ticker", side_effect=lambda s: dobles[s]):
-        sin_par, _ = mercado.beta("MU", "^GSPC")
-        con_par, motivo = mercado.beta("MU", "^GSPC", "CADUSD=X")
-    # Un tipo constante no cambia ningún rendimiento: la beta es la de sin par.
+    activo, indice = _cierres_de("MU"), _cierres_de("^GSPC")
+    diario, semanal = _par_de_yahoo(activo.index, picos=(10,))
+    beta, motivo = _beta_con(_par(diario, semanal))
+    sin_el_pico = semanal.drop(semanal.index[10])
+    esperada = mercado.regresion_beta(
+        mercado.precio_convertido(activo, sin_el_pico), indice, "^GSPC"
+    )
     assert motivo == "ok"
-    assert con_par.bruta == pytest.approx(sin_par.bruta)
-    assert con_par.r2 == pytest.approx(sin_par.r2)
+    assert beta.semanas == 103
+    assert beta.bruta == pytest.approx(esperada.bruta)
+    assert beta.r2 == pytest.approx(esperada.r2)
+
+
+def test_la_beta_con_par_usa_el_cierre_de_la_semana_y_no_la_foto_del_diario():
+    # Con el diario, que va un día por detrás, la beta de AMX salía 0,901 en
+    # vez de 0,791. Sin picos no se descarta ninguna semana: la beta es la del
+    # semanal de Yahoo.
+    activo, indice = _cierres_de("MU"), _cierres_de("^GSPC")
+    diario, semanal = _par_de_yahoo(activo.index)
+    beta, motivo = _beta_con(_par(diario, semanal))
+    esperada = mercado.regresion_beta(mercado.precio_convertido(activo, semanal), indice, "^GSPC")
+    assert motivo == "ok"
+    assert beta.semanas == 104
+    assert beta.bruta == pytest.approx(esperada.bruta)
+    assert beta.r2 == pytest.approx(esperada.r2)
+
+
+def test_sin_el_diario_del_par_no_hay_beta_ni_se_guarda(tmp_path):
+    # Sin él no se pueden quitar los picos del semanal: es «no lo sé».
+    _, semanal = _par_de_yahoo(_cierres_de("MU").index)
+    assert _beta_con(_par([], semanal)) == (None, "sin_red")
+    assert _escritos(tmp_path) == []
 
 
 def test_la_beta_con_y_sin_par_no_comparten_cache(tmp_path):

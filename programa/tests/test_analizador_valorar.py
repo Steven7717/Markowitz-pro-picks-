@@ -109,6 +109,27 @@ def test_una_tasa_puesta_a_mano_pasa_las_mismas_guardas_que_una_movida():
         v.sensibilidad(sin_bono_m, {"r_f": -0.05})
 
 
+def test_la_tasa_puesta_a_mano_se_juzga_con_los_demas_cambios_ya_hechos():
+    # Con la beta del programa, un −5 % da un k_e negativo; con la beta en 3,
+    # un 7,6 %. Lo que cuenta es el resultado, como con el Bono M.
+    cambios = {"r_f": -0.05, "beta": 3.0}
+    con_bono_m = v.valorar(_entradas(divisa=MXN, r_f=0.0925), None, cambios=cambios)
+    sin_bono_m = v.valorar(_entradas(divisa=MXN, r_f=None), None, cambios=cambios)
+    assert sin_bono_m["supuestos"]["k_e"]["valor"] == pytest.approx(0.076)
+    assert con_bono_m["supuestos"]["k_e"]["valor"] == pytest.approx(0.076)
+    assert "veredicto" in sin_bono_m
+
+
+def test_una_tasa_puesta_a_mano_que_deja_el_coste_de_capital_negativo_se_rechaza():
+    # El k_e es positivo (−9 % + 2,34 × 4,2 % = 0,83 %), pero la tasa hunde el
+    # coste de la deuda hasta el −1 %, y con mucha deuda el WACC sale negativo.
+    # Ningún cambio llega a `aplicar` que rehaga el WACC: sólo lo ve esta guarda.
+    e = _entradas(divisa=MXN, r_f=None, beta=Beta(3.0, 0.4, 104, "^MXX"),
+                  fundamentos=fundamentos(deuda_total=5000.0))
+    with pytest.raises(ValueError, match="wacc"):
+        v.valorar(e, None, cambios={"r_f": -0.09})
+
+
 def test_la_sensibilidad_usa_los_mismos_datos_que_el_voto():
     e = _entradas()
     tabla = v.sensibilidad(e, None)

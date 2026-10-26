@@ -164,18 +164,37 @@ def precio_convertido(precio: pd.Series, tipo: pd.Series) -> pd.Series:
     return juntos.iloc[:, 0] * juntos.iloc[:, 1]
 
 
-def semanal_desde_diario(cierres: pd.Series) -> pd.Series:
-    """Cierres diarios en velas semanales como las de Yahoo: fechadas el lunes
-    de cada semana, con el último cierre de esa semana.
+# Cuánto puede apartarse el semanal de Yahoo de un par del que sale de su
+# diario antes de tomar la semana por un pico corrupto. El diario va un día por
+# detrás (ver `tipo_sin_picos`), y en un día una divisa rara vez se mueve un
+# 5 %; los picos falsos de CADUSD=X eran de un 30 %. Si alguna vez se mueve
+# tanto, se pierde esa semana, no la beta.
+PICO_TIPO_DE_CAMBIO = 0.05
 
-    Para el tipo de cambio de `beta`. El semanal de Yahoo de los pares trae
-    picos falsos que el diario no tiene: CADUSD=X marcó 0,911 la semana del
-    16/12/2024, entre dos de 0,70 y 0,69. Fechado como las velas del activo,
-    `precio_convertido` las cruza semana a semana; antes, `_semanal` quita la
-    zona y la hora, igual que a ellas.
+
+def tipo_sin_picos(semanal: pd.Series, diario: pd.Series) -> pd.Series:
+    """El semanal de Yahoo de un par, sin las semanas que su diario desmiente.
+
+    Hacen falta los dos. El semanal trae picos falsos que el diario no tiene:
+    CADUSD=X marcó 0,911 la semana del 16/12/2024, entre dos de 0,70 y 0,69, y
+    dejaba a RY.TO con una beta de 0,27 y un r² de 0,02. Pero el diario de un
+    `=X` no trae el cierre del día: cada vela es una foto a medianoche de
+    Londres, con el precio de la noche anterior, y una semana hecha con él va
+    un día por detrás (con él, la beta de AMX pasaba de 0,79 a 0,90). Así que
+    el valor es el del semanal, que trae el cierre real de la semana, y el
+    diario sólo sirve para descartar las semanas en que se aparta de él más de
+    `PICO_TIPO_DE_CAMBIO`. Una semana sin diario con que compararla también se
+    descarta: de ella no se puede saber si es un pico.
+
+    El diario se agrupa como fecha Yahoo sus velas semanales, el lunes de cada
+    semana, con la última vela diaria de esa semana. Antes, `_semanal` quita la
+    zona y la hora a los dos, igual que a las velas del activo.
     """
-    diario = _semanal(cierres)
-    return diario.resample("W-MON", label="left", closed="left").last().dropna()
+    semanal = _semanal(semanal)
+    del_diario = _semanal(diario).resample("W-MON", label="left", closed="left").last()
+    juntos = pd.concat([semanal, del_diario], axis=1, join="inner").dropna()
+    desvio = (juntos.iloc[:, 0] / juntos.iloc[:, 1] - 1).abs()
+    return juntos.iloc[:, 0][desvio <= PICO_TIPO_DE_CAMBIO]
 
 
 def tasa_libre_desde_cierres(cierres: pd.Series) -> "float | None":
@@ -529,17 +548,21 @@ def beta(
     pasa a la moneda del índice semana a semana antes de regresar: un precio en
     dólares contra un índice en pesos mezclaría dos monedas.
 
-    El par se baja en diario y se agrupa en semanas (`semanal_desde_diario`):
-    con el semanal de Yahoo, un pico falso de CADUSD=X dejaba a RY.TO con una
-    beta de 0,27 y un r² de 0,02, frente a 0,47 con el diario. El activo y el
-    índice siguen en semanal, como en M, para que su beta no cambie."""
+    El par se baja en semanal, que trae el cierre real de cada semana, y en
+    diario, que sólo sirve para quitarle al semanal sus picos falsos
+    (`tipo_sin_picos`). El activo y el índice siguen en semanal, como en M,
+    para que su beta no cambie."""
 
     def pedir():
         activo = yf.Ticker(ticker).history(period="2y", interval="1wk")["Close"]
         referencia = yf.Ticker(indice).history(period="2y", interval="1wk")["Close"]
-        tipo = (
-            None if par is None else yf.Ticker(par).history(period="2y", interval="1d")["Close"]
-        )
+        tipo = None
+        if par is not None:
+            cambio = yf.Ticker(par)
+            tipo = (
+                cambio.history(period="2y", interval="1wk")["Close"],
+                cambio.history(period="2y", interval="1d")["Close"],
+            )
         return activo, referencia, tipo
 
     def interpretar(series):
@@ -550,9 +573,12 @@ def beta(
         if _sin_cierres(activo) or _sin_cierres(referencia):
             return None
         if tipo is not None:
-            if _sin_cierres(tipo):
+            semanal, diario = tipo
+            # Sin el diario no se le pueden quitar los picos al semanal: tampoco
+            # se sabe, y una beta con un pico dentro no se guarda.
+            if _sin_cierres(semanal) or _sin_cierres(diario):
                 return None
-            activo = precio_convertido(activo, semanal_desde_diario(tipo))
+            activo = precio_convertido(activo, tipo_sin_picos(semanal, diario))
         encontrada = regresion_beta(activo, referencia, indice)
         return {"beta": None if encontrada is None else asdict(encontrada)}
 

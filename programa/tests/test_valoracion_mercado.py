@@ -343,13 +343,18 @@ def test_el_precio_convertido_solo_tiene_las_semanas_con_los_dos_datos():
     assert len(precio_convertido(precio, tipo)) == 1
 
 
-from valoracion.mercado import semanal_desde_diario  # noqa: E402
+from valoracion.mercado import tipo_sin_picos  # noqa: E402
 
 
-def test_el_semanal_desde_el_diario_es_el_de_yahoo_el_lunes_con_el_cierre_de_la_semana():
-    # Diario de un par, con la zona de Londres en la que Yahoo fecha los `=X`.
-    dias = pd.bdate_range("2024-12-16", "2024-12-27", tz="Europe/London")
-    diario = pd.Series([float(i) for i in range(len(dias))], index=dias)
-    semanal = semanal_desde_diario(diario)
-    assert list(semanal.index) == [pd.Timestamp("2024-12-16"), pd.Timestamp("2024-12-23")]
-    assert semanal.tolist() == [4.0, 9.0]
+def test_el_tipo_sin_picos_es_el_semanal_de_yahoo_sin_las_semanas_que_el_diario_desmiente():
+    # Un `=X` como lo da Yahoo, en la zona de Londres: el semanal, fechado el
+    # lunes; el diario, de lunes a viernes.
+    semanas = pd.date_range("2024-12-02", periods=4, freq="W-MON", tz="Europe/London")
+    semanal = pd.Series([0.700, 0.712, 0.911, 0.690], index=semanas)
+    diario = pd.Series(0.70, index=pd.bdate_range("2024-12-02", periods=20, tz="Europe/London"))
+    # Lo que queda es el semanal, no el diario: 0,712 se aparta un 1,7 % de él.
+    assert tipo_sin_picos(semanal, diario).to_dict() == {
+        pd.Timestamp("2024-12-02"): 0.700,
+        pd.Timestamp("2024-12-09"): 0.712,
+        pd.Timestamp("2024-12-23"): 0.690,
+    }
