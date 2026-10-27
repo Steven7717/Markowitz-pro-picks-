@@ -2,6 +2,7 @@
 
 import os
 from datetime import date, datetime, timedelta
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import numpy as np
@@ -11,6 +12,7 @@ import pytest
 from analizador.referencia import (
     HOLGURA_MISMA_CORRIDA,
     cargar_panel,
+    construir_panel,
     frente_al_sector,
     frescura,
     pares_en_panel,
@@ -280,3 +282,49 @@ def test_las_fichas_van_al_lado_del_panel():
     # `guardar` escribe en «salidas» relativo y `RUTA_PANEL` es absoluta:
     # coinciden porque los lanzadores arrancan en programa/ (revisión final de N1).
     assert RUTA_PANEL.parent.name == SALIDAS.name
+
+
+# --- El panel, construido aparte de los candidatos ----------------------------
+
+
+def test_construir_el_panel_solo_escribe_el_panel(tmp_path):
+    # Los candidatos de al lado, con su revisión: «Generar gratis» los pisaría.
+    for nombre in ("fichas.json", "corrida.json", "ranking.csv", "informe.md"):
+        (tmp_path / nombre).write_text(f"intacto {nombre}", encoding="utf-8")
+    antes = {p.name: p.read_bytes() for p in tmp_path.iterdir()}
+    crudo = panel_crudo()
+    with patch("ranking.run.construir_ranking", return_value=SimpleNamespace(panel=crudo)) as corrida, \
+            patch("ranking.run.guardar", side_effect=AssertionError("guardar pisaría los candidatos")):
+        panel, fecha = construir_panel(tmp_path / "panel.parquet")
+    assert corrida.call_args.kwargs == {"con_llm": False, "con_valoracion": False}
+    assert {p.name: p.read_bytes() for p in tmp_path.iterdir() if p.name in antes} == antes
+    assert sorted(p.name for p in tmp_path.iterdir()) == sorted([*antes, "panel.parquet"])
+    assert frente_al_sector("IN0", panel).ficha == frente_al_sector("IN0", crudo).ficha
+    assert fecha == date.today()
+
+
+def test_un_corte_al_escribir_deja_el_panel_de_antes_y_ningun_temporal(tmp_path):
+    ruta = tmp_path / "panel.parquet"
+    panel_crudo(semilla=1).reset_index().to_parquet(ruta, index=False)
+    de_antes = ruta.read_bytes()
+    with patch("ranking.run.construir_ranking", return_value=SimpleNamespace(panel=panel_crudo())), \
+            patch("analizador.referencia.os.replace", side_effect=OSError("disco lleno")):
+        with pytest.raises(OSError):
+            construir_panel(ruta)
+    assert ruta.read_bytes() == de_antes
+    assert list(tmp_path.iterdir()) == [ruta]
+
+
+def test_una_corrida_sin_panel_no_escribe_nada(tmp_path):
+    with patch("ranking.run.construir_ranking", return_value=SimpleNamespace(panel=None)):
+        assert construir_panel(tmp_path / "panel.parquet") == (None, None)
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_si_la_corrida_aborta_sale_tal_cual_y_no_se_escribe_nada(tmp_path):
+    # `CorridaAbortada` (la SEC no responde, o rechaza la identidad) la dice la
+    # pantalla, como en Revisar candidatos.
+    with patch("ranking.run.construir_ranking", side_effect=RuntimeError("la SEC no responde")):
+        with pytest.raises(RuntimeError):
+            construir_panel(tmp_path / "panel.parquet")
+    assert list(tmp_path.iterdir()) == []

@@ -23,6 +23,9 @@ compite por las quince plazas, y para el primero de los candidatos coincide con
 su puesto.
 """
 
+import io
+import os
+import tempfile
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -106,6 +109,50 @@ def cargar_panel(ruta: "Path | None" = None) -> "tuple[pd.DataFrame | None, date
     if panel.empty or panel.index.has_duplicates:
         return None, None
     return panel, fecha
+
+
+def construir_panel(ruta: "Path | None" = None) -> "tuple[pd.DataFrame | None, date | None]":
+    """El panel de referencia, construido y escrito aparte de los candidatos.
+
+    Es la corrida de «Generar gratis» sin la valoración
+    --`construir_ranking(con_llm=False, con_valoracion=False)`, unos dos minutos
+    con la caché llena--, pero **sólo escribe el panel**: ni las fichas, ni la
+    corrida, ni el informe. `ranking.run.guardar` habría pisado las fichas con
+    IA que el usuario pagó y, con ellas, sus casillas marcadas y sus añadidos a
+    mano (revisión final de N1). Decisión del usuario del 2026-10-26.
+
+    Escribe de forma atómica, un temporal en la misma carpeta y `os.replace`: un
+    corte a mitad deja el panel de antes, que sigue siendo un panel válido de
+    una corrida anterior. `guardar` hace otra cosa --borra el viejo antes de
+    escribir-- porque allí el viejo es ajeno a las fichas nuevas.
+
+    Devuelve lo que `cargar_panel` lee del fichero escrito. Una corrida sin panel
+    (un universo vacío) no escribe nada y devuelve `(None, None)`.
+    `CorridaAbortada` se deja salir: quien llama sabe decirlo.
+    """
+    # Aquí y no arriba: `ranking.run` arrastra la IA y la valoración, y este
+    # módulo lo importan el análisis de un ticker y los tests, que no las necesitan.
+    from ranking.run import construir_ranking
+
+    ruta = Path(ruta or RUTA_PANEL)
+    resultado = construir_ranking(con_llm=False, con_valoracion=False)
+    if resultado.panel is None or resultado.panel.empty:
+        return None, None
+    buffer = io.BytesIO()
+    resultado.panel.reset_index().to_parquet(buffer, index=False)
+    ruta.parent.mkdir(parents=True, exist_ok=True)
+    # `mkstemp` y no un nombre fijo: dos pestañas pueden pulsar a la vez, y en
+    # la misma carpeta porque `os.replace` sólo es atómico dentro de un volumen.
+    descriptor, provisional = tempfile.mkstemp(dir=ruta.parent, prefix=".panel-", suffix=".tmp")
+    temporal = Path(provisional)
+    try:
+        with os.fdopen(descriptor, "wb") as destino:
+            destino.write(buffer.getvalue())
+        os.replace(temporal, ruta)
+    except BaseException:
+        temporal.unlink(missing_ok=True)
+        raise
+    return cargar_panel(ruta)
 
 
 def trimestre_final(panel: pd.DataFrame) -> str:
