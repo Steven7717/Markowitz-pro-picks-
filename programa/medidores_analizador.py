@@ -19,20 +19,21 @@ libre-- los glosa la pantalla una vez, con los glosarios de `medidores` y de
 """
 
 import re
-from datetime import date
+from datetime import date, datetime, timezone
 
 import medidores_valoracion
 from analizador.divisas import SEPARACION_MAXIMA_SUBASTAS, adr_dudosa
 from analizador.resolver import normalizar, tiene_sufijo
 from aprobacion.carga import MOTIVOS_EN_CASTELLANO
 from fundamentals.sectors import MIN_PARES
+from noticias import cache
 
 # Privadas y aun así importadas: son el formato de las cifras de la valoración
 # y los nombres de los supuestos. Una segunda copia aquí es como empiezan a
 # separarse, y el Analizador tiene que escribir las cifras igual que Revisar
 # candidatos.
 from medidores_valoracion import _NOMBRE_SUPUESTO, _dinero, _numero, _pct
-from noticias.texto import plano
+from noticias.texto import cada, cuanto_falta, hace, plano
 from ranking.criterio import TOPE_POR_SECTOR
 
 CLASE = {
@@ -613,3 +614,317 @@ def tabla_proyeccion(proyeccion, moneda: str) -> "tuple[list[str], list[list[str
     ]
     filas.append(["Terminal", "—", "—", "—", _millones(proyeccion.terminal_descontado)])
     return columnas, filas
+
+
+# --- La fila del resumen ------------------------------------------------------
+
+# El spec pide Ticker, Clase, Precio, Valor base, Margen de seguridad,
+# Veredicto, Frente al sector y Próximo evento. Se añaden el nombre largo (un
+# `BRK B` mal partido da BRK y B, y B es Barrick), la hora del precio (el precio
+# no se refresca solo, a propósito) y los avisos, que es donde una fila que
+# falla dice por qué.
+COLUMNAS = (
+    "Ticker",
+    "Nombre",
+    "Clase",
+    "Precio",
+    "Hora del precio",
+    "Valor base",
+    "Margen de seguridad",
+    "Veredicto",
+    "Frente al sector",
+    "Próximo evento",
+    "Avisos",
+)
+
+
+def hora_del_precio(hora: object) -> str:
+    """La hora de la cotización en UTC, o «—». Una hora sin zona no se da por UTC."""
+    if not isinstance(hora, str):
+        return "—"
+    try:
+        momento = datetime.fromisoformat(hora)
+    except ValueError:
+        return "—"
+    if momento.tzinfo is None:
+        return "—"
+    return momento.astimezone(timezone.utc).strftime("%d/%m/%Y %H:%M UTC")
+
+
+def texto_evento(evento, hoy: date) -> str:
+    """«Resultados, 17/12/2026 (en 52 días)»."""
+    return f"{evento.detalle}, {evento.cuando:%d/%m/%Y} ({cuanto_falta(evento.cuando, hoy)})"
+
+
+def motivo_de_la_valoracion(analisis) -> str:
+    """Por qué no hay valoración, con el motivo concreto de la tasa libre si es el Bono M.
+
+    `fallida("sin_bono_m")` sólo dice que falta; lo concreto viaja en
+    `Entradas.motivo_r_f` (revisión de la Task 13 de N1).
+    """
+    valoracion = analisis.valoracion if isinstance(analisis.valoracion, dict) else {}
+    motivo = valoracion.get("motivo")
+    if motivo == "sin_bono_m" and analisis.entradas is not None:
+        return f"sin tasa libre: {etiqueta(MOTIVO_TASA, analisis.entradas.motivo_r_f)}"
+    return medidores_valoracion.etiqueta_motivo(motivo)
+
+
+def fila(analisis, proximo_evento, sp500, trimestre_panel, hoy: date) -> dict:
+    """La fila de un ticker en el resumen, como textos, en el orden de `COLUMNAS`.
+
+    El precio es el de la identidad, en la moneda en que cotiza; el valor base,
+    el de la valoración pasada a esa misma moneda (`en_moneda_del_precio`). Un
+    ticker sin clase sólo dice por qué, y conserva el nombre y el precio si
+    Yahoo los dio (sin el correo de EDGAR, por ejemplo).
+    """
+    salida = dict.fromkeys(COLUMNAS, "—")
+    salida["Ticker"] = analisis.ticker
+    salida["Nombre"] = nombre(analisis)
+    identidad = analisis.identidad
+    if identidad is not None and identidad.precio is not None:
+        salida["Precio"] = _dinero(identidad.precio, identidad.moneda or "")
+        salida["Hora del precio"] = hora_del_precio(identidad.hora)
+    if analisis.clase is None:
+        salida["Avisos"] = motivo_de_la_fila(analisis)
+        return salida
+    salida["Clase"] = CLASE.get(analisis.clase, analisis.clase)
+    salida["Frente al sector"] = frente_al_sector(analisis)
+    if proximo_evento is not None:
+        salida["Próximo evento"] = texto_evento(proximo_evento, hoy)
+    cortos = [corto for corto, _ in avisos(analisis, sp500, trimestre_panel, hoy)]
+    valoracion = en_moneda_del_precio(analisis.valoracion)
+    if isinstance(valoracion, dict) and "veredicto" in valoracion:
+        etiqueta_, _ = medidores_valoracion.VEREDICTO.get(valoracion["veredicto"], (valoracion["veredicto"], None))
+        salida["Veredicto"] = etiqueta_
+        base = (valoracion.get("valor") or {}).get("base")
+        if _numero(base) is not None:
+            salida["Valor base"] = _dinero(base, valoracion.get("moneda") or "")
+        if _numero(valoracion.get("margen_seguridad")) is not None:
+            salida["Margen de seguridad"] = _pct(valoracion["margen_seguridad"])
+    elif isinstance(valoracion, dict):
+        salida["Veredicto"] = "Sin valoración"
+        cortos.insert(0, motivo_de_la_valoracion(analisis))
+    salida["Avisos"] = "; ".join(cortos) or "—"
+    return salida
+
+
+def leyenda_resumen() -> str:
+    """Lo que dice cada columna, en markdown, para debajo de la tabla.
+
+    Glosa la identidad de lo que la tabla no explica sola, la primera vez que
+    sale en la pantalla («Registro del texto»).
+    """
+    return (
+        "**Valor base**: el valor por acción del escenario base, en la moneda en "
+        "que cotiza. **Margen de seguridad**: (valor base − precio) / precio, "
+        "cuánto más vale que su precio. **Veredicto**: lo que dicen juntos los "
+        "tres votos —flujos, valor sin crecimiento y pares—; las cuentas, en la "
+        "pestaña Valoración. **Frente al sector**: su puesto global por la nota "
+        "compuesta, que resume los cuatro pilares —calidad, crecimiento, valoración "
+        "y solidez— medidos frente a las empresas del S&P 500 de su sector.  \n"
+        "El precio no se refresca solo, a propósito: un veredicto que cambia cada "
+        "minuto con el precio es ruido. Lleva su hora, y el tiempo real está en el "
+        "gráfico."
+    )
+
+
+# --- Lo que viene y las noticias ------------------------------------------------
+
+# Los nombres de las tres fuentes de `noticias/traer.py`, en el orden de la
+# pantalla: lo que viene, los hechos y la prensa.
+ETIQUETA_FUENTE = {"agenda": "Calendario", "hechos": "Hechos (8-K)", "prensa": "Prensa"}
+
+# Por encima de esto la lista deja de leerse y empieza a ser un muro. Se recorta
+# diciéndolo: un recorte silencioso es indistinguible de que no hubiera más.
+# Era el `TOPE` de Noticias, que listaba un libro entero; aquí es por ticker.
+TOPE_NOTICIAS = 40
+
+PESTANAS = ("Resumen", "Valoración", "Fundamentales", "Gráfico", "Noticias y calendario")
+# Un ETF no se valora ni se compara con un sector: las pestañas que saldrían
+# vacías no se dibujan (spec, «Las pestañas del detalle»).
+PESTANAS_ETF = ("Resumen", "Gráfico", "Noticias y calendario")
+
+
+def pestanas_de(clase: "str | None") -> "tuple[str, ...]":
+    return PESTANAS_ETF if clase == "etf" else PESTANAS
+
+
+def proximos(eventos) -> list:
+    """Los eventos con fecha, del más cercano al más lejano.
+
+    Los punteros macro van con `cuando=None`: meterlos en el orden sería un
+    `TypeError`, y ponerles una fecha sería inventarse el dato que no se tiene.
+    """
+    return sorted((e for e in eventos if e.cuando is not None), key=lambda e: e.cuando)
+
+
+def proximo(eventos):
+    """El evento más cercano, o None."""
+    ordenados = proximos(eventos)
+    return ordenados[0] if ordenados else None
+
+
+def repartir_hechos(hechos) -> "tuple[list, list]":
+    """Los 8-K destacados y los de trámite, del más nuevo al más viejo.
+
+    El criterio ya decidió al bajarlos (`Hecho.material`): aquí sólo se reparte.
+    Volver a mirar los tipos a mano pondría un segundo criterio en el programa.
+    """
+    destacados = sorted((h for h in hechos if h.material), key=lambda h: h.cuando, reverse=True)
+    plegados = sorted((h for h in hechos if not h.material), key=lambda h: h.cuando, reverse=True)
+    return destacados, plegados
+
+
+def recorte(elementos: list, tope: int = TOPE_NOTICIAS) -> "tuple[list, int]":
+    """Los que caben y cuántos se quedaron fuera."""
+    return elementos[:tope], max(0, len(elementos) - tope)
+
+
+def formato_noticia(clase: str) -> str:
+    """El formato de un titular, para descartarlo sin abrirlo.
+
+    Yahoo mete vídeos entre las noticias, y en la pasada real de H devolvió
+    STORY para casi todo: se pinta lo que venga, y sólo el vídeo lleva nombre
+    propio.
+    """
+    return "Vídeo" if clase.upper() == "VIDEO" else clase.capitalize()
+
+
+def fuentes_de(clase: "str | None") -> "tuple[str, ...]":
+    """Las fuentes de noticias de cada clase: los 8-K sólo los presenta quien hace 10-K."""
+    return ("agenda", "hechos", "prensa") if clase == "sec" else ("agenda", "prensa")
+
+
+_SIN_HECHOS = {
+    "extranjera_sec": (
+        "Presenta 20-F o 40-F y no 8-K. Sus 6-K no se interpretan: no llevan códigos "
+        "de item, y el criterio de qué es material se construyó sobre ellos."
+    ),
+    "sin_sec": "No presenta en la SEC: aquí hay calendario y prensa, pero no hechos.",
+    "etf": "Un ETF no presenta 8-K: aquí hay calendario y prensa, pero no hechos.",
+}
+
+
+def sin_hechos(clase: "str | None") -> "str | None":
+    """Por qué una clase no tiene 8-K, o None si los tiene."""
+    return _SIN_HECHOS.get(clase)
+
+
+def linea_de_hora(fuente: str, cuando, vigente: bool) -> str:
+    """Cuándo se trajo lo que se está viendo de una fuente, en markdown.
+
+    La hora se enseña siempre, esté el dato fresco o no: un dato que se lee como
+    recién traído sin serlo es peor que no tener dato. Es la regla de Noticias.
+    """
+    nombre_ = ETIQUETA_FUENTE[fuente]
+    if cuando is None:
+        return f"**{nombre_}**: no se pudo traer nada."
+    linea = (
+        f"**{nombre_}**: se descargó el {cuando.astimezone():%d/%m/%Y a las %H:%M} "
+        f"({hace(cuando)}). Se vuelve a pedir cada {cada(cache.VALIDEZ[fuente])}."
+    )
+    if not vigente:
+        linea += " La descarga falló y se enseña lo último que había guardado."
+    return linea
+
+
+# --- La identidad, contra quién se compara y el panel ---------------------------
+
+_ORIGEN_SECTOR = {
+    "sp500": "el de la tabla del S&P 500",
+    "yahoo": "el de Yahoo, traducido a GICS",
+    "sin_sector": "Yahoo no da uno que se pueda traducir",
+}
+
+
+def ficha_de_identidad(analisis) -> str:
+    """Nombre aparte, lo demás de un ticker en markdown: clase, datos, sector y monedas.
+
+    Lo que viene de Yahoo pasa por `noticias.texto.plano`: es texto ajeno.
+    """
+    identidad = analisis.identidad
+    lineas = [
+        f"**Clase**: {CLASE.get(analisis.clase, '—')} · **Datos**: "
+        f"{FUENTE_DE_DATOS.get(analisis.clase, '—')}"
+    ]
+    if analisis.clase != "etf":
+        sector = plano(analisis.sector) if analisis.sector else "sin sector GICS"
+        lineas.append(f"**Sector**: {sector} ({_ORIGEN_SECTOR.get(analisis.fuente_sector, '—')})")
+    if identidad is not None:
+        bolsa = plano(identidad.bolsa) if identidad.bolsa else "—"
+        lineas.append(f"**Cotiza en** {plano(identidad.moneda or '—')}, en la bolsa {bolsa}")
+    entradas = analisis.entradas
+    if entradas is not None:
+        divisa = entradas.divisa
+        if divisa.moneda_estados != divisa.moneda_valoracion:
+            lineas.append(
+                f"**Estados** en {plano(divisa.moneda_estados)}, convertidos a "
+                f"{plano(divisa.moneda_valoracion)} para valorar"
+            )
+        elif divisa.moneda_valoracion != divisa.moneda_precio:
+            lineas.append(
+                f"**Se valora** en {plano(divisa.moneda_valoracion)}, la moneda de sus "
+                "estados; el valor se enseña en la del precio"
+            )
+    return "  \n".join(lineas)
+
+
+def contra_quien(analisis, pares_del_sector: int, fecha_panel: date) -> str:
+    """Con qué empresas se compara la ficha, y con qué panel.
+
+    `pares_del_sector` son las del sector en el panel; una del panel no se
+    cuenta a sí misma. Para las de fuera de EE. UU., el texto del spec sobre
+    los múltiplos y el riesgo país.
+    """
+    if analisis.referencia is not None and analisis.referencia.en_panel:
+        quienes = f"las otras {pares_del_sector - 1} empresas"
+    else:
+        quienes = f"las {pares_del_sector} empresas"
+    texto = (
+        f"Comparada con {quienes} del S&P 500 de {analisis.sector}, con el panel de "
+        f"referencia del {fecha_panel:%d/%m/%Y}."
+    )
+    pais = analisis.identidad.pais if analisis.identidad is not None else None
+    if pais not in (None, "United States") and analisis.fuente_sector != "sp500":
+        texto += (
+            " Márgenes y rentabilidad son comparables; los múltiplos lo son menos, "
+            "porque no incluyen el riesgo país."
+        )
+    return texto
+
+
+def fecha_del_panel(fecha_panel: date, trimestre: str, frescura) -> str:
+    """De cuándo es la referencia sectorial y de cuándo los candidatos."""
+    texto = (
+        f"Referencia sectorial: el panel del S&P 500 del {fecha_panel:%d/%m/%Y}, con "
+        f"trimestres hasta el {trimestre}."
+    )
+    if frescura.candidatos is None:
+        return texto + " No hay candidatos generados: Revisar candidatos enseña la lista de ejemplo."
+    return texto + f" Los candidatos son del {frescura.candidatos:%d/%m/%Y}."
+
+
+SIN_PANEL = (
+    "No hay panel de referencia del S&P 500: sin él no hay ficha frente al sector "
+    "ni voto de pares, y la valoración sale con dos votos. Se construye aparte, "
+    "gratis, sin tocar tus candidatos ni lo que tengas marcado en Revisar candidatos."
+)
+
+PANEL_POSTERIOR = (
+    "El panel es más nuevo que los candidatos: se rehízo aparte. La ficha de un "
+    "candidato aquí puede diferir un poco de la de Revisar candidatos, que se "
+    "calculó con el panel de entonces."
+)
+
+PANEL_ATRASADO = (
+    "El panel se ha quedado atrás: algún ticker de los de abajo tiene trimestres "
+    "posteriores al último del panel, y ésos no entran en su comparación. "
+    "Rehacer el panel lo pone al día."
+)
+
+AYUDA_PANEL = (
+    "La misma descarga que «Generar gratis», pero sólo escribe el panel "
+    "(salidas/panel.parquet): ni las fichas, ni las casillas marcadas, ni los "
+    "añadidos a mano. Unos dos minutos con la caché llena, y bastantes más la "
+    "primera vez."
+)

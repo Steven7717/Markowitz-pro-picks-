@@ -13,7 +13,7 @@ Nada de lo que llega de la red es marcado. Es texto que escribio otro, y se
 escapa antes de pintarlo.
 """
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from urllib.parse import quote
 
 # Streamlit interpreta markdown, y ademas LaTeX entre dolares. Un titular
@@ -154,6 +154,20 @@ def cada(validez) -> str:
         return "día" if dias == 1 else f"{dias} días"
     enteras = int(total)
     return "hora" if enteras == 1 else f"{enteras} horas"
+
+
+def cuanto_falta(cuando: date, hoy: "date | None" = None) -> str:
+    """Cuánto queda para una fecha, en palabras: la pareja de `hace`, para lo que viene.
+
+    Vivía dentro de `vistas/noticias.py`, que se borró al pasar sus noticias al
+    Analizador; un guion de Streamlit no se puede importar ni probar.
+    """
+    dias = (cuando - (hoy or date.today())).days
+    if dias <= 0:
+        return "hoy"
+    if dias == 1:
+        return "mañana"
+    return f"en {dias} días"
 
 
 def linea_de_hecho(hecho) -> str:

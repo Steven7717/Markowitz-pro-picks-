@@ -227,3 +227,16 @@ def test_lo_que_ya_se_escapaba_se_sigue_escapando():
     salido = texto.plano(HOSTIL)
     assert r"\[el aviso oficial\]" in salido
     assert r"\$1000M" in salido
+
+
+# --- Lo que viene ---------------------------------------------------------------
+
+
+def test_cuanto_falta_para_una_fecha():
+    from datetime import date
+
+    hoy = date(2026, 10, 26)
+    assert texto.cuanto_falta(date(2026, 10, 26), hoy) == "hoy"
+    assert texto.cuanto_falta(date(2026, 10, 25), hoy) == "hoy"
+    assert texto.cuanto_falta(date(2026, 10, 27), hoy) == "mañana"
+    assert texto.cuanto_falta(date(2026, 11, 5), hoy) == "en 10 días"

@@ -7,7 +7,7 @@ etiqueta no hable de una clave que nadie escribe.
 """
 
 import ast
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -15,10 +15,12 @@ import pytest
 
 import medidores_analizador as ma
 from analizador.analisis import Analisis
-from analizador.referencia import Referencia
+from analizador.referencia import Frescura, Referencia
 from analizador.resolver import Identidad
 from aprobacion.carga import MOTIVOS_EN_CASTELLANO
 from fundamentals.sectors import load_sectors
+from noticias.agenda import Evento
+from noticias.hechos import Hecho
 from ranking.criterio import TOPE_POR_SECTOR
 from tests.test_analizador_valorar import _en_pesos
 from tests.test_medidores_valoracion import _fija, _fija_residual
@@ -498,3 +500,227 @@ def test_una_cifra_que_no_es_un_numero_se_lee_n_d():
     p = Proyeccion((Ano(1, 0.2, float("nan"), None, -1.65e8),), 2.5e9)
     _, filas = ma.tabla_proyeccion(p, "USD")
     assert filas[0][2:] == ["n/d", "n/d", "−165 M"]
+
+
+# --- La fila del resumen ------------------------------------------------------
+
+HOY = date(2026, 10, 26)
+SP500 = {"MU", "AAPL", "GRMN"}
+
+
+def test_la_fila_de_un_ticker_analizado():
+    a = analisis(ref=referencia(1, 423), valoracion=_fija(), precio=877.55)
+    evento = Evento("MU", "resultados", date(2026, 12, 17), "Resultados")
+    fila = ma.fila(a, evento, SP500, "2026Q2", HOY)
+    assert list(fila) == list(ma.COLUMNAS)
+    assert fila["Ticker"] == "MU" and fila["Nombre"] == "Micron Technology, Inc."
+    assert fila["Clase"] == "SEC (10-K)"
+    assert fila["Precio"] == "877.55 USD"
+    assert fila["Hora del precio"] == "26/10/2026 20:00 UTC"
+    assert fila["Valor base"] == "1,234.50 USD" and fila["Margen de seguridad"] == "20.3%"
+    assert fila["Veredicto"] == "En rango"
+    assert fila["Frente al sector"] == "1 de 423"
+    assert fila["Próximo evento"] == "Resultados, 17/12/2026 (en 52 días)"
+    assert fila["Avisos"] == "—"
+
+
+def test_la_fila_de_un_ticker_sin_clase_lo_dice_y_no_inventa_el_resto():
+    fila = ma.fila(Analisis("ZZZZQ", None, None, "sin_red"), None, SP500, None, HOY)
+    assert fila["Avisos"] == ma.MOTIVO_ANALISIS["sin_red"]
+    assert {fila[c] for c in ma.COLUMNAS if c not in ("Ticker", "Avisos")} == {"—"}
+
+
+def test_sin_identidad_de_edgar_la_fila_conserva_el_nombre_y_el_precio():
+    a = Analisis("MU", None, identidad(), "sin_identidad_edgar")
+    fila = ma.fila(a, None, SP500, None, HOY)
+    assert fila["Nombre"] == "Micron Technology, Inc." and fila["Precio"] == "100.00 USD"
+    assert "Perfil" in fila["Avisos"]
+
+
+def test_el_valor_de_la_fila_va_en_la_moneda_del_precio():
+    amx = analisis("AMX", "extranjera_sec", valoracion=_amx(), fuente_sector="yahoo", precio=25.0)
+    assert ma.fila(amx, None, SP500, None, HOY)["Valor base"] == "30.00 USD"
+
+
+def test_una_fallida_por_el_bono_m_dice_el_motivo_concreto():
+    fallida = {"version": "m1", "fecha": "2026-10-26", "motivo": "sin_bono_m",
+               "divisa": {"moneda_precio": "MXN", "tipo_precio": 1.0}}
+    entradas = SimpleNamespace(motivo_r_f="sin_token", cociente_adr=None, procedencia_r_f={})
+    a = analisis("WALMEX.MX", "sin_sec", valoracion=fallida, entradas=entradas, fuente_sector="yahoo", moneda="MXN")
+    fila = ma.fila(a, None, SP500, None, HOY)
+    assert fila["Veredicto"] == "Sin valoración"
+    assert ma.MOTIVO_TASA["sin_token"] in fila["Avisos"]
+
+
+def test_los_avisos_cortos_van_en_la_fila():
+    tsm = analisis("TSM", "extranjera_sec", ref=referencia(25, 424, en_panel=False, posteriores=1),
+                   valoracion=_con_divisa(True), fuente_sector="yahoo", pais="Taiwan")
+    assert ma.fila(tsm, None, SP500, "2026Q2", HOY)["Avisos"] == "sin prima por riesgo país; panel atrasado"
+
+
+def test_un_etf_no_tiene_veredicto_ni_sector():
+    spy = analisis("SPY", "etf", fuente_sector=None)
+    fila = ma.fila(spy, None, SP500, None, HOY)
+    assert (fila["Clase"], fila["Veredicto"], fila["Frente al sector"]) == ("ETF", "—", "—")
+
+
+def test_la_hora_del_precio_sin_zona_no_se_inventa():
+    assert ma.hora_del_precio("2026-10-26T20:00:00+00:00") == "26/10/2026 20:00 UTC"
+    assert ma.hora_del_precio("2026-10-26T20:00:00") == "—"
+    assert ma.hora_del_precio(None) == "—"
+
+
+def test_la_leyenda_glosa_lo_que_no_se_explica_solo():
+    leyenda = ma.leyenda_resumen()
+    for termino in ("Margen de seguridad", "Frente al sector", "pilares", "no se refresca solo"):
+        assert termino in leyenda
+
+
+# --- Lo que viene y las noticias ------------------------------------------------
+
+
+def test_lo_que_viene_en_orden_y_sin_los_punteros_sin_fecha():
+    eventos = [
+        Evento("MU", "resultados", date(2026, 12, 17), "Resultados"),
+        Evento(None, "macro", None, "FOMC"),
+        Evento("TSM", "dividendo", date(2026, 11, 2), "Fecha de pago"),
+    ]
+    assert [e.ticker for e in ma.proximos(eventos)] == ["TSM", "MU"]
+    assert ma.proximo(eventos).ticker == "TSM"
+    assert ma.proximo([]) is None
+
+
+def _hecho(cuando, material, url):
+    return Hecho("MU", ("2.02",), ("Resultados",), url, cuando, False, material)
+
+
+def test_los_hechos_se_reparten_por_material_y_del_mas_nuevo_al_mas_viejo():
+    a = _hecho(date(2026, 9, 1), True, "a")
+    b = _hecho(date(2026, 10, 1), True, "b")
+    c = _hecho(date(2026, 8, 1), False, "c")
+    destacados, plegados = ma.repartir_hechos([a, c, b])
+    assert [h.url for h in destacados] == ["b", "a"] and [h.url for h in plegados] == ["c"]
+
+
+def test_el_recorte_dice_cuantos_quedan_fuera():
+    assert ma.recorte(list(range(45))) == (list(range(ma.TOPE_NOTICIAS)), 5)
+    assert ma.recorte([1, 2]) == ([1, 2], 0)
+
+
+@pytest.mark.parametrize("clase, esperado", [("VIDEO", "Vídeo"), ("video", "Vídeo"), ("STORY", "Story"), ("", "")])
+def test_el_formato_de_la_noticia_se_pinta_tal_cual_menos_el_video(clase, esperado):
+    assert ma.formato_noticia(clase) == esperado
+
+
+def test_solo_las_de_la_sec_tienen_hechos():
+    assert ma.fuentes_de("sec") == ("agenda", "hechos", "prensa")
+    for clase in ("extranjera_sec", "sin_sec", "etf"):
+        assert ma.fuentes_de(clase) == ("agenda", "prensa")
+        assert ma.sin_hechos(clase)
+    assert "6-K" in ma.sin_hechos("extranjera_sec")
+    assert ma.sin_hechos("sec") is None
+
+
+def test_la_hora_de_cada_descarga_se_dice_y_lo_caducado_tambien():
+    reciente = datetime.now(timezone.utc) - timedelta(minutes=5)
+    linea = ma.linea_de_hora("hechos", reciente, True)
+    assert linea.startswith("**Hechos (8-K)**") and "hace 5 min" in linea and "cada hora" in linea
+    assert "lo último que había guardado" in ma.linea_de_hora("hechos", reciente, False)
+    assert ma.linea_de_hora("prensa", None, False) == "**Prensa**: no se pudo traer nada."
+
+
+def test_un_etf_solo_tiene_tres_pestanas():
+    assert ma.pestanas_de("etf") == ("Resumen", "Gráfico", "Noticias y calendario")
+    assert ma.pestanas_de("sin_sec") == ma.PESTANAS
+    assert "Valoración" in ma.PESTANAS and "Fundamentales" in ma.PESTANAS
+
+
+# --- La identidad, contra quién se compara y el panel ---------------------------
+
+
+def test_la_identidad_dice_clase_fuente_sector_y_monedas():
+    divisa = SimpleNamespace(moneda_estados="TWD", moneda_valoracion="USD", moneda_precio="USD")
+    entradas = SimpleNamespace(divisa=divisa)
+    tsm = analisis("TSM", "extranjera_sec", entradas=entradas, fuente_sector="yahoo", pais="Taiwan")
+    texto = ma.ficha_de_identidad(tsm)
+    assert "SEC, extranjera" in texto and "Yahoo" in texto
+    assert "Information Technology" in texto
+    assert "TWD" in texto and "convertidos a USD" in texto
+
+
+def test_contra_quien_se_compara_y_con_que_panel():
+    mu = analisis(ref=referencia(1, 423))
+    assert ma.contra_quien(mu, 70, date(2026, 10, 16)).startswith(
+        "Comparada con las otras 69 empresas del S&P 500 de Information Technology"
+    )
+    tsm = analisis("TSM", "extranjera_sec", ref=referencia(25, 424, en_panel=False),
+                   fuente_sector="yahoo", pais="Taiwan")
+    texto = ma.contra_quien(tsm, 70, date(2026, 10, 16))
+    assert "con las 70 empresas" in texto and "riesgo país" in texto
+
+
+def test_la_fecha_del_panel_y_la_de_los_candidatos():
+    hora = datetime(2026, 10, 16, 12, 0)
+    texto = ma.fecha_del_panel(date(2026, 10, 16), "2026Q3", Frescura(hora, hora))
+    assert "16/10/2026" in texto and "2026Q3" in texto and "candidatos son del 16/10/2026" in texto
+    assert "ejemplo" in ma.fecha_del_panel(date(2026, 10, 16), "2026Q3", Frescura(hora, None))
+
+
+def test_los_textos_del_panel_dicen_lo_que_hay_que_saber():
+    assert "sin tocar tus candidatos" in ma.SIN_PANEL
+    assert "Revisar candidatos" in ma.PANEL_POSTERIOR
+    assert "Rehacer" in ma.PANEL_ATRASADO
+    assert "salidas/panel.parquet" in ma.AYUDA_PANEL and "añadidos" in ma.AYUDA_PANEL
+
+
+# --- Los casos de borde de la fila, la identidad y el panel ---------------------
+
+
+def test_la_hora_del_precio_se_pasa_a_utc_y_lo_ilegible_no_se_inventa():
+    assert ma.hora_del_precio("2026-10-26T16:00:00-04:00") == "26/10/2026 20:00 UTC"
+    assert ma.hora_del_precio("ayer por la tarde") == "—"
+
+
+def test_sin_precio_o_sin_valor_base_la_fila_dice_raya_y_no_n_d():
+    sin_precio = analisis(precio=None)
+    assert ma.fila(sin_precio, None, SP500, None, HOY)["Precio"] == "—"
+    sin_base = analisis(valoracion=_fija(valor=None, margen_seguridad=None))
+    fila = ma.fila(sin_base, None, SP500, None, HOY)
+    assert (fila["Valor base"], fila["Margen de seguridad"]) == ("—", "—")
+    assert fila["Veredicto"] == "En rango"
+
+
+def test_una_fallida_por_el_bono_m_sin_entradas_no_revienta():
+    fallida = {"version": "m1", "fecha": "2026-10-26", "motivo": "sin_bono_m"}
+    a = analisis("WALMEX.MX", "sin_sec", valoracion=fallida, fuente_sector="yahoo", moneda="MXN")
+    fila = ma.fila(a, None, SP500, None, HOY)
+    assert fila["Veredicto"] == "Sin valoración"
+    assert fila["Avisos"].startswith(ma.medidores_valoracion.etiqueta_motivo("sin_bono_m"))
+
+
+def test_la_identidad_de_un_etf_no_habla_de_sector():
+    assert "Sector" not in ma.ficha_de_identidad(analisis("SPY", "etf", fuente_sector=None))
+
+
+def test_la_identidad_sin_sector_ni_identidad_lo_dice_sin_reventar():
+    sin = Analisis("XYZ", "sin_sec", None, None, None, "sin_sector")
+    texto = ma.ficha_de_identidad(sin)
+    assert "sin sector GICS" in texto and "Cotiza" not in texto
+
+
+def test_la_identidad_de_una_que_se_valora_en_otra_moneda_que_la_del_precio():
+    divisa = SimpleNamespace(moneda_estados="MXN", moneda_valoracion="MXN", moneda_precio="USD")
+    amx = analisis("AMX", "extranjera_sec", entradas=SimpleNamespace(divisa=divisa), fuente_sector="yahoo")
+    assert "**Se valora** en MXN" in ma.ficha_de_identidad(amx)
+
+
+def test_las_monedas_de_la_identidad_se_escapan():
+    divisa = SimpleNamespace(moneda_estados="T*D", moneda_valoracion="USD", moneda_precio="USD")
+    raro = analisis("TSM", "extranjera_sec", entradas=SimpleNamespace(divisa=divisa), fuente_sector="yahoo")
+    assert "T*D" not in ma.ficha_de_identidad(raro)
+
+
+def test_una_del_sp500_domiciliada_fuera_no_lleva_el_aviso_del_riesgo_pais():
+    # GRMN está en Suiza y en el panel: se compara como las demás.
+    grmn = analisis("GRMN", ref=referencia(30, 423), fuente_sector="sp500", pais="Switzerland")
+    assert "riesgo país" not in ma.contra_quien(grmn, 70, date(2026, 10, 16))
