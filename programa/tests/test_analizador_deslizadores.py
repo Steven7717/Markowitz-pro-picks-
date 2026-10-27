@@ -18,6 +18,21 @@ def test_en_una_financiera_no_se_mueven_la_deuda_ni_los_impuestos():
     assert d.movibles("residual") == ("r_f", "beta", "prima", "roe_ref", "payout", "g_perpetuo")
 
 
+def test_los_deslizadores_no_dependen_de_la_pantalla():
+    # La lista de supuestos de cada método es de la valoración, no de un
+    # módulo de textos: los deslizadores y la lista de debajo leen la misma.
+    import ast
+    import inspect
+
+    import medidores_valoracion
+    from valoracion import supuestos
+
+    arbol = ast.parse(inspect.getsource(d))
+    importados = {n.module for n in ast.walk(arbol) if isinstance(n, ast.ImportFrom)}
+    assert "medidores_valoracion" not in importados
+    assert medidores_valoracion.SUPUESTOS_DE is supuestos.SUPUESTOS_DE
+
+
 def test_lo_derivado_nunca_tiene_deslizador():
     for metodo in ("flujos", "residual"):
         assert not {"k_e", "wacc"} & set(d.movibles(metodo))

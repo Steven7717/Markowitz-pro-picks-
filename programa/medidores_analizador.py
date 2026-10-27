@@ -28,11 +28,10 @@ from aprobacion.carga import MOTIVOS_EN_CASTELLANO
 from fundamentals.sectors import MIN_PARES
 from noticias import cache
 
-# Privadas y aun así importadas: son el formato de las cifras de la valoración
-# y los nombres de los supuestos. Una segunda copia aquí es como empiezan a
-# separarse, y el Analizador tiene que escribir las cifras igual que Revisar
-# candidatos.
-from medidores_valoracion import _NOMBRE_SUPUESTO, _dinero, _numero, _pct
+# El formato de las cifras de la valoración y los nombres de los supuestos, los
+# mismos que Revisar candidatos. Una segunda copia aquí es como empiezan a
+# separarse, y el Analizador tiene que escribir las cifras igual.
+from medidores_valoracion import NOMBRE_SUPUESTO, dinero, como_numero, pct
 from noticias.texto import cada, cuanto_falta, hace, plano
 from ranking.criterio import TOPE_POR_SECTOR
 
@@ -506,7 +505,7 @@ def en_moneda_del_precio(valoracion):
     divisa = valoracion.get("divisa")
     if not isinstance(divisa, dict):
         return valoracion
-    tipo = _numero(divisa.get("tipo_precio"))
+    tipo = como_numero(divisa.get("tipo_precio"))
     moneda = divisa.get("moneda_precio")
     if tipo is None or tipo <= 0 or not isinstance(moneda, str):
         return valoracion
@@ -514,7 +513,7 @@ def en_moneda_del_precio(valoracion):
         return {**valoracion, "moneda": moneda}
 
     def a_precio(valor):
-        numero = _numero(valor)
+        numero = como_numero(valor)
         return None if numero is None else numero / tipo
 
     salida = {**valoracion, "moneda": moneda, "precio": a_precio(valoracion.get("precio"))}
@@ -532,7 +531,7 @@ def en_moneda_del_precio(valoracion):
 
 def etiqueta_deslizador(nombre: str) -> str:
     """«Crecimiento de referencia (%)», «Beta»: el nombre del supuesto con su unidad."""
-    texto = _NOMBRE_SUPUESTO.get(nombre, nombre)
+    texto = NOMBRE_SUPUESTO.get(nombre, nombre)
     texto = texto[0].upper() + texto[1:]
     return texto if nombre == "beta" else f"{texto} (%)"
 
@@ -551,7 +550,7 @@ def _y(partes: "list[str]") -> str:
 
 def lista_de_supuestos(nombres) -> str:
     """Los supuestos movidos, en palabras: «beta y crecimiento de referencia»."""
-    return _y([_NOMBRE_SUPUESTO.get(nombre, nombre) for nombre in nombres])
+    return _y([NOMBRE_SUPUESTO.get(nombre, nombre) for nombre in nombres])
 
 
 def falta_tasa(entradas) -> str:
@@ -581,17 +580,17 @@ def tabla_sensibilidad(sensibilidad, tipo_precio: float, moneda: str) -> "tuple[
     centro_g = len(sensibilidad.gs) // 2
     centro_wacc = len(sensibilidad.waccs) // 2
     columnas = ["Coste de capital ↓ · crecimiento a perpetuidad →"] + [
-        _pct(g) + (" (base)" if i == centro_g else "") for i, g in enumerate(sensibilidad.gs)
+        pct(g) + (" (base)" if i == centro_g else "") for i, g in enumerate(sensibilidad.gs)
     ]
     filas = []
     for i, (wacc, valores) in enumerate(zip(sensibilidad.waccs, sensibilidad.valores)):
-        rotulo = _pct(wacc) + (" (base)" if i == centro_wacc else "")
-        filas.append([rotulo] + ["—" if v is None else _dinero(v / tipo_precio, moneda) for v in valores])
+        rotulo = pct(wacc) + (" (base)" if i == centro_wacc else "")
+        filas.append([rotulo] + ["—" if v is None else dinero(v / tipo_precio, moneda) for v in valores])
     return columnas, filas
 
 
 def _millones(valor) -> str:
-    numero = _numero(valor)
+    numero = como_numero(valor)
     return "n/d" if numero is None else f"{numero / 1e6:,.0f} M".replace("-", "−")
 
 
@@ -609,7 +608,7 @@ def tabla_proyeccion(proyeccion, moneda: str) -> "tuple[list[str], list[list[str
         f"Valor presente ({moneda})",
     ]
     filas = [
-        [str(a.ano), _pct(a.crecimiento), _millones(a.ingresos), _millones(a.flujo), _millones(a.descontado)]
+        [str(a.ano), pct(a.crecimiento), _millones(a.ingresos), _millones(a.flujo), _millones(a.descontado)]
         for a in proyeccion.anos
     ]
     filas.append(["Terminal", "—", "—", "—", _millones(proyeccion.terminal_descontado)])
@@ -682,7 +681,7 @@ def fila(analisis, proximo_evento, sp500, trimestre_panel, hoy: date) -> dict:
     salida["Nombre"] = nombre(analisis)
     identidad = analisis.identidad
     if identidad is not None and identidad.precio is not None:
-        salida["Precio"] = _dinero(identidad.precio, identidad.moneda or "")
+        salida["Precio"] = dinero(identidad.precio, identidad.moneda or "")
         salida["Hora del precio"] = hora_del_precio(identidad.hora)
     if analisis.clase is None:
         salida["Avisos"] = motivo_de_la_fila(analisis)
@@ -697,10 +696,10 @@ def fila(analisis, proximo_evento, sp500, trimestre_panel, hoy: date) -> dict:
         etiqueta_, _ = medidores_valoracion.VEREDICTO.get(valoracion["veredicto"], (valoracion["veredicto"], None))
         salida["Veredicto"] = etiqueta_
         base = (valoracion.get("valor") or {}).get("base")
-        if _numero(base) is not None:
-            salida["Valor base"] = _dinero(base, valoracion.get("moneda") or "")
-        if _numero(valoracion.get("margen_seguridad")) is not None:
-            salida["Margen de seguridad"] = _pct(valoracion["margen_seguridad"])
+        if como_numero(base) is not None:
+            salida["Valor base"] = dinero(base, valoracion.get("moneda") or "")
+        if como_numero(valoracion.get("margen_seguridad")) is not None:
+            salida["Margen de seguridad"] = pct(valoracion["margen_seguridad"])
     elif isinstance(valoracion, dict):
         salida["Veredicto"] = "Sin valoración"
         cortos.insert(0, motivo_de_la_valoracion(analisis))

@@ -1164,7 +1164,7 @@ def test_ninguna_fuente_nueva_se_queda_sin_texto():
     for fuente in sorted(fuentes):
         con_texto = [
             nombre
-            for nombre in mv._NOMBRE_SUPUESTO
+            for nombre in mv.NOMBRE_SUPUESTO
             if mv.procedencia(nombre, {"procedencia": {"fuente": fuente}}) != ""
         ]
         assert con_texto, f"la fuente «{fuente}» de supuestos.py no tiene texto en la pantalla"

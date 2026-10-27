@@ -22,12 +22,7 @@ from dataclasses import dataclass
 
 from analizador.valorar import Entradas, supuestos_de
 from valoracion.criterio import INDUSTRIAS_FINANCIERAS
-from valoracion.supuestos import MOVIBLES, movidos
-
-# Privada y aun así importada: es la lista de supuestos que la pantalla enseña
-# de cada método, y en su orden. Con otra copia aquí, un deslizador podría mover
-# un supuesto que la lista de debajo no enseña.
-from medidores_valoracion import _SUPUESTOS_DE
+from valoracion.supuestos import MOVIBLES, SUPUESTOS_DE, movidos
 
 # En tanto por uno: (mínimo, máximo, paso, se enseña en %). Son recorridos de un
 # supuesto razonable, no los límites de las fórmulas: lo imposible --impuestos
@@ -76,7 +71,7 @@ def movibles(metodo_: str) -> "tuple[str, ...]":
     En una financiera el coste de la deuda y los impuestos no entran en ninguna
     cuenta, y `aplicar` los rechaza: ni se dibujan.
     """
-    return tuple(nombre for nombre in _SUPUESTOS_DE[metodo_] if nombre in MOVIBLES)
+    return tuple(nombre for nombre in SUPUESTOS_DE[metodo_] if nombre in MOVIBLES)
 
 
 def a_pantalla(nombre: str, valor: float) -> float:

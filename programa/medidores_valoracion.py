@@ -39,6 +39,7 @@ from valoracion.criterio import (
     TASA_EFECTIVA_TOPES,
     UMBRAL_PARES,
 )
+from valoracion.supuestos import SUPUESTOS_DE
 
 # El gris del tema es el de «sin señal»: «en rango» y «sin datos» van en él, y
 # `TEXTO_TENUE` queda fuera porque sobre una tarjeta no llega a 4.5:1.
@@ -199,7 +200,7 @@ def _entrada(tabla: dict, clave: object, defecto):
     return tabla.get(clave, defecto) if isinstance(clave, str) else defecto
 
 
-def _numero(valor: object) -> "float | None":
+def como_numero(valor: object) -> "float | None":
     """El valor como número finito, o None. Un booleano no es una cifra."""
     if isinstance(valor, bool) or not isinstance(valor, (int, float)):
         return None
@@ -215,18 +216,18 @@ def _menos(texto: str) -> str:
     return texto.replace("-", "−")
 
 
-def _pct(valor: object) -> str:
-    numero = _numero(valor)
+def pct(valor: object) -> str:
+    numero = como_numero(valor)
     return "n/d" if numero is None else _menos(f"{numero * 100:.1f}%")
 
 
 def _puntos(valor: object) -> str:
-    numero = _numero(valor)
+    numero = como_numero(valor)
     return "n/d" if numero is None else _menos(f"{numero * 100:.1f} puntos")
 
 
 def _decimales(valor: object, cifras: int) -> str:
-    numero = _numero(valor)
+    numero = como_numero(valor)
     return "n/d" if numero is None else _menos(f"{numero:.{cifras}f}")
 
 
@@ -236,8 +237,8 @@ def _moneda(valoracion: dict) -> str:
     return moneda if isinstance(moneda, str) else ""
 
 
-def _dinero(valor: object, moneda: str) -> str:
-    numero = _numero(valor)
+def dinero(valor: object, moneda: str) -> str:
+    numero = como_numero(valor)
     if numero is None:
         return "n/d"
     cifra = _menos(format(numero, ",.2f"))
@@ -281,10 +282,10 @@ def _referencia(valor: object, crecimiento: bool) -> str:
 
     La de un ROE no: un ROE del −4 % es una rentabilidad negativa, no una caída.
     """
-    numero = _numero(valor)
+    numero = como_numero(valor)
     if crecimiento and numero is not None and numero < 0:
-        return f"una caída del {_pct(-numero)}"
-    return _pct(numero)
+        return f"una caída del {pct(-numero)}"
+    return pct(numero)
 
 
 def _banda(lectura: dict, crecimiento: bool) -> str:
@@ -297,16 +298,16 @@ def _banda(lectura: dict, crecimiento: bool) -> str:
 def _detalle_crecimiento(lectura: dict) -> str:
     bajo, alto = INVERSO_LIMITES
     if lectura.get("fuera_de_limites") == "arriba":
-        return f"el precio da por hecho un crecimiento de más del {_pct(alto)} al año"
+        return f"el precio da por hecho un crecimiento de más del {pct(alto)} al año"
     if lectura.get("fuera_de_limites") == "abajo":
-        return f"el precio es tan bajo que ni una caída del {_pct(-bajo)} al año lo explicaría"
-    g = _numero(lectura.get("valor"))
+        return f"el precio es tan bajo que ni una caída del {pct(-bajo)} al año lo explicaría"
+    g = como_numero(lectura.get("valor"))
     if g is None:
         return "n/d"
     if g >= 0:
-        exige = f"que los ingresos crecerán un {_pct(g)} al año"
+        exige = f"que los ingresos crecerán un {pct(g)} al año"
     else:
-        exige = f"que los ingresos caerán un {_pct(-g)} al año"
+        exige = f"que los ingresos caerán un {pct(-g)} al año"
     return (
         f"el precio da por hecho {exige} durante {ANOS_ALTO_CRECIMIENTO} años; "
         f"{_banda(lectura, crecimiento=True)}"
@@ -316,11 +317,11 @@ def _detalle_crecimiento(lectura: dict) -> str:
 def _detalle_roe(lectura: dict) -> str:
     bajo, alto = INVERSO_ROE_LIMITES
     if lectura.get("fuera_de_limites") == "arriba":
-        return f"el precio exige un ROE de más del {_pct(alto)}"
+        return f"el precio exige un ROE de más del {pct(alto)}"
     if lectura.get("fuera_de_limites") == "abajo":
-        return f"el precio es tan bajo que ni un ROE del {_pct(bajo)} lo explicaría"
+        return f"el precio es tan bajo que ni un ROE del {pct(bajo)} lo explicaría"
     return (
-        f"el precio exige un ROE del {_pct(lectura.get('valor'))}; "
+        f"el precio exige un ROE del {pct(lectura.get('valor'))}; "
         f"{_banda(lectura, crecimiento=False)}"
     )
 
@@ -334,10 +335,10 @@ def _detalle_flujos(valoracion: dict) -> str:
 
 def _detalle_epv(valoracion: dict) -> str:
     epv = _dic(valoracion.get("epv"))
-    texto = f"sin crecer valdría {_dinero(epv.get('por_accion'), _moneda(valoracion))}"
-    parte = _numero(epv.get("parte_crecimiento"))
+    texto = f"sin crecer valdría {dinero(epv.get('por_accion'), _moneda(valoracion))}"
+    parte = como_numero(epv.get("parte_crecimiento"))
     if parte is not None and parte > 0:
-        texto += f"; el {_pct(parte)} del precio es apuesta por el crecimiento"
+        texto += f"; el {pct(parte)} del precio es apuesta por el crecimiento"
     return texto
 
 
@@ -366,9 +367,9 @@ def _extremos_que_faltan(valor: dict) -> str:
     puede quedarse sin ella aunque el base la tenga. Sin base no hay escenario
     de referencia, y lo que falta ya no es un extremo.
     """
-    if _numero(valor.get("base")) is None:
+    if como_numero(valor.get("base")) is None:
         return ""
-    faltan = [e for e in ("pesimista", "optimista") if _numero(valor.get(e)) is None]
+    faltan = [e for e in ("pesimista", "optimista") if como_numero(valor.get(e)) is None]
     if not faltan:
         return ""
     quien = " y el ".join(faltan)
@@ -382,10 +383,10 @@ def _rango(valoracion: dict) -> str:
     if not valor:
         return "Sin rango de valor."
     return (
-        f"Valor por acción: pesimista {_dinero(valor.get('pesimista'), moneda)} · "
-        f"base {_dinero(valor.get('base'), moneda)} · "
-        f"optimista {_dinero(valor.get('optimista'), moneda)} · "
-        f"margen de seguridad {_pct(valoracion.get('margen_seguridad'))}"
+        f"Valor por acción: pesimista {dinero(valor.get('pesimista'), moneda)} · "
+        f"base {dinero(valor.get('base'), moneda)} · "
+        f"optimista {dinero(valor.get('optimista'), moneda)} · "
+        f"margen de seguridad {pct(valoracion.get('margen_seguridad'))}"
         f"{_extremos_que_faltan(valor)}"
     )
 
@@ -412,7 +413,7 @@ def _hora_cotizacion(valoracion: dict) -> str:
 def _cabecera(valoracion: dict, con_tus_supuestos: bool = False) -> str:
     fecha = valoracion.get("fecha", "n/d")
     estados = valoracion.get("estados_hasta", "n/d")
-    precio = _dinero(valoracion.get("precio"), _moneda(valoracion))
+    precio = dinero(valoracion.get("precio"), _moneda(valoracion))
     hora = _hora_cotizacion(valoracion)
     cotizacion = f" (cotización del {hora})" if hora else ""
     calculo = f"Calculada el {fecha} con el precio de {precio}{cotizacion} y estados hasta {estados}"
@@ -423,7 +424,7 @@ def _cabecera(valoracion: dict, con_tus_supuestos: bool = False) -> str:
     )
 
 
-_NOMBRE_SUPUESTO = {
+NOMBRE_SUPUESTO = {
     "r_f": "tasa libre",
     "beta": "beta",
     "prima": "prima de riesgo",
@@ -435,13 +436,6 @@ _NOMBRE_SUPUESTO = {
     "g_perpetuo": "crecimiento a perpetuidad",
     "roe_ref": "ROE de referencia",
     "payout": "reparto de beneficios",
-}
-
-# Cada método enseña sólo los supuestos que usa: a un banco no le sirve un coste
-# de la deuda, y a una industrial no le sirve un ROE ni un reparto.
-_SUPUESTOS_DE = {
-    "flujos": ("r_f", "beta", "prima", "k_e", "k_d", "t", "wacc", "g_ref", "g_perpetuo"),
-    "residual": ("r_f", "beta", "prima", "k_e", "roe_ref", "payout", "g_perpetuo"),
 }
 
 # El reparto de yfinance se acota en `supuestos.payout`, que no lo lee de un
@@ -474,7 +468,7 @@ def procedencia(nombre: str, supuesto: dict) -> str:
     fuente = p.get("fuente")
     if not isinstance(fuente, str):
         return ""
-    g_bajo, g_alto = (_pct(tope) for tope in CRECIMIENTO_REF_TOPES)
+    g_bajo, g_alto = (pct(tope) for tope in CRECIMIENTO_REF_TOPES)
     consenso_sin_red = p.get("motivo_consenso") == _SIN_RED
     sin_consenso = (
         "sin consenso porque Yahoo Finance no devolvió datos" if consenso_sin_red else "sin consenso"
@@ -503,25 +497,25 @@ def procedencia(nombre: str, supuesto: dict) -> str:
         ("k_d", "sin_dato"): "sin deuda o sin gasto financiero declarado: la tasa libre",
         ("k_d", "financiera"): "en un banco o una aseguradora los intereses incluyen los depósitos: no se calcula",
         ("t", "efectiva"): (
-            f"tasa efectiva de yfinance, acotada entre {_pct(TASA_EFECTIVA_TOPES[0])} "
-            f"y {_pct(TASA_EFECTIVA_TOPES[1])}"
+            f"tasa efectiva de yfinance, acotada entre {pct(TASA_EFECTIVA_TOPES[0])} "
+            f"y {pct(TASA_EFECTIVA_TOPES[1])}"
         ),
         ("t", "legal"): _tasa_legal(p),
         ("wacc", "financiera"): "en un banco o una aseguradora no se calcula: se valora con el coste del capital propio",
         ("wacc", "wacc"): (
-            f"deuda {_pct(p.get('peso_deuda'))} del capital"
+            f"deuda {pct(p.get('peso_deuda'))} del capital"
             + ("" if p.get("deuda_declarada", True) else "; sin deuda declarada")
         ),
         ("g_ref", "historia_y_consenso"): (
-            f"media del crecimiento histórico de los ingresos ({_pct(p.get('historico'))}) y del "
-            f"consenso del próximo año ({_pct(p.get('consenso'))}), acotada entre {g_bajo} y {g_alto}"
+            f"media del crecimiento histórico de los ingresos ({pct(p.get('historico'))}) y del "
+            f"consenso del próximo año ({pct(p.get('consenso'))}), acotada entre {g_bajo} y {g_alto}"
         ),
         ("g_ref", "historia"): (
-            f"crecimiento histórico de los ingresos ({_pct(p.get('historico'))}), "
+            f"crecimiento histórico de los ingresos ({pct(p.get('historico'))}), "
             f"{sin_consenso}, acotado entre {g_bajo} y {g_alto}"
         ),
         ("g_ref", "consenso"): (
-            f"consenso del próximo año ({_pct(p.get('consenso'))}), sin historia, "
+            f"consenso del próximo año ({pct(p.get('consenso'))}), sin historia, "
             f"acotado entre {g_bajo} y {g_alto}"
         ),
         ("g_ref", "sin_dato"): (
@@ -532,10 +526,10 @@ def procedencia(nombre: str, supuesto: dict) -> str:
         ("roe_ref", "mediana_historica"): f"mediana de {p.get('anos')} años",
         ("roe_ref", "sin_dato"): "sin años suficientes",
         ("payout", "yfinance"): (
-            f"según yfinance, acotado entre {_pct(_PAYOUT_TOPES[0])} "
-            f"y {_pct(_PAYOUT_TOPES[1])}"
+            f"según yfinance, acotado entre {pct(_PAYOUT_TOPES[0])} "
+            f"y {pct(_PAYOUT_TOPES[1])}"
         ),
-        ("payout", "por_defecto"): f"sin dato: se supone el {_pct(PAYOUT_SIN_DATO)}",
+        ("payout", "por_defecto"): f"sin dato: se supone el {pct(PAYOUT_SIN_DATO)}",
     }
     if fuente == "usuario":
         return _movido(nombre, p)
@@ -552,7 +546,7 @@ def _movido(nombre: str, p: dict) -> str:
         # El programa no tenía ese supuesto (sin dato, o sin Bono M) y lo puso
         # el usuario.
         return "puesto por ti"
-    valor = _decimales(programa, 2) if nombre == "beta" else _pct(programa)
+    valor = _decimales(programa, 2) if nombre == "beta" else pct(programa)
     return f"movido por ti; el programa decía {valor}"
 
 
@@ -562,16 +556,16 @@ def _metodo_residual(valoracion: dict) -> bool:
 
 def _supuestos(valoracion: dict, con_tus_supuestos: bool = False) -> str:
     supuestos = _dic(valoracion.get("supuestos"))
-    usados = _SUPUESTOS_DE["residual" if _metodo_residual(valoracion) else "flujos"]
+    usados = SUPUESTOS_DE["residual" if _metodo_residual(valoracion) else "flujos"]
     lineas = []
     for nombre in usados:
         if nombre not in supuestos:
             continue
         supuesto = _dic(supuestos[nombre])
         valor = supuesto.get("valor")
-        cifra = _decimales(valor, 2) if nombre == "beta" else _pct(valor)
+        cifra = _decimales(valor, 2) if nombre == "beta" else pct(valor)
         origen = procedencia(nombre, supuesto)
-        lineas.append(f"{_NOMBRE_SUPUESTO[nombre]}: {cifra}" + (f" · {origen}" if origen else ""))
+        lineas.append(f"{NOMBRE_SUPUESTO[nombre]}: {cifra}" + (f" · {origen}" if origen else ""))
     if not lineas:
         return ""
     cuerpo = "".join(f"<div>{_esc(linea)}</div>" for linea in lineas)
@@ -631,7 +625,7 @@ def valoracion_en_una_linea(valoracion: object) -> str:
     if "veredicto" not in valoracion:
         return f"Sin valoración: {etiqueta_motivo(valoracion.get('motivo'))}"
     etiqueta, _ = _entrada(VEREDICTO, valoracion.get("veredicto"), ("n/d", None))
-    base = _dinero(_dic(valoracion.get("valor")).get("base"), _moneda(valoracion))
+    base = dinero(_dic(valoracion.get("valor")).get("base"), _moneda(valoracion))
     return f"{etiqueta}; valor base {base}, con los supuestos del programa"
 
 
@@ -673,7 +667,7 @@ def pie(valoracion: object) -> "list[str]":
     """
     if not _con_veredicto(valoracion):
         return []
-    if _numero(valoracion.get("margen_seguridad")) is None:
+    if como_numero(valoracion.get("margen_seguridad")) is None:
         return [NOTA]
     metodo = valoracion.get("metodo")
     if metodo == "flujos":

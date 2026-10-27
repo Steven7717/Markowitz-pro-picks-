@@ -60,6 +60,16 @@ class Supuestos:
     payout: Supuesto
 
 
+# Cada método enseña sólo los supuestos que usa: a un banco no le sirve un coste
+# de la deuda, y a una industrial no le sirve un ROE ni un reparto. Vive aquí, y
+# no en la pantalla, porque los deslizadores la leen también: con otra copia, un
+# deslizador podría mover un supuesto que la lista de debajo no enseña.
+SUPUESTOS_DE = {
+    "flujos": ("r_f", "beta", "prima", "k_e", "k_d", "t", "wacc", "g_ref", "g_perpetuo"),
+    "residual": ("r_f", "beta", "prima", "k_e", "roe_ref", "payout", "g_perpetuo"),
+}
+
+
 def _acotar(valor: float, limites: "tuple[float, float]") -> float:
     bajo, alto = limites
     return min(max(valor, bajo), alto)
