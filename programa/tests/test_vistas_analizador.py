@@ -288,3 +288,59 @@ def test_restaurar_vuelve_a_los_del_programa_y_los_deslizadores_nacen_sin_valor(
     assert "on_click=sesion.restaurar_deslizadores" in cuerpo
     for deslizador in [n for n in ast.walk(_funcion("_deslizadores")) if _nombre_de(getattr(n, "func", None)) == "slider"]:
         assert "value" not in {k.arg for k in deslizador.keywords}
+
+
+# --- Noticias y calendario ------------------------------------------------------
+
+
+def test_los_8k_se_interpretan_con_el_bloque_compartido_y_sin_cartera():
+    cuerpo = _cuerpo("_hechos")
+    assert "panel_ia.interpretar_hechos(" in cuerpo
+    assert "pesos=()" in cuerpo and "resumen.TOPE_HECHOS" in cuerpo
+    assert "archivo_analizador.ruta_de(" in cuerpo
+
+
+def test_las_fuentes_salen_de_la_clase_y_la_hora_se_ensena():
+    cuerpo = _cuerpo("_noticias")
+    for llamada in ("ma.fuentes_de(", "ma.sin_hechos(", "ma.linea_de_hora(", "ma.formato_noticia("):
+        assert llamada in cuerpo
+
+
+def test_todas_las_pestanas_tienen_quien_las_dibuje():
+    import medidores_analizador as ma
+
+    (asignacion,) = [
+        n for n in ast.walk(ARBOL)
+        if isinstance(n, ast.Assign) and any(getattr(t, "id", None) == "_PESTANAS" for t in n.targets)
+    ]
+    assert {k.value for k in asignacion.value.keys} == set(ma.PESTANAS)
+
+
+def test_la_ia_del_analizador_tiene_su_clave_y_no_la_de_seguimiento():
+    # Seguimiento usa `clave="ia"`: con la misma, los avisos de una pantalla
+    # saldrían en la otra, y los botones chocarían.
+    llamada = next(
+        n for n in ast.walk(_funcion("_hechos"))
+        if isinstance(n, ast.Call) and getattr(n.func, "attr", None) == "interpretar_hechos"
+    )
+    claves = {k.arg: ast.unparse(k.value) for k in llamada.keywords}
+    assert claves["clave"].startswith("f'analizador_") and claves["pesos"] == "()"
+
+
+def test_lo_ajeno_tampoco_se_guarda_crudo_en_una_variable_que_se_pinta():
+    # El detector de arriba sólo mira dentro de las llamadas que pintan: la
+    # firma de una noticia se compone antes, en una variable, y quitarle el
+    # `texto.plano` al medio no lo notaba nadie. Lo que devuelve un widget
+    # (`elegido = st.selectbox(...)`) no es texto que se vaya a pintar.
+    def _widget(valor) -> bool:
+        return (
+            isinstance(valor, ast.Call) and isinstance(valor.func, ast.Attribute)
+            and getattr(valor.func.value, "id", None) == "st"
+        )
+
+    crudos = [
+        crudo
+        for nodo in ast.walk(ARBOL) if isinstance(nodo, ast.Assign) and not _widget(nodo.value)
+        for crudo in _ajenos_fuera_de_texto(nodo.value)
+    ]
+    assert crudos == [], "sin escapar en las líneas " + ", ".join(str(n.lineno) for n in crudos)

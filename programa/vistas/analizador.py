@@ -26,6 +26,7 @@ import medidores
 import medidores_analizador as ma
 import medidores_valoracion
 import tema
+from analizador import archivo as archivo_analizador
 from analizador import deslizadores, grafico, referencia, sesion
 from analizador.analisis import analizar, con_precio_nuevo, pilar_valoracion
 from analizador.resolver import MAX_TICKERS, separar
@@ -34,9 +35,9 @@ from aprobacion.carga import kpis_con_dato
 from aprobacion.generacion import disponibilidad
 from fundamentals.fetch import CorridaAbortada
 from fundamentals.sectors import load_sectors
-from noticias import macro, texto, traer
+from noticias import macro, resumen, texto, traer
 from seguimiento import posiciones
-from vistas import libros
+from vistas import libros, panel_ia
 
 st.markdown(
     tema.cabecera(
@@ -493,6 +494,134 @@ def _valoracion(analisis, contexto) -> None:
     _deslizadores(analisis.ticker)
 
 
+def _hechos(ticker: str, hechos: list) -> None:
+    """Los 8-K de un ticker de la SEC, y su interpretación con IA."""
+    st.caption(
+        "Formularios 8-K: lo que la empresa está **obligada** a comunicar a la SEC, "
+        "con fecha y firma. No es prensa y no se mezcla con ella. Van desplegados "
+        "los tipos que pueden mover los números sobre los que se construyó la "
+        "tesis; el resto se pliega, pero no se descarta."
+    )
+    destacados, plegados = ma.repartir_hechos(hechos)
+    visibles, fuera = ma.recorte(destacados)
+    for hecho in visibles:
+        st.markdown(texto.linea_de_hecho(hecho))
+    if fuera:
+        st.caption(f"Quedan {fuera} hechos destacados sin mostrar, más antiguos que los de arriba.")
+    if plegados:
+        with st.expander(f"Otros {len(plegados)} expedientes de trámite"):
+            st.caption(
+                "Ninguno de estos toca los números de la tesis: votaciones, anexos, "
+                "cambios de estatutos. Se enseñan igual, porque plegar no es descartar."
+            )
+            visibles_p, fuera_p = ma.recorte(plegados)
+            for hecho in visibles_p:
+                st.markdown(texto.linea_de_hecho(hecho))
+            if fuera_p:
+                st.caption(f"Y {fuera_p} más, más antiguos.")
+    if not destacados and plegados:
+        # Que no haya nada destacado habiendo trámite es una respuesta: hubo
+        # movimiento y nada de lo que importa. Un hueco vacío parece que no se miró.
+        st.caption("Sin hechos materiales en el periodo; sólo trámite.")
+    elif not hechos:
+        st.caption(
+            "Ningún 8-K en la ventana consultada. Si arriba hay un aviso de esta "
+            "fuente, es que no se pudo preguntar: no es lo mismo que no haya nada."
+        )
+    st.markdown("**Qué dicen estos 8-K**")
+    st.caption(
+        f"Se leen los {resumen.TOPE_HECHOS} hechos destacados más recientes, como en "
+        "Seguimiento. El modelo no ve nada de tu cartera: ni pesos ni importes."
+    )
+    panel_ia.interpretar_hechos(
+        st,
+        tuple(destacados[: resumen.TOPE_HECHOS]),
+        archivo_analizador.ruta_de(ticker),
+        {ticker},
+        pesos=(),
+        clave=f"analizador_ia_{ticker}",
+        con_enlace_a_perfil=True,
+    )
+
+
+def _noticias(analisis, contexto) -> None:
+    """La pestaña Noticias y calendario: lo que hacía la pantalla de Noticias, para un ticker."""
+    ticker = analisis.ticker
+    fuentes = ma.fuentes_de(analisis.clase)
+    izquierda, derecha = st.columns([3, 1], vertical_alignment="center")
+    izquierda.caption(
+        "Los hechos que la empresa está obligada a presentar van separados de la "
+        "prensa, que no lo está. Aquí no se recomienda nada."
+    )
+    forzar = derecha.button(
+        "Actualizar noticias",
+        key=f"analizador_noticias_{ticker}",
+        icon=":material/refresh:",
+        width="stretch",
+        help="Vuelve a pedir las fuentes ahora mismo, sin esperar a que caduque lo guardado.",
+    )
+    recogido, horas = {}, {}
+    with st.spinner(f"Consultando las fuentes de {ticker}…"):
+        for fuente in fuentes:
+            datos, problema, cuando, vigente = traer.traer(fuente, ticker, traer.DESCARGA[fuente], forzar)
+            recogido[fuente] = list(datos)
+            horas[fuente] = (cuando, vigente)
+            if problema:
+                st.warning(f"**{ma.ETIQUETA_FUENTE[fuente]}** — no se pudo traer. {texto.plano(problema)}")
+
+    st.markdown("##### Lo que viene")
+    proximos = ma.proximos(recogido["agenda"])
+    for evento in proximos:
+        st.markdown(
+            f"**{texto.plano(evento.detalle)}** — {evento.cuando:%d/%m/%Y} · "
+            f"{texto.cuanto_falta(evento.cuando)}"
+        )
+    if not proximos:
+        st.caption(
+            "Ninguna fecha próxima. El calendario sólo trae resultados y dividendos, "
+            "y no todas las empresas los tienen publicados: que esto esté vacío no "
+            "significa que no vaya a pasar nada."
+        )
+
+    st.markdown("##### Lo que pasó — hechos")
+    if "hechos" in fuentes:
+        _hechos(ticker, recogido["hechos"])
+    else:
+        st.caption(ma.sin_hechos(analisis.clase))
+
+    st.markdown("##### Lo que pasó — prensa")
+    st.caption(
+        "Titulares que otros escribieron. Nadie responde de ellos y el programa no "
+        "los filtra: no hay forma defendible de decidir cuál importa. Se enseña el "
+        "medio y el formato para que puedas descartarlos tú."
+    )
+    prensa = sorted(recogido["prensa"], key=lambda n: n.cuando, reverse=True)
+    visibles, fuera = ma.recorte(prensa)
+    if not visibles:
+        st.caption("Sin noticias recientes.")
+    for noticia in visibles:
+        firma = " · ".join(
+            p for p in (texto.plano(noticia.medio), texto.plano(ma.formato_noticia(noticia.clase))) if p
+        )
+        st.markdown(
+            texto.enlace(texto.plano(noticia.titular), noticia.url)
+            + f"  \n{firma} · {noticia.cuando.astimezone():%d/%m/%Y %H:%M}"
+        )
+        if noticia.resumen:
+            st.caption(texto.plano(noticia.resumen[:240]))
+    if fuera:
+        st.caption(f"Quedan {fuera} noticias sin mostrar, más antiguas que las de arriba.")
+
+    st.divider()
+    for fuente in fuentes:
+        cuando, vigente = horas[fuente]
+        st.caption(ma.linea_de_hora(fuente, cuando, vigente))
+    st.caption(
+        "La hora se enseña siempre, esté el dato fresco o no. Un dato que se lee "
+        "como recién traído sin serlo es peor que no tener dato."
+    )
+
+
 # Qué función dibuja cada pestaña de `ma.pestanas_de`. Una pestaña sin función
 # no se dibuja, en vez de salir vacía.
 _PESTANAS = {
@@ -500,6 +629,7 @@ _PESTANAS = {
     "Valoración": _valoracion,
     "Fundamentales": _fundamentales,
     "Gráfico": _grafico,
+    "Noticias y calendario": _noticias,
 }
 
 
