@@ -91,7 +91,7 @@ def _frente_al_sector(
     # Un sector que ni con ella dentro llega a `MIN_PARES` no tiene z: la ficha
     # saldría «pilar sin datos», que culparía a la empresa. La clave es la del
     # ranking, y se mira antes de bajar nada.
-    pares = panel.index.get_level_values("ticker")[panel["sector_gics"] == sector].nunique()
+    pares = referencia.pares_en_panel(panel, sector)
     if pares + 1 < MIN_PARES:
         return None, "sector_sin_pares"
     propias, motivo = _filas_propias(resuelto)

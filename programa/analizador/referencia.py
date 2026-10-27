@@ -24,7 +24,7 @@ su puesto.
 """
 
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 import pandas as pd
@@ -42,6 +42,13 @@ from ranking.score import (
 )
 
 RUTA_PANEL = Path(__file__).resolve().parent.parent / "salidas" / "panel.parquet"
+# Las fichas de los candidatos, al lado del panel: `ranking.run.guardar` escribe
+# los dos en la misma carpeta.
+RUTA_FICHAS = RUTA_PANEL.parent / "fichas.json"
+# Lo que separa el panel de las fichas cuando los escribe la misma corrida de
+# `guardar`: unos segundos. Un panel más nuevo que eso se rehízo aparte, con
+# `construir_panel`, que tarda al menos dos minutos.
+HOLGURA_MISMA_CORRIDA = timedelta(minutes=1)
 _COLUMNAS = ("ticker", "periodo", "trimestre", "sector_gics", *TODOS_LOS_KPIS)
 
 
@@ -60,6 +67,12 @@ class Referencia:
     supervivientes: int
     exclusion: "str | None"
     en_panel: bool
+    # Cuántas filas propias se quedaron fuera por ser posteriores al último
+    # trimestre del panel. Más de cero es que el panel se quedó atrás: con los
+    # cinco trimestres de yfinance y el panel dos por detrás quedan tres, y la
+    # guarda dice `historia_corta` cuando el problema es el panel (revisión de la
+    # Task 11 de N1). Una del panel, siempre cero.
+    filas_posteriores: int = 0
 
 
 def cargar_panel(ruta: "Path | None" = None) -> "tuple[pd.DataFrame | None, date | None]":
@@ -95,6 +108,57 @@ def cargar_panel(ruta: "Path | None" = None) -> "tuple[pd.DataFrame | None, date
     return panel, fecha
 
 
+def trimestre_final(panel: pd.DataFrame) -> str:
+    """El último trimestre natural del panel (`"2026Q3"`): hasta dónde llega la referencia."""
+    return str(panel["trimestre"].max())
+
+
+def pares_en_panel(panel: pd.DataFrame, sector: str) -> int:
+    """Cuántas empresas del panel son de `sector`."""
+    return int(panel.index.get_level_values("ticker")[panel["sector_gics"] == sector].nunique())
+
+
+@dataclass(frozen=True)
+class Frescura:
+    """De cuándo son el panel y los candidatos, por la hora de sus ficheros; None si no hay."""
+
+    panel: "datetime | None"
+    candidatos: "datetime | None"
+
+    @property
+    def panel_posterior(self) -> bool:
+        """Si el panel se rehízo aparte después de generar los candidatos.
+
+        Entonces la ficha de un candidato en el Analizador puede diferir un poco
+        de la de Revisar candidatos, que se calculó con el panel de entonces.
+        Sin candidatos no hay con qué compararlo.
+        """
+        if self.panel is None or self.candidatos is None:
+            return False
+        return self.panel - self.candidatos > HOLGURA_MISMA_CORRIDA
+
+
+def _hora_del_fichero(ruta: Path) -> "datetime | None":
+    try:
+        return datetime.fromtimestamp(Path(ruta).stat().st_mtime)
+    except OSError:
+        return None
+
+
+def frescura(ruta_panel: "Path | None" = None, ruta_fichas: "Path | None" = None) -> Frescura:
+    """La hora del panel y la de los candidatos.
+
+    Por la hora de los ficheros y no por `corrida.json`, que lleva el día pero
+    no la hora: un panel rehecho la misma tarde no se distinguiría. Desde que el
+    panel se construye aparte (`construir_panel`), panel y candidatos no tienen
+    por qué ser de la misma corrida, y la pantalla enseña las dos fechas.
+    """
+    return Frescura(
+        _hora_del_fichero(ruta_panel or RUTA_PANEL),
+        _hora_del_fichero(ruta_fichas or RUTA_FICHAS),
+    )
+
+
 def frente_al_sector(
     ticker: str,
     panel: pd.DataFrame,
@@ -109,8 +173,9 @@ def frente_al_sector(
     trimestre del panel no entran: en ese trimestre no tiene pares, y su z
     saldría vacía y le quitaría un trimestre de la ventana.
     """
-    trimestre_max = str(panel["trimestre"].max())
+    trimestre_max = trimestre_final(panel)
     en_panel = ticker in panel.index.get_level_values("ticker")
+    posteriores = 0
     if en_panel:
         # Ordenado como lo deja `build_panel` antes de los z: el orden de las
         # filas fija el de las sumas, y con otro los z diferirían en la última
@@ -119,7 +184,9 @@ def frente_al_sector(
     else:
         if sector is None or propias is None:
             return None
-        propias = propias[propias["trimestre"].astype(str) <= trimestre_max]
+        dentro = propias[propias["trimestre"].astype(str) <= trimestre_max]
+        posteriores = len(propias) - len(dentro)
+        propias = dentro
         if propias.empty:
             return None
         filas = propias.reindex(columns=[*TODOS_LOS_KPIS, "trimestre"]).copy()
@@ -168,4 +235,5 @@ def frente_al_sector(
         supervivientes=len(validos),
         exclusion=None if pd.isna(exclusion) else str(exclusion),
         en_panel=en_panel,
+        filas_posteriores=posteriores,
     )

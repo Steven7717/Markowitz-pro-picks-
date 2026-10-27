@@ -1,14 +1,21 @@
 """La ficha de un ticker frente a su sector, con las funciones del ranking."""
 
 import os
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from unittest.mock import patch
 
 import numpy as np
 import pandas as pd
 import pytest
 
-from analizador.referencia import cargar_panel, frente_al_sector
+from analizador.referencia import (
+    HOLGURA_MISMA_CORRIDA,
+    cargar_panel,
+    frente_al_sector,
+    frescura,
+    pares_en_panel,
+    trimestre_final,
+)
 from fundamentals.kpis import TODOS_LOS_KPIS
 from fundamentals.run import anadir_zscores
 from ranking.run import construir_ranking, guardar
@@ -207,3 +214,69 @@ def test_un_panel_ilegible_o_sin_una_columna_es_como_si_no_hubiera(tmp_path):
     cojo = tmp_path / "cojo.parquet"
     panel_crudo().drop(columns="sector_gics").reset_index().to_parquet(cojo, index=False)
     assert cargar_panel(cojo) == (None, None)
+
+
+# --- Lo que la pantalla necesita saber del panel ------------------------------
+
+
+def test_las_filas_posteriores_al_panel_se_cuentan():
+    crudo = panel_crudo()
+    sin_el, propias = _sin(crudo, "HE2")
+    extra = propias.iloc[[-1, -1]].copy()
+    extra.index = pd.DatetimeIndex([pd.Timestamp("2026-09-30"), pd.Timestamp("2026-12-31")])
+    extra["trimestre"] = ["2026Q3", "2026Q4"]
+    con_extra = pd.concat([propias, extra])
+    assert frente_al_sector("HE2", sin_el, "Health Care", con_extra).filas_posteriores == 2
+    assert frente_al_sector("HE2", sin_el, "Health Care", propias).filas_posteriores == 0
+    # Una del panel nunca tiene filas fuera: el panel es su propia referencia.
+    assert frente_al_sector("HE2", crudo).filas_posteriores == 0
+
+
+def test_el_trimestre_final_es_el_ultimo_del_panel():
+    assert trimestre_final(panel_crudo()) == "2026Q2"
+
+
+def test_los_pares_de_un_sector_son_sus_empresas_en_el_panel():
+    crudo = panel_crudo()
+    assert pares_en_panel(crudo, "Information Technology") == 6
+    assert pares_en_panel(crudo, "Utilities") == 5
+    assert pares_en_panel(crudo, "Energy") == 0
+
+
+def _con_hora(ruta, momento: datetime) -> None:
+    ruta.write_text("x", encoding="utf-8")
+    os.utime(ruta, (momento.timestamp(), momento.timestamp()))
+
+
+def test_un_panel_escrito_con_sus_candidatos_no_es_posterior(tmp_path):
+    # `ranking.run.guardar` escribe las fichas y el panel con segundos de diferencia.
+    hora = datetime(2026, 10, 16, 12, 0, 0)
+    _con_hora(tmp_path / "fichas.json", hora)
+    _con_hora(tmp_path / "panel.parquet", hora + timedelta(seconds=5))
+    f = frescura(tmp_path / "panel.parquet", tmp_path / "fichas.json")
+    assert (f.panel, f.candidatos) == (hora + timedelta(seconds=5), hora)
+    assert not f.panel_posterior
+
+
+def test_un_panel_rehecho_aparte_es_posterior(tmp_path):
+    hora = datetime(2026, 10, 16, 12, 0, 0)
+    _con_hora(tmp_path / "fichas.json", hora)
+    _con_hora(tmp_path / "panel.parquet", hora + HOLGURA_MISMA_CORRIDA + timedelta(seconds=1))
+    assert frescura(tmp_path / "panel.parquet", tmp_path / "fichas.json").panel_posterior
+
+
+def test_sin_candidatos_o_sin_panel_no_hay_comparacion(tmp_path):
+    _con_hora(tmp_path / "panel.parquet", datetime(2026, 10, 16, 12, 0))
+    f = frescura(tmp_path / "panel.parquet", tmp_path / "fichas.json")
+    assert f.candidatos is None and not f.panel_posterior
+    assert frescura(tmp_path / "no.parquet", tmp_path / "fichas.json").panel is None
+
+
+def test_las_fichas_van_al_lado_del_panel():
+    from analizador.referencia import RUTA_FICHAS, RUTA_PANEL
+    from aprobacion.carga import SALIDAS
+
+    assert RUTA_FICHAS.parent == RUTA_PANEL.parent
+    # `guardar` escribe en «salidas» relativo y `RUTA_PANEL` es absoluta:
+    # coinciden porque los lanzadores arrancan en programa/ (revisión final de N1).
+    assert RUTA_PANEL.parent.name == SALIDAS.name
