@@ -31,7 +31,7 @@ from fundamentals.sectors import MIN_PARES
 # y los nombres de los supuestos. Una segunda copia aquí es como empiezan a
 # separarse, y el Analizador tiene que escribir las cifras igual que Revisar
 # candidatos.
-from medidores_valoracion import _numero
+from medidores_valoracion import _NOMBRE_SUPUESTO, _dinero, _numero, _pct
 from noticias.texto import plano
 from ranking.criterio import TOPE_POR_SECTOR
 
@@ -524,3 +524,92 @@ def en_moneda_del_precio(valoracion):
     if isinstance(epv, dict):
         salida["epv"] = {**epv, "por_accion": a_precio(epv.get("por_accion"))}
     return salida
+
+
+# --- Los deslizadores y sus tablas ----------------------------------------------
+
+
+def etiqueta_deslizador(nombre: str) -> str:
+    """«Crecimiento de referencia (%)», «Beta»: el nombre del supuesto con su unidad."""
+    texto = _NOMBRE_SUPUESTO.get(nombre, nombre)
+    texto = texto[0].upper() + texto[1:]
+    return texto if nombre == "beta" else f"{texto} (%)"
+
+
+def _y(partes: "list[str]") -> str:
+    """«a», «a y b», «a, b y c»; con «e» delante de una i, como pide la RAE."""
+    if not partes:
+        return ""
+    if len(partes) == 1:
+        return partes[0]
+    ultimo = partes[-1]
+    inicio = ultimo.lower()
+    conjuncion = "e" if inicio.startswith(("i", "hi")) and not inicio.startswith(("ie", "hie")) else "y"
+    return f"{', '.join(partes[:-1])} {conjuncion} {ultimo}"
+
+
+def lista_de_supuestos(nombres) -> str:
+    """Los supuestos movidos, en palabras: «beta y crecimiento de referencia»."""
+    return _y([_NOMBRE_SUPUESTO.get(nombre, nombre) for nombre in nombres])
+
+
+def falta_tasa(entradas) -> str:
+    """Por qué no hay tasa libre y qué hacer, encima de la casilla donde se pone a mano.
+
+    `fallida("sin_bono_m")` sólo dice que falta; el motivo concreto viaja en
+    `Entradas.motivo_r_f` (revisión de la Task 13 de N1).
+    """
+    motivo = etiqueta(MOTIVO_TASA, entradas.motivo_r_f)
+    if entradas.divisa.moneda_valoracion == "MXN":
+        que_es = "Para una empresa que se valora en pesos es el rendimiento del Bono M a 10 años de Banxico."
+    else:
+        que_es = "Es el rendimiento del Tesoro de EE. UU. a 10 años."
+    return (
+        f"Sin tasa libre de riesgo: {motivo}. {que_es} Ponla a mano y se valora con "
+        "ella; no se guarda."
+    )
+
+
+def tabla_sensibilidad(sensibilidad, tipo_precio: float, moneda: str) -> "tuple[list[str], list[list[str]]]":
+    """La tabla de sensibilidad del valor base, en la moneda del precio.
+
+    Filas de coste de capital y columnas de crecimiento a perpetuidad, con la
+    del programa marcada «(base)». Una casilla vacía, «—», es que ahí no se
+    cumple Gordon o el coste no es positivo (`dcf.sensibilidad`).
+    """
+    centro_g = len(sensibilidad.gs) // 2
+    centro_wacc = len(sensibilidad.waccs) // 2
+    columnas = ["Coste de capital ↓ · crecimiento a perpetuidad →"] + [
+        _pct(g) + (" (base)" if i == centro_g else "") for i, g in enumerate(sensibilidad.gs)
+    ]
+    filas = []
+    for i, (wacc, valores) in enumerate(zip(sensibilidad.waccs, sensibilidad.valores)):
+        rotulo = _pct(wacc) + (" (base)" if i == centro_wacc else "")
+        filas.append([rotulo] + ["—" if v is None else _dinero(v / tipo_precio, moneda) for v in valores])
+    return columnas, filas
+
+
+def _millones(valor) -> str:
+    numero = _numero(valor)
+    return "n/d" if numero is None else f"{numero / 1e6:,.0f} M".replace("-", "−")
+
+
+def tabla_proyeccion(proyeccion, moneda: str) -> "tuple[list[str], list[list[str]]]":
+    """Los diez años del escenario base y el valor terminal, en millones.
+
+    En la moneda de la valoración, la de las cuentas: son cifras de la empresa
+    entera, no por acción, y no se pasan a la del precio.
+    """
+    columnas = [
+        "Año",
+        "Crecimiento de los ingresos",
+        f"Ingresos ({moneda})",
+        f"Flujo libre ({moneda})",
+        f"Valor presente ({moneda})",
+    ]
+    filas = [
+        [str(a.ano), _pct(a.crecimiento), _millones(a.ingresos), _millones(a.flujo), _millones(a.descontado)]
+        for a in proyeccion.anos
+    ]
+    filas.append(["Terminal", "—", "—", "—", _millones(proyeccion.terminal_descontado)])
+    return columnas, filas

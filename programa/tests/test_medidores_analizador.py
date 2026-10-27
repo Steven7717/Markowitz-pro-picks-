@@ -20,7 +20,9 @@ from analizador.resolver import Identidad
 from aprobacion.carga import MOTIVOS_EN_CASTELLANO
 from fundamentals.sectors import load_sectors
 from ranking.criterio import TOPE_POR_SECTOR
+from tests.test_analizador_valorar import _en_pesos
 from tests.test_medidores_valoracion import _fija, _fija_residual
+from valoracion.dcf import Ano, Proyeccion, Sensibilidad
 
 RAIZ = Path(__file__).resolve().parent.parent
 
@@ -444,3 +446,55 @@ def test_sin_divisa_o_sin_su_moneda_no_se_convierte_nada():
     sin_moneda = _amx()
     sin_moneda["divisa"] = {"tipo_precio": 20.0}
     assert ma.en_moneda_del_precio(sin_moneda) == sin_moneda
+
+
+# --- Los deslizadores y sus tablas ----------------------------------------------
+
+
+def test_la_etiqueta_de_un_deslizador_dice_su_unidad():
+    assert ma.etiqueta_deslizador("beta") == "Beta"
+    assert ma.etiqueta_deslizador("g_ref") == "Crecimiento de referencia (%)"
+
+
+def test_la_lista_de_lo_movido_se_lee_en_castellano():
+    assert ma.lista_de_supuestos(("beta",)) == "beta"
+    assert ma.lista_de_supuestos(("beta", "g_ref")) == "beta y crecimiento de referencia"
+    # «e» y no «y» delante de una i.
+    assert ma.lista_de_supuestos(("beta", "g_ref", "t")) == (
+        "beta, crecimiento de referencia e impuestos"
+    )
+    # Con «hi» también «e»; con «ie» o «hie», diptongo, se queda la «y».
+    assert ma._y(["agua", "hilo"]) == "agua e hilo"
+    assert ma._y(["agua", "hielo"]) == "agua y hielo"
+    assert ma._y(["agua", "iodo"]) == "agua e iodo" and ma._y(["agua", "ion"]) == "agua e ion"
+
+
+def test_sin_tasa_libre_se_dice_por_que_y_que_hacer():
+    texto = ma.falta_tasa(_en_pesos(r_f=None, motivo_r_f="sin_token"))
+    assert ma.MOTIVO_TASA["sin_token"] in texto and "Bono M" in texto and "no se guarda" in texto
+
+
+def test_la_sensibilidad_va_en_la_moneda_del_precio_y_marca_la_base():
+    s = Sensibilidad(
+        waccs=(0.07, 0.08, 0.09),
+        gs=(0.02, 0.025, 0.03),
+        valores=((40.0, 50.0, None), (30.0, 36.0, 44.0), (24.0, 28.0, 33.0)),
+    )
+    columnas, filas = ma.tabla_sensibilidad(s, 20.0, "USD")
+    assert columnas[2] == "2.5% (base)" and filas[1][0] == "8.0% (base)"
+    assert filas[1][2] == "1.80 USD"
+    assert filas[0][3] == "—"
+
+
+def test_la_proyeccion_va_en_millones_con_el_terminal_al_final():
+    p = Proyeccion((Ano(1, 0.2, 1.2e9, 1.8e8, 1.65e8),), 2.5e9)
+    columnas, filas = ma.tabla_proyeccion(p, "USD")
+    assert columnas[2] == "Ingresos (USD)"
+    assert filas[0] == ["1", "20.0%", "1,200 M", "180 M", "165 M"]
+    assert filas[-1] == ["Terminal", "—", "—", "—", "2,500 M"]
+
+
+def test_una_cifra_que_no_es_un_numero_se_lee_n_d():
+    p = Proyeccion((Ano(1, 0.2, float("nan"), None, -1.65e8),), 2.5e9)
+    _, filas = ma.tabla_proyeccion(p, "USD")
+    assert filas[0][2:] == ["n/d", "n/d", "−165 M"]
