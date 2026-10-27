@@ -315,6 +315,37 @@ def test_un_corte_al_escribir_deja_el_panel_de_antes_y_ningun_temporal(tmp_path)
     assert list(tmp_path.iterdir()) == [ruta]
 
 
+def test_si_otra_sesion_lee_el_panel_se_reintenta_el_reemplazo(tmp_path):
+    # En Windows, `os.replace` da `PermissionError` si otra sesión tiene el
+    # panel abierto para leerlo; suele soltarlo en un momento.
+    ruta = tmp_path / "panel.parquet"
+    real = os.replace
+    llamadas = []
+
+    def ocupado_una_vez(origen, destino):
+        llamadas.append(origen)
+        if len(llamadas) == 1:
+            raise PermissionError("lo está leyendo otra sesión")
+        real(origen, destino)
+
+    with patch("ranking.run.construir_ranking", return_value=SimpleNamespace(panel=panel_crudo())),             patch("analizador.referencia.os.replace", side_effect=ocupado_una_vez),             patch("analizador.referencia.time.sleep") as pausa:
+        panel, _ = construir_panel(ruta)
+    assert len(llamadas) == 2 and pausa.call_count == 1
+    assert panel is not None and list(tmp_path.iterdir()) == [ruta]
+
+
+def test_si_el_panel_sigue_ocupado_sale_oserror_y_no_queda_temporal(tmp_path):
+    ruta = tmp_path / "panel.parquet"
+    panel_crudo(semilla=1).reset_index().to_parquet(ruta, index=False)
+    de_antes = ruta.read_bytes()
+    with patch("ranking.run.construir_ranking", return_value=SimpleNamespace(panel=panel_crudo())),             patch("analizador.referencia.os.replace", side_effect=PermissionError("ocupado")) as reemplazo,             patch("analizador.referencia.time.sleep"):
+        with pytest.raises(OSError):
+            construir_panel(ruta)
+    assert 1 < reemplazo.call_count <= 5
+    assert ruta.read_bytes() == de_antes
+    assert list(tmp_path.iterdir()) == [ruta]
+
+
 def test_una_corrida_sin_panel_no_escribe_nada(tmp_path):
     with patch("ranking.run.construir_ranking", return_value=SimpleNamespace(panel=None)):
         assert construir_panel(tmp_path / "panel.parquet") == (None, None)

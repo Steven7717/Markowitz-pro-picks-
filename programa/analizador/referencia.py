@@ -26,6 +26,7 @@ su puesto.
 import io
 import os
 import tempfile
+import time
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -128,7 +129,8 @@ def construir_panel(ruta: "Path | None" = None) -> "tuple[pd.DataFrame | None, d
 
     Devuelve lo que `cargar_panel` lee del fichero escrito. Una corrida sin panel
     (un universo vacío) no escribe nada y devuelve `(None, None)`.
-    `CorridaAbortada` se deja salir: quien llama sabe decirlo.
+    `CorridaAbortada` se deja salir: quien llama sabe decirlo. También puede
+    salir `OSError`: el disco lleno, o el panel aún ocupado tras los reintentos.
     """
     # Aquí y no arriba: `ranking.run` arrastra la IA y la valoración, y este
     # módulo lo importan el análisis de un ticker y los tests, que no las necesitan.
@@ -148,11 +150,29 @@ def construir_panel(ruta: "Path | None" = None) -> "tuple[pd.DataFrame | None, d
     try:
         with os.fdopen(descriptor, "wb") as destino:
             destino.write(buffer.getvalue())
-        os.replace(temporal, ruta)
+        _reemplazar(temporal, ruta)
     except BaseException:
         temporal.unlink(missing_ok=True)
         raise
     return cargar_panel(ruta)
+
+
+# En Windows, `os.replace` da `PermissionError` mientras otra sesión tiene el
+# panel abierto para leerlo, y suele soltarlo en un momento: pocas veces y poco
+# rato, que quien pulsa está esperando.
+_REINTENTOS = 4
+_PAUSA = 0.25
+
+
+def _reemplazar(temporal: Path, ruta: Path) -> None:
+    for intento in range(_REINTENTOS):
+        try:
+            os.replace(temporal, ruta)
+            return
+        except PermissionError:
+            if intento == _REINTENTOS - 1:
+                raise
+            time.sleep(_PAUSA)
 
 
 def trimestre_final(panel: pd.DataFrame) -> str:
