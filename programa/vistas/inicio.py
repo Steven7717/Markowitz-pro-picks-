@@ -107,17 +107,19 @@ with cinco:
 
 with seis:
     with st.container(border=True):
-        st.markdown("#### 6 · Noticias")
+        st.markdown("#### 6 · Analizador")
         st.markdown(
-            "Lo que las empresas de tu libro han comunicado a la SEC, lo que "
-            "ha escrito la prensa, y las fechas que vienen.\n\n"
-            "Los **8-K** —lo que la empresa está obligada a presentar, con "
-            "fecha y firma— van separados de los titulares, de los que nadie "
-            "responde y que el programa no filtra. Aquí no se recomienda nada."
+            "Cualquier acción —esté o no entre los candidatos, de la SEC, "
+            "extranjera o de la BMV— con la misma ficha frente a su sector y el "
+            "mismo valor intrínseco, con supuestos que puedes mover, un gráfico y "
+            "sus noticias.\n\n"
+            "«Cargar de un libro» trae lo que tienes y lo que deberías tener. Los "
+            "**8-K** —lo que la empresa está obligada a presentar, con fecha y "
+            "firma— van separados de los titulares. Aquí no se recomienda nada."
         )
-        if st.button("Ver noticias", use_container_width=True,
-                     icon=":material/newspaper:"):
-            st.switch_page("vistas/noticias.py")
+        if st.button("Abrir el analizador", width="stretch",
+                     icon=":material/query_stats:"):
+            st.switch_page("vistas/analizador.py")
 
 st.markdown("### Tres cosas que conviene saber antes de usarlo")
 

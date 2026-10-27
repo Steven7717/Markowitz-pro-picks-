@@ -174,6 +174,12 @@ viajan dentro.
 A partir de ahí, el recorrido es el que marca la pantalla de inicio: generar
 candidatos, aprobarlos, y repartir el capital.
 
+Para mirar a fondo cualquier acción —esté o no entre los candidatos— está el
+**Analizador**, en el mismo menú: su ficha frente a su sector, su valor
+intrínseco con supuestos que puedes mover, un gráfico y sus noticias. El
+gráfico es un widget de TradingView que se carga de su web: TradingView sabe
+qué ticker estás mirando, y sin conexión no se ve.
+
 ---
 
 ## Cómo se actualiza
@@ -318,7 +324,7 @@ El programa funciona en dos mitades:
 | Qué | Cuánto |
 |---|---|
 | Análisis completo del S&P 500 con fichas | hasta **1,60 $** (es el peor caso, con un reintento en las quince fichas). El programa se planta solo en 2,50 $ |
-| Interpretar las noticias de tu cartera | ~**0,12 $** de media, hasta **0,26 $** por pulsación. El programa se planta solo en 0,50 $ |
+| Interpretar los 8-K de tu cartera (Seguimiento) o de una empresa (Analizador) | ~**0,12 $** de media, hasta **0,26 $** por pulsación. El programa se planta solo en 0,50 $ |
 | Comentar una propuesta de rebalanceo | menos de **0,01 $** |
 
 Las pantallas que cuestan dinero **avisan antes de gastarlo y dicen lo que
@@ -412,6 +418,10 @@ Sáltate esto si no te interesa ver tu cartera en pesos: **el resto del programa
 funciona igual sin él**. Sin token, la fila «En pesos (MXN)» de Seguimiento
 sale con «—» en vez de romperse.
 
+Y el Analizador no valora las empresas que presentan sus cuentas en pesos
+(WALMEX, por ejemplo) hasta que pongas a mano la tasa libre: el token le da la
+del Bono M a 10 años.
+
 Es gratis y no hace falta correo ni cuenta:
 
 1. Entra en **[banxico.org.mx/SieAPIRest/service/v1/token](https://www.banxico.org.mx/SieAPIRest/service/v1/token)**.
@@ -434,8 +444,9 @@ de git, no de un ZIP**: si comprimes esta carpeta y se la pasas a alguien, va
 dentro cuánto dinero tienes y en qué. Bórrala antes, o mejor, **pásale el enlace
 de descarga en vez de tu copia**.
 
-Lo mismo vale para `programa/actas/` y `programa/portafolios/`, aunque esos
-guardan decisiones y pesos, no importes.
+Lo mismo vale para `programa/actas/`, `programa/portafolios/` y
+`programa/analisis/` —lo que la IA del Analizador dijo de cada empresa—,
+aunque esos guardan decisiones, pesos y lecturas, no importes.
 
 ---
 

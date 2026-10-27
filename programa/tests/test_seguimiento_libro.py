@@ -850,7 +850,7 @@ def test_un_fallo_a_media_escritura_no_deja_medio_libro_en_el_destino(tmp_path, 
 
 # --- El libro elegido, compartido entre pantallas -----------------------------
 #
-# Tres pantallas --Seguimiento, Rebalanceo y Noticias-- pintan el mismo
+# Tres pantallas --Seguimiento, Rebalanceo y el Analizador-- pintan el mismo
 # desplegable. Sin `key`, ninguna de las tres deja rastro en `session_state`,
 # asi que «Anotar lo que ejecute» saltaba de Rebalanceo a Seguimiento y
 # aterrizaba en OTRO libro con el formulario de registrar abierto debajo. El

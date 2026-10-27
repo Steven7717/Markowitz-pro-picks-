@@ -1,6 +1,6 @@
 """El desplegable de «Libro», que es el mismo en tres pantallas.
 
-Seguimiento, Rebalanceo y Noticias empiezan igual: listan los libros, nombran
+Seguimiento, Rebalanceo y el Analizador («Cargar de un libro») empiezan igual: listan los libros, nombran
 los que no se pueden leer y dejan elegir uno. Estaba escrito tres veces, y las
 tres copias **no le ponían `key` al desplegable**. Sin `key` no hay nada en
 `st.session_state`, y sin nada en `session_state` no hay nada que pueda viajar

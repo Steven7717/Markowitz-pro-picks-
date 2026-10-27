@@ -18,6 +18,7 @@ import cartera
 import medidores
 import tema
 from exporter import to_excel
+from analizador import sesion
 from interprete import archivo
 from noticias import resumen, texto, traer
 from seguimiento import banxico, comparacion, libro as mod, panel, posiciones, precios
@@ -1011,7 +1012,7 @@ with registrar:
 # el usuario lo pide.
 #
 # El escapado y la forma de pintar un hecho salen de `noticias/texto.py`, los
-# mismos que usa `vistas/noticias.py`. No se reescriben aqui: un titular
+# mismos que usa el Analizador. No se reescriben aqui: un titular
 # financiero va lleno de dolares y Streamlit lee `$...$` como LaTeX.
 with noticias:
     # Un problema de descarga se guarda en la sesion porque el boton termina en
@@ -1055,7 +1056,7 @@ with noticias:
                         # Agrupado por mensaje y no por ticker: la falta de
                         # EDGAR_IDENTITY da el mismo texto para los doce, y doce
                         # avisos identicos tapan la pantalla sin decir nada que
-                        # uno no dijera ya. Es la regla de `vistas/noticias.py`.
+                        # uno no dijera ya. Es la regla del Analizador.
                         problemas[fuente_n] = problema
         st.session_state["noticias_problemas"] = problemas
         st.rerun()
@@ -1115,14 +1116,12 @@ with noticias:
                 st.markdown(texto.linea_de_hecho(hecho))
             sobran = len(resumen_noticias.hechos) - resumen.TOPE_HECHOS
             if sobran > 0:
-                # No dice «están enteros en Noticias», porque no es verdad:
-                # aquella pantalla tambien recorta a cuarenta (`TOPE`) y con
-                # los doce activos marcados deja fuera casi noventa. Mandar
-                # alli prometiendo la lista completa seria mandar a un sitio
-                # donde tampoco esta, y encima sin decir que hay que filtrar.
+                # No dice «están todos en el Analizador» de una vez: allí van
+                # activo a activo, cuarenta por pestaña. Lo que sí es verdad es
+                # dónde está cada uno.
                 st.caption(
-                    f"Y {sobran} más, más antiguos. En **Noticias** caben "
-                    "cuarenta: filtra por activo allí para llegar al resto."
+                    f"Y {sobran} más, más antiguos. En el **Analizador** están los "
+                    "de cada activo, en su pestaña «Noticias y calendario»."
                 )
         else:
             st.caption(
@@ -1146,8 +1145,8 @@ with noticias:
             sobran = len(resumen_noticias.titulares) - resumen.TOPE_TITULARES
             if sobran > 0:
                 st.caption(
-                    f"Y {sobran} titulares más. En **Noticias** van con su "
-                    "medio y su formato, también de cuarenta en cuarenta."
+                    f"Y {sobran} titulares más. En el **Analizador** van los de cada "
+                    "activo, con su medio y su formato."
                 )
         else:
             st.caption(
@@ -1176,8 +1175,12 @@ with noticias:
 
     st.caption(
         "Esto es un resumen. El calendario de resultados y dividendos, los "
-        "expedientes de trámite y el resto de la prensa están en la pantalla "
-        "de **Noticias**."
+        "expedientes de trámite y el resto de la prensa están en el "
+        "**Analizador**, activo a activo."
     )
-    if st.button("Ver todas las noticias", icon=":material/newspaper:"):
-        st.switch_page("vistas/noticias.py")
+    if st.button("Abrir en el Analizador", icon=":material/query_stats:"):
+        # Por el mismo canal que «Analizar a fondo» (`analizador.sesion`). Con
+        # más de quince activos, el Analizador rellena el campo y pide quitar
+        # alguno antes de analizar.
+        sesion.encargar(st.session_state, tickers)
+        st.switch_page("vistas/analizador.py")

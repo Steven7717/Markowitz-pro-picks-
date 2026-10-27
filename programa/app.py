@@ -129,10 +129,6 @@ navegacion = st.navigation(
                 icon=":material/balance:",
             ),
             st.Page(
-                "vistas/noticias.py", title="Noticias y calendario",
-                icon=":material/newspaper:",
-            ),
-            st.Page(
                 "vistas/comparar.py", title="Comparar",
                 icon=":material/compare_arrows:",
             ),

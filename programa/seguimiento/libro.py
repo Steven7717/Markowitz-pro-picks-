@@ -645,7 +645,7 @@ class Entrada:
 
 # --- El libro elegido, que es el mismo en las tres pantallas -----------------
 #
-# Seguimiento, Rebalanceo y Noticias pintan el mismo desplegable con la misma
+# Seguimiento, Rebalanceo y el Analizador pintan el mismo desplegable con la misma
 # etiqueta. Los tres lo construían por su cuenta y **ninguno le ponía `key`**,
 # de modo que no existía ninguna entrada en `st.session_state` que pudiera
 # viajar entre páginas: «Anotar lo que ejecuté» saltaba de Rebalanceo a
