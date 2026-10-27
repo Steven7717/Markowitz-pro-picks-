@@ -260,12 +260,19 @@ def etiqueta_motivo(clave: object) -> str:
     return MOTIVO[clave].format(holgura=_n_puntos(HOLGURA_GORDON))
 
 
-def distintivo(valoracion: "dict | None") -> str:
-    """El veredicto en una píldora de color, o nada si no hay veredicto que enseñar."""
+def distintivo(valoracion: "dict | None", con_tus_supuestos: bool = False) -> str:
+    """El veredicto en una píldora de color, o nada si no hay veredicto que enseñar.
+
+    Con `con_tus_supuestos` la píldora lo dice: es el veredicto de los
+    deslizadores del Analizador, no el del programa. La de Revisar candidatos
+    no lo lleva nunca, porque allí no hay nada que mover.
+    """
     clave = _dic(valoracion).get("veredicto")
     if not isinstance(clave, str) or clave not in VEREDICTO:
         return ""
     etiqueta, color = VEREDICTO[clave]
+    if con_tus_supuestos:
+        etiqueta = f"{etiqueta} · con tus supuestos"
     return f'<span class="mpp-veredicto" style="color:{color}">{_esc(etiqueta)}</span>'
 
 
@@ -402,7 +409,7 @@ def _hora_cotizacion(valoracion: dict) -> str:
     return momento.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
 
 
-def _cabecera(valoracion: dict) -> str:
+def _cabecera(valoracion: dict, con_tus_supuestos: bool = False) -> str:
     fecha = valoracion.get("fecha", "n/d")
     estados = valoracion.get("estados_hasta", "n/d")
     precio = _dinero(valoracion.get("precio"), _moneda(valoracion))
@@ -410,7 +417,7 @@ def _cabecera(valoracion: dict) -> str:
     cotizacion = f" (cotización del {hora})" if hora else ""
     calculo = f"Calculada el {fecha} con el precio de {precio}{cotizacion} y estados hasta {estados}"
     return (
-        f'<div class="mpp-val-cab">{distintivo(valoracion)}'
+        f'<div class="mpp-val-cab">{distintivo(valoracion, con_tus_supuestos)}'
         f'<span class="mpp-val-detalle">{_esc(_rango(valoracion))}</span>'
         f'<span class="mpp-val-detalle">{_esc(calculo)}</span></div>'
     )
@@ -553,7 +560,7 @@ def _metodo_residual(valoracion: dict) -> bool:
     return valoracion.get("metodo") == "residual"
 
 
-def _supuestos(valoracion: dict) -> str:
+def _supuestos(valoracion: dict, con_tus_supuestos: bool = False) -> str:
     supuestos = _dic(valoracion.get("supuestos"))
     usados = _SUPUESTOS_DE["residual" if _metodo_residual(valoracion) else "flujos"]
     lineas = []
@@ -568,16 +575,23 @@ def _supuestos(valoracion: dict) -> str:
     if not lineas:
         return ""
     cuerpo = "".join(f"<div>{_esc(linea)}</div>" for linea in lineas)
+    titulo = (
+        "Supuestos, con los que moviste tú marcados como tuyos"
+        if con_tus_supuestos
+        else "Supuestos del programa"
+    )
     return (
         '<div class="mpp-val-sup">'
-        f'<div class="mpp-val-sup-titulo">Supuestos del programa</div>{cuerpo}</div>'
+        f'<div class="mpp-val-sup-titulo">{_esc(titulo)}</div>{cuerpo}</div>'
     )
 
 
-def resumen(valoracion: dict) -> str:
+def resumen(valoracion: dict, con_tus_supuestos: bool = False) -> str:
     """Los tres votos en una línea cada uno, el rango y la procedencia de los supuestos.
 
     No explica los términos: de eso se encarga `glosario()`, una vez por pantalla.
+    `con_tus_supuestos` es la valoración de los deslizadores del Analizador: lo
+    dicen la píldora y el título de los supuestos.
     """
     if not isinstance(valoracion, dict):
         return ""
@@ -599,7 +613,26 @@ def resumen(valoracion: dict) -> str:
             f'<span class="mpp-val-detalle">{_esc(_detalle(clave, voto, valoracion))}</span>'
             "</div>"
         )
-    return f'<div class="mpp-val">{_cabecera(valoracion)}{"".join(filas)}{_supuestos(valoracion)}</div>'
+    return (
+        f'<div class="mpp-val">{_cabecera(valoracion, con_tus_supuestos)}{"".join(filas)}'
+        f"{_supuestos(valoracion, con_tus_supuestos)}</div>"
+    )
+
+
+def valoracion_en_una_linea(valoracion: object) -> str:
+    """La valoración en una línea, para el acta y los añadidos de Revisar candidatos.
+
+    En la moneda en que se guardó (la de la valoración, con su clave `moneda`),
+    porque es el registro. Vacío si no hay ninguna reconocible: un añadido a
+    mano o un acta anterior a N2.
+    """
+    if not isinstance(valoracion, dict) or not isinstance(valoracion.get("version"), str):
+        return ""
+    if "veredicto" not in valoracion:
+        return f"Sin valoración: {etiqueta_motivo(valoracion.get('motivo'))}"
+    etiqueta, _ = _entrada(VEREDICTO, valoracion.get("veredicto"), ("n/d", None))
+    base = _dinero(_dic(valoracion.get("valor")).get("base"), _moneda(valoracion))
+    return f"{etiqueta}; valor base {base}, con los supuestos del programa"
 
 
 # --- Lo que rodea al resumen en la pantalla -------------------------------------

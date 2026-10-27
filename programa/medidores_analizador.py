@@ -26,6 +26,12 @@ from analizador.divisas import SEPARACION_MAXIMA_SUBASTAS, adr_dudosa
 from analizador.resolver import normalizar, tiene_sufijo
 from aprobacion.carga import MOTIVOS_EN_CASTELLANO
 from fundamentals.sectors import MIN_PARES
+
+# Privadas y aun así importadas: son el formato de las cifras de la valoración
+# y los nombres de los supuestos. Una segunda copia aquí es como empiezan a
+# separarse, y el Analizador tiene que escribir las cifras igual que Revisar
+# candidatos.
+from medidores_valoracion import _numero
 from noticias.texto import plano
 from ranking.criterio import TOPE_POR_SECTOR
 
@@ -475,3 +481,46 @@ def avisos(analisis, sp500, trimestre_panel, hoy: date) -> "list[tuple[str, str]
         ("sin valor base", sin_valor_base(analisis.valoracion)),
     )
     return [(corto, largo) for corto, largo in candidatos if largo]
+
+
+# --- La moneda del precio -------------------------------------------------------
+
+
+def en_moneda_del_precio(valoracion):
+    """La valoración con las cifras por acción en la moneda del precio.
+
+    `analizador.valorar.valorar` las da en la de la valoración: AMX cotiza en
+    dólares y se valora en pesos (554,5 MXN son 29,69 $), y SHEL.L cotiza en
+    peniques y se valora en dólares (67,92 $ son 5.079,9 peniques). Se divide
+    por `divisa.tipo_precio`, que es el tipo con que `divisas.perfil_en` llevó
+    el precio a la moneda de la valoración. El margen de seguridad es un
+    cociente y no cambia; las tasas (el crecimiento implícito) tampoco.
+
+    Devuelve una copia: lo de dentro es lo que va al acta, en su moneda. Sin un
+    tipo válido no se convierte nada, y una fallida --que no lleva `moneda`--
+    toma la del precio de su divisa (revisión final de N1).
+    """
+    if not isinstance(valoracion, dict):
+        return valoracion
+    divisa = valoracion.get("divisa")
+    if not isinstance(divisa, dict):
+        return valoracion
+    tipo = _numero(divisa.get("tipo_precio"))
+    moneda = divisa.get("moneda_precio")
+    if tipo is None or tipo <= 0 or not isinstance(moneda, str):
+        return valoracion
+    if "veredicto" not in valoracion:
+        return {**valoracion, "moneda": moneda}
+
+    def a_precio(valor):
+        numero = _numero(valor)
+        return None if numero is None else numero / tipo
+
+    salida = {**valoracion, "moneda": moneda, "precio": a_precio(valoracion.get("precio"))}
+    valor = valoracion.get("valor")
+    if isinstance(valor, dict):
+        salida["valor"] = {k: a_precio(valor.get(k)) for k in ("pesimista", "base", "optimista")}
+    epv = valoracion.get("epv")
+    if isinstance(epv, dict):
+        salida["epv"] = {**epv, "por_accion": a_precio(epv.get("por_accion"))}
+    return salida

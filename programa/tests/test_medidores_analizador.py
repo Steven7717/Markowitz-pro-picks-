@@ -383,3 +383,64 @@ def test_los_avisos_llevan_su_forma_corta_y_la_larga():
     cortos = [corto for corto, _ in ma.avisos(a, set(load_sectors()), "2026Q2", date(2026, 10, 26))]
     assert cortos == ["misma empresa que AAPL", "recuento de acciones dudoso"]
     assert all(largo for _, largo in ma.avisos(a, set(load_sectors()), "2026Q2", date(2026, 10, 26)))
+
+
+# --- La moneda del precio -----------------------------------------------------
+
+
+def _amx() -> dict:
+    """AMX: cotiza en dólares y se valora en pesos, a 20 pesos por dólar."""
+    return _fija(
+        moneda="MXN",
+        precio=500.0,
+        valor={"pesimista": 300.0, "base": 600.0, "optimista": None},
+        epv={"por_accion": 400.0, "parte_crecimiento": 0.1},
+        margen_seguridad=0.2,
+        divisa={"moneda_precio": "USD", "moneda_valoracion": "MXN", "tipo_precio": 20.0},
+    )
+
+
+def test_los_valores_se_ensenan_en_la_moneda_del_precio():
+    original = _amx()
+    v = ma.en_moneda_del_precio(original)
+    assert v["moneda"] == "USD"
+    assert v["precio"] == pytest.approx(25.0)
+    assert v["valor"] == {"pesimista": pytest.approx(15.0), "base": pytest.approx(30.0), "optimista": None}
+    assert v["epv"]["por_accion"] == pytest.approx(20.0)
+    # El margen es un cociente, y el crecimiento implícito una tasa: no cambian.
+    assert v["margen_seguridad"] == 0.2 and v["implicito"] == original["implicito"]
+    # Lo guardado no se toca: es lo que va al acta.
+    assert original["moneda"] == "MXN" and original["valor"]["base"] == 600.0
+
+
+def test_una_cotizacion_en_peniques_vuelve_a_peniques():
+    # SHEL.L: 67,92 $ de valor base son 5.079,9 peniques (N1).
+    shel = _fija(precio=54.0, valor={"pesimista": None, "base": 67.92, "optimista": None},
+                 divisa={"moneda_precio": "GBp", "moneda_valoracion": "USD", "tipo_precio": 0.01337})
+    v = ma.en_moneda_del_precio(shel)
+    assert v["moneda"] == "GBp"
+    assert v["valor"]["base"] == pytest.approx(67.92 / 0.01337)
+
+
+def test_una_fallida_toma_la_moneda_de_su_divisa():
+    # `fallida("sin_bono_m")` no lleva moneda: sale de la divisa (revisión final de N1).
+    fallida_ = {"version": "m1", "fecha": "2026-10-26", "motivo": "sin_bono_m",
+                "divisa": {"moneda_precio": "MXN", "tipo_precio": 1.0}}
+    assert ma.en_moneda_del_precio(fallida_)["moneda"] == "MXN"
+
+
+@pytest.mark.parametrize("tipo", [None, 0.0, -1.0, "20", float("nan")])
+def test_sin_un_tipo_valido_no_se_convierte_nada(tipo):
+    amx = _amx()
+    amx["divisa"] = {**amx["divisa"], "tipo_precio": tipo}
+    assert ma.en_moneda_del_precio(amx) == amx
+    assert ma.en_moneda_del_precio(None) is None
+
+
+def test_sin_divisa_o_sin_su_moneda_no_se_convierte_nada():
+    # Las valoraciones de M no llevan `divisa`: ya están en la moneda del precio.
+    de_m = _fija()
+    assert ma.en_moneda_del_precio(de_m) == de_m
+    sin_moneda = _amx()
+    sin_moneda["divisa"] = {"tipo_precio": 20.0}
+    assert ma.en_moneda_del_precio(sin_moneda) == sin_moneda

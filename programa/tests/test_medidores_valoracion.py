@@ -1752,3 +1752,29 @@ def test_lo_recalculado_con_los_supuestos_del_usuario_lo_dice():
     assert mv.procedencia("k_e", supuesto) == (
         "tasa libre más beta por prima (recalculado con tus supuestos)"
     )
+
+
+# --- Los deslizadores del Analizador --------------------------------------------
+
+
+def test_con_tus_supuestos_lo_dicen_la_pildora_y_el_titulo():
+    texto = _texto(mv.resumen(_fija(), con_tus_supuestos=True))
+    assert "En rango · con tus supuestos" in texto
+    assert "Supuestos del programa" not in texto
+    assert "con los que moviste" in texto
+
+
+def test_sin_mover_nada_la_valoracion_es_la_del_programa():
+    texto = _texto(mv.resumen(_fija()))
+    assert "con tus supuestos" not in texto
+    assert "Supuestos del programa" in texto
+
+
+def test_la_valoracion_en_una_linea_para_el_acta():
+    assert mv.valoracion_en_una_linea(_fija()) == (
+        "En rango; valor base 1,234.50 USD, con los supuestos del programa"
+    )
+    assert mv.valoracion_en_una_linea(fallida("sin_red")).startswith("Sin valoración: Yahoo")
+    # Un añadido a mano en Revisar candidatos, o un acta anterior a N2.
+    assert mv.valoracion_en_una_linea(None) == ""
+    assert mv.valoracion_en_una_linea({"veredicto": "en_rango"}) == ""
