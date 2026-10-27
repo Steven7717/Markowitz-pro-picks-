@@ -222,6 +222,22 @@ def estado(
     )
 
 
+def tickers_a_mirar(asientos: "list[Asiento]", objetivo) -> "list[str]":
+    """Lo que se tiene ahora más lo que el objetivo dice que se debería tener.
+
+    Lo segundo entra porque una noticia sobre un activo que aún no has comprado
+    sigue siendo sobre tu plan; lo que ya vendiste del todo, no. Vivía dentro
+    de `vistas/noticias.py`; ahora lo usan «Cargar de un libro» del Analizador y
+    «Abrir en el Analizador» de Seguimiento, y un guion de Streamlit no se
+    puede importar.
+    """
+    # Aquí y no arriba: `libro` no importa este módulo, pero así no se ata el
+    # orden de importación de los dos.
+    from seguimiento.libro import pesos_objetivo
+
+    return sorted(set(estado(asientos).acciones) | set(pesos_objetivo(objetivo)))
+
+
 def primer_descubierto(
     asientos: "list[Asiento]",
     historia: "Historia | None" = None,

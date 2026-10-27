@@ -488,3 +488,39 @@ def test_dos_splits_de_verdad_separados_en_el_tiempo_se_aplican_los_dos():
 
     # 10 -> 20 por el manual del dia 7, -> 60 por el de la historia del dia 22.
     assert posiciones.serie(asientos, h).acciones["ACME"].iloc[-1] == pytest.approx(60.0)
+
+
+# --- Los tickers de un libro, para el Analizador ------------------------------
+
+
+def test_los_tickers_de_un_libro_son_lo_que_tiene_mas_lo_que_deberia_tener():
+    from seguimiento.libro import Objetivo
+
+    objetivo = Objetivo(
+        fecha="2026-01-05",
+        base="estrategia",
+        portafolio={"posiciones": [{"ticker": "MSFT", "peso": 0.5}, {"ticker": "AAPL", "peso": 0.5}]},
+    )
+    vendida = [
+        asiento("a3", "2026-01-06", "compra", ticker="KO", acciones=1.0, precio=60.0, importe=60.0),
+        asiento("a4", "2026-02-05", "venta", ticker="KO", acciones=1.0, precio=65.0, importe=65.0),
+    ]
+    tickers = posiciones.tickers_a_mirar([APORTA, COMPRA, *vendida], objetivo)
+    # Lo que se vendió del todo no entra; lo que aún no se ha comprado, sí.
+    assert tickers == ["AAPL", "MSFT"]
+    assert posiciones.tickers_a_mirar([APORTA, COMPRA], None) == ["AAPL"]
+    assert posiciones.tickers_a_mirar([], None) == []
+
+
+def test_los_tickers_de_un_libro_salen_en_orden_alfabetico():
+    # Un `set` no tiene orden: sin ordenar, el campo del Analizador cambiaría
+    # de una pasada a otra.
+    from seguimiento.libro import Objetivo
+
+    nombres = ["ZTS", "KO", "MSFT", "BRK-B", "JPM", "DUOL"]
+    objetivo = Objetivo(
+        fecha="2026-01-05",
+        base="equal_weight",
+        portafolio={"posiciones": [{"ticker": t, "peso": 0.0} for t in nombres]},
+    )
+    assert posiciones.tickers_a_mirar([APORTA, COMPRA], objetivo) == sorted([*nombres, "AAPL"])
