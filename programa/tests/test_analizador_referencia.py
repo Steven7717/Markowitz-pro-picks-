@@ -321,6 +321,18 @@ def test_una_corrida_sin_panel_no_escribe_nada(tmp_path):
     assert list(tmp_path.iterdir()) == []
 
 
+def test_un_panel_vacio_no_pisa_el_de_antes(tmp_path):
+    # Un universo vacío da un panel sin filas, no `None`: escribirlo dejaría al
+    # Analizador sin referencia en vez de con la de la corrida anterior.
+    ruta = tmp_path / "panel.parquet"
+    panel_crudo(semilla=1).reset_index().to_parquet(ruta, index=False)
+    de_antes = ruta.read_bytes()
+    with patch("ranking.run.construir_ranking", return_value=SimpleNamespace(panel=panel_crudo().iloc[:0])):
+        assert construir_panel(ruta) == (None, None)
+    assert ruta.read_bytes() == de_antes
+    assert list(tmp_path.iterdir()) == [ruta]
+
+
 def test_si_la_corrida_aborta_sale_tal_cual_y_no_se_escribe_nada(tmp_path):
     # `CorridaAbortada` (la SEC no responde, o rechaza la identidad) la dice la
     # pantalla, como en Revisar candidatos.
