@@ -1,4 +1,5 @@
 import re
+from pathlib import Path
 
 import pytest
 
@@ -280,3 +281,15 @@ def test_una_ficha_fuera_del_ranking_se_pinta_sin_nota_en_vez_de_reventar():
     fuera = {**FICHA, "puesto": None, "compuesto": None}
     texto = sin_etiquetas(m.tarjeta_candidato(fuera, puesto="Fuera del ranking"))
     assert "Sin nota compuesta" in texto and "Fuera del ranking" in texto
+
+
+def test_como_se_leen_los_medidores_lo_cuentan_las_dos_pantallas_igual():
+    from ranking.criterio import TRIMESTRES_VENTANA
+
+    texto = m.como_se_leen()
+    assert m.tabla_de_tramos() in texto
+    assert f"últimos {TRIMESTRES_VENTANA} trimestres" in texto
+    raiz = Path(__file__).resolve().parent.parent
+    candidatos = (raiz / "vistas" / "candidatos.py").read_text(encoding="utf-8")
+    assert "medidores.como_se_leen()" in candidatos
+    assert "tabla_de_tramos()" not in candidatos

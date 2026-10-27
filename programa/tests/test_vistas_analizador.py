@@ -180,3 +180,53 @@ def test_actualizar_precios_no_dice_que_el_precio_este_al_dia():
     # `con_precio_nuevo` devuelve la fila de antes si algo falla: lo que se
     # enseña es la hora de la cotización que tiene la fila, nunca «actualizado».
     assert "actualizad" not in FUENTE.lower().replace("actualizando", "")
+
+
+def test_el_grafico_sigue_el_tema_de_la_app_y_dice_lo_que_se_sabe():
+    cuerpo = _cuerpo("_grafico")
+    assert "st.context.theme" in cuerpo
+    assert "grafico.html(" in cuerpo and "st.iframe(" in cuerpo
+    # La BMV no se ve en el widget: se enlaza a TradingView.
+    assert "grafico.en_widget(" in cuerpo and "grafico.enlace(" in cuerpo
+    assert "grafico.ESTUDIO_D" in cuerpo and "grafico.avisos(" in cuerpo
+
+
+def test_el_grafico_decide_con_el_ticker_y_no_solo_con_la_bolsa():
+    # Sin el ticker, `T.TO` (TELUS) se incrustaba como AT&T y `BA.L` (BAE)
+    # como Boeing: `en_widget`, `enlace` y `avisos` reciben ticker y bolsa.
+    llamadas = [
+        n for n in ast.walk(_funcion("_grafico"))
+        if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+        and getattr(n.func.value, "id", None) == "grafico"
+        and n.func.attr in ("en_widget", "enlace", "avisos")
+    ]
+    assert {n.func.attr for n in llamadas} == {"en_widget", "enlace", "avisos"}
+    assert all(len(n.args) == 2 for n in llamadas)
+
+
+def test_la_tarjeta_lleva_el_puesto_global():
+    cuerpo = _cuerpo("_valor_y_sector")
+    assert "puesto=ma.puesto_en_tarjeta(" in cuerpo and "ma.nota_puesto(" in cuerpo
+
+
+def test_los_fundamentales_son_los_medidores_de_candidatos():
+    cuerpo = _cuerpo("_fundamentales")
+    for llamada in (
+        "medidores.medidores_pilares(",
+        "medidores.medidor_cobertura(",
+        "medidores.medidor_kpi(",
+        "ma.contra_quien(",
+        "ma.texto_exclusion(",
+    ):
+        assert llamada in cuerpo
+
+
+def test_en_los_fundamentales_el_panel_atrasado_se_dice_una_vez():
+    cuerpo = _cuerpo("_fundamentales")
+    assert "ma.aviso_panel_atrasado(" in cuerpo
+    assert "panel_dicho" in cuerpo.split("ma.texto_exclusion(", 1)[1].split(")", 1)[0]
+
+
+def test_como_se_leen_los_medidores_va_una_vez_encima_de_las_pestanas():
+    cuerpo = _cuerpo("_detalle")
+    assert cuerpo.index("medidores.como_se_leen()") < cuerpo.index("st.tabs(")

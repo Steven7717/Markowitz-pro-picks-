@@ -26,7 +26,8 @@ import medidores
 import medidores_analizador as ma
 import medidores_valoracion
 import tema
-from analizador import referencia, sesion
+from analizador import grafico, referencia, sesion
+from aprobacion.carga import kpis_con_dato
 from analizador.analisis import analizar, con_precio_nuevo
 from analizador.resolver import MAX_TICKERS, separar
 from aprobacion.generacion import disponibilidad
@@ -285,10 +286,81 @@ def _resumen(analisis, contexto) -> None:
         _valor_y_sector(analisis, panel_dicho)
 
 
+def _fundamentales(analisis, contexto) -> None:
+    """La pestaña Fundamentales: la ficha de candidatos, contra quién y con qué panel."""
+    ref = analisis.referencia
+    if ref is None:
+        st.info(ma.sin_ficha(analisis))
+        return
+    aviso = ma.aviso_panel_atrasado(analisis, contexto["trimestre"])
+    if aviso:
+        st.warning(aviso)
+    # Con el aviso a la vista, la exclusión no repite que el panel se quedó atrás.
+    exclusion = ma.texto_exclusion(analisis, panel_dicho=aviso is not None)
+    if exclusion:
+        st.warning(exclusion)
+    if contexto["panel"] is not None:
+        st.caption(
+            ma.contra_quien(
+                analisis,
+                referencia.pares_en_panel(contexto["panel"], analisis.sector),
+                contexto["fecha_panel"],
+            )
+        )
+    st.markdown(
+        "**Los cuatro pilares** —calidad, crecimiento, valoración y solidez—, "
+        "frente a sus pares del sector"
+    )
+    st.markdown(medidores.medidores_pilares(ref.ficha), unsafe_allow_html=True)
+    con_dato = kpis_con_dato(ref.ficha)
+    if con_dato is not None:
+        st.markdown(medidores.medidor_cobertura(con_dato), unsafe_allow_html=True)
+    # «Sus tres más fuertes» y no «Fuerte en»: la lista es relativa a la propia
+    # empresa, y sus tres peores KPIs pueden estar en «Regular».
+    st.markdown("**Sus tres puntos más fuertes**")
+    st.markdown("".join(medidores.medidor_kpi(i) for i in ref.ficha["destacados"]), unsafe_allow_html=True)
+    st.markdown("**Sus tres puntos más flojos**")
+    st.markdown("".join(medidores.medidor_kpi(i) for i in ref.ficha["flojos"]), unsafe_allow_html=True)
+
+
+def _grafico(analisis, contexto) -> None:
+    """La pestaña Gráfico: TradingView, y lo que se sabe y se dice de él.
+
+    Se decide con el ticker y la bolsa: un ticker de fuera sólo se incrusta si
+    su bolsa está comprobada en el widget (`grafico.COMPROBADAS_EN_WIDGET`).
+    Sin el prefijo de bolsa, `T.TO` (TELUS) salía como AT&T y `BA.L` (BAE)
+    como Boeing; la BMV no se ve en el widget («Símbolo solo disponible en
+    TradingView»).
+    """
+    ticker = analisis.ticker
+    bolsa = analisis.identidad.bolsa
+    avisos = grafico.avisos(ticker, bolsa)
+    if grafico.en_widget(ticker, bolsa):
+        # El tema de la app: la paleta de `tema.py` es oscura, pero el menú de
+        # ajustes de Streamlit deja cambiarlo y el gráfico tiene que seguirlo.
+        oscuro = (st.context.theme.type or "dark") == "dark"
+        simbolo = grafico.simbolo(ticker, bolsa)
+        st.iframe(grafico.html(simbolo, oscuro), height=grafico.ALTO)
+        st.caption(f"Símbolo en TradingView: {texto.plano(simbolo)}")
+        for aviso in avisos:
+            st.caption(aviso)
+    else:
+        # Un enlace en vez de un recuadro vacío, o de la empresa equivocada. El
+        # primer aviso dice por qué no se incrusta y adónde lleva el enlace.
+        st.info(avisos[0])
+        rotulo, url = grafico.enlace(ticker, bolsa)
+        st.markdown(texto.enlace(texto.plano(rotulo), url))
+        for aviso in avisos[1:]:
+            st.caption(aviso)
+    st.info(grafico.ESTUDIO_D)
+
+
 # Qué función dibuja cada pestaña de `ma.pestanas_de`. Una pestaña sin función
 # no se dibuja, en vez de salir vacía.
 _PESTANAS = {
     "Resumen": _resumen,
+    "Fundamentales": _fundamentales,
+    "Gráfico": _grafico,
 }
 
 
@@ -302,6 +374,8 @@ def _detalle(analisis, contexto) -> None:
     if analisis.clase != "etf":
         # Una vez por pantalla, encima de las pestañas: la regla del registro es
         # glosar la primera vez que algo sale en una pantalla.
+        with st.expander("📏 Cómo se leen los medidores"):
+            st.markdown(medidores.como_se_leen())
         with st.expander(medidores_valoracion.TITULO_GLOSARIO):
             st.markdown(medidores_valoracion.glosario())
     nombres = [n for n in ma.pestanas_de(analisis.clase) if n in _PESTANAS]

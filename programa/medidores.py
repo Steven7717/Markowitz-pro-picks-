@@ -16,7 +16,7 @@ import medidores_valoracion
 import tema
 from aprobacion.carga import valoracion_de
 from fundamentals.kpis import TODOS_LOS_KPIS
-from ranking.criterio import MIN_KPIS_CON_DATO, PILARES, SIGNOS
+from ranking.criterio import MIN_KPIS_CON_DATO, PILARES, SIGNOS, TRIMESTRES_VENTANA
 
 # Los mismos cortes que `ranking/fichas.py:descriptor`, que es el vocabulario
 # que ya viaja al modelo dentro del prompt. Si los dos juegos divergen, el
@@ -107,6 +107,43 @@ def tabla_de_tramos() -> str:
         for tramo, marca in TRAMOS
     )
     return "| Tramo | Veredicto | Qué significa |\n|---|---|---|\n" + filas
+
+
+def como_se_leen() -> str:
+    """Cómo se leen los medidores, en markdown, para el desplegable de cada pantalla.
+
+    Era una cadena dentro del guion de Revisar candidatos; el Analizador pinta
+    los mismos medidores y tiene que explicarlos con las mismas palabras. Es una
+    función y no una constante porque lleva números del criterio.
+    """
+    return f"""
+Cada medidor compara a la empresa **con las de su propio sector**, no con todo
+el mercado: un margen del 40 % no significa lo mismo en software que en un
+supermercado. La unidad es el z-score — cuántas desviaciones típicas se separa
+de la media de sus pares — y la barra crece desde la línea central, que es esa
+media.
+
+{tabla_de_tramos()}
+
+- **«Regular» no es un defecto**: significa que la empresa está donde está la
+  media de su sector en esa área, ni mejor ni peor.
+- **El rayado gris no es un cero ni un "regular"**: es que el dato no existe.
+  Dos de cada tres bancos pierden el pilar de solidez entero así, porque no
+  publican EBITDA ni clasifican su balance en corriente y no corriente. Quedan
+  fuera por reportar distinto, no por ser peores.
+- **El signo ya viene aplicado.** En `PER`, `EV / EBITDA` o `Deuda neta /
+  EBITDA` menos es mejor, así que un múltiplo caro se pinta en rojo aunque su
+  z sea positivo. Esos llevan escrito **«menos es mejor»** junto al nombre; los
+  demás no lo llevan porque ahí el valor alto y la barra verde ya apuntan al
+  mismo sitio.
+- **La barra se corta en ±3.** Cuando el valor se sale, una marca blanca lo
+  avisa y el número de la derecha, precedido de `›`, sigue siendo el real: en
+  este panel hay z de hasta 8,6.
+- **Los valores son la media de los últimos {TRIMESTRES_VENTANA} trimestres**
+  publicados, así que el ROE y el ROIC son trimestrales, no anuales.
+- Un pilar puede apoyarse en 1 KPI o en 7, y no vale lo mismo: el recuento va
+  junto a su nombre.
+"""
 
 
 def posicion(z: float) -> float:
