@@ -9,6 +9,13 @@ cuenta. Todo eso se dice debajo.
 solo disponible en TradingView» y «Este símbolo no existe» (comprobado el
 2026-10-26, al planear N2): TradingView no da los datos de esa bolsa en lo que
 se incrusta. Para esas bolsas no se incrusta nada; se enlaza a su página.
+
+**Un ticker con sufijo sólo se incrusta si su bolsa está comprobada.** Sin el
+prefijo de bolsa, TradingView toma el símbolo por uno de EE. UU.: `T.TO`
+(TELUS) enseñaba AT&T, `BA.L` (BAE Systems) enseñaba Boeing, y `RY.TO` o
+`SHEL.L` la ADR de Nueva York. Y con prefijo tampoco se sabe si el widget da
+los datos (la BMV no los da). Así que un ticker de fuera se enlaza, salvo que su
+bolsa esté en `COMPROBADAS_EN_WIDGET`; los de EE. UU., sin sufijo, se incrustan.
 """
 
 import json
@@ -26,12 +33,18 @@ BOLSAS = {
     "ASE": "AMEX",
     "PCX": "AMEX",
     "MEX": "BMV",
+    # Sólo para el enlace: su página en TradingView es la de la empresa
+    # (TSX-T es TELUS, TSE-7203 Toyota, BME-SAN Santander; 2026-10-27). Londres
+    # no entra: TradingView escribe `LSE:BA.` con punto, y `LSE-BA` da 404.
+    "TOR": "TSX",
+    "JPX": "TSE",
+    "MCE": "BME",
 }
 
-# Las bolsas cuyos datos TradingView sólo da en su web, no en el widget. Tabla
-# congelada, como `BOLSAS`: medida con BMV:WALMEX el 2026-10-26. Una bolsa nueva
-# que falle igual se añade aquí, con su fecha.
-SOLO_EN_TRADINGVIEW = frozenset({"MEX"})
+# Las bolsas de fuera cuyos datos se han visto en el widget incrustado, con su
+# fecha. Hoy ninguna: la BMV se midió el 2026-10-26 y no sale («Símbolo solo
+# disponible en TradingView»). Una bolsa se añade aquí sólo después de verla.
+COMPROBADAS_EN_WIDGET: "frozenset[str]" = frozenset()
 
 _SCRIPT = "https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js"
 ALTO = 520
@@ -49,33 +62,59 @@ _LO_QUE_SE_SABE = (
     "en ninguna cuenta."
 )
 _SOLO_EN_WEB = (
-    "TradingView no da los datos de esta bolsa en el gráfico que se incrusta, "
-    "sólo en su web: el enlace lo abre allí. Sus datos no son los del programa ni "
-    "entran en ninguna cuenta."
+    "El gráfico de esta bolsa no se incrusta: TradingView no da sus datos en el "
+    "gráfico que se incrusta, o no está comprobado que los dé. El enlace lo abre "
+    "en su web. Sus datos no son los del programa ni entran en ninguna cuenta."
+)
+_EN_YAHOO = (
+    "El gráfico de esta bolsa no se incrusta, y el programa no sabe cómo la nombra "
+    "TradingView: sin el nombre de la bolsa, TradingView enseñaría otra empresa con "
+    "las mismas letras. El enlace abre la cotización en Yahoo Finanzas. Sus datos "
+    "no son los del programa ni entran en ninguna cuenta."
 )
 _RETRASO_BMV = "En la BMV los datos de TradingView llevan unos 15–20 minutos de retraso."
 
 
-def simbolo(ticker: str, bolsa: "str | None") -> str:
+def simbolo(ticker: str, bolsa: "str | None") -> "str | None":
     """El símbolo de TradingView: `BRK-B` → `NYSE:BRK.B`, `WALMEX.MX` → `BMV:WALMEX`.
 
     El sufijo de bolsa de Yahoo se quita, y el guion de clase vuelve a ser
-    punto, que es como lo escribe TradingView.
+    punto, que es como lo escribe TradingView. Sin sufijo (EE. UU.) y sin bolsa
+    conocida va sin prefijo, y TradingView lo resuelve. Con sufijo y sin prefijo
+    conocido es `None`: quitarle el sufijo nombraría a otra empresa (`BA.L`,
+    BAE, sería `BA`, Boeing).
     """
-    base = ticker.rpartition(".")[0] if tiene_sufijo(ticker) else ticker
-    base = base.replace("-", ".")
     prefijo = BOLSAS.get(bolsa or "")
+    sufijo = tiene_sufijo(ticker)
+    if sufijo and not prefijo:
+        return None
+    base = ticker.rpartition(".")[0] if sufijo else ticker
+    base = base.replace("-", ".")
     return f"{prefijo}:{base}" if prefijo else base
 
 
-def en_widget(bolsa: "str | None") -> bool:
-    """Si TradingView da los datos de esa bolsa en el widget incrustado."""
-    return bolsa not in SOLO_EN_TRADINGVIEW
+def en_widget(ticker: str, bolsa: "str | None") -> bool:
+    """Si el gráfico se incrusta: los de EE. UU. sí; los de fuera, si su bolsa
+    está comprobada en el widget."""
+    return not tiene_sufijo(ticker) or (
+        bolsa in COMPROBADAS_EN_WIDGET and simbolo(ticker, bolsa) is not None
+    )
 
 
-def enlace(simbolo_: str) -> str:
-    """La página del símbolo en TradingView: `BMV:WALMEX` → `…/symbols/BMV-WALMEX/`."""
-    return f"https://es.tradingview.com/symbols/{simbolo_.replace(':', '-')}/"
+def enlace(ticker: str, bolsa: "str | None") -> "tuple[str, str]":
+    """El rótulo y la dirección del enlace cuando el gráfico no se incrusta.
+
+    Con prefijo conocido, la página del símbolo en TradingView
+    (`BMV:WALMEX` → `…/symbols/BMV-WALMEX/`). Sin él, la cotización en Yahoo
+    Finanzas, que lleva el sufijo y no confunde la empresa.
+    """
+    simbolo_ = simbolo(ticker, bolsa)
+    if simbolo_ is None:
+        return (f"Ver {ticker} en Yahoo Finanzas", f"https://finance.yahoo.com/quote/{ticker}/")
+    return (
+        f"Ver {simbolo_} en TradingView",
+        f"https://es.tradingview.com/symbols/{simbolo_.replace(':', '-')}/",
+    )
 
 
 def html(simbolo_: str, oscuro: bool) -> str:
@@ -127,9 +166,14 @@ def html(simbolo_: str, oscuro: bool) -> str:
     )
 
 
-def avisos(bolsa: "str | None") -> "list[str]":
+def avisos(ticker: str, bolsa: "str | None") -> "list[str]":
     """Lo que se sabe y se dice debajo del gráfico, o del enlace si no se incrusta."""
-    salida = [_LO_QUE_SE_SABE if en_widget(bolsa) else _SOLO_EN_WEB]
+    if en_widget(ticker, bolsa):
+        salida = [_LO_QUE_SE_SABE]
+    elif simbolo(ticker, bolsa) is None:
+        salida = [_EN_YAHOO]
+    else:
+        salida = [_SOLO_EN_WEB]
     if bolsa == "MEX":
         salida.append(_RETRASO_BMV)
     return salida
