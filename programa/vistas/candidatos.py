@@ -33,6 +33,7 @@ from aprobacion.carga import (
     resumen_corrida,
     valoracion_de,
 )
+from analizador import sesion
 from aprobacion.generacion import (
     COSTE_APROXIMADO_USD,
     disponibilidad,
@@ -258,6 +259,20 @@ st.caption(
     "previsión de rentabilidad."
 )
 
+# «Analizar a fondo»: los candidatos al Analizador, con su gráfico, sus noticias
+# y los deslizadores de su valoración. Son quince, exactamente su tope
+# (`analizador.resolver.MAX_TICKERS`), y van por el canal de `analizador.sesion`.
+if st.button(
+    f"Analizar a fondo los {len(candidatos.fichas)} candidatos",
+    icon=":material/search:",
+    help=(
+        "Los lleva al Analizador, con su gráfico, sus noticias y los deslizadores "
+        "de su valoración. En frío, quince tardan cerca de un minuto."
+    ),
+):
+    sesion.encargar(st.session_state, [f["ticker"] for f in candidatos.fichas])
+    st.switch_page("vistas/analizador.py")
+
 # La hoja de estilo de los medidores, una sola vez por pasada. Va aqui y no
 # arriba del todo porque los dos caminos que terminan en st.stop() -- sin
 # fichas, contrato roto -- no llegan a pintar ni un medidor.
@@ -404,6 +419,10 @@ for ficha in candidatos.fichas:
             else:
                 st.warning("Procedencia no disponible: la cita no se puede localizar")
 
+        if st.button("Analizar a fondo", key=f"a_fondo_{ticker}", icon=":material/search:"):
+            # Los quince, con éste elegido en el detalle.
+            sesion.encargar(st.session_state, [f["ticker"] for f in candidatos.fichas], ticker)
+            st.switch_page("vistas/analizador.py")
         motivo = st.text_input(
             "Motivo si lo descartas (opcional)", key=f"motivo_{ticker}"
         )

@@ -344,3 +344,38 @@ def test_lo_ajeno_tampoco_se_guarda_crudo_en_una_variable_que_se_pinta():
         for crudo in _ajenos_fuera_de_texto(nodo.value)
     ]
     assert crudos == [], "sin escapar en las líneas " + ", ".join(str(n.lineno) for n in crudos)
+
+
+# --- El gate --------------------------------------------------------------------
+
+CANDIDATOS = (RAIZ / "vistas" / "candidatos.py").read_text(encoding="utf-8")
+
+
+def test_lo_que_va_al_acta_es_la_valoracion_del_programa():
+    # Lo movido con los deslizadores no viaja nunca (decisión 4 del plan de N2).
+    (llamada,) = [
+        n for n in ast.walk(ARBOL) if isinstance(n, ast.Call) and getattr(n.func, "id", None) == "Anadido"
+    ]
+    valoracion = next(k for k in llamada.keywords if k.arg == "valoracion")
+    assert ast.unparse(valoracion.value) == "analisis.valoracion"
+
+
+def test_sin_puerta_no_hay_boton_y_las_reglas_son_las_de_candidatos():
+    cuerpo = _cuerpo("_a_la_revision")
+    assert cuerpo.index("ma.puerta(") < cuerpo.index("st.form(")
+    assert "problema_al_anadir(" in cuerpo
+    assert 'st.switch_page("vistas/candidatos.py")' in cuerpo
+
+
+def test_la_revision_usa_la_lista_de_revisar_candidatos():
+    assert "st.session_state.anadidos" in CANDIDATOS
+    assert 'st.session_state.setdefault("anadidos", [])' in _cuerpo("_a_la_revision")
+
+
+def test_el_resumen_acaba_en_anadir_a_la_revision():
+    assert "_a_la_revision(analisis)" in _cuerpo("_resumen")
+
+
+def test_candidatos_manda_al_analizador_por_el_canal():
+    assert CANDIDATOS.count("sesion.encargar(") == 2
+    assert CANDIDATOS.count('st.switch_page("vistas/analizador.py")') == 2

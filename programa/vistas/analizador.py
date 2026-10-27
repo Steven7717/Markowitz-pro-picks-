@@ -31,7 +31,8 @@ from analizador import deslizadores, grafico, referencia, sesion
 from analizador.analisis import analizar, con_precio_nuevo, pilar_valoracion
 from analizador.resolver import MAX_TICKERS, separar
 from analizador.valorar import proyeccion, sensibilidad, valorar
-from aprobacion.carga import kpis_con_dato
+from aprobacion.acta import Anadido, problema_al_anadir
+from aprobacion.carga import ContratoRoto, FaltanFichas, cargar_candidatos, kpis_con_dato
 from aprobacion.generacion import disponibilidad
 from fundamentals.fetch import CorridaAbortada
 from fundamentals.sectors import load_sectors
@@ -269,6 +270,52 @@ def _valor_y_sector(analisis, panel_dicho: bool) -> None:
         st.caption(exclusion)
 
 
+def _a_la_revision(analisis) -> None:
+    """«Añadir a la revisión»: el ticker entra en los añadidos de Revisar candidatos.
+
+    Hay un solo gate y una sola acta: el Analizador no aprueba nada, lo lleva a
+    Revisar candidatos, donde siguen sus reglas (si ya está en el ranking se
+    rechaza, el motivo es obligatorio, y regenerar vacía los añadidos y lo
+    avisa).
+    """
+    st.markdown("**Añadir a la revisión**")
+    razon = ma.puerta(analisis)
+    if razon:
+        st.caption(razon)
+        return
+    clave = f"analizador_motivo_{analisis.ticker}"
+    # Por su clave y sin `value=`, como el campo de tickers: lo que el usuario
+    # edite sobrevive a las pasadas.
+    st.session_state.setdefault(clave, ma.motivo_para_la_revision(analisis.valoracion, date.today()))
+    with st.form(f"analizador_revision_{analisis.ticker}"):
+        st.text_area(
+            "Motivo: es la única justificación que va a constar en el acta, y lo puedes editar",
+            key=clave,
+        )
+        enviado = st.form_submit_button("Añadir a la revisión", type="primary", icon=":material/fact_check:")
+    st.caption(
+        "Al acta va la valoración con los supuestos del programa, aunque hayas "
+        "movido alguno: así se puede comparar entre actas. Si los moviste, dilo en "
+        "el motivo."
+    )
+    if not enviado:
+        return
+    try:
+        del_ranking = {f["ticker"] for f in cargar_candidatos().fichas}
+    except (FaltanFichas, ContratoRoto):
+        del_ranking = set()
+    # La misma lista que pinta Revisar candidatos (`st.session_state.anadidos`).
+    anadidos = st.session_state.setdefault("anadidos", [])
+    motivo = st.session_state[clave]
+    problema = problema_al_anadir(analisis.ticker, motivo, del_ranking, anadidos)
+    if problema:
+        st.error(problema)
+        return
+    # La del programa, y no la de los deslizadores: lo movido no se guarda.
+    anadidos.append(Anadido(ticker=analisis.ticker, motivo=motivo, valoracion=analisis.valoracion))
+    st.switch_page("vistas/candidatos.py")
+
+
 def _resumen(analisis, contexto) -> None:
     """La pestaña Resumen: quién es, sus avisos, el veredicto con sus votos y la tarjeta."""
     st.markdown(f"#### {texto.plano(analisis.ticker)} · {texto.plano(ma.nombre(analisis))}")
@@ -286,6 +333,8 @@ def _resumen(analisis, contexto) -> None:
         # El aviso del panel atrasado va entre los de arriba (`ma.avisos`).
         panel_dicho = ma.aviso_panel_atrasado(analisis, contexto["trimestre"]) is not None
         _valor_y_sector(analisis, panel_dicho)
+    st.divider()
+    _a_la_revision(analisis)
 
 
 def _fundamentales(analisis, contexto) -> None:
