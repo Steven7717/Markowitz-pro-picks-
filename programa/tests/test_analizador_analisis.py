@@ -364,10 +364,11 @@ def test_un_etf_solo_cambia_su_identidad():
     assert despues.valoracion is None and valoracion.pilares == []
 
 
-def test_un_defecto_al_actualizar_deja_la_traza_y_dice_error_interno(caplog):
+def test_un_defecto_al_actualizar_deja_la_traza_y_conserva_la_fila(caplog):
+    # Un fallo al refrescar el precio no se lleva la fila que ya estaba bien.
     antes = _analizado(panel_crudo())
     with patch.object(analisis.resolver, "resolver", side_effect=RuntimeError("defecto")), \
             caplog.at_level(logging.ERROR, logger="analizador.analisis"):
         despues = analisis.con_precio_nuevo(antes, panel_crudo())
-    assert (despues.clase, despues.motivo) == (None, "error_interno")
+    assert despues is antes
     assert "RuntimeError" in caplog.text

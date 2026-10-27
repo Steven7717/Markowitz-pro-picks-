@@ -196,8 +196,8 @@ def con_precio_nuevo(
     Un ticker que no tenía clase, o que ahora sale con otra, se analiza entero:
     no hay ficha que conservar, o la que hay es de otra cosa. El precio sale de
     la caché de `mercado` si tiene menos de quince minutos (`mercado.VALIDEZ`).
-    Un defecto propio no se calla: `error_interno` y la traza al log, como en
-    `analizar`.
+    Un defecto propio no se calla --la traza va al log, como en `analizar`--,
+    pero tampoco se lleva la fila: se devuelve `anterior`, que seguía bien.
     """
     if anterior.clase is None:
         return analizar(anterior.ticker, panel, tabla_sectores)
@@ -214,7 +214,7 @@ def con_precio_nuevo(
             "Actualizar el precio de %s falló por un defecto, no por falta de datos",
             anterior.ticker,
         )
-        return Analisis(anterior.ticker, None, None, "error_interno")
+        return anterior
 
 
 def analizar_varios(
