@@ -26,10 +26,11 @@ import medidores
 import medidores_analizador as ma
 import medidores_valoracion
 import tema
-from analizador import grafico, referencia, sesion
-from aprobacion.carga import kpis_con_dato
-from analizador.analisis import analizar, con_precio_nuevo
+from analizador import deslizadores, grafico, referencia, sesion
+from analizador.analisis import analizar, con_precio_nuevo, pilar_valoracion
 from analizador.resolver import MAX_TICKERS, separar
+from analizador.valorar import proyeccion, sensibilidad, valorar
+from aprobacion.carga import kpis_con_dato
 from aprobacion.generacion import disponibilidad
 from fundamentals.fetch import CorridaAbortada
 from fundamentals.sectors import load_sectors
@@ -355,10 +356,148 @@ def _grafico(analisis, contexto) -> None:
     st.info(grafico.ESTUDIO_D)
 
 
+@st.fragment
+def _deslizadores(ticker: str) -> None:
+    """Los supuestos con sus deslizadores, y lo que sale de ellos.
+
+    En un fragmento: moverlos sólo rehace esto, y sin red, porque `valorar`,
+    `sensibilidad` y `proyeccion` son aritmética pura sobre las `Entradas` que
+    se guardaron al analizar. Cada cuenta va en un `try`: `aplicar` rechaza con
+    `ValueError` lo que rompe las fórmulas, y el mensaje se enseña. **Lo movido
+    no se guarda en ningún sitio**: vive en las claves de los widgets.
+    """
+    analisis = st.session_state[sesion.CLAVE_ANALISIS][ticker]
+    entradas = analisis.entradas
+    pilar = pilar_valoracion(analisis.referencia)
+    r_f_a_mano = None
+    if entradas.r_f is None:
+        # Sin Bono M (sin token de Banxico, por ejemplo) no hay valoración hasta
+        # que el usuario ponga la tasa: el deslizador «pide el dato».
+        st.warning(ma.falta_tasa(entradas))
+        puesta = st.number_input(
+            "Tasa libre de riesgo (%)",
+            value=None,
+            step=0.1,
+            format="%.2f",
+            key=sesion.clave_a_mano(ticker),
+        )
+        r_f_a_mano = None if puesta is None else puesta / 100
+    try:
+        programa = deslizadores.del_programa(entradas, r_f_a_mano)
+    except ValueError as error:
+        st.error(f"Esa tasa no se puede usar: {error}.")
+        return
+    if programa is None:
+        st.markdown(
+            medidores_valoracion.resumen(ma.en_moneda_del_precio(analisis.valoracion)),
+            unsafe_allow_html=True,
+        )
+        return
+
+    st.button(
+        "Restaurar los del programa",
+        key=f"analizador_restaurar_{ticker}",
+        icon=":material/restart_alt:",
+        on_click=sesion.restaurar_deslizadores,
+        args=(st.session_state, ticker),
+    )
+    en_pantalla = {}
+    columnas = st.columns(2)
+    for indice, (nombre_, valor) in enumerate(programa.items()):
+        if nombre_ == "r_f" and entradas.r_f is None:
+            continue  # La pidió la casilla de arriba.
+        clave = sesion.clave_deslizador(ticker, nombre_)
+        with columnas[indice % 2]:
+            if valor is None:
+                # El programa no tiene la cifra (sin historia, sin años de ROE):
+                # se pide en vez de dibujar un deslizador sin punto de partida.
+                en_pantalla[nombre_] = st.number_input(
+                    f"{ma.etiqueta_deslizador(nombre_)}, sin cifra del programa",
+                    value=None,
+                    key=clave,
+                )
+            else:
+                rango = deslizadores.rango(nombre_, valor)
+                # Nace en la cifra del programa por su clave y sin `value=`: un
+                # `value` que cambia entre pasadas reinicia el widget («El
+                # formulario que se quedaba en blanco»).
+                st.session_state.setdefault(clave, deslizadores.a_pantalla(nombre_, valor))
+                en_pantalla[nombre_] = st.slider(
+                    ma.etiqueta_deslizador(nombre_),
+                    min_value=rango.minimo,
+                    max_value=rango.maximo,
+                    step=rango.paso,
+                    format=rango.formato,
+                    key=clave,
+                )
+
+    cambios = deslizadores.cambios(en_pantalla, programa, r_f_a_mano)
+    try:
+        movida = valorar(entradas, pilar, cambios)
+        tabla_sensibilidad = sensibilidad(entradas, cambios)
+        tabla_proyeccion = proyeccion(entradas, cambios)
+        movidos = deslizadores.nombres_movidos(entradas, cambios)
+    except ValueError as error:
+        st.error(
+            f"Con esos supuestos no hay valoración posible: {error}. Muévelos, o "
+            "restaura los del programa."
+        )
+        return
+
+    divisa = entradas.divisa
+    if movidos:
+        st.caption(
+            f"Moviste: {ma.lista_de_supuestos(movidos)}. Lo movido no se guarda en "
+            "ningún sitio: lo que va al acta es siempre la valoración con los "
+            "supuestos del programa."
+        )
+    en_precio = ma.en_moneda_del_precio(movida)
+    st.markdown(
+        medidores_valoracion.resumen(en_precio, con_tus_supuestos=bool(movidos)),
+        unsafe_allow_html=True,
+    )
+    for nota in medidores_valoracion.pie(en_precio):
+        st.caption(nota)
+    if tabla_sensibilidad is not None:
+        st.markdown(
+            "**Sensibilidad del valor base** al coste de capital y al crecimiento "
+            f"a perpetuidad, en {divisa.moneda_precio} por acción"
+        )
+        columnas_s, filas_s = ma.tabla_sensibilidad(tabla_sensibilidad, divisa.tipo_precio, divisa.moneda_precio)
+        st.dataframe(pd.DataFrame(filas_s, columns=columnas_s), hide_index=True, width="stretch")
+    if tabla_proyeccion is not None:
+        with st.expander("La proyección a 10 años del escenario base"):
+            columnas_p, filas_p = ma.tabla_proyeccion(tabla_proyeccion, divisa.moneda_valoracion)
+            st.dataframe(pd.DataFrame(filas_p, columns=columnas_p), hide_index=True, width="stretch")
+
+
+def _valoracion(analisis, contexto) -> None:
+    """La pestaña Valoración: los deslizadores, o la valoración del programa si no se puede mover nada."""
+    valoracion = analisis.valoracion if isinstance(analisis.valoracion, dict) else {}
+    if analisis.entradas is None or valoracion.get("motivo") == "error_interno":
+        # Sin entradas no hay nada que mover; con `error_interno` la cuenta falló
+        # por un defecto y volvería a fallar con cada movimiento.
+        st.markdown(
+            medidores_valoracion.resumen(ma.en_moneda_del_precio(analisis.valoracion)),
+            unsafe_allow_html=True,
+        )
+        if analisis.entradas is not None:
+            st.caption(
+                "Los deslizadores no se dibujan: la cuenta falló por un defecto del "
+                "programa, y volvería a fallar con cada movimiento."
+            )
+        return
+    aviso = ma.aviso_bono_m(analisis.entradas.procedencia_r_f, date.today())
+    if aviso:
+        st.warning(aviso)
+    _deslizadores(analisis.ticker)
+
+
 # Qué función dibuja cada pestaña de `ma.pestanas_de`. Una pestaña sin función
 # no se dibuja, en vez de salir vacía.
 _PESTANAS = {
     "Resumen": _resumen,
+    "Valoración": _valoracion,
     "Fundamentales": _fundamentales,
     "Gráfico": _grafico,
 }

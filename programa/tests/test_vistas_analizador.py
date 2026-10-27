@@ -230,3 +230,61 @@ def test_en_los_fundamentales_el_panel_atrasado_se_dice_una_vez():
 def test_como_se_leen_los_medidores_va_una_vez_encima_de_las_pestanas():
     cuerpo = _cuerpo("_detalle")
     assert cuerpo.index("medidores.como_se_leen()") < cuerpo.index("st.tabs(")
+
+
+# --- Los deslizadores -------------------------------------------------------------
+
+
+def _nombre_de(funcion) -> "str | None":
+    if isinstance(funcion, ast.Name):
+        return funcion.id
+    if isinstance(funcion, ast.Attribute):
+        return funcion.attr
+    return None
+
+
+def test_los_deslizadores_viven_en_un_fragmento():
+    assert [ast.unparse(d) for d in _funcion("_deslizadores").decorator_list] == ["st.fragment"]
+
+
+_CUENTAS = {"valorar", "sensibilidad", "proyeccion", "del_programa", "nombres_movidos"}
+
+
+def test_cada_cuenta_de_los_deslizadores_va_en_un_try_con_value_error():
+    # `aplicar` rechaza con `ValueError` lo que escribe el usuario y rompe las
+    # fórmulas: sin el `try`, un deslizador tumbaría la pantalla entera.
+    funcion = _funcion("_deslizadores")
+    protegidas = set()
+    for nodo in ast.walk(funcion):
+        if isinstance(nodo, ast.Try) and any(
+            h.type is not None and "ValueError" in ast.unparse(h.type) for h in nodo.handlers
+        ):
+            for interno in nodo.body:
+                protegidas |= {id(n) for n in ast.walk(interno) if isinstance(n, ast.Call)}
+    cuentas = [
+        n for n in ast.walk(funcion) if isinstance(n, ast.Call) and _nombre_de(n.func) in _CUENTAS
+    ]
+    assert {_nombre_de(n.func) for n in cuentas} == _CUENTAS
+    assert all(id(n) in protegidas for n in cuentas)
+
+
+def test_con_error_interno_no_se_dibujan_los_deslizadores():
+    cuerpo = _cuerpo("_valoracion")
+    assert cuerpo.index('"error_interno"') < cuerpo.index("_deslizadores(")
+
+
+def test_lo_movido_no_sale_del_fragmento():
+    # Nada de lo calculado con los deslizadores se guarda en la sesión: lo que
+    # va al acta es la valoración del programa.
+    for nodo in ast.walk(_funcion("_deslizadores")):
+        if isinstance(nodo, ast.Assign):
+            assert all("session_state" not in ast.unparse(t) for t in nodo.targets)
+        if isinstance(nodo, ast.AugAssign):
+            assert "session_state" not in ast.unparse(nodo.target)
+
+
+def test_restaurar_vuelve_a_los_del_programa_y_los_deslizadores_nacen_sin_valor():
+    cuerpo = _cuerpo("_deslizadores")
+    assert "on_click=sesion.restaurar_deslizadores" in cuerpo
+    for deslizador in [n for n in ast.walk(_funcion("_deslizadores")) if _nombre_de(getattr(n, "func", None)) == "slider"]:
+        assert "value" not in {k.arg for k in deslizador.keywords}
