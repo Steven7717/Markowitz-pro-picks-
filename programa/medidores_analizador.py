@@ -249,7 +249,7 @@ def frente_al_sector(analisis) -> str:
     if ref is None:
         return "sin ficha: " + etiqueta(MOTIVO_REFERENCIA, analisis.motivo_referencia)
     if ref.puesto is None:
-        return "fuera: " + MOTIVOS_EN_CASTELLANO.get(ref.exclusion, str(ref.exclusion))
+        return "fuera del ranking: " + MOTIVOS_EN_CASTELLANO.get(ref.exclusion, str(ref.exclusion))
     return puesto(ref)
 
 
@@ -259,9 +259,8 @@ _PANEL_ATRAS = (
     "el panel lo arregla."
 )
 _SEMESTRALES = (
-    " Yahoo no trae trimestres suficientes de sus cuentas, que es lo que pasa con "
-    "las empresas que publican cada semestre, como muchas europeas y las de Hong "
-    "Kong: no es que la empresa sea joven."
+    " Yahoo no trae trimestres suficientes de sus cuentas: suele pasar con las que "
+    "publican cada semestre, como muchas europeas y las de Hong Kong."
 )
 
 
@@ -419,8 +418,9 @@ def aviso_adr(cociente) -> "str | None":
         return None
     return (
         f"El recuento de acciones de sus estados es {cociente:.2f} veces el de su "
-        "cotización (capitalización ÷ precio): puede ser una ADR con un ratio "
-        "distinto de 1, o una clase de acción que no es la que cotiza. El valor por "
+        "cotización (capitalización ÷ precio): puede ser una ADR (un certificado que "
+        "cotiza en EE. UU. en lugar de la acción, y que puede valer varias acciones o "
+        "una fracción) con un ratio distinto de 1, o una clase de acción que no es la que cotiza. El valor por "
         "acción se calcula con el de la cotización, como en M: esto avisa, no corrige."
     )
 

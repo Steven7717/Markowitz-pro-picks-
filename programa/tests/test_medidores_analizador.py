@@ -226,7 +226,7 @@ def test_la_celda_frente_al_sector():
     assert ma.frente_al_sector(analisis(clase="etf")) == "—"
     assert ma.frente_al_sector(analisis(motivo_referencia="sin_panel")).startswith("sin ficha: ")
     assert ma.frente_al_sector(analisis(ref=referencia(None, 423, "pilar_sin_datos"))) == (
-        "fuera: " + MOTIVOS_EN_CASTELLANO["pilar_sin_datos"]
+        "fuera del ranking: " + MOTIVOS_EN_CASTELLANO["pilar_sin_datos"]
     )
     assert ma.frente_al_sector(analisis(ref=referencia(25, 424, en_panel=False))) == "25 de 424"
 
@@ -239,7 +239,10 @@ def test_historia_corta_con_el_panel_atrasado_culpa_al_panel():
 
 def test_historia_corta_de_una_de_yahoo_apunta_a_las_que_publican_cada_semestre():
     a = analisis("NESN.SW", "sin_sec", ref=referencia(None, 423, "historia_corta", False))
-    assert "cada semestre" in ma.texto_exclusion(a)
+    texto = ma.texto_exclusion(a)
+    assert "suele pasar con las que publican cada semestre" in texto
+    # Una salida a bolsa reciente también cae aquí: no se niega que sea joven.
+    assert "joven" not in texto
 
 
 def test_historia_corta_de_una_de_la_sec_no_se_inventa_la_causa():
@@ -356,7 +359,10 @@ def test_una_preferente_se_reconoce_por_su_forma():
 
 
 def test_el_recuento_de_una_adr_que_no_cuadra_se_avisa():
-    assert "5.00" in ma.aviso_adr(5.0)
+    aviso = ma.aviso_adr(5.0)
+    assert "5.00" in aviso
+    # «ADR» se glosa la primera vez que sale.
+    assert "ADR (un certificado" in aviso
     assert ma.aviso_adr(1.0) is None and ma.aviso_adr(None) is None
 
 
