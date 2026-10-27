@@ -21,7 +21,7 @@ dice.
 
 import math
 from dataclasses import dataclass, fields, replace
-from datetime import date
+from datetime import date, timedelta
 
 from seguimiento import banxico
 from valoracion import mercado
@@ -42,6 +42,12 @@ MONEDAS_PROPIAS = ("USD", "MXN")
 # recuento de los estados no es el de la cotización: una ADR con un ratio
 # distinto de 1, o una clase de acción que no es la que cotiza.
 ADR_TOLERANCIA = (0.8, 1.25)
+
+# La mayor separación medida entre dos subastas del Bono M a 10 años. Una
+# subasta más vieja que esto no es una que falte: es que Banxico no está
+# respondiendo y `banxico.traer` sirve lo último guardado, tenga la edad que
+# tenga (revisión final de N1). La pantalla lo avisa.
+SEPARACION_MAXIMA_SUBASTAS = timedelta(days=56)
 
 
 @dataclass(frozen=True)

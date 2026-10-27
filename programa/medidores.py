@@ -420,8 +420,15 @@ def tira_pilares(ficha: dict) -> str:
     return '<div class="mpp-tira">' + "".join(celdas) + "</div>"
 
 
-def tarjeta_candidato(ficha: dict) -> str:
-    """The whole collapsed row: who it is, its composite, and the four pillars."""
+def tarjeta_candidato(ficha: dict, puesto: "str | None" = None) -> str:
+    """The whole collapsed row: who it is, its composite, and the four pillars.
+
+    `puesto` sustituye al «#3» de la ficha: el Analizador enseña el puesto
+    global («Puesto global 25 de 424»), que no es el de candidatos. Y una ficha
+    fuera del ranking por una guarda no tiene puesto ni nota compuesta
+    (`analizador.referencia`): se dice, en vez de pintar un 0 o un NaN que se
+    leerían como cifras.
+    """
     cobertura = ficha.get("cobertura", {})
     con_dato = cobertura.get("kpis_con_dato")
     resumen_cobertura = (
@@ -429,10 +436,17 @@ def tarjeta_candidato(ficha: dict) -> str:
         if con_dato is not None
         else ""
     )
+    compuesto = ficha.get("compuesto")
+    nota = (
+        "Sin nota compuesta"
+        if compuesto is None
+        else f"Compuesto {compuesto:+.2f} (z dentro del sector)"
+    )
+    rotulo = f"#{ficha['puesto']}" if puesto is None else puesto
     return (
         '<div class="mpp-tarjeta">'
         '<div class="mpp-cab">'
-        f'<span class="mpp-puesto">#{_esc(ficha["puesto"])}</span>'
+        f'<span class="mpp-puesto">{_esc(rotulo)}</span>'
         f'<span class="mpp-ticker">{_esc(ficha["ticker"])}</span>'
         f'<span class="mpp-chip">{_esc(ficha["sector_gics"])}</span>'
         # `valoracion_de` y no `ficha.get("valoracion")`: es el mismo lector
@@ -440,8 +454,7 @@ def tarjeta_candidato(ficha: dict) -> str:
         # sin `version` pintaba la píldora mientras el bloque decía «ficha de
         # una versión anterior».
         f"{medidores_valoracion.distintivo(valoracion_de(ficha))}"
-        f'<span class="mpp-cab-der">Compuesto {ficha["compuesto"]:+.2f} '
-        f"(z dentro del sector){_esc(resumen_cobertura)}</span>"
+        f'<span class="mpp-cab-der">{_esc(nota)}{_esc(resumen_cobertura)}</span>'
         "</div>"
         f"{tira_pilares(ficha)}"
         "</div>"

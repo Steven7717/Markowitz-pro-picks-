@@ -7,14 +7,20 @@ etiqueta no hable de una clave que nadie escribe.
 """
 
 import ast
+from datetime import date
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 import medidores_analizador as ma
 from analizador.analisis import Analisis
+from analizador.referencia import Referencia
 from analizador.resolver import Identidad
 from aprobacion.carga import MOTIVOS_EN_CASTELLANO
+from fundamentals.sectors import load_sectors
+from ranking.criterio import TOPE_POR_SECTOR
+from tests.test_medidores_valoracion import _fija, _fija_residual
 
 RAIZ = Path(__file__).resolve().parent.parent
 
@@ -157,3 +163,223 @@ def test_la_fila_de_un_ticker_sin_clase_dice_por_que_y_da_la_pista():
     assert ma.motivo_de_la_fila(Analisis("^GSPC", None, None, "tipo_no_soportado")) == (
         ma.MOTIVO_ANALISIS["tipo_no_soportado"]
     )
+
+
+# --- La ficha frente al sector ----------------------------------------------
+
+
+def ficha(pilar=0.4, puesto=1):
+    return {
+        "ticker": "MU",
+        "sector_gics": "Information Technology",
+        "puesto": puesto,
+        "compuesto": None if puesto is None else 1.2,
+        "pilares": {"calidad": 0.5, "crecimiento": 0.1, "valoracion": pilar, "solidez": 0.2},
+        "destacados": [],
+        "flojos": [],
+        "cobertura": {
+            "kpis_con_dato": 14,
+            "pilares_con_dato": 4,
+            "kpis_por_pilar": {"calidad": 7, "crecimiento": 3, "valoracion": 4, "solidez": 3},
+        },
+        "desplazo_a": [],
+    }
+
+
+def referencia(puesto=1, supervivientes=423, exclusion=None, en_panel=True, pilar=0.4, posteriores=0):
+    return Referencia(
+        ficha(pilar, puesto), None if puesto is None else 1.2, puesto,
+        supervivientes, exclusion, en_panel, posteriores,
+    )
+
+
+def analisis(ticker="MU", clase="sec", ref=None, motivo_referencia=None, valoracion=None,
+             entradas=None, fuente_sector="sp500", **ident):
+    return Analisis(ticker, clase, identidad(ticker, **ident), None, "Information Technology",
+                    fuente_sector, ref, motivo_referencia, entradas, valoracion)
+
+
+def test_el_puesto_es_el_global_entre_las_que_pasan_las_guardas():
+    assert ma.puesto(referencia(25, 423)) == "25 de 423"
+    assert ma.puesto(referencia(None, 423, "historia_corta")) == "—"
+    assert ma.puesto(None) == "—"
+    assert ma.puesto_en_tarjeta(referencia(25, 423)) == "Puesto global 25 de 423"
+    assert ma.puesto_en_tarjeta(referencia(None, 423, "historia_corta")) == "Fuera del ranking"
+
+
+def test_la_nota_del_puesto_dice_que_es_global_y_por_que_puede_no_coincidir():
+    nota = ma.nota_puesto(referencia(25, 423), "MU")
+    assert "global" in nota and f"tope de {TOPE_POR_SECTOR} por sector" in nota
+    assert "una más" not in nota
+
+
+def test_una_insertada_se_cuenta_a_si_misma_y_se_dice_que_no_es_un_error():
+    nota = ma.nota_puesto(referencia(25, 424, en_panel=False), "TSM")
+    assert "424" in nota and "TSM" in nota and "no es un error" in nota
+
+
+def test_la_celda_frente_al_sector():
+    assert ma.frente_al_sector(analisis(clase="etf")) == "—"
+    assert ma.frente_al_sector(analisis(motivo_referencia="sin_panel")).startswith("sin ficha: ")
+    assert ma.frente_al_sector(analisis(ref=referencia(None, 423, "pilar_sin_datos"))) == (
+        "fuera: " + MOTIVOS_EN_CASTELLANO["pilar_sin_datos"]
+    )
+    assert ma.frente_al_sector(analisis(ref=referencia(25, 424, en_panel=False))) == "25 de 424"
+
+
+def test_historia_corta_con_el_panel_atrasado_culpa_al_panel():
+    a = analisis("WALMEX.MX", "sin_sec", ref=referencia(None, 423, "historia_corta", False, posteriores=2))
+    texto = ma.texto_exclusion(a)
+    assert texto.startswith("Las guardas") and "panel el que se quedó atrás" in texto
+
+
+def test_historia_corta_de_una_de_yahoo_apunta_a_las_que_publican_cada_semestre():
+    a = analisis("NESN.SW", "sin_sec", ref=referencia(None, 423, "historia_corta", False))
+    assert "cada semestre" in ma.texto_exclusion(a)
+
+
+def test_historia_corta_de_una_de_la_sec_no_se_inventa_la_causa():
+    texto = ma.texto_exclusion(analisis(ref=referencia(None, 423, "historia_corta", False)))
+    assert "semestre" not in texto and "panel" not in texto
+    assert ma.texto_exclusion(analisis(ref=referencia())) is None
+
+
+def test_otra_guarda_no_hereda_la_causa_de_historia_corta():
+    # Las dos causas explican `historia_corta`; pegadas a otra guarda mentirían.
+    a = analisis("NESN.SW", "sin_sec", ref=referencia(None, 423, "pilar_sin_datos", False, posteriores=2))
+    texto = ma.texto_exclusion(a)
+    assert "semestre" not in texto and "panel" not in texto
+
+
+def _votos(pares="neutra", motivo=None):
+    return {
+        "flujos": {"voto": "neutra", "motivo": None},
+        "sin_crecimiento": {"voto": "neutra", "motivo": None},
+        "pares": {"voto": pares, "motivo": motivo},
+    }
+
+
+def test_brk_b_no_vota_por_sus_multiplos_y_no_por_falta_de_pares():
+    # Task 17 de N1: el XBRL de Berkshire no trae recuento ni BPA diluidos.
+    a = analisis("BRK-B", ref=referencia(None, 423, "pilar_sin_datos", pilar=None),
+                 valoracion=_fija(votos=_votos("no_aplica", "sin_pares")))
+    texto = ma.detalle_pares(a)
+    assert "no por falta de pares" in texto and "múltiplos" in texto
+
+
+def test_una_excluida_que_vota_lo_dice():
+    a = analisis("JPM", ref=referencia(None, 423, "pilar_sin_datos", pilar=0.3),
+                 valoracion=_fija(votos=_votos("neutra")))
+    texto = ma.detalle_pares(a)
+    assert "vota con su pilar" in texto and MOTIVOS_EN_CASTELLANO["pilar_sin_datos"] in texto
+
+
+def test_sin_ficha_el_voto_de_pares_remite_a_su_causa():
+    a = analisis(motivo_referencia="sin_precio", valoracion=_fija(votos=_votos("no_aplica", "sin_pares")))
+    texto = ma.detalle_pares(a)
+    assert "no hay ficha frente al sector" in texto and ma.MOTIVO_REFERENCIA["sin_precio"] in texto
+
+
+def test_sin_ficha_y_sin_motivo_no_se_inventa_una_causa():
+    assert ma.detalle_pares(analisis()) is None
+    # Un ETF no tiene ficha frente al sector ni la echa en falta.
+    assert ma.detalle_pares(analisis(clase="etf", motivo_referencia="sin_panel")) is None
+
+
+def test_una_excluida_que_no_vota_no_dice_que_vota():
+    a = analisis("JPM", ref=referencia(None, 423, "pilar_sin_datos", pilar=0.3),
+                 valoracion=_fija(votos=_votos("no_aplica", "sin_pares")))
+    assert ma.detalle_pares(a) is None
+
+
+def test_con_ficha_sin_guarda_y_con_pilar_no_hay_nada_que_anadir():
+    assert ma.detalle_pares(analisis(ref=referencia(), valoracion=_fija())) is None
+    assert ma.detalle_pares(analisis(clase="etf")) is None
+
+
+def test_un_veredicto_sin_valor_base_lleva_su_rotulo():
+    # 7203.T en la Task 17 de N1: quema caja por su financiera cautiva.
+    votos = {**_votos(), "flujos": {"voto": "no_aplica", "motivo": "quema_caja"}}
+    texto = ma.sin_valor_base(_fija(valor=None, votos=votos))
+    assert "no valor base" in texto and "quema caja" in texto
+    assert ma.sin_valor_base(_fija()) is None
+    assert ma.sin_valor_base({"version": "m1", "motivo": "sin_red"}) is None
+    assert ma.sin_valor_base(None) is None
+
+
+def test_sin_valor_base_de_un_banco_culpa_al_beneficio_residual():
+    votos = {**_votos(), "flujos": {"voto": "no_aplica", "motivo": "quema_caja"}}
+    texto = ma.sin_valor_base(_fija_residual(valor=None, votos=votos))
+    assert "beneficio residual" in texto and "el de flujos" not in texto
+
+
+# --- Los avisos de un ticker --------------------------------------------------
+
+
+def _con_divisa(sin_prima: bool) -> dict:
+    return _fija(divisa={"moneda_precio": "USD", "tipo_precio": 1.0, "sin_prima_pais": sin_prima})
+
+
+def test_sin_prima_pais_solo_fuera_del_sp500():
+    tsm = analisis("TSM", "extranjera_sec", valoracion=_con_divisa(True), fuente_sector="yahoo", pais="Taiwan")
+    assert "Taiwan" in ma.aviso_sin_prima_pais(tsm)
+    # GRMN está domiciliada en Suiza y se valora exactamente como en M.
+    grmn = analisis("GRMN", valoracion=_con_divisa(True), fuente_sector="sp500", pais="Switzerland")
+    assert ma.aviso_sin_prima_pais(grmn) is None
+    assert ma.aviso_sin_prima_pais(analisis(valoracion=_con_divisa(False), fuente_sector="yahoo")) is None
+
+
+def test_el_pais_de_yahoo_se_escapa():
+    raro = analisis("TSM", "extranjera_sec", valoracion=_con_divisa(True), fuente_sector="yahoo",
+                    pais="[Taiwan](http://x)")
+    assert "[Taiwan](http://x)" not in ma.aviso_sin_prima_pais(raro)
+
+
+def test_la_misma_empresa_solo_en_el_sic_de_la_bmv():
+    sp500 = set(load_sectors())
+    assert "AAPL" in ma.aviso_misma_empresa("AAPL.MX", sp500)
+    # T.TO es TELUS y T es AT&T: en otras bolsas el mismo símbolo es otra empresa.
+    assert ma.aviso_misma_empresa("T.TO", sp500) is None
+    assert ma.aviso_misma_empresa("WALMEX.MX", sp500) is None
+    assert ma.aviso_misma_empresa("AAPL", sp500) is None
+
+
+def test_una_preferente_se_reconoce_por_su_forma():
+    assert ma.aviso_preferente("JPM-PC") and ma.aviso_preferente("T-PA")
+    assert ma.aviso_preferente("BRK-B") is None and ma.aviso_preferente("MU") is None
+    # Ninguna del S&P 500 tiene esa forma: no hay falsos positivos en el panel.
+    assert [t for t in load_sectors() if ma.aviso_preferente(t)] == []
+
+
+def test_el_recuento_de_una_adr_que_no_cuadra_se_avisa():
+    assert "5.00" in ma.aviso_adr(5.0)
+    assert ma.aviso_adr(1.0) is None and ma.aviso_adr(None) is None
+
+
+def test_el_panel_atrasado_se_avisa():
+    con_filas = analisis("TSM", "extranjera_sec", ref=referencia(25, 424, en_panel=False, posteriores=1))
+    assert "2026Q2" in ma.aviso_panel_atrasado(con_filas, "2026Q2")
+    sin_ninguna = analisis("TSM", "extranjera_sec", motivo_referencia="sin_trimestres_comparables")
+    assert ma.aviso_panel_atrasado(sin_ninguna, "2026Q2")
+    assert ma.aviso_panel_atrasado(analisis(ref=referencia()), "2026Q2") is None
+    assert ma.aviso_panel_atrasado(con_filas, None) is None
+
+
+def test_el_bono_m_viejo_se_avisa_y_el_reciente_no():
+    procedencia = {"fuente": "bono_m_10", "serie": "SF44071", "fecha": "2026-09-24"}
+    assert ma.aviso_bono_m(procedencia, date(2026, 10, 26)) is None
+    texto = ma.aviso_bono_m(procedencia, date(2026, 11, 25))
+    assert "24/09/2026" in texto and "62 días" in texto
+    assert ma.aviso_bono_m({"fuente": "tesoro_10", "serie": "^TNX"}, date(2027, 1, 1)) is None
+    # El `^TNX` caduca por su cuenta a los siete días: su fecha no se avisa aquí.
+    assert ma.aviso_bono_m({"fuente": "tesoro_10", "fecha": "2026-09-24"}, date(2027, 1, 1)) is None
+    assert ma.aviso_bono_m({"fuente": "bono_m_10", "fecha": None}, date(2027, 1, 1)) is None
+
+
+def test_los_avisos_llevan_su_forma_corta_y_la_larga():
+    entradas = SimpleNamespace(cociente_adr=5.0, procedencia_r_f={"fuente": "tesoro_10"})
+    a = analisis("AAPL.MX", "sin_sec", entradas=entradas, valoracion=_con_divisa(False),
+                 fuente_sector="yahoo", moneda="MXN")
+    cortos = [corto for corto, _ in ma.avisos(a, set(load_sectors()), "2026Q2", date(2026, 10, 26))]
+    assert cortos == ["misma empresa que AAPL", "recuento de acciones dudoso"]
+    assert all(largo for _, largo in ma.avisos(a, set(load_sectors()), "2026Q2", date(2026, 10, 26)))

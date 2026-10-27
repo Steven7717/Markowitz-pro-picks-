@@ -261,3 +261,22 @@ def test_the_labels_of_the_trailing_year_ratios_do_not_say_quarterly():
     como trimestral, o la aclaracion pasaria a ser el error."""
     for kpi in ("deuda_neta_ebitda", "per", "ev_ebitda", "precio_fcf"):
         assert "trimestral" not in m.KPIS[kpi].etiqueta.lower()
+
+
+# --- La tarjeta en el Analizador ----------------------------------------------
+
+
+def test_la_tarjeta_puede_llevar_otro_rotulo_de_puesto():
+    texto = sin_etiquetas(m.tarjeta_candidato(FICHA, puesto="Puesto global 25 de 424"))
+    assert "Puesto global 25 de 424" in texto
+    assert "#1" not in texto
+    # Sin rótulo, el de candidatos de siempre.
+    assert "#1" in sin_etiquetas(m.tarjeta_candidato(FICHA))
+
+
+def test_una_ficha_fuera_del_ranking_se_pinta_sin_nota_en_vez_de_reventar():
+    # `analizador.referencia` deja puesto y compuesto en None cuando una guarda
+    # la deja fuera: un 0 o un NaN se leerían como cifras.
+    fuera = {**FICHA, "puesto": None, "compuesto": None}
+    texto = sin_etiquetas(m.tarjeta_candidato(fuera, puesto="Fuera del ranking"))
+    assert "Sin nota compuesta" in texto and "Fuera del ranking" in texto
