@@ -72,6 +72,10 @@ _PINTAN = {"markdown", "caption", "write", "info", "warning", "error", "success"
 # diccionario leido de `fichas.json`, no un tipo que se pueda marcar.
 _AJENAS = {"narrativa", "riesgo", "fuente"}
 
+# Las mismas, pero sueltas y no como diccionario: `_valor` es la valoracion que
+# llego del Analizador, con la moneda que trae Yahoo.
+_AJENAS_SUELTAS = {"_valor"}
+
 
 def _sin_escapar(arbol: ast.AST) -> list:
     """Los trozos de texto ajeno que llegan a una llamada que pinta markdown sin
@@ -103,6 +107,11 @@ def _ajenas_fuera_de_texto(nodo: ast.AST) -> list:
             and funcion.value.id == "texto"
         ):
             return []
+    if isinstance(nodo, ast.IfExp):
+        # La condicion no se pinta: `... if _valor else ""` solo pregunta.
+        return _ajenas_fuera_de_texto(nodo.body) + _ajenas_fuera_de_texto(nodo.orelse)
+    if isinstance(nodo, ast.Name) and nodo.id in _AJENAS_SUELTAS:
+        return [nodo]
     crudas = []
     if (
         isinstance(nodo, ast.Subscript)
@@ -135,6 +144,11 @@ def test_el_saboteador_de_ese_test_lo_tumba():
     el de arriba sabe ver el defecto que existia de verdad."""
     antes = "st.markdown(f\"> {' '.join(riesgo['cita'].split())}\")"
     assert len(_sin_escapar(ast.parse(antes))) == 1
+    # La valoracion al anadirla, sin `texto.plano`; la condicion no cuenta.
+    sin_plano = "st.markdown('- x' + (f'  Valor: {_valor}' if _valor else ''))"
+    assert len(_sin_escapar(ast.parse(sin_plano))) == 1
+    con_plano = "st.markdown('- x' + (f'  Valor: {texto.plano(_valor)}' if _valor else ''))"
+    assert _sin_escapar(ast.parse(con_plano)) == []
 
 
 # --- La url, lo unico de una noticia que no se escapaba ----------------------
