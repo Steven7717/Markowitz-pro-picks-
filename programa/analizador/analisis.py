@@ -8,7 +8,7 @@ defecto es al valorar, sólo lo dice la valoración, y la ficha se queda.
 """
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date
 
 import pandas as pd
@@ -47,6 +47,11 @@ class Analisis:
     motivo_referencia: "str | None" = None
     entradas: "Entradas | None" = None
     valoracion: "dict | None" = None
+
+
+def pilar_valoracion(referencia: "Referencia | None") -> "float | None":
+    """El pilar de valoración de la ficha, que es lo que vota «frente a sus pares»."""
+    return None if referencia is None else referencia.ficha["pilares"].get("valoracion")
 
 
 def _filas_propias(resuelto: Resuelto) -> "tuple[pd.DataFrame | None, str]":
@@ -138,9 +143,18 @@ def _analizar(ticker: str, panel: "pd.DataFrame | None", tabla_sectores: "dict |
     if resuelto.clase == "etf":
         return Analisis(ticker, "etf", resuelto.identidad, None)
     sector, fuente = sector_gics(ticker, resuelto.identidad.sector, tabla_sectores)
-    encontrada, motivo_referencia = _frente_al_sector(resuelto, sector, panel)
-    pilar = None if encontrada is None else encontrada.ficha["pilares"].get("valoracion")
-    traidas, valoracion = _valoracion(resuelto, pilar)
+    try:
+        encontrada, motivo_referencia = _frente_al_sector(resuelto, sector, panel)
+    except Exception:
+        # Un defecto propio al hacer la ficha no se lleva la identidad ni la
+        # valoración, que no dependen de ella (nota de la Task 14 de N1): la
+        # ficha dice `error_interno`, la traza va al log y lo demás sigue.
+        logging.getLogger(__name__).exception(
+            "La ficha frente al sector de %s falló por un defecto, no por falta de datos",
+            ticker,
+        )
+        encontrada, motivo_referencia = None, "error_interno"
+    traidas, valoracion = _valoracion(resuelto, pilar_valoracion(encontrada))
     return Analisis(
         ticker=ticker,
         clase=resuelto.clase,
@@ -166,6 +180,41 @@ def analizar(
             "El análisis de %s falló por un defecto, no por falta de datos", ticker
         )
         return Analisis(ticker, None, None, "error_interno")
+
+
+def con_precio_nuevo(
+    anterior: Analisis, panel: "pd.DataFrame | None", tabla_sectores: "dict | None" = None
+) -> Analisis:
+    """El mismo análisis con la cotización de ahora, sin rehacer la ficha frente al sector.
+
+    La ficha no depende del precio de hoy: los múltiplos del panel van con el
+    precio del día en que se publicó cada trimestre. Lo que sí depende es la
+    identidad (precio y hora) y la valoración (el precio entra en el inverso,
+    en el EPV y en el margen). Rehacer la ficha costaría la red de sus filas
+    propias y unos 0,3 s de z por ticker.
+
+    Un ticker que no tenía clase, o que ahora sale con otra, se analiza entero:
+    no hay ficha que conservar, o la que hay es de otra cosa. El precio sale de
+    la caché de `mercado` si tiene menos de quince minutos (`mercado.VALIDEZ`).
+    Un defecto propio no se calla: `error_interno` y la traza al log, como en
+    `analizar`.
+    """
+    if anterior.clase is None:
+        return analizar(anterior.ticker, panel, tabla_sectores)
+    try:
+        resuelto = resolver.resolver(anterior.ticker)
+        if resuelto.clase != anterior.clase:
+            return analizar(anterior.ticker, panel, tabla_sectores)
+        if resuelto.clase == "etf":
+            return replace(anterior, identidad=resuelto.identidad)
+        traidas, valoracion = _valoracion(resuelto, pilar_valoracion(anterior.referencia))
+        return replace(anterior, identidad=resuelto.identidad, entradas=traidas, valoracion=valoracion)
+    except Exception:
+        logging.getLogger(__name__).exception(
+            "Actualizar el precio de %s falló por un defecto, no por falta de datos",
+            anterior.ticker,
+        )
+        return Analisis(anterior.ticker, None, None, "error_interno")
 
 
 def analizar_varios(

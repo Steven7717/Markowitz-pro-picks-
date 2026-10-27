@@ -278,3 +278,96 @@ def test_varios_sin_tabla_cargan_la_del_sp500_una_sola_vez():
         resultados, _ = analisis.analizar_varios(["IN0", "IN1"])
     assert cargar.call_count == 1
     assert [a.fuente_sector for a in resultados] == ["sp500", "sp500"]
+
+
+# --- Lo que necesita la pantalla -------------------------------------------------
+
+
+def test_el_pilar_que_vota_es_el_de_valoracion_de_la_ficha():
+    panel = panel_crudo()
+    with patch.object(analisis.resolver, "resolver", return_value=_resuelto()), _Valoracion():
+        a = analisis.analizar("IN0", panel, {"IN0": "Information Technology"})
+    assert analisis.pilar_valoracion(a.referencia) == a.referencia.ficha["pilares"]["valoracion"]
+    assert analisis.pilar_valoracion(None) is None
+
+
+def test_un_defecto_en_la_ficha_no_se_lleva_la_identidad_ni_la_valoracion(caplog):
+    panel = panel_crudo()
+    with patch.object(analisis.resolver, "resolver", return_value=_resuelto()), \
+            patch.object(analisis.referencia, "frente_al_sector", side_effect=RuntimeError("defecto")), \
+            _Valoracion() as valoracion, \
+            caplog.at_level(logging.ERROR, logger="analizador.analisis"):
+        a = analisis.analizar("IN0", panel, {"IN0": "Information Technology"})
+    assert a.clase == "sec" and a.identidad is not None and a.motivo is None
+    assert a.referencia is None and a.motivo_referencia == "error_interno"
+    assert valoracion.pilares == [None]
+    assert a.valoracion == {"version": "m1", "veredicto": "en_rango"}
+    assert "RuntimeError" in caplog.text
+
+
+def _analizado(panel):
+    with patch.object(analisis.resolver, "resolver", return_value=_resuelto()), _Valoracion():
+        return analisis.analizar("IN0", panel, {"IN0": "Information Technology"})
+
+
+def test_actualizar_el_precio_no_rehace_la_ficha_frente_al_sector():
+    panel = panel_crudo()
+    antes = _analizado(panel)
+    nueva = Resuelto("IN0", "sec", replace(_identidad(), precio=120.0), None)
+    with patch.object(analisis.resolver, "resolver", return_value=nueva), \
+            patch.object(analisis.referencia, "frente_al_sector", side_effect=AssertionError("no se rehace")), \
+            patch.object(analisis.kpis, "kpis_sec", side_effect=AssertionError("no se rehace")), \
+            _Valoracion() as valoracion:
+        despues = analisis.con_precio_nuevo(antes, panel, {"IN0": "Information Technology"})
+    assert despues.identidad.precio == 120.0
+    assert despues.referencia is antes.referencia
+    assert valoracion.pilares == [antes.referencia.ficha["pilares"]["valoracion"]]
+
+
+def test_un_ticker_sin_clase_se_analiza_entero_al_actualizar():
+    panel = panel_crudo()
+    sin_red = analisis.Analisis("IN0", None, None, "sin_red")
+    with patch.object(analisis.resolver, "resolver", return_value=_resuelto()) as resolver, _Valoracion():
+        despues = analisis.con_precio_nuevo(sin_red, panel, {"IN0": "Information Technology"})
+    assert despues.clase == "sec" and despues.referencia is not None
+    # Sin clase no hay nada que conservar: se resuelve una vez, la de `analizar`.
+    assert resolver.call_count == 1
+
+
+def test_al_actualizar_la_valoracion_y_sus_entradas_son_las_nuevas():
+    antes = _analizado(panel_crudo())
+    nueva = Resuelto("IN0", "sec", replace(_identidad(), precio=120.0), None)
+    with patch.object(analisis.resolver, "resolver", return_value=nueva), \
+            patch.object(analisis, "entradas", return_value=("NUEVAS", "ok")), \
+            patch.object(analisis, "valorar", return_value={"version": "m1", "veredicto": "cara"}):
+        despues = analisis.con_precio_nuevo(antes, panel_crudo())
+    assert despues.entradas == "NUEVAS"
+    assert despues.valoracion == {"version": "m1", "veredicto": "cara"}
+
+
+def test_si_cambia_de_clase_se_analiza_entero():
+    panel = panel_crudo()
+    antes = _analizado(panel)
+    with patch.object(analisis.resolver, "resolver", return_value=_resuelto(clase="sin_sec")), \
+            patch.object(analisis, "analizar", return_value="ANALIZADO") as entero:
+        assert analisis.con_precio_nuevo(antes, panel, {}) == "ANALIZADO"
+    entero.assert_called_once()
+
+
+def test_un_etf_solo_cambia_su_identidad():
+    etf = analisis.Analisis("SPY", "etf", _identidad("SPY", tipo="ETF"), None)
+    nueva = Resuelto("SPY", "etf", replace(_identidad("SPY", tipo="ETF"), precio=600.0), None)
+    with patch.object(analisis.resolver, "resolver", return_value=nueva), _Valoracion() as valoracion:
+        despues = analisis.con_precio_nuevo(etf, None)
+    assert despues.identidad.precio == 600.0
+    # Un ETF no se valora.
+    assert despues.valoracion is None and valoracion.pilares == []
+
+
+def test_un_defecto_al_actualizar_deja_la_traza_y_dice_error_interno(caplog):
+    antes = _analizado(panel_crudo())
+    with patch.object(analisis.resolver, "resolver", side_effect=RuntimeError("defecto")), \
+            caplog.at_level(logging.ERROR, logger="analizador.analisis"):
+        despues = analisis.con_precio_nuevo(antes, panel_crudo())
+    assert (despues.clase, despues.motivo) == (None, "error_interno")
+    assert "RuntimeError" in caplog.text
