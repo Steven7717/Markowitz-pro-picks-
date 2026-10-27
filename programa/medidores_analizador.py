@@ -263,13 +263,16 @@ _SEMESTRALES = (
 )
 
 
-def texto_exclusion(analisis) -> "str | None":
+def texto_exclusion(analisis, panel_dicho: bool = False) -> "str | None":
     """La guarda que la dejaría fuera, con su causa cuando la guarda la esconde.
 
     `historia_corta` culpa a la empresa de tener poca historia, y en el
     Analizador casi nunca es eso: o el panel está atrasado y sus últimos
     trimestres no entran, o la empresa publica cada semestre (NESN.SW, 0700.HK
     y RIO.L en la Task 14 de N1). A una de la SEC no se le inventa causa.
+
+    Con `panel_dicho`, el aviso del panel atrasado ya está a la vista y la
+    causa no se repite: con 7203.T se leía tres veces seguidas.
     """
     ref = analisis.referencia
     if ref is None or ref.exclusion is None:
@@ -278,13 +281,21 @@ def texto_exclusion(analisis) -> "str | None":
     texto = texto[0].upper() + texto[1:] + "."
     if ref.exclusion == "historia_corta":
         if ref.filas_posteriores:
-            texto += _PANEL_ATRAS
+            if not panel_dicho:
+                texto += _PANEL_ATRAS
         elif analisis.clase in ("extranjera_sec", "sin_sec"):
             texto += _SEMESTRALES
     return texto
 
 
-def detalle_pares(analisis) -> "str | None":
+def sin_ficha(analisis, panel_dicho: bool = False) -> str:
+    """«Sin ficha frente al sector», con su causa salvo si es el panel atrasado y ya se dijo."""
+    if panel_dicho and analisis.motivo_referencia == "sin_trimestres_comparables":
+        return "Sin ficha frente al sector, por el panel atrasado del aviso de arriba."
+    return f"Sin ficha frente al sector: {etiqueta(MOTIVO_REFERENCIA, analisis.motivo_referencia)}."
+
+
+def detalle_pares(analisis, panel_dicho: bool = False) -> "str | None":
     """Lo que el voto «frente a sus pares» no dice por sí solo, o None.
 
     El voto sale `no_aplica/sin_pares` en dos casos que no son el mismo (Tasks
@@ -299,6 +310,9 @@ def detalle_pares(analisis) -> "str | None":
     ref = analisis.referencia
     if ref is None:
         if analisis.motivo_referencia is None:
+            return None
+        if panel_dicho and analisis.motivo_referencia == "sin_trimestres_comparables":
+            # Lo dice el aviso del panel atrasado, que está a la vista.
             return None
         return (
             "Frente a sus pares no vota porque no hay ficha frente al sector: "

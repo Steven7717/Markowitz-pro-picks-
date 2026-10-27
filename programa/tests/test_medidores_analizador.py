@@ -258,6 +258,42 @@ def test_otra_guarda_no_hereda_la_causa_de_historia_corta():
     assert "semestre" not in texto and "panel" not in texto
 
 
+# --- El panel atrasado se dice una vez ---------------------------------------
+#
+# Con 7203.T y el panel atrasado, el aviso, el detalle de pares y la exclusión
+# decían los tres «el panel se quedó atrás» (revisión de las Tasks 1-10 de N2).
+# Donde el aviso ya está a la vista, los otros dos no lo repiten.
+
+
+def test_con_el_panel_ya_dicho_la_exclusion_no_lo_repite():
+    a = analisis("7203.T", "sin_sec", ref=referencia(None, 423, "historia_corta", False, posteriores=2))
+    assert "panel" in ma.texto_exclusion(a)
+    texto = ma.texto_exclusion(a, panel_dicho=True)
+    assert texto.startswith("Las guardas") and "panel" not in texto
+    # Y no se cambia por la otra causa: la de esta empresa es el panel.
+    assert "semestre" not in texto
+
+
+def test_con_el_panel_ya_dicho_el_voto_de_pares_no_lo_repite():
+    a = analisis("7203.T", "sin_sec", motivo_referencia="sin_trimestres_comparables",
+                 valoracion=_fija(votos=_votos("no_aplica", "sin_pares")))
+    assert "se quedó atrás" in ma.detalle_pares(a)
+    assert ma.detalle_pares(a, panel_dicho=True) is None
+    # Otra causa sí se sigue diciendo.
+    b = analisis(motivo_referencia="sin_precio", valoracion=_fija(votos=_votos("no_aplica", "sin_pares")))
+    assert ma.detalle_pares(b, panel_dicho=True) == ma.detalle_pares(b)
+
+
+def test_sin_ficha_dice_su_causa_salvo_si_ya_se_dijo():
+    a = analisis("7203.T", "sin_sec", motivo_referencia="sin_trimestres_comparables")
+    assert "se quedó atrás" in ma.sin_ficha(a)
+    assert "se quedó atrás" not in ma.sin_ficha(a, panel_dicho=True)
+    assert ma.sin_ficha(a, panel_dicho=True).startswith("Sin ficha frente al sector")
+    b = analisis(motivo_referencia="sin_precio")
+    assert ma.sin_ficha(b) == ma.sin_ficha(b, panel_dicho=True)
+    assert ma.MOTIVO_REFERENCIA["sin_precio"] in ma.sin_ficha(b)
+
+
 def _votos(pares="neutra", motivo=None):
     return {
         "flujos": {"voto": "neutra", "motivo": None},

@@ -106,6 +106,10 @@ navegacion = st.navigation(
                 "vistas/candidatos.py", title="Revisar candidatos",
                 icon=":material/fact_check:",
             ),
+            st.Page(
+                "vistas/analizador.py", title="Analizador",
+                icon=":material/query_stats:",
+            ),
         ],
         "Cartera": [
             st.Page(
