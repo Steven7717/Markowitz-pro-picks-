@@ -341,3 +341,78 @@ def test_el_duplicado_entre_anadidos_se_dice_en_castellano():
 def test_el_acta_vacia_se_dice_en_castellano():
     texto = _mensaje(NadaQueAprobar, candidatos=candidatos("AAA"), aprobados=set())
     assert "ningún candidato" in texto
+
+
+# --- El Analizador: «Añadir a la revisión» --------------------------------------
+
+_VALORACION = {
+    "version": "m1",
+    "fecha": "2026-10-26",
+    "moneda": "MXN",
+    "veredicto": "en_rango",
+    "valor": {"pesimista": 300.0, "base": 600.0, "optimista": None},
+    "divisa": {"moneda_precio": "USD", "moneda_valoracion": "MXN", "tipo_precio": 20.0},
+}
+
+
+def test_el_anadido_desde_el_analizador_llega_al_acta_con_su_valoracion(tmp_path):
+    from aprobacion.acta import listar_actas
+
+    acta = construir_acta(
+        candidatos("AAA"),
+        aprobados=set(),
+        anadidos=[Anadido(ticker="AMX", motivo="Analizador, 26/10/2026: en rango", valoracion=_VALORACION)],
+    )
+    manual = acta["aprobados"][0]
+    # En pesos, como sale de `valorar`: el acta lo dice con `moneda` y `divisa`.
+    assert manual["valoracion"] == _VALORACION
+    guardar_acta(acta, tmp_path)
+    leida = listar_actas(tmp_path)[0].acta
+    assert leida["aprobados"][0]["valoracion"]["moneda"] == "MXN"
+
+
+def test_un_anadido_a_mano_lleva_la_valoracion_vacia():
+    acta = construir_acta(
+        candidatos("AAA"), aprobados=set(), anadidos=[Anadido(ticker="JPM", motivo="bancos")]
+    )
+    assert acta["aprobados"][0]["valoracion"] is None
+
+
+def test_un_acta_vieja_sin_valoracion_en_sus_anadidos_se_sigue_leyendo(tmp_path):
+    from aprobacion.acta import listar_actas, valoracion_de_entrada
+
+    vieja = {
+        "fecha": "2026-08-20T10:00:00",
+        "corrida": None,
+        "aprobados": [
+            {"ticker": "JPM", "origen": "manual", "puesto": None, "ficha": None, "motivo": "bancos"},
+        ],
+        "no_aprobados": [],
+    }
+    (tmp_path / "2026-08-20-100000.json").write_text(json.dumps(vieja), encoding="utf-8")
+    guardada = listar_actas(tmp_path)[0]
+    assert guardada.error is None
+    assert tickers_aprobados(guardada.acta) == ["JPM"]
+    assert valoracion_de_entrada(guardada.acta["aprobados"][0]) is None
+
+
+def test_la_valoracion_de_una_aprobada_del_ranking_sale_de_su_ficha():
+    from aprobacion.acta import valoracion_de_entrada
+
+    ficha = {**FICHA, "valoracion": _VALORACION}
+    assert valoracion_de_entrada({"origen": "ranking", "ficha": ficha}) == _VALORACION
+    assert valoracion_de_entrada({"origen": "manual", "valoracion": _VALORACION}) == _VALORACION
+    # Sin `version` no se reconoce, como en `carga.valoracion_de`.
+    assert valoracion_de_entrada({"origen": "manual", "valoracion": {"veredicto": "x"}}) is None
+    assert valoracion_de_entrada({"origen": "ranking", "ficha": None}) is None
+
+
+def test_problema_al_anadir_dice_lo_mismo_que_dira_el_acta():
+    from aprobacion.acta import problema_al_anadir
+
+    anadidos = [Anadido(ticker="msft", motivo="ya")]
+    assert "no tiene forma de ticker" in problema_al_anadir("WALMEX.MX", "x", set(), anadidos)
+    assert "necesita un motivo" in problema_al_anadir("JPM", "   ", set(), anadidos)
+    assert "ya está en el ranking" in problema_al_anadir("aaa", "x", {"AAA"}, anadidos)
+    assert "ya está en la lista" in problema_al_anadir("MSFT", "x", set(), anadidos)
+    assert problema_al_anadir("JPM", "bancos", {"AAA"}, anadidos) is None

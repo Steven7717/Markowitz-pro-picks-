@@ -31,10 +31,20 @@ class NadaQueAprobar(ValueError):
 
 @dataclass(frozen=True)
 class Anadido:
-    """A company the reviewer put in by hand, with the reason it went in."""
+    """A company the reviewer put in by hand, with the reason it went in.
+
+    `valoracion` es la del Analizador cuando llega por «Añadir a la revisión»:
+    la de los supuestos del programa, tal cual sale de
+    `analizador.valorar.valorar`, con sus claves `moneda` y `divisa` (la de AMX
+    va en pesos, y el acta lo dice con ellas). Lo movido en los deslizadores no
+    viaja nunca: lo guardado tiene que ser comparable entre actas. Añadida a
+    mano en Revisar candidatos, `None`. Las actas anteriores no la llevan, y nada
+    que las lea puede exigirla (`valoracion_de_entrada`).
+    """
 
     ticker: str
     motivo: str
+    valoracion: "dict | None" = None
 
 
 def normalizar(ticker: str) -> str:
@@ -50,6 +60,35 @@ def normalizar(ticker: str) -> str:
     if not _FORMA_TICKER.match(limpio):
         raise TickerInvalido(f"{ticker!r} no tiene forma de ticker")
     return limpio
+
+
+def problema_al_anadir(ticker: str, motivo: str, del_ranking, anadidos) -> "str | None":
+    """Por qué no se puede añadir este ticker a mano, o None si se puede.
+
+    Son las tres comprobaciones de `construir_acta` --forma, motivo y que no
+    esté ya en el ranking ni entre los añadidos-- dichas en el momento de
+    añadir, cuando el revisor todavía recuerda lo que tecleó, y no al final de
+    la revisión. `construir_acta` sigue siendo la autoridad y las repite.
+    Estaban escritas dentro de `vistas/candidatos.py`; el Analizador necesita
+    las mismas, y dos copias de una regla del gate se separan.
+    """
+    try:
+        candidato = normalizar(ticker)
+    except TickerInvalido as error:
+        return str(error)
+    if not motivo.strip():
+        return (
+            f"{candidato} necesita un motivo escrito: sin ranking detrás, es la "
+            "única justificación que va a existir."
+        )
+    if candidato in del_ranking:
+        return (
+            f"{candidato} ya está en el ranking: apruébalo con su casilla en vez de "
+            "añadirlo a mano."
+        )
+    if candidato in {a.ticker.strip().upper() for a in anadidos}:
+        return f"{candidato} ya está en la lista de añadidos a mano."
+    return None
 
 
 def construir_acta(
@@ -109,6 +148,7 @@ def construir_acta(
                 "puesto": None,
                 "ficha": None,
                 "motivo": anadido.motivo.strip(),
+                "valoracion": anadido.valoracion,
             }
         )
 
@@ -148,6 +188,25 @@ def construir_acta(
 def tickers_aprobados(acta: dict) -> list[str]:
     """The list the optimizer needs, in the order the act records it."""
     return [entrada["ticker"] for entrada in acta["aprobados"]]
+
+
+def valoracion_de_entrada(entrada: dict) -> "dict | None":
+    """La valoración con que entró una aprobada, o None.
+
+    La de su ficha si vino del ranking; la del Analizador si se añadió a mano.
+    Un acta anterior a N2 no la lleva en sus añadidos, y una añadida a mano en
+    Revisar candidatos la lleva vacía. Se exige `version`, como
+    `carga.valoracion_de`: es lo único que tienen en común una valoración
+    calculada y una fallida.
+    """
+    if entrada.get("origen") == "manual":
+        valor = entrada.get("valoracion")
+    else:
+        ficha = entrada.get("ficha")
+        valor = ficha.get("valoracion") if isinstance(ficha, dict) else None
+    if not isinstance(valor, dict) or not isinstance(valor.get("version"), str):
+        return None
+    return valor
 
 
 @dataclass(frozen=True)

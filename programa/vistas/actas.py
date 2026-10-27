@@ -5,8 +5,9 @@ from datetime import datetime
 import pandas as pd
 import streamlit as st
 
+import medidores_valoracion
 import tema
-from aprobacion.acta import listar_actas, tickers_aprobados
+from aprobacion.acta import listar_actas, tickers_aprobados, valoracion_de_entrada
 
 st.markdown(
     tema.cabecera(
@@ -103,6 +104,12 @@ for guardada in guardadas:
                         "Ticker": entrada["ticker"],
                         "Puesto": entrada.get("puesto") or "añadida a mano",
                         "Motivo": entrada.get("motivo") or "",
+                        # La valoración con que entró: la de su ficha, o la del
+                        # Analizador. Un acta anterior a N2 no la lleva, y se
+                        # deja en blanco en vez de reventar.
+                        "Valor intrínseco": medidores_valoracion.valoracion_en_una_linea(
+                            valoracion_de_entrada(entrada)
+                        ),
                     }
                     for entrada in aprobados
                 ]),

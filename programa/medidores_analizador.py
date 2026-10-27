@@ -928,3 +928,67 @@ AYUDA_PANEL = (
     "añadidos a mano. Unos dos minutos con la caché llena, y bastantes más la "
     "primera vez."
 )
+
+
+# --- El gate --------------------------------------------------------------------
+
+
+def puerta(analisis) -> "str | None":
+    """Por qué este ticker no puede ir a la revisión, o None si puede.
+
+    Sólo pasa lo que cotiza en dólares (decisión del usuario del 2026-10-26).
+    El optimizador baja precios sin convertir divisas y los libros van en
+    dólares: una serie en pesos entre series en dólares mezclaría dos monedas
+    en la misma covarianza, el error que el sub-proyecto L evitó. AMX y TSM
+    cotizan en dólares y pasan; WALMEX.MX, no. Un ETF no se valora, y desde aquí
+    no se lleva (D5).
+    """
+    if analisis.clase == "etf":
+        return (
+            "Un ETF no se valora, así que el Analizador no lo lleva a la revisión. "
+            "Si lo quieres en el optimizador, añádelo a mano en Revisar candidatos."
+        )
+    moneda = analisis.identidad.moneda if analisis.identidad is not None else None
+    if moneda == "USD":
+        return None
+    return (
+        f"{analisis.ticker} cotiza en {moneda or 'una moneda que Yahoo no dio'}, y sólo "
+        "pasan a la revisión las que cotizan en dólares. El optimizador baja los "
+        "precios sin convertir divisas y los libros van en dólares: una serie en otra "
+        "moneda entre series en dólares mezclaría dos monedas en la misma covarianza. "
+        "Una ADR, como TSM, cotiza en dólares y sí pasa."
+    )
+
+
+_VOTO_CORTO = {"flujos": "flujos", "sin_crecimiento": "valor sin crecimiento", "pares": "pares"}
+
+
+def motivo_para_la_revision(valoracion, hoy: date) -> str:
+    """El motivo ya redactado de «Añadir a la revisión», con los supuestos del programa.
+
+    «Analizador, 12/10/2026: infravalorada (flujos y pares a favor), supuestos
+    del programa», como en el spec. Es editable, y el acta guarda lo que quede
+    escrito: es texto del usuario, no una etiqueta de pantalla.
+    """
+    fecha = f"{hoy:%d/%m/%Y}"
+    if not isinstance(valoracion, dict) or "veredicto" not in valoracion:
+        motivo = valoracion.get("motivo") if isinstance(valoracion, dict) else None
+        return (
+            f"Analizador, {fecha}: sin valoración "
+            f"({medidores_valoracion.etiqueta_motivo(motivo)})."
+        )
+    etiqueta_, _ = medidores_valoracion.VEREDICTO.get(valoracion["veredicto"], (valoracion["veredicto"], None))
+    veredicto = etiqueta_[0].lower() + etiqueta_[1:]
+    nombres = dict(_VOTO_CORTO)
+    if valoracion.get("metodo") == "residual":
+        nombres["flujos"] = "beneficio residual"
+    votos = valoracion.get("votos") or {}
+    a_favor = [nombres[c] for c in _VOTO_CORTO if (votos.get(c) or {}).get("voto") == "barata"]
+    en_contra = [nombres[c] for c in _VOTO_CORTO if (votos.get(c) or {}).get("voto") == "cara"]
+    partes = []
+    if a_favor:
+        partes.append(f"{_y(a_favor)} a favor")
+    if en_contra:
+        partes.append(f"{_y(en_contra)} en contra")
+    detalle = f" ({', '.join(partes)})" if partes else ""
+    return f"Analizador, {fecha}: {veredicto}{detalle}, supuestos del programa."

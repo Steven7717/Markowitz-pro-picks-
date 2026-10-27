@@ -724,3 +724,77 @@ def test_una_del_sp500_domiciliada_fuera_no_lleva_el_aviso_del_riesgo_pais():
     # GRMN está en Suiza y en el panel: se compara como las demás.
     grmn = analisis("GRMN", ref=referencia(30, 423), fuente_sector="sp500", pais="Switzerland")
     assert "riesgo país" not in ma.contra_quien(grmn, 70, date(2026, 10, 16))
+
+
+# --- El gate --------------------------------------------------------------------
+
+
+def test_lo_que_cotiza_en_dolares_puede_ir_a_la_revision():
+    assert ma.puerta(analisis("TSM", "extranjera_sec")) is None
+    # AMX cotiza en dólares aunque se valore en pesos: pasa.
+    assert ma.puerta(analisis("AMX", "extranjera_sec", valoracion=_amx())) is None
+
+
+def test_lo_que_cotiza_en_pesos_no_y_se_explica():
+    texto = ma.puerta(analisis("WALMEX.MX", "sin_sec", moneda="MXN"))
+    assert "MXN" in texto and "covarianza" in texto
+
+
+def test_un_etf_no_va_a_la_revision_desde_aqui():
+    assert "a mano en Revisar candidatos" in ma.puerta(analisis("SPY", "etf"))
+
+
+def test_el_motivo_ya_redactado_es_el_del_spec():
+    votos = {
+        "flujos": {"voto": "barata", "motivo": None},
+        "sin_crecimiento": {"voto": "neutra", "motivo": None},
+        "pares": {"voto": "barata", "motivo": None},
+    }
+    texto = ma.motivo_para_la_revision(_fija(veredicto="infravalorada", votos=votos), date(2026, 10, 12))
+    assert texto == (
+        "Analizador, 12/10/2026: infravalorada (flujos y pares a favor), supuestos del programa."
+    )
+
+
+def test_el_motivo_dice_lo_que_vota_en_contra_y_lo_que_no_hay():
+    votos = {
+        "flujos": {"voto": "cara", "motivo": None},
+        "sin_crecimiento": {"voto": "neutra", "motivo": None},
+        "pares": {"voto": "barata", "motivo": None},
+    }
+    texto = ma.motivo_para_la_revision(_fija(veredicto="mixtas", votos=votos), date(2026, 10, 26))
+    assert "señales mixtas (pares a favor, flujos en contra)" in texto
+    assert ma.motivo_para_la_revision(_fija(), date(2026, 10, 26)) == (
+        "Analizador, 26/10/2026: en rango (pares a favor), supuestos del programa."
+    )
+    fallida = {"version": "m1", "fecha": "2026-10-26", "motivo": "sin_estados"}
+    assert ma.motivo_para_la_revision(fallida, date(2026, 10, 26)).startswith(
+        "Analizador, 26/10/2026: sin valoración (los estados"
+    )
+
+
+def test_lo_que_cotiza_en_otra_moneda_que_no_es_el_peso_tampoco_pasa():
+    assert "CHF" in ma.puerta(analisis("NESN.SW", "sin_sec", moneda="CHF"))
+    assert "GBp" in ma.puerta(analisis("SHEL.L", "sin_sec", moneda="GBp"))
+
+
+def test_sin_identidad_la_puerta_no_revienta_y_no_deja_pasar():
+    sin = Analisis("XYZ", "sin_sec", None, None)
+    assert "una moneda que Yahoo no dio" in ma.puerta(sin)
+
+
+def test_el_motivo_de_un_banco_habla_de_beneficio_residual():
+    votos = {
+        "flujos": {"voto": "barata", "motivo": None},
+        "sin_crecimiento": {"voto": "no_aplica", "motivo": "financiera"},
+        "pares": {"voto": "neutra", "motivo": None},
+    }
+    texto = ma.motivo_para_la_revision(_fija_residual(veredicto="en_rango", votos=votos), date(2026, 10, 26))
+    assert "(beneficio residual a favor)" in texto and "flujos" not in texto
+
+
+def test_sin_votos_a_favor_ni_en_contra_el_motivo_no_lleva_parentesis():
+    votos = {c: {"voto": "neutra", "motivo": None} for c in ("flujos", "sin_crecimiento", "pares")}
+    assert ma.motivo_para_la_revision(_fija(votos=votos), date(2026, 10, 26)) == (
+        "Analizador, 26/10/2026: en rango, supuestos del programa."
+    )

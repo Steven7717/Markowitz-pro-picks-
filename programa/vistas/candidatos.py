@@ -22,7 +22,7 @@ from aprobacion.acta import (
     TickerInvalido,
     construir_acta,
     guardar_acta,
-    normalizar,
+    problema_al_anadir,
     tickers_aprobados,
 )
 from aprobacion.carga import (
@@ -466,34 +466,21 @@ with st.form("anadir_a_mano", clear_on_submit=True):
     enviado = columna_boton.form_submit_button("Añadir", use_container_width=True)
 
 if enviado:
-    _ya_anadidos = {a.ticker.strip().upper() for a in st.session_state.anadidos}
-    _del_ranking = {f["ticker"] for f in candidatos.fichas}
-    try:
-        _candidato = normalizar(nuevo_ticker)
-    except TickerInvalido as error:
-        st.error(str(error))
+    # `problema_al_anadir` no sustituye a `construir_acta`, que sigue siendo la
+    # autoridad y repite las comprobaciones al escribir el acta: lo dice
+    # **ahora**, cuando el revisor todavía recuerda lo que tecleó. El Analizador
+    # usa la misma función con «Añadir a la revisión».
+    _problema = problema_al_anadir(
+        nuevo_ticker,
+        nuevo_motivo,
+        {f["ticker"] for f in candidatos.fichas},
+        st.session_state.anadidos,
+    )
+    if _problema:
+        st.error(_problema)
     else:
-        # Estas tres comprobaciones no sustituyen a las de `construir_acta`, que
-        # sigue siendo la autoridad y las repite al escribir el acta: lo que
-        # hacen es decirlo **ahora**, cuando el revisor todavía recuerda lo que
-        # tecleó, en vez de al final de la revisión entera.
-        if not nuevo_motivo.strip():
-            st.error(
-                f"{_candidato} necesita un motivo escrito: sin ranking detrás, "
-                "es la única justificación que va a existir."
-            )
-        elif _candidato in _del_ranking:
-            st.error(
-                f"{_candidato} ya está en el ranking: apruébalo con su casilla "
-                "en vez de añadirlo a mano."
-            )
-        elif _candidato in _ya_anadidos:
-            st.error(f"{_candidato} ya está en la lista de añadidos a mano.")
-        else:
-            st.session_state.anadidos.append(
-                Anadido(ticker=nuevo_ticker, motivo=nuevo_motivo)
-            )
-            st.rerun()
+        st.session_state.anadidos.append(Anadido(ticker=nuevo_ticker, motivo=nuevo_motivo))
+        st.rerun()
 
 if st.session_state.anadidos:
     for indice, anadido in enumerate(st.session_state.anadidos):
@@ -501,10 +488,13 @@ if st.session_state.anadidos:
         with columna_texto:
             # El motivo lo escribió el propio revisor, pero se escapa igual: un
             # «PER < $20» se comería la línea hasta el siguiente dólar y le
-            # borraría de la vista la razón que él mismo tecleó.
+            # borraría de la vista la razón que él mismo tecleó. La valoración
+            # es la que llegó del Analizador, y es la que irá al acta.
+            _valor = medidores_valoracion.valoracion_en_una_linea(anadido.valoracion)
             st.markdown(
                 f"- **{texto.plano(anadido.ticker.strip().upper())}** — "
                 f"{texto.plano(anadido.motivo)}"
+                + (f"  \n  Valor intrínseco al añadirla: {texto.plano(_valor)}" if _valor else "")
             )
         with columna_quitar:
             # El indice como key es seguro aqui porque cada clic reconstruye la
