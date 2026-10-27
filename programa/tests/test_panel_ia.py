@@ -79,16 +79,59 @@ from pathlib import Path  # noqa: E402
 RAIZ = Path(__file__).resolve().parent.parent
 
 
+def _interpretar_hechos():
+    import ast
+
+    fuente = (RAIZ / "vistas" / "panel_ia.py").read_text(encoding="utf-8")
+    funcion = next(
+        n for n in ast.walk(ast.parse(fuente))
+        if isinstance(n, ast.FunctionDef) and n.name == "interpretar_hechos"
+    )
+    return fuente, funcion
+
+
 def test_la_pantalla_pega_el_como_mucho_a_un_tope_de_verdad():
     """«Cuesta unos X $ **como mucho**» iba con la cifra de `coste_estimado`,
     que es la media y un solo turno. El saboteador: devolver la llamada a
-    `coste_estimado` a la linea del «como mucho» tumba esto."""
-    fuente = (RAIZ / "vistas" / "seguimiento.py").read_text(encoding="utf-8")
+    `coste_estimado` a la linea del «como mucho» tumba esto. Vive en
+    `panel_ia.interpretar_hechos` desde que Seguimiento y el Analizador
+    comparten el bloque."""
+    import ast
+
+    fuente, funcion = _interpretar_hechos()
+    cuerpo = ast.get_source_segment(fuente, funcion)
     anuncio = next(
-        bloque for bloque in fuente.split("st.caption(") if "como mucho" in bloque
+        bloque for bloque in cuerpo.split("st.caption(")[1:] if "como mucho" in bloque
     ).split(")\n")[0]
-    assert "panel_ia.coste_peor_caso(" in anuncio
-    # Y la cifra que el «como mucho» califica es la del tope: la primera que
-    # aparece detras de esas dos palabras.
+    assert "coste_peor_caso(" in anuncio
     detras = anuncio.split("como mucho", 1)[1]
     assert detras.split("coste_", 1)[1].startswith("peor_caso")
+
+
+def test_tras_un_fallo_lo_guardado_se_sigue_pintando():
+    """En el guion de Seguimiento, `_leidas` eran las urls leídas y, tras
+    pulsar, lo que devolvía `preparar`: con una lectura fallida,
+    `pintar_archivo` buscaba urls en una tupla de tuplas y no pintaba nada de
+    lo guardado. El nombre que llega a `pintar_archivo` sólo se asigna una vez,
+    con `urls_leidas`."""
+    import ast
+
+    _fuente, funcion = _interpretar_hechos()
+    llamada = next(
+        n for n in ast.walk(funcion)
+        if isinstance(n, ast.Call) and getattr(n.func, "id", None) == "pintar_archivo"
+    )
+    nombre = llamada.args[3].id
+    asignaciones = [
+        n for n in ast.walk(funcion)
+        if isinstance(n, ast.Assign)
+        and any(isinstance(t, ast.Name) and t.id == nombre for o in n.targets for t in ast.walk(o))
+    ]
+    assert len(asignaciones) == 1
+    assert "urls_leidas" in ast.unparse(asignaciones[0].value)
+
+
+def test_seguimiento_usa_el_bloque_compartido():
+    fuente = (RAIZ / "vistas" / "seguimiento.py").read_text(encoding="utf-8")
+    assert "panel_ia.interpretar_hechos(" in fuente
+    assert "interprete_noticias.leer(" not in fuente

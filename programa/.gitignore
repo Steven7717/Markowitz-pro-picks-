@@ -25,6 +25,9 @@ libros/
 # `git add -A` despistado no se los lleve dentro.
 actas/
 portafolios/
+# Lo que la IA del Analizador dijo de cada ticker: se pagó con la clave del
+# usuario y es historial, como las interpretaciones de `libros/`.
+analisis/
 
 # El sitio donde la documentacion de Streamlit dice poner secretos. Aqui no se
 # usa, pero el dia que alguien siga ese tutorial un `git add -A` se llevaria su

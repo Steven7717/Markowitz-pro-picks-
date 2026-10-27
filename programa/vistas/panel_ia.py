@@ -149,7 +149,7 @@ def avisos(lectura):
     """
     mensajes = []
     if lectura.estado == interprete_noticias.SIN_CLAVE:
-        mensajes.append(("info", "Falta la clave de Anthropic. Se pone en Aprobación."))
+        mensajes.append(("info", "Falta la clave de Anthropic. Se pone en Perfil y ajustes."))
     elif lectura.estado == interprete_noticias.FALLO:
         mensajes.append((
             "error",
@@ -251,3 +251,136 @@ def pintar_archivo(st, guardado, hechos, leidas):
     ultima = guardado.hechos[-1] if guardado.hechos else None
     if ultima is not None and ultima.en_conjunto:
         st.info(texto.plano(ultima.en_conjunto))
+
+
+def interpretar_hechos(st, a_leer, ruta_archivo, tickers, pesos, clave, con_enlace_a_perfil=False):
+    """El botón de «Interpretar estos hechos», con su archivo.
+
+    Lo estrenó la pestaña Noticias de Seguimiento y lo reutiliza el Analizador:
+    estaba escrito dentro de `vistas/seguimiento.py`, y dos copias de un camino
+    que cobra se separan igual que dos de cualquier otra cosa.
+
+    - `a_leer`: los hechos que hay en pantalla, que son los que se interpretan
+      (los destacados más recientes, `noticias.resumen.TOPE_HECHOS`).
+    - `ruta_archivo`: dónde se guardan las lecturas. El del libro en
+      Seguimiento; `analisis/<TICKER>.json` en el Analizador.
+    - `tickers` y `pesos`: lo que el modelo puede nombrar y la cartera que ve.
+      En el Analizador, el ticker y nada: `pesos=()`, porque allí no hay cartera.
+    - `clave`: separa en `session_state` los avisos de cada pantalla, y la clave
+      de sus botones.
+
+    **Se pinta desde el archivo, nunca desde la `Lectura` recién hecha.** Un
+    solo camino, y así la fecha de cada juicio vive donde pertenece --en la
+    sesión-- en vez de tener que viajar dentro de cada `Juicio`. La excepción
+    es el archivo ilegible: ahí no se puede ni leer ni guardar, así que se pinta
+    la lectura directamente con el aviso, para que un fichero roto no se lleve
+    por delante la llamada que se acaba de pagar.
+    """
+    try:
+        guardado = archivo_mod.cargar(ruta_archivo)
+        roto = ""
+    except archivo_mod.ArchivoIlegible as error:
+        guardado = archivo_mod.Archivo()
+        roto = str(error)
+
+    if roto:
+        st.error(
+            f"{roto}\n\nEl fichero **no se ha tocado**: sigue ahí por si "
+            "quieres recuperarlo a mano. Se puede interpretar igual, pero lo "
+            "que salga no se va a poder guardar."
+        )
+
+    # Las urls ya leídas, que es lo que necesita `pintar_archivo`. No se pisan
+    # con lo que devuelve `preparar`: en el guion de Seguimiento compartían
+    # nombre, y tras una lectura fallida `pintar_archivo` buscaba urls en una
+    # tupla de tuplas y no pintaba nada de lo guardado.
+    leidas = archivo_mod.urls_leidas(guardado)
+    nuevos = [h for h in a_leer if h.url not in leidas]
+
+    if not a_leer:
+        st.caption(
+            "No hay hechos materiales que interpretar. No es que no se haya "
+            "mirado: se miró y no había ninguno."
+        )
+    elif not cliente_mod.hay_clave():
+        st.info(
+            "Falta la clave de Anthropic. Se pone en **Perfil y ajustes**, y hasta "
+            "entonces todo lo demás funciona igual."
+        )
+        if con_enlace_a_perfil and st.button(
+            "Configurar mis credenciales", key=f"{clave}_perfil", icon=":material/key:"
+        ):
+            st.switch_page("vistas/perfil.py")
+    else:
+        etiqueta = (
+            f"Interpretar estos hechos ({len(nuevos)} nuevos)"
+            if nuevos else "Volver a interpretar (ninguno nuevo)"
+        )
+        # «Como mucho» tiene que ir pegado a un tope de verdad. Decía eso con
+        # la cifra de `coste_estimado`, que es la media de un solo turno —y el
+        # documento puede forzar el segundo cuando quiera—, así que lo
+        # anunciado se quedaba en menos de la mitad de lo que podía costar.
+        # Ahora se dan las dos cifras y cada una dice lo que es.
+        cuantos = len(nuevos) or len(a_leer)
+        st.caption(
+            f"Leer {cuantos} documentos cuesta como mucho "
+            f"**{coste_peor_caso(cuantos):.2f} $**, y normalmente "
+            f"alrededor de **{coste_estimado(cuantos):.2f} $**. El "
+            "tope cuenta el reintento, que lo dispara el propio documento. Lo "
+            "que costó de verdad se dice al terminar."
+        )
+        if st.button(etiqueta, icon=":material/auto_awesome:", key=f"{clave}_interpretar"):
+            with st.spinner("Bajando los documentos y leyéndolos…"):
+                if nuevos:
+                    entradas, ya_leidas, sin_doc, recortados = preparar(a_leer, guardado)
+                else:
+                    # «Volver a interpretar» con todo ya leído tiene que ser una
+                    # segunda lectura de verdad, no una relectura de resúmenes:
+                    # con un Archivo() vacío no hay nada leído, y `preparar`
+                    # baja los documentos de nuevo en vez de reenviar lo que el
+                    # propio modelo escribió la vez anterior.
+                    entradas, ya_leidas, sin_doc, recortados = preparar(a_leer, archivo_mod.Archivo())
+                lectura = interprete_noticias.leer(
+                    entradas,
+                    set(tickers),
+                    sin_documento=sin_doc,
+                    recortados=recortados,
+                    pesos=tuple(pesos),
+                    leidos=ya_leidas,
+                )
+            if lectura.estado == interprete_noticias.HECHA and not roto:
+                try:
+                    archivo_mod.anotar_hechos(
+                        ruta_archivo,
+                        cliente_mod.MODELO,
+                        interprete_noticias.VERSION_PROMPT,
+                        anotadas(lectura, a_leer),
+                        lectura.en_conjunto,
+                    )
+                except OSError as fallo:
+                    # Esta lectura ya se pagó. Un traceback aquí perdería además
+                    # la única copia que existe de ella, así que el aviso dice
+                    # las dos cosas --que no se guardó y que volver a pedirla se
+                    # vuelve a cobrar-- y la deja en pantalla.
+                    st.error(
+                        f"**No se pudo guardar la lectura: {fallo}**\n\n"
+                        "El archivo anterior sigue intacto, pero lo que se "
+                        "acaba de leer **no ha quedado guardado**, y volver a "
+                        "pedirlo se cobra otra vez. Aquí abajo está entero."
+                    )
+                    pintar_lectura(st, lectura)
+                else:
+                    st.session_state[f"{clave}_avisos"] = avisos(lectura)
+                    st.rerun()
+            else:
+                # No se guarda y no se rerun: si se fue por `FALLO` o el archivo
+                # está roto, el `st.rerun()` se llevaría por delante el único
+                # sitio donde se puede decir qué pasó.
+                for clase, mensaje in avisos(lectura):
+                    getattr(st, clase)(mensaje)
+                pintar_lectura(st, lectura)
+
+    for clase, mensaje in st.session_state.pop(f"{clave}_avisos", []):
+        getattr(st, clase)(mensaje)
+
+    pintar_archivo(st, guardado, a_leer, leidas)

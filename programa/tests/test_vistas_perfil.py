@@ -14,6 +14,7 @@ mismo recurso que `test_noticias_texto.py` con `vistas/candidatos.py`.
 
 from pathlib import Path
 
+from analizador import archivo as archivo_analizador
 from interprete import archivo
 from seguimiento import libro
 
@@ -42,7 +43,7 @@ def test_las_rutas_salen_de_las_constantes_y_no_escritas_a_mano():
     siguiera enseñando la ruta vieja. Ninguna fila lleva su carpeta escrita a
     mano, asi que mover una constante mueve lo que la pantalla promete."""
     tabla = _tabla()
-    for literal in ("`actas/`", "`salidas/`", "`libros/`", "`portafolios/`"):
+    for literal in ("`actas/`", "`salidas/`", "`libros/`", "`portafolios/`", "`analisis/`"):
         assert literal not in tabla
 
 
@@ -51,3 +52,15 @@ def test_las_constantes_que_la_tabla_usa_son_las_que_el_programa_escribe():
     dejaria la pantalla en blanco al abrirla, no un test en rojo."""
     assert libro.DIRECTORIO.name == "libros"
     assert archivo.SUBCARPETA == "interpretaciones"
+    assert archivo_analizador.DIRECTORIO.name == "analisis"
+
+
+
+def test_la_tabla_nombra_las_lecturas_del_analizador():
+    """Se pagaron con la clave del usuario, como las de los libros."""
+    assert "archivo_analizador.DIRECTORIO" in _tabla()
+
+
+def test_la_tabla_nombra_las_caches_que_usa_el_analizador():
+    for carpeta in ("valoracion/.cache/", "analizador/.cache/", "noticias/.cache/"):
+        assert carpeta in _tabla()

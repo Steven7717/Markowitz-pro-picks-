@@ -17,6 +17,7 @@ import cartera
 import configuracion
 import preferencias as preferencias_mod
 import tema
+from analizador import archivo as archivo_analizador
 from aprobacion import acta as acta_mod
 from aprobacion import carga as carga_mod
 from interprete import archivo as archivo_mod
@@ -292,10 +293,11 @@ with datos_tab:
 | Preferencias | `{preferencias_mod.RUTA}` | Sí, con el botón de arriba |
 | Libros de seguimiento | `{libro_mod.DIRECTORIO}/` | Sí, uno a uno — es el historial de lo que compraste |
 | Interpretaciones de la IA | `{libro_mod.DIRECTORIO}/{archivo_mod.SUBCARPETA}/` | Sí, pero volver a leerlas cuesta dinero |
+| Lecturas de la IA del Analizador | `{archivo_analizador.DIRECTORIO}/` | Sí, pero volver a leerlas cuesta dinero |
 | Portafolios guardados | `{cartera.DIRECTORIO}/` | Sí, uno a uno |
 | Actas de aprobación | `{acta_mod.ACTAS}/` | Se dejan a propósito: son el registro |
 | Candidatos generados | `{carga_mod.SALIDAS}/` | Sí, se regeneran |
-| Caché de descargas | `fundamentals/.cache/`, `ranking/.cache/` | Sí, se vuelven a bajar |
+| Caché de descargas | `fundamentals/.cache/`, `ranking/.cache/`, `valoracion/.cache/`, `analizador/.cache/`, `noticias/.cache/` | Sí, se vuelven a bajar |
 """
     )
     st.caption(
