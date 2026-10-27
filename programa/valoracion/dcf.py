@@ -52,6 +52,25 @@ class Escenarios:
     optimista: "float | None"
 
 
+@dataclass(frozen=True)
+class Ano:
+    """Un año de la proyección del escenario base: lo que `valor_empresa` descuenta."""
+
+    ano: int
+    crecimiento: float
+    ingresos: float
+    flujo: float
+    descontado: float
+
+
+@dataclass(frozen=True)
+class Proyeccion:
+    """Los diez años del escenario base y el valor terminal, ya descontados."""
+
+    anos: "tuple[Ano, ...]"
+    terminal_descontado: float
+
+
 def crecimientos(g: float, g_perpetuo: float) -> list[float]:
     """`g` cinco años y luego en línea recta hasta `g_perpetuo`, al que llega en el año diez."""
     convergencia = [
@@ -59,6 +78,32 @@ def crecimientos(g: float, g_perpetuo: float) -> list[float]:
         for k in range(1, ANOS_CONVERGENCIA + 1)
     ]
     return [g] * ANOS_ALTO_CRECIMIENTO + convergencia
+
+
+def cumple_gordon(wacc: float, g_perpetuo: float) -> bool:
+    """Si el coste de capital supera al crecimiento perpetuo en al menos `HOLGURA_GORDON`."""
+    return wacc - g_perpetuo >= HOLGURA_GORDON - _RUIDO_FLOTANTE
+
+
+def proyeccion(
+    ingresos: float, margen: float, g: float, g_perpetuo: float, wacc: float
+) -> "tuple[Ano, ...]":
+    """Los años 1 a 10, uno a uno, a fin de año: lo que `valor_empresa` suma.
+
+    La misma aritmética y en el mismo orden, para que la tabla que el
+    Analizador enseña plegada y el valor base no puedan separarse.
+    """
+    anos = []
+    for ano, crecimiento in enumerate(crecimientos(g, g_perpetuo), start=1):
+        ingresos *= 1 + crecimiento
+        flujo = ingresos * margen
+        anos.append(Ano(ano, crecimiento, ingresos, flujo, flujo / (1 + wacc) ** ano))
+    return tuple(anos)
+
+
+def terminal(flujo: float, g_perpetuo: float, wacc: float) -> float:
+    """El valor terminal de Gordon al final del año diez, sin descontar."""
+    return flujo * (1 + g_perpetuo) / (wacc - g_perpetuo)
 
 
 def valor_empresa(
@@ -70,17 +115,17 @@ def valor_empresa(
     `HOLGURA_GORDON`: el valor terminal explota y cualquier número sería un
     artefacto. No se recorta el coste de capital para que cuadre: eso sería
     cambiar el escenario sin decirlo.
+
+    Suma `proyeccion`, año a año y en orden: la tabla plegada del Analizador y
+    este valor son la misma cuenta.
     """
-    if wacc - g_perpetuo < HOLGURA_GORDON - _RUIDO_FLOTANTE:
+    if not cumple_gordon(wacc, g_perpetuo):
         return None
+    anos = proyeccion(ingresos, margen, g, g_perpetuo, wacc)
     total = 0.0
-    flujo = 0.0
-    for ano, crecimiento in enumerate(crecimientos(g, g_perpetuo), start=1):
-        ingresos *= 1 + crecimiento
-        flujo = ingresos * margen
-        total += flujo / (1 + wacc) ** ano
-    terminal = flujo * (1 + g_perpetuo) / (wacc - g_perpetuo)
-    return total + terminal / (1 + wacc) ** ANOS
+    for ano in anos:
+        total += ano.descontado
+    return total + terminal(anos[-1].flujo, g_perpetuo, wacc) / (1 + wacc) ** ANOS
 
 
 def valor_por_accion(datos: Datos, g: float, wacc: "float | None" = None) -> "float | None":
@@ -95,6 +140,15 @@ def valor_por_accion(datos: Datos, g: float, wacc: "float | None" = None) -> "fl
     if empresa is None:
         return None
     return (empresa - datos.deuda + datos.efectivo) / datos.acciones
+
+
+def proyeccion_de(datos: Datos, g: float) -> "Proyeccion | None":
+    """La proyección del escenario base con los datos del DCF, o None sin holgura de Gordon."""
+    if not cumple_gordon(datos.wacc, datos.g_perpetuo):
+        return None
+    anos = proyeccion(datos.ingresos, datos.margen, g, datos.g_perpetuo, datos.wacc)
+    descontado = terminal(anos[-1].flujo, datos.g_perpetuo, datos.wacc) / (1 + datos.wacc) ** ANOS
+    return Proyeccion(anos, descontado)
 
 
 def margen_fcff(fundamentos: Fundamentos, t: float) -> "float | None":

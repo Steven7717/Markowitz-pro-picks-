@@ -4,9 +4,14 @@ from dataclasses import replace
 import pytest
 
 from valoracion.dcf import (
+    ANOS,
     Datos,
     crecimientos,
+    cumple_gordon,
     margen_fcff,
+    proyeccion,
+    proyeccion_de,
+    terminal,
     valor_empresa,
     valor_por_accion,
 )
@@ -287,3 +292,50 @@ def test_un_valor_negativo_sale_como_numero_y_no_vacio():
 def test_mas_coste_de_capital_vale_menos():
     columna = [fila[2] for fila in sensibilidad(DATOS_SENSIBILIDAD, 0.08).valores]
     assert all(a > b for a, b in zip(columna, columna[1:]))
+
+
+# --- La proyección, que el Analizador enseña plegada ---------------------------
+
+
+def _en_orden(anos) -> float:
+    """Los años descontados sumados uno a uno, como `valor_empresa`.
+
+    No con `sum()`: desde Python 3.12 suma con compensación y difiere del bucle
+    en el último bit en uno de cada cinco casos, y `valor_empresa` tiene que dar
+    lo mismo que en M hasta el último bit.
+    """
+    total = 0.0
+    for ano in anos:
+        total += ano.descontado
+    return total
+
+
+# (0.20, 0.12) y (0.30, 0.10): ahí `sum()` daría otro valor de la empresa.
+@pytest.mark.parametrize(
+    "g, wacc", [(0.20, 0.09), (0.05, 0.12), (-0.03, 0.08), (0.40, 0.036), (0.20, 0.12), (0.30, 0.10)]
+)
+def test_el_valor_de_la_empresa_es_la_suma_exacta_de_su_proyeccion(g, wacc):
+    anos = proyeccion(1000.0, 0.15, g, 0.025, wacc)
+    esperado = _en_orden(anos) + terminal(anos[-1].flujo, 0.025, wacc) / (1 + wacc) ** ANOS
+    # Igualdad exacta, no aproximada: la tabla y el valor base son la misma cuenta.
+    assert valor_empresa(1000.0, 0.15, g, 0.025, wacc) == esperado
+
+
+def test_la_proyeccion_son_diez_anos_con_los_crecimientos_del_dcf():
+    anos = proyeccion(1000.0, 0.15, 0.20, 0.02, 0.09)
+    assert [a.ano for a in anos] == list(range(1, ANOS + 1))
+    assert [a.crecimiento for a in anos] == crecimientos(0.20, 0.02)
+    assert anos[0].ingresos == pytest.approx(1200.0)
+    assert anos[0].flujo == pytest.approx(180.0)
+    assert anos[0].descontado == pytest.approx(180.0 / 1.09)
+
+
+def test_la_holgura_de_gordon_es_la_misma_para_el_valor_y_para_la_tabla():
+    assert not cumple_gordon(0.03, 0.025)
+    assert valor_empresa(1000.0, 0.15, 0.10, 0.025, 0.03) is None
+    assert proyeccion_de(replace(DATOS, wacc=0.03), 0.10) is None
+    p = proyeccion_de(DATOS, 0.10)
+    assert len(p.anos) == ANOS
+    assert _en_orden(p.anos) + p.terminal_descontado == valor_empresa(
+        DATOS.ingresos, DATOS.margen, 0.10, DATOS.g_perpetuo, DATOS.wacc
+    )

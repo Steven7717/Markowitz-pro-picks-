@@ -210,6 +210,23 @@ def valorar(
     return {**plano.a_dict(v), **extra}
 
 
+def _datos_del_dcf(entradas: Entradas, cambios: "dict | None") -> "tuple[dcf.Datos, Supuestos] | None":
+    """Los datos del DCF con que se votó y sus supuestos, o None si no hay DCF.
+
+    Los comparten la sensibilidad y la proyección. El mismo puente que
+    `calcular`: si la tabla tratara la deuda o las acciones de otra forma, su
+    casilla central no sería el valor base.
+    """
+    if entradas.perfil.industria in INDUSTRIAS_FINANCIERAS:
+        return None
+    supuestos = supuestos_de(entradas, cambios)
+    if supuestos is None:
+        return None
+    deuda, efectivo, acciones = puente(entradas.fundamentos, entradas.perfil)
+    datos, _ = datos_dcf(entradas.fundamentos, supuestos, deuda, efectivo, acciones)
+    return None if datos is None else (datos, supuestos)
+
+
 def sensibilidad(entradas: Entradas, cambios: "dict | None" = None) -> "dcf.Sensibilidad | None":
     """La tabla de sensibilidad del DCF con los mismos datos con que se votó.
 
@@ -219,15 +236,22 @@ def sensibilidad(entradas: Entradas, cambios: "dict | None" = None) -> "dcf.Sens
     crecimiento perpetuo sí hay tabla: la casilla central sale vacía y las
     demás enseñan desde qué coste vuelve a haber valor.
     """
-    if entradas.perfil.industria in INDUSTRIAS_FINANCIERAS:
+    hechos = _datos_del_dcf(entradas, cambios)
+    if hechos is None:
         return None
-    supuestos = supuestos_de(entradas, cambios)
-    if supuestos is None:
-        return None
-    # El mismo puente que `calcular`: si la tabla tratara la deuda o las
-    # acciones de otra forma, su casilla central no sería el valor base.
-    deuda, efectivo, acciones = puente(entradas.fundamentos, entradas.perfil)
-    datos, _ = datos_dcf(entradas.fundamentos, supuestos, deuda, efectivo, acciones)
-    if datos is None:
-        return None
+    datos, supuestos = hechos
     return dcf.sensibilidad(datos, supuestos.g_ref.valor)
+
+
+def proyeccion(entradas: Entradas, cambios: "dict | None" = None) -> "dcf.Proyeccion | None":
+    """Los diez años del escenario base del DCF, con los mismos datos con que se votó.
+
+    None donde `sensibilidad` también lo es y, además, sin holgura de Gordon:
+    ahí no hay valor base que desglosar. Es la tabla plegada de la pestaña
+    Valoración del Analizador.
+    """
+    hechos = _datos_del_dcf(entradas, cambios)
+    if hechos is None:
+        return None
+    datos, supuestos = hechos
+    return dcf.proyeccion_de(datos, supuestos.g_ref.valor)

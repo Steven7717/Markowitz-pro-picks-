@@ -84,6 +84,7 @@ def test_valorar_es_puro_mismas_entradas_mismo_resultado():
         segunda = v.valorar(e, 0.1, hoy=date(2026, 10, 14))
         con_cambios = v.valorar(e, 0.1, cambios={"g_ref": 0.30}, hoy=date(2026, 10, 14))
         v.sensibilidad(e, {"g_ref": 0.30})
+        v.proyeccion(e, {"g_ref": 0.30})
     assert primera == segunda != con_cambios
 
 
@@ -366,3 +367,25 @@ def test_sin_tipo_de_cambio_no_hay_entradas():
 def test_sin_estados_de_yahoo_no_hay_entradas():
     with _Red(perfil=(PERFIL_WALMEX, "ok"), estados=(None, "sin_red")):
         assert v.entradas(WALMEX) == (None, "sin_red")
+
+
+# --- La proyección a 10 años ----------------------------------------------------
+
+
+def test_la_proyeccion_suma_el_valor_base_con_los_mismos_datos_que_el_voto():
+    e = _entradas()
+    plano = v.valorar(e, None)
+    p = v.proyeccion(e)
+    empresa = sum(a.descontado for a in p.anos) + p.terminal_descontado
+    acciones = e.perfil.capitalizacion / e.perfil.precio
+    base = (empresa - e.fundamentos.deuda_total + e.fundamentos.efectivo) / acciones
+    assert base == pytest.approx(plano["valor"]["base"])
+
+
+def test_la_proyeccion_sigue_a_los_deslizadores():
+    assert v.proyeccion(_entradas(), {"g_ref": 0.30}).anos[0].crecimiento == pytest.approx(0.30)
+
+
+def test_sin_dcf_no_hay_proyeccion():
+    assert v.proyeccion(_entradas(perfil=perfil(industria="Banks - Regional"))) is None
+    assert v.proyeccion(_en_pesos(r_f=None, motivo_r_f="sin_token")) is None
