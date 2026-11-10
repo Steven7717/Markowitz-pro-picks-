@@ -443,7 +443,7 @@ def _deslizadores(ticker: str) -> None:
     try:
         programa = deslizadores.del_programa(entradas, r_f_a_mano)
     except ValueError as error:
-        st.error(f"Esa tasa no se puede usar: {error}.")
+        st.error(f"Esa tasa no se puede usar: {ma.supuesto_imposible(error)}.")
         return
     if programa is None:
         st.markdown(
@@ -497,7 +497,7 @@ def _deslizadores(ticker: str) -> None:
         movidos = deslizadores.nombres_movidos(entradas, cambios)
     except ValueError as error:
         st.error(
-            f"Con esos supuestos no hay valoración posible: {error}. Muévelos, o "
+            f"Con esos supuestos no hay valoración posible: {ma.supuesto_imposible(error)}. Muévelos, o "
             "restaura los del programa."
         )
         return

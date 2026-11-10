@@ -25,6 +25,7 @@ from ranking.criterio import TOPE_POR_SECTOR
 from tests.test_analizador_valorar import _en_pesos
 from tests.test_medidores_valoracion import _fija, _fija_residual
 from valoracion.dcf import Ano, Proyeccion, Sensibilidad
+from valoracion.supuestos import CosteNoPositivo
 
 RAIZ = Path(__file__).resolve().parent.parent
 
@@ -840,3 +841,21 @@ def test_sin_votos_a_favor_ni_en_contra_el_motivo_no_lleva_parentesis():
     assert ma.motivo_para_la_revision(_fija(votos=votos), date(2026, 10, 26)) == (
         "Analizador, 26/10/2026: en rango, supuestos del programa."
     )
+
+
+# --- Un supuesto imposible, dicho en la pantalla --------------------------------
+
+
+def test_un_coste_no_positivo_se_dice_en_palabras_y_con_el_formato_de_la_pantalla():
+    # Decía «k_e: con esos supuestos el coste del capital propio sale -25.52%».
+    assert ma.supuesto_imposible(CosteNoPositivo("k_e", -0.2552)) == (
+        "el coste del capital propio sale −25.5%, y tiene que ser positivo"
+    )
+    # El coste de capital lleva su glosa: es la primera vez que sale en el error.
+    assert ma.supuesto_imposible(CosteNoPositivo("wacc", 0.0)) == (
+        "el coste de capital (deuda y capital propio) sale 0.0%, y tiene que ser positivo"
+    )
+
+
+def test_otro_rechazo_se_dice_con_su_mensaje():
+    assert ma.supuesto_imposible(ValueError("no cuadra")) == "no cuadra"

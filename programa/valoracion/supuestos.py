@@ -322,16 +322,63 @@ _HACEN_WACC = _HACEN_K_E | {"k_d", "t"}
 _SIN_USO_EN_FINANCIERA = {"k_d", "t"}
 
 
+# Cómo se dice cada supuesto en un mensaje de rechazo, con su artículo. Los
+# mensajes de `aplicar` acaban en la pantalla del Analizador, y «k_e: con esos
+# supuestos…» enseñaba la clave con que el programa llama al supuesto.
+SUPUESTOS_EN_PALABRAS = {
+    "r_f": "la tasa libre de riesgo",
+    "beta": "la beta",
+    "prima": "la prima de riesgo",
+    "k_e": "el coste del capital propio",
+    "k_d": "el coste de la deuda",
+    "t": "los impuestos",
+    "wacc": "el coste de capital",
+    "g_ref": "el crecimiento de referencia",
+    "g_perpetuo": "el crecimiento a perpetuidad",
+    "roe_ref": "el ROE de referencia",
+    "payout": "el reparto de beneficios",
+}
+
+
+class SupuestoImposible(ValueError):
+    """Un supuesto que rompe las fórmulas, y que por eso no se aplica.
+
+    Es un `ValueError`, que es lo que captura quien llama. `nombre` es la clave
+    del supuesto, para quien quiera decirlo a su manera; el mensaje va en
+    palabras y sin la clave, porque se enseña.
+    """
+
+    def __init__(self, nombre: str, mensaje: str):
+        super().__init__(mensaje)
+        self.nombre = nombre
+
+
+class CosteNoPositivo(SupuestoImposible):
+    """El coste del capital propio o el de capital, en cero o por debajo: `epv` divide entre ellos.
+
+    `valor` es el coste que salió, en tanto por uno, para que la pantalla lo
+    escriba con su formato.
+    """
+
+    def __init__(self, nombre: str, valor: float):
+        super().__init__(
+            nombre,
+            f"{SUPUESTOS_EN_PALABRAS[nombre]} sale {valor:.2%}, y tiene que ser positivo",
+        )
+        self.valor = valor
+
+
 def _numero_finito(nombre: str, valor: object) -> float:
+    en_palabras = SUPUESTOS_EN_PALABRAS[nombre]
     # Para Python un booleano es un entero, pero no es la cifra de un deslizador.
     if isinstance(valor, bool):
-        raise ValueError(f"{nombre}: {valor!r} no es un número")
+        raise SupuestoImposible(nombre, f"{en_palabras} no es un número: {valor!r}")
     try:
         numero = float(valor)
     except (TypeError, ValueError):
-        raise ValueError(f"{nombre}: {valor!r} no es un número") from None
+        raise SupuestoImposible(nombre, f"{en_palabras} no es un número: {valor!r}") from None
     if not math.isfinite(numero):
-        raise ValueError(f"{nombre}: {valor!r} no es un número finito")
+        raise SupuestoImposible(nombre, f"{en_palabras} no es un número finito: {valor!r}")
     return numero
 
 
@@ -356,10 +403,18 @@ def _cambios(supuestos: Supuestos, cambios: dict) -> "dict[str, float]":
     # Un reparto negativo rompe la monotonía del beneficio residual, y la
     # bisección del implícito converge a cualquier punto.
     if "payout" in reales and not 0.0 <= reales["payout"] <= 1.0:
-        raise ValueError(f"payout: {reales['payout']} fuera de [0, 1]")
+        raise SupuestoImposible(
+            "payout",
+            f"{SUPUESTOS_EN_PALABRAS['payout']} tiene que estar entre el 0 % y el "
+            f"100 %, y sale {reales['payout']:.2%}",
+        )
     # Con unos impuestos del 100 % o más, (1 − t) deja de ser positivo.
     if "t" in reales and not 0.0 <= reales["t"] < 1.0:
-        raise ValueError(f"t: {reales['t']} fuera de [0, 1)")
+        raise SupuestoImposible(
+            "t",
+            f"{SUPUESTOS_EN_PALABRAS['t']} tienen que estar entre el 0 % y menos del "
+            f"100 %, y salen {reales['t']:.2%}",
+        )
     return reales
 
 
@@ -440,7 +495,8 @@ def aplicar(supuestos: Supuestos, cambios: dict) -> Supuestos:
     pasarla. El coste de capital se recalcula en diferencias
     (`_wacc_en_diferencias`).
 
-    Rechaza con `ValueError` lo que rompe las fórmulas: un reparto fuera de
+    Rechaza con `SupuestoImposible`, que es un `ValueError`, lo que rompe las
+    fórmulas, y lo dice en palabras porque se enseña: un reparto fuera de
     [0, 1], unos impuestos fuera de [0, 1), y un coste del capital propio o de
     capital que quede en cero o por debajo (`epv` divide entre ellos). Una beta
     negativa sola sí vale: las mineras de oro la tienen, y lo que importa es el
@@ -472,11 +528,11 @@ def aplicar(supuestos: Supuestos, cambios: dict) -> Supuestos:
     return s
 
 
-_COSTES = {"k_e": "el coste del capital propio", "wacc": "el coste de capital"}
+_COSTES = ("k_e", "wacc")
 
 
-def exigir_costes_positivos(supuestos: Supuestos, nombres=tuple(_COSTES)) -> None:
-    """Lanza `ValueError` si alguno de esos costes no es positivo: `epv` divide entre ellos.
+def exigir_costes_positivos(supuestos: Supuestos, nombres=_COSTES) -> None:
+    """Lanza `CosteNoPositivo` si alguno de esos costes no es positivo: `epv` divide entre ellos.
 
     Uno que no hay (el coste de capital de una financiera) no cuenta. Lo usa
     `aplicar` con lo que el usuario mueve, y `analizador.valorar` con la tasa
@@ -486,10 +542,7 @@ def exigir_costes_positivos(supuestos: Supuestos, nombres=tuple(_COSTES)) -> Non
     for nombre in nombres:
         valor = getattr(supuestos, nombre).valor
         if valor is not None and not valor > 0:
-            raise ValueError(
-                f"{nombre}: con esos supuestos {_COSTES[nombre]} sale {valor:.2%}"
-                ", y tiene que ser positivo"
-            )
+            raise CosteNoPositivo(nombre, valor)
 
 
 def movidos(supuestos: Supuestos) -> "tuple[str, ...]":

@@ -1,7 +1,12 @@
+import re
+
 import pytest
 
 from valoracion.mercado import Beta
 from valoracion.supuestos import (
+    CosteNoPositivo,
+    SUPUESTOS_EN_PALABRAS,
+    SupuestoImposible,
     beta_ajustada,
     coste_capital,
     coste_deuda,
@@ -641,8 +646,9 @@ def test_un_valor_que_no_es_un_numero_finito_se_rechaza(valor):
 def test_un_reparto_o_unos_impuestos_imposibles_se_rechazan(nombre, valor):
     # No se acotan en silencio: la pantalla diría «movido por ti» con un valor
     # que el usuario no eligió.
-    with pytest.raises(ValueError, match=rf"\b{nombre}\b"):
+    with pytest.raises(SupuestoImposible) as rechazo:
         aplicar(_base(), {nombre: valor})
+    assert rechazo.value.nombre == nombre
 
 
 @pytest.mark.parametrize("nombre, valor", [("payout", 0.0), ("payout", 1.0), ("t", 0.0)])
@@ -652,13 +658,39 @@ def test_los_extremos_posibles_se_aceptan(nombre, valor):
 
 def test_un_coste_del_capital_propio_nulo_se_rechaza():
     # Los mínimos naturales de dos deslizadores: con ellos, `epv` dividía entre cero.
-    with pytest.raises(ValueError, match="k_e"):
+    with pytest.raises(CosteNoPositivo) as rechazo:
         aplicar(_base(), {"r_f": 0.0, "beta": 0.0})
+    assert (rechazo.value.nombre, rechazo.value.valor) == ("k_e", 0.0)
 
 
 def test_un_coste_de_capital_negativo_se_rechaza():
-    with pytest.raises(ValueError, match="wacc"):
+    with pytest.raises(CosteNoPositivo) as rechazo:
         aplicar(_base(), {"k_d": -1.0})
+    assert rechazo.value.nombre == "wacc" and rechazo.value.valor < 0
+
+
+@pytest.mark.parametrize(
+    "cambios",
+    [
+        {"r_f": 0.0, "beta": 0.0}, {"k_d": -1.0}, {"payout": 1.1}, {"t": 1.0},
+        {"g_ref": "x"}, {"g_ref": float("nan")}, {"g_ref": True},
+    ],
+)
+def test_lo_que_se_rechaza_se_dice_en_palabras_y_sin_la_clave_interna(cambios):
+    # El mensaje acaba en la pantalla del Analizador: «k_e: con esos supuestos…»
+    # enseñaba la clave con que el programa llama al supuesto.
+    with pytest.raises(SupuestoImposible) as rechazo:
+        aplicar(_base(), cambios)
+    mensaje = str(rechazo.value)
+    assert rechazo.value.nombre in SUPUESTOS_EN_PALABRAS
+    assert mensaje.startswith(SUPUESTOS_EN_PALABRAS[rechazo.value.nombre])
+    for clave in SUPUESTOS_EN_PALABRAS:
+        assert not re.search(rf"\b{clave}\b", mensaje), mensaje
+    assert "con esos supuestos" not in mensaje
+
+
+def test_cada_supuesto_tiene_sus_palabras():
+    assert set(SUPUESTOS_EN_PALABRAS) == set(MOVIBLES) | {"k_e", "wacc"}
 
 
 def test_una_beta_negativa_sola_es_valida():

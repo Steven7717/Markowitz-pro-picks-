@@ -8,6 +8,8 @@ from unittest.mock import patch
 import pandas as pd
 import pytest
 
+from valoracion.supuestos import CosteNoPositivo
+
 from analizador import valorar as v
 from analizador.divisas import Divisa
 from analizador.resolver import Resuelto
@@ -121,12 +123,14 @@ def test_una_tasa_puesta_a_mano_pasa_las_mismas_guardas_que_una_movida():
     # WALMEX salía con un k_e del −1,33 % y un valor base de 161,96 MXN.
     con_bono_m = _en_pesos(r_f=0.0925)
     sin_bono_m = _en_pesos(r_f=None, motivo_r_f="sin_token")
-    with pytest.raises(ValueError, match="k_e"):
-        v.valorar(con_bono_m, None, cambios={"r_f": -0.05})
-    with pytest.raises(ValueError, match="k_e"):
-        v.valorar(sin_bono_m, None, cambios={"r_f": -0.05})
-    with pytest.raises(ValueError, match="k_e"):
-        v.sensibilidad(sin_bono_m, {"r_f": -0.05})
+    for llamada in (
+        lambda: v.valorar(con_bono_m, None, cambios={"r_f": -0.05}),
+        lambda: v.valorar(sin_bono_m, None, cambios={"r_f": -0.05}),
+        lambda: v.sensibilidad(sin_bono_m, {"r_f": -0.05}),
+    ):
+        with pytest.raises(CosteNoPositivo) as rechazo:
+            llamada()
+        assert rechazo.value.nombre == "k_e"
 
 
 def test_la_tasa_puesta_a_mano_se_juzga_con_los_demas_cambios_ya_hechos():
@@ -146,8 +150,9 @@ def test_una_tasa_puesta_a_mano_que_deja_el_coste_de_capital_negativo_se_rechaza
     # Ningún cambio llega a `aplicar` que rehaga el WACC: sólo lo ve esta guarda.
     e = _en_pesos(r_f=None, beta=Beta(3.0, 0.4, 104, "^MXX"),
                   fundamentos=fundamentos(deuda_total=5000.0, moneda="MXN"))
-    with pytest.raises(ValueError, match="wacc"):
+    with pytest.raises(CosteNoPositivo) as rechazo:
         v.valorar(e, None, cambios={"r_f": -0.09})
+    assert rechazo.value.nombre == "wacc"
 
 
 def test_la_sensibilidad_usa_los_mismos_datos_que_el_voto():

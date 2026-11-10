@@ -34,6 +34,7 @@ from noticias import cache
 from medidores_valoracion import NOMBRE_SUPUESTO, dinero, como_numero, pct
 from noticias.texto import cada, cuanto_falta, hace, plano
 from ranking.criterio import TOPE_POR_SECTOR
+from valoracion.supuestos import CosteNoPositivo
 
 CLASE = {
     "sec": "SEC (10-K)",
@@ -565,6 +566,21 @@ def _y(partes: "list[str]") -> str:
 def lista_de_supuestos(nombres) -> str:
     """Los supuestos movidos, en palabras: «beta y crecimiento de referencia»."""
     return _y([NOMBRE_SUPUESTO.get(nombre, nombre) for nombre in nombres])
+
+
+def supuesto_imposible(error: ValueError) -> str:
+    """Por qué `valorar` rechazó lo que hay en los deslizadores, para acabar una frase.
+
+    Un coste que no es positivo se escribe aquí, con el nombre y el formato de
+    la pantalla: el mensaje del error lleva dos decimales y el guion corto. Lo
+    demás ya viene en palabras (`valoracion.supuestos.SupuestoImposible`).
+    """
+    if isinstance(error, CosteNoPositivo):
+        return (
+            f"el {NOMBRE_SUPUESTO[error.nombre]} sale {pct(error.valor)}, y tiene "
+            "que ser positivo"
+        )
+    return str(error)
 
 
 def falta_tasa(entradas) -> str:

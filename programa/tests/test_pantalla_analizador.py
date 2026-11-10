@@ -130,3 +130,31 @@ def test_tras_actualizar_precios_el_motivo_dice_el_veredicto_nuevo(pantalla):
     pantalla.mundo["con_precio_nuevo"] = lambda anterior, *a: _analisis("MU", pilar=-0.6)
     _pulsar(pantalla, "Actualizar precios")
     assert "señales mixtas" in pantalla.text_area(key=sesion.clave_motivo("MU")).value
+
+
+# --- Un supuesto imposible no enseña la clave interna ---------------------------
+
+
+def test_un_deslizador_imposible_se_dice_en_palabras(pantalla):
+    # Decía «Con esos supuestos no hay valoración posible: k_e: con esos
+    # supuestos el coste del capital propio sale -25.52%…».
+    pantalla.run()
+    pantalla.slider(key=sesion.clave_deslizador("MU", "beta")).set_value(-1.0)
+    pantalla.slider(key=sesion.clave_deslizador("MU", "r_f")).set_value(0.0).run()
+    assert not pantalla.exception
+    (error,) = [e.value for e in pantalla.error]
+    assert error.startswith(
+        "Con esos supuestos no hay valoración posible: el coste del capital propio sale −"
+    )
+    assert "k_e" not in error and error.count("on esos supuestos") == 1
+
+
+def test_una_tasa_a_mano_imposible_se_dice_en_palabras(pantalla):
+    sin_tasa = _analisis("MU", r_f=None, procedencia_r_f=None, motivo_r_f="sin_token")
+    pantalla.session_state[sesion.CLAVE_ANALISIS] = {"MU": sin_tasa}
+    pantalla.run()
+    pantalla.number_input(key=sesion.clave_a_mano("MU")).set_value(-5.0).run()
+    assert not pantalla.exception
+    (error,) = [e.value for e in pantalla.error]
+    assert error.startswith("Esa tasa no se puede usar: el coste del capital propio sale −")
+    assert "k_e" not in error and "con esos supuestos" not in error
