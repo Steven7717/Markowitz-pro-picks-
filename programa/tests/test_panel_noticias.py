@@ -110,3 +110,21 @@ def test_lo_viejo_se_pinta_marcado_como_viejo_y_no_se_esconde():
     # De MSFT hay algo guardado --su consulta de hechos-- aunque venga vacia,
     # asi que no esta «sin cachear»: se pregunto y no habia nada.
     assert viejo.sin_cachear == ()
+
+
+def test_se_nombra_de_quien_no_hay_guardada_ninguna_consulta_de_8k():
+    """Con la prensa guardada y los 8-K no --EDGAR caído, o sin el correo--, el
+    activo no está «sin cachear» y `hechos` sale vacío: la pantalla decía «se
+    preguntó a la SEC y ninguno ha presentado un 8-K» de quien nadie consultó."""
+    a_medias = resumen.resumir(["AAPL", "MSFT"], cacheado=cache_de({
+        ("prensa", "AAPL"): ((TITULAR,), AHORA, True),
+        ("hechos", "MSFT"): ((), AHORA, True),
+    }))
+    assert a_medias.sin_cachear == ()
+    assert a_medias.hechos_sin_consultar == ("AAPL",)
+
+    todos = resumen.resumir(["AAPL"], cacheado=cache_de({("hechos", "AAPL"): ((), AYER, False)}))
+    # Caducada, pero es una respuesta: se dice de cuándo es, no que falte.
+    assert todos.hechos_sin_consultar == ()
+
+    assert resumen.resumir(["AAPL", "MSFT"], cacheado=cache_de({})).hechos_sin_consultar == ("AAPL", "MSFT")

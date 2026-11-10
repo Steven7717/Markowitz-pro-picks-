@@ -135,3 +135,50 @@ def test_seguimiento_usa_el_bloque_compartido():
     fuente = (RAIZ / "vistas" / "seguimiento.py").read_text(encoding="utf-8")
     assert "panel_ia.interpretar_hechos(" in fuente
     assert "interprete_noticias.leer(" not in fuente
+
+
+# --- Sin hechos que interpretar: se miró y no había, o no se pudo mirar ---------
+
+
+class _St:
+    """Un `st` de mentira que apunta lo que se le pide pintar."""
+
+    def __init__(self):
+        self.session_state = {}
+        self.pintado = []
+
+    def __getattr__(self, nombre):
+        return lambda *args, **kwargs: self.pintado.append((nombre, args[0] if args else None))
+
+
+def _sin_hechos(tmp_path, consultado):
+    st = _St()
+    panel_ia.interpretar_hechos(
+        st, (), tmp_path / "MU.json", {"MU"}, (), clave="prueba", consultado=consultado
+    )
+    (pie,) = [texto_ for nombre, texto_ in st.pintado if nombre == "caption"]
+    return pie
+
+
+def test_sin_hechos_y_con_la_fuente_consultada_se_dice_que_se_miro(tmp_path):
+    assert "se miró y no había ninguno" in _sin_hechos(tmp_path, consultado=True)
+
+
+def test_sin_hechos_porque_la_fuente_fallo_no_se_afirma_que_no_habia(tmp_path):
+    # Con EDGAR caído, o sin el correo, la lista llega vacía igual: «se miró y
+    # no había ninguno» afirmaba una consulta que no se hizo.
+    pie = _sin_hechos(tmp_path, consultado=False)
+    assert "se miró" not in pie and "no había ninguno" not in pie
+    assert "no se sabe si hay alguno" in pie
+
+
+def test_seguimiento_dice_si_los_8k_de_todos_se_llegaron_a_consultar():
+    import ast
+
+    fuente = (RAIZ / "vistas" / "seguimiento.py").read_text(encoding="utf-8")
+    llamada = next(
+        n for n in ast.walk(ast.parse(fuente))
+        if isinstance(n, ast.Call) and getattr(n.func, "attr", None) == "interpretar_hechos"
+    )
+    claves = {k.arg: ast.unparse(k.value) for k in llamada.keywords}
+    assert claves["consultado"] == "not resumen_noticias.hechos_sin_consultar"

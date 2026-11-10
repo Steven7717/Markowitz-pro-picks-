@@ -551,8 +551,13 @@ def _valoracion(analisis, contexto) -> None:
     _deslizadores(analisis.ticker)
 
 
-def _hechos(ticker: str, hechos: list) -> None:
-    """Los 8-K de un ticker de la SEC, y su interpretación con IA."""
+def _hechos(ticker: str, hechos: list, consultado: bool) -> None:
+    """Los 8-K de un ticker de la SEC, y su interpretación con IA.
+
+    `consultado`: si la SEC respondió. Si no, la lista llega vacía igual --o
+    con lo último guardado--, y no se afirma que no haya ninguno: el aviso de
+    la fuente está arriba.
+    """
     st.caption(
         "Formularios 8-K: lo que la empresa está **obligada** a comunicar a la SEC, "
         "con fecha y firma. No es prensa y no se mezcla con ella. Van desplegados "
@@ -580,10 +585,12 @@ def _hechos(ticker: str, hechos: list) -> None:
         # Que no haya nada destacado habiendo trámite es una respuesta: hubo
         # movimiento y nada de lo que importa. Un hueco vacío parece que no se miró.
         st.caption("Sin hechos materiales en el periodo; sólo trámite.")
+    elif not hechos and consultado:
+        st.caption("Ningún 8-K en la ventana consultada.")
     elif not hechos:
         st.caption(
-            "Ningún 8-K en la ventana consultada. Si arriba hay un aviso de esta "
-            "fuente, es que no se pudo preguntar: no es lo mismo que no haya nada."
+            "No se pudo preguntar a la SEC —el aviso está arriba—, así que no se "
+            "sabe si hay algún 8-K: no es lo mismo que no haya ninguno."
         )
     st.markdown("**Qué dicen estos 8-K**")
     st.caption(
@@ -597,6 +604,7 @@ def _hechos(ticker: str, hechos: list) -> None:
         {ticker},
         pesos=(),
         clave=f"analizador_ia_{ticker}",
+        consultado=consultado,
         con_enlace_a_perfil=True,
     )
 
@@ -617,13 +625,14 @@ def _noticias(analisis, contexto) -> None:
         width="stretch",
         help="Vuelve a pedir las fuentes ahora mismo, sin esperar a que caduque lo guardado.",
     )
-    recogido, horas = {}, {}
+    recogido, horas, fallidas = {}, {}, set()
     with st.spinner(f"Consultando las fuentes de {ticker}…"):
         for fuente in fuentes:
             datos, problema, cuando, vigente = traer.traer(fuente, ticker, traer.DESCARGA[fuente], forzar)
             recogido[fuente] = list(datos)
             horas[fuente] = (cuando, vigente)
             if problema:
+                fallidas.add(fuente)
                 st.warning(f"**{ma.ETIQUETA_FUENTE[fuente]}** — no se pudo traer. {texto.plano(problema)}")
 
     st.markdown("##### Lo que viene")
@@ -642,7 +651,7 @@ def _noticias(analisis, contexto) -> None:
 
     st.markdown("##### Lo que pasó — hechos")
     if "hechos" in fuentes:
-        _hechos(ticker, recogido["hechos"])
+        _hechos(ticker, recogido["hechos"], consultado="hechos" not in fallidas)
     else:
         st.caption(ma.sin_hechos(analisis.clase))
 

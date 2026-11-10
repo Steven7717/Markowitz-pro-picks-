@@ -24,6 +24,7 @@ from tests.test_medidores_analizador import identidad
 
 GUION = str(Path(__file__).resolve().parent / "guion_analizador.py")
 HORA_PANEL = datetime(2026, 10, 20, 9, 0)
+TRAIDO = datetime(2026, 11, 1, 12, 0).astimezone()
 
 
 def _analisis(ticker="MU", pilar=None, **entradas) -> Analisis:
@@ -46,7 +47,7 @@ def pantalla(monkeypatch, tmp_path):
     mundo = {
         "analizar": lambda ticker, panel, tabla=None: _analisis(ticker),
         "con_precio_nuevo": lambda anterior, panel, tabla=None: anterior,
-        "traer": lambda fuente, ticker, descargar, forzar: ((), "", datetime(2026, 11, 1, 12, 0).astimezone(), True),
+        "traer": lambda fuente, ticker, descargar, forzar: ((), "", TRAIDO, True),
         "hora_panel": HORA_PANEL,
     }
     monkeypatch.setattr("analizador.referencia.cargar_panel", lambda *a: (None, None))
@@ -158,3 +159,28 @@ def test_una_tasa_a_mano_imposible_se_dice_en_palabras(pantalla):
     (error,) = [e.value for e in pantalla.error]
     assert error.startswith("Esa tasa no se puede usar: el coste del capital propio sale −")
     assert "k_e" not in error and "con esos supuestos" not in error
+
+
+# --- Sin 8-K: se miró y no había, o no se pudo mirar ----------------------------
+
+
+def test_sin_8k_y_con_la_sec_consultada_se_dice_que_se_miro(pantalla):
+    pantalla.run()
+    escrito = _textos(pantalla)
+    assert "se miró y no había ninguno" in escrito
+    assert "Ningún 8-K en la ventana consultada." in escrito
+
+
+def test_si_la_consulta_de_8k_fallo_no_se_afirma_que_no_habia_ninguno(pantalla):
+    def traer(fuente, ticker, descargar, forzar):
+        if fuente == "hechos":
+            return (), "MU: la SEC no responde", None, False
+        return (), "", TRAIDO, True
+
+    pantalla.mundo["traer"] = traer
+    pantalla.run()
+    assert not pantalla.exception
+    escrito = _textos(pantalla)
+    assert "la SEC no responde" in escrito
+    assert "se miró" not in escrito and "Ningún 8-K" not in escrito
+    assert "no se sabe si hay alguno" in escrito

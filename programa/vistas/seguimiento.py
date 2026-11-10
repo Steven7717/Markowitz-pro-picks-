@@ -1123,6 +1123,15 @@ with noticias:
                     f"Y {sobran} más, más antiguos. En el **Analizador** están los "
                     "de cada activo, en su pestaña «Noticias y calendario»."
                 )
+        elif len(resumen_noticias.hechos_sin_consultar) == len(tickers):
+            # Hay prensa guardada y ni una consulta de 8-K: no se afirma que
+            # no haya hechos cuando a la SEC no se le llegó a preguntar.
+            st.caption(
+                "**No se sabe si hay hechos.** De ninguno de estos activos hay "
+                "guardada una respuesta de la SEC: no respondió, falta el correo "
+                "para EDGAR, o no presentan en ella. No es lo mismo que haber "
+                "mirado y que no hubiera ninguno."
+            )
         else:
             st.caption(
                 "**Sin hechos recientes.** Se preguntó a la SEC y ninguno de "
@@ -1130,6 +1139,15 @@ with noticias:
                 "consultada, que fuera de la temporada de resultados es lo "
                 "normal. No es lo mismo que no haberlo mirado: arriba está "
                 "cuándo se miró."
+            )
+        if resumen_noticias.hechos_sin_consultar and (
+            len(resumen_noticias.hechos_sin_consultar) < len(tickers)
+        ):
+            # Se nombran: de éstos no se está diciendo nada, ni arriba ni abajo.
+            st.caption(
+                f"De {', '.join(resumen_noticias.hechos_sin_consultar)} no hay "
+                "guardada ninguna respuesta de la SEC —no respondió, o no "
+                "presenta en ella—: lo de arriba no habla de ahí."
             )
 
         # --- Y detras la prensa, corta --------------------------------------
@@ -1171,6 +1189,9 @@ with noticias:
         tuple((l.ticker, l.peso, l.objetivo) for l in comp.lineas),
         # «ia» deja la clave de los avisos en `ia_avisos`, la de siempre.
         clave="ia",
+        # Sin nada descargado, o con la SEC sin responder para alguno, la
+        # lista vacía no es «se miró y no había ninguno».
+        consultado=not resumen_noticias.hechos_sin_consultar,
     )
 
     st.caption(

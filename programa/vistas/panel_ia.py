@@ -253,7 +253,9 @@ def pintar_archivo(st, guardado, hechos, leidas):
         st.info(texto.plano(ultima.en_conjunto))
 
 
-def interpretar_hechos(st, a_leer, ruta_archivo, tickers, pesos, clave, con_enlace_a_perfil=False):
+def interpretar_hechos(
+    st, a_leer, ruta_archivo, tickers, pesos, clave, *, consultado, con_enlace_a_perfil=False
+):
     """El botón de «Interpretar estos hechos», con su archivo.
 
     Lo estrenó la pestaña Noticias de Seguimiento y lo reutiliza el Analizador:
@@ -268,6 +270,10 @@ def interpretar_hechos(st, a_leer, ruta_archivo, tickers, pesos, clave, con_enla
       En el Analizador, el ticker y nada: `pesos=()`, porque allí no hay cartera.
     - `clave`: separa en `session_state` los avisos de cada pantalla, y la clave
       de sus botones.
+    - `consultado`: si lo que hay en pantalla sale de haber preguntado por los
+      8-K de todos los activos. Sin valor por defecto, a propósito: una lista
+      vacía porque no hay ninguno y una vacía porque la SEC no respondió, o
+      porque no se ha pedido, llegan iguales, y sólo quien llama sabe cuál es.
 
     **Se pinta desde el archivo, nunca desde la `Lectura` recién hecha.** Un
     solo camino, y así la fecha de cada juicio vive donde pertenece --en la
@@ -297,7 +303,13 @@ def interpretar_hechos(st, a_leer, ruta_archivo, tickers, pesos, clave, con_enla
     leidas = archivo_mod.urls_leidas(guardado)
     nuevos = [h for h in a_leer if h.url not in leidas]
 
-    if not a_leer:
+    if not a_leer and not consultado:
+        st.caption(
+            "No hay hechos materiales que interpretar, pero no porque se haya "
+            "mirado y no hubiera: los 8-K no se han podido consultar, o no de "
+            "todos los activos. Hasta que se consulten, no se sabe si hay alguno."
+        )
+    elif not a_leer:
         st.caption(
             "No hay hechos materiales que interpretar. No es que no se haya "
             "mirado: se miró y no había ninguno."

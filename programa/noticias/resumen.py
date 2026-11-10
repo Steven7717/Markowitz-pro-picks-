@@ -72,6 +72,11 @@ class Resumen:
     sin_cachear: "tuple[str, ...]"
     # Los que tienen algo guardado pero fuera de su ventana de validez.
     caducados: "tuple[str, ...]"
+    # Los activos de los que no hay guardada ninguna consulta de 8-K, aunque
+    # tengan prensa: la SEC no respondio, falta el correo de EDGAR, o no
+    # presentan en ella. `sin_cachear` no los ve --les basta la prensa--, y
+    # sin esto «ninguno ha presentado un 8-K» se afirmaba tambien de ellos.
+    hechos_sin_consultar: "tuple[str, ...]" = ()
 
 
 def resumir(tickers, cacheado=traer.cacheado) -> Resumen:
@@ -91,6 +96,7 @@ def resumir(tickers, cacheado=traer.cacheado) -> Resumen:
     titulares: list = []
     marcas: list = []          # (cuando, vigente, ticker)
     sin_cachear: list = []
+    hechos_sin_consultar: list = []
 
     recogido = {"hechos": hechos, "prensa": titulares}
 
@@ -99,6 +105,8 @@ def resumir(tickers, cacheado=traer.cacheado) -> Resumen:
         for fuente in FUENTES:
             guardado = cacheado(fuente, ticker)
             if guardado is None:
+                if fuente == "hechos":
+                    hechos_sin_consultar.append(ticker)
                 continue
             datos, cuando, vigente = guardado
             tiene_algo = True
@@ -119,6 +127,7 @@ def resumir(tickers, cacheado=traer.cacheado) -> Resumen:
             cuando=None,
             sin_cachear=tuple(tickers),
             caducados=(),
+            hechos_sin_consultar=tuple(tickers),
         )
 
     # El criterio ya decidio al bajarlos (`noticias/criterio.py`): aqui solo se
@@ -138,4 +147,5 @@ def resumir(tickers, cacheado=traer.cacheado) -> Resumen:
         cuando=min(cuando for cuando, _, _ in marcas),
         sin_cachear=tuple(sin_cachear),
         caducados=tuple(caducados),
+        hechos_sin_consultar=tuple(hechos_sin_consultar),
     )
