@@ -283,10 +283,18 @@ def _a_la_revision(analisis) -> None:
     if razon:
         st.caption(razon)
         return
-    clave = f"analizador_motivo_{analisis.ticker}"
+    clave = sesion.clave_motivo(analisis.ticker)
     # Por su clave y sin `value=`, como el campo de tickers: lo que el usuario
-    # edite sobrevive a las pasadas.
-    st.session_state.setdefault(clave, ma.motivo_para_la_revision(analisis.valoracion, date.today()))
+    # edite sobrevive a las pasadas. Sin editar, sigue a la valoración: tras
+    # «Actualizar precios» el motivo no puede decir el veredicto de antes.
+    redactado = ma.motivo_para_la_revision(analisis.valoracion, date.today())
+    if sesion.preparar_motivo(st.session_state, analisis.ticker, redactado):
+        st.warning(
+            "La valoración cambió desde que escribiste el motivo, y al acta va la "
+            "de ahora. El programa escribiría: "
+            f"«{texto.plano(redactado)}» Revisa que el tuyo siga diciendo lo que "
+            "quieres."
+        )
     with st.form(f"analizador_revision_{analisis.ticker}"):
         st.text_area(
             "Motivo: es la única justificación que va a constar en el acta, y lo puedes editar",

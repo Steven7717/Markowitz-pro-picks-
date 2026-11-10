@@ -108,3 +108,50 @@ def test_un_analisis_nuevo_olvida_todo_lo_movido_de_su_ticker():
     estado = {sesion.clave_deslizador("MU", "beta"): 1.5, sesion.clave_a_mano("MU"): 9.0, "otra": 1, 7: "no es texto"}
     sesion.olvidar_deslizadores(estado, "MU")
     assert estado == {"otra": 1, 7: "no es texto"}
+
+
+# --- El motivo ya redactado de «Añadir a la revisión» -----------------------------
+
+
+def test_el_motivo_nace_con_lo_que_redacta_el_programa():
+    estado = {}
+    assert sesion.preparar_motivo(estado, "MU", "infravalorada") is False
+    assert estado[sesion.clave_motivo("MU")] == "infravalorada"
+
+
+def test_un_motivo_sin_tocar_sigue_a_la_valoracion():
+    # Tras «Actualizar precios» al acta llegaba la valoración nueva con un
+    # motivo que decía el veredicto y la fecha de antes.
+    estado = {}
+    sesion.preparar_motivo(estado, "MU", "infravalorada")
+    assert sesion.preparar_motivo(estado, "MU", "señales mixtas") is False
+    assert estado[sesion.clave_motivo("MU")] == "señales mixtas"
+
+
+def test_un_motivo_editado_se_conserva_y_se_avisa_de_que_la_valoracion_cambio():
+    estado = {}
+    sesion.preparar_motivo(estado, "MU", "infravalorada")
+    estado[sesion.clave_motivo("MU")] = "Me gusta su caja."
+    # Con la misma valoración no hay nada que avisar.
+    assert sesion.preparar_motivo(estado, "MU", "infravalorada") is False
+    assert sesion.preparar_motivo(estado, "MU", "señales mixtas") is True
+    assert estado[sesion.clave_motivo("MU")] == "Me gusta su caja."
+    # Y se sigue avisando mientras el texto sea el de la valoración de antes.
+    assert sesion.preparar_motivo(estado, "MU", "señales mixtas") is True
+
+
+def test_un_motivo_que_streamlit_tiro_vuelve_a_nacer():
+    # Streamlit borra la clave de un widget que no se dibujó en una pasada: al
+    # elegir otro ticker y volver, el campo no puede salir vacío.
+    estado = {}
+    sesion.preparar_motivo(estado, "MU", "infravalorada")
+    del estado[sesion.clave_motivo("MU")]
+    assert sesion.preparar_motivo(estado, "MU", "señales mixtas") is False
+    assert estado[sesion.clave_motivo("MU")] == "señales mixtas"
+
+
+def test_el_motivo_de_un_ticker_no_toca_el_de_otro():
+    estado = {}
+    sesion.preparar_motivo(estado, "MU", "infravalorada")
+    sesion.preparar_motivo(estado, "MUX", "sobrevalorada")
+    assert estado[sesion.clave_motivo("MU")] == "infravalorada"

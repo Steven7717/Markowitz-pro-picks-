@@ -30,6 +30,7 @@ CLAVE_ELEGIDO = "analizador_elegido"
 CANAL = "analizador_encargo"
 
 _PREFIJO_DESLIZADOR = "analizador_desl"
+_PREFIJO_MOTIVO = "analizador_motivo"
 _A_MANO = "r_f_a_mano"
 
 
@@ -133,3 +134,38 @@ def olvidar_deslizadores(estado, ticker: str) -> None:
     """Al rehacer el análisis de un ticker: las cifras del programa pueden haber cambiado."""
     for clave in _de_su_ticker(estado, ticker):
         del estado[clave]
+
+
+def clave_motivo(ticker: str) -> str:
+    """La clave del campo del motivo de «Añadir a la revisión» de `ticker`."""
+    return f"{_PREFIJO_MOTIVO}_{ticker}"
+
+
+def _clave_redactado(ticker: str) -> str:
+    # Con otro prefijo: `analizador_motivo_redactado_X` sería el motivo de un
+    # ticker que se llamase «redactado_X».
+    return f"analizador_redactado_{ticker}"
+
+
+def preparar_motivo(estado, ticker: str, redactado: str) -> bool:
+    """Antes de dibujar el campo del motivo: lo deja al día, y dice si se quedó viejo.
+
+    `redactado` es lo que el programa escribiría ahora, con la valoración y la
+    fecha de esta pasada. Junto al campo se guarda lo último que el programa
+    redactó, que hace de huella de la valoración: el texto sale entero de ella
+    (veredicto y votos) y de la fecha. Con un `setdefault` a secas, tras
+    «Actualizar precios» o rehacer el análisis llegaba al acta la valoración
+    nueva con un motivo que decía el veredicto y la fecha de antes.
+
+    - Sin tocar --el campo dice lo que redactó el programa, o Streamlit tiró su
+      clave por no dibujarlo en una pasada--, se vuelve a redactar.
+    - Editado, se conserva: es texto del usuario. Devuelve True si el programa
+      redactaría ahora otra cosa que cuando se editó, para que la pantalla lo
+      diga: el acta llevaría la valoración de ahora con un motivo escrito
+      frente a la de antes.
+    """
+    clave, huella = clave_motivo(ticker), _clave_redactado(ticker)
+    if clave not in estado or estado[clave] == estado.get(huella):
+        estado[clave] = estado[huella] = redactado
+        return False
+    return estado.get(huella) != redactado
