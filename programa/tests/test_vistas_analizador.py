@@ -379,3 +379,10 @@ def test_el_resumen_acaba_en_anadir_a_la_revision():
 def test_candidatos_manda_al_analizador_por_el_canal():
     assert CANDIDATOS.count("sesion.encargar(") == 2
     assert CANDIDATOS.count('st.switch_page("vistas/analizador.py")') == 2
+
+
+def test_la_guarda_que_ya_nombro_el_voto_de_pares_no_se_pinta_otra_vez():
+    # AMX: la misma frase dos veces seguidas en Resumen.
+    cuerpo = _cuerpo("_valor_y_sector")
+    assert "ma.guarda_dicha_por_pares(analisis)" in cuerpo
+    assert "guarda_dicha=guarda_dicha" in cuerpo

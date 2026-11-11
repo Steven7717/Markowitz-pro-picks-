@@ -72,10 +72,9 @@ def _cargar_de_un_libro() -> None:
             "desde el optimizador."
         )
         return
-    st.caption(
-        f"{len(tickers)} activos: lo que tienes ahora más lo que el objetivo dice "
-        "que deberías tener. Sólo viajan los tickers, ni pesos ni importes."
-    )
+    # Si pasan del tope se dice aquí, antes de cargar, y no después con el
+    # campo ya lleno.
+    st.caption(ma.pie_del_libro(len(tickers), MAX_TICKERS))
     st.button(
         "Cargar en el campo",
         key="analizador_cargar_libro",
@@ -159,10 +158,7 @@ def _panel_de_referencia(panel, fecha_panel, frescura, analizados) -> None:
         except OSError as error:
             # Al escribirlo: el disco lleno, o el panel aún ocupado por otra
             # sesión tras los reintentos de `construir_panel`.
-            st.error(
-                f"No se pudo escribir el panel: {texto.plano(str(error))}. El panel de "
-                "antes sigue como estaba; puedes volver a intentarlo en un momento."
-            )
+            st.error(ma.fallo_al_escribir_el_panel(str(error), habia_panel=panel is not None))
             return
         # Con el panel nuevo los análisis guardados ya no valen
         # (`sesion.preparar`): se rehacen los de la tabla, con el mismo elegido.
@@ -248,6 +244,9 @@ def _valor_y_sector(analisis, panel_dicho: bool) -> None:
     if (analisis.valoracion or {}).get("motivo") == "sin_bono_m" and analisis.entradas is not None:
         st.caption(ma.falta_tasa(analisis.entradas) + " Se pone en la pestaña Valoración.")
     pares = ma.detalle_pares(analisis, panel_dicho=panel_dicho)
+    # Si el detalle de pares ya nombró la guarda, debajo de la tarjeta sólo va
+    # su causa: con AMX se leía la misma frase dos veces seguidas.
+    guarda_dicha = ma.guarda_dicha_por_pares(analisis)
     if pares:
         st.caption(pares)
     for nota in medidores_valoracion.pie(valoracion):
@@ -265,7 +264,7 @@ def _valor_y_sector(analisis, panel_dicho: bool) -> None:
     )
     if ref.puesto is not None:
         st.caption(ma.nota_puesto(ref, analisis.ticker))
-    exclusion = ma.texto_exclusion(analisis, panel_dicho=panel_dicho)
+    exclusion = ma.texto_exclusion(analisis, panel_dicho=panel_dicho, guarda_dicha=guarda_dicha)
     if exclusion:
         st.caption(exclusion)
 
@@ -282,6 +281,25 @@ def _a_la_revision(analisis) -> None:
     razon = ma.puerta(analisis)
     if razon:
         st.caption(razon)
+        return
+    # Antes de pedir el motivo, y no al enviarlo: sin candidatos, Revisar
+    # candidatos se detiene antes de enseñar los añadidos, y el ticker se
+    # añadía igual y se saltaba a una pantalla que no lo enseñaba.
+    try:
+        del_ranking = {f["ticker"] for f in cargar_candidatos().fichas}
+    except FaltanFichas:
+        st.caption(
+            "Aún no se puede añadir: todavía no hay candidatos, y sin ellos "
+            "**Revisar candidatos** no llega a enseñar lo añadido. Genéralos allí "
+            "y vuelve: este análisis sigue aquí mientras no cierres la aplicación."
+        )
+        return
+    except ContratoRoto:
+        st.caption(
+            "Aún no se puede añadir: el fichero de candidatos no se puede leer, y "
+            "sin él **Revisar candidatos** no llega a enseñar lo añadido. Allí "
+            "está el porqué y el botón para volver a generarlos."
+        )
         return
     clave = sesion.clave_motivo(analisis.ticker)
     # Por su clave y sin `value=`, como el campo de tickers: lo que el usuario
@@ -308,10 +326,6 @@ def _a_la_revision(analisis) -> None:
     )
     if not enviado:
         return
-    try:
-        del_ranking = {f["ticker"] for f in cargar_candidatos().fichas}
-    except (FaltanFichas, ContratoRoto):
-        del_ranking = set()
     # La misma lista que pinta Revisar candidatos (`st.session_state.anadidos`).
     anadidos = st.session_state.setdefault("anadidos", [])
     motivo = st.session_state[clave]
@@ -328,8 +342,7 @@ def _resumen(analisis, contexto) -> None:
     """La pestaña Resumen: quién es, sus avisos, el veredicto con sus votos y la tarjeta."""
     st.markdown(f"#### {texto.plano(analisis.ticker)} · {texto.plano(ma.nombre(analisis))}")
     st.markdown(ma.ficha_de_identidad(analisis))
-    fila = ma.fila(analisis, None, contexto["sp500"], contexto["trimestre"], date.today())
-    st.caption(f"Precio: {fila['Precio']}, cotización del {fila['Hora del precio']}.")
+    st.caption(ma.precio_y_hora(analisis))
     for _corto, largo in ma.avisos(analisis, contexto["sp500"], contexto["trimestre"], date.today()):
         st.warning(largo)
     if analisis.clase == "etf":
@@ -625,7 +638,11 @@ def _noticias(analisis, contexto) -> None:
         width="stretch",
         help="Vuelve a pedir las fuentes ahora mismo, sin esperar a que caduque lo guardado.",
     )
-    recogido, horas, fallidas = {}, {}, set()
+    # Lo que falló al pulsar «Actualizar noticias» en la pasada anterior, que
+    # terminó en `st.rerun()` sin llegar a enseñarlo. Con `pop`: se dice una vez.
+    clave_avisos = f"analizador_avisos_noticias_{ticker}"
+    de_antes = st.session_state.pop(clave_avisos, {})
+    recogido, horas, fallidas, problemas = {}, {}, set(), {}
     with st.spinner(f"Consultando las fuentes de {ticker}…"):
         for fuente in fuentes:
             datos, problema, cuando, vigente = traer.traer(fuente, ticker, traer.DESCARGA[fuente], forzar)
@@ -633,7 +650,18 @@ def _noticias(analisis, contexto) -> None:
             horas[fuente] = (cuando, vigente)
             if problema:
                 fallidas.add(fuente)
-                st.warning(f"**{ma.ETIQUETA_FUENTE[fuente]}** — no se pudo traer. {texto.plano(problema)}")
+                problemas[fuente] = problema
+            aviso = problema or de_antes.get(fuente)
+            if aviso:
+                st.warning(f"**{ma.ETIQUETA_FUENTE[fuente]}** — no se pudo traer. {texto.plano(aviso)}")
+    if forzar:
+        # «Lo que viene» y la columna «Próximo evento» ya se pintaron, más
+        # arriba, con el calendario de antes: otra pasada los repinta con lo
+        # recién traído, que sale de la caché. Los fallos viajan a esa pasada
+        # por la sesión: si lo guardado sigue vigente, `traer` no vuelve a
+        # pedir nada y el aviso se perdería.
+        st.session_state[clave_avisos] = problemas
+        st.rerun()
 
     st.markdown("##### Lo que viene")
     proximos = ma.proximos(recogido["agenda"])

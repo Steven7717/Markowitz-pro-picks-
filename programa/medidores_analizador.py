@@ -47,8 +47,8 @@ CLASE = {
 FUENTE_DE_DATOS = {
     "sec": "los estados de la SEC (EDGAR), con el mismo motor que los candidatos",
     "extranjera_sec": (
-        "los estados de Yahoo Finance: los que presenta en la SEC van en IFRS y "
-        "son anuales"
+        "los estados de Yahoo Finance: los que presenta en la SEC van en IFRS "
+        "—las normas contables internacionales, no las de EE. UU.— y son anuales"
     ),
     "sin_sec": "los estados de Yahoo Finance",
     "etf": "sólo la cotización: un ETF no se valora",
@@ -84,7 +84,7 @@ MOTIVO_REFERENCIA = {
     "sin_sector": "su sector de Yahoo no tiene equivalente GICS, y no se adivina",
     "sector_sin_pares": (
         f"su sector no llega a {MIN_PARES} empresas en el panel del S&P 500, "
-        "contándola a ella: no hay con quién compararla"
+        "contándola a ella, y no hay con quién compararla"
     ),
     "sin_estados": "los estados financieros de la SEC no están disponibles o no son legibles",
     "sin_precio": (
@@ -94,9 +94,11 @@ MOTIVO_REFERENCIA = {
     # Faltan trimestres, no años: la ficha es trimestral. La etiqueta de
     # `medidores_valoracion` dice «faltan años» porque allí falta historia anual.
     "sin_historia": "Yahoo no trae ningún trimestre de sus cuentas",
+    # Sin dos puntos, como todas: estas etiquetas van siempre detrás de unos
+    # («Sin ficha frente al sector: …»), y dos seguidos no se leen.
     "sin_trimestres_comparables": (
-        "todos sus trimestres son posteriores al último del panel: es el panel "
-        "el que se quedó atrás"
+        "todos sus trimestres son posteriores al último del panel, que es el "
+        "que se quedó atrás"
     ),
     "sin_red": (
         "Yahoo no devolvió sus cuentas o el tipo de cambio (sin conexión o un "
@@ -254,17 +256,39 @@ def frente_al_sector(analisis) -> str:
 
 
 _PANEL_ATRAS = (
-    " Pero aquí es el panel el que se quedó atrás: la empresa tiene trimestres "
+    "aquí es el panel el que se quedó atrás: la empresa tiene trimestres "
     "posteriores al último del panel, y ésos no entran en la comparación. Rehacer "
     "el panel lo arregla."
 )
 _SEMESTRALES = (
-    " Yahoo no trae trimestres suficientes de sus cuentas: suele pasar con las que "
+    "Yahoo no trae trimestres suficientes de sus cuentas: suele pasar con las que "
     "publican cada semestre, como muchas europeas y las de Hong Kong."
 )
 
 
-def texto_exclusion(analisis, panel_dicho: bool = False) -> "str | None":
+def _voto_de_pares(analisis) -> dict:
+    return ((analisis.valoracion or {}).get("votos") or {}).get("pares") or {}
+
+
+def guarda_dicha_por_pares(analisis) -> bool:
+    """Si `detalle_pares` ya nombra la guarda que la dejaría fuera.
+
+    Pasa cuando vota frente a sus pares estando excluida: «vota con su pilar
+    aunque <guarda>». La exclusión, que se pinta debajo, no la repite (con AMX
+    se leía la misma frase dos veces seguidas): `texto_exclusion(...,
+    guarda_dicha=True)`.
+    """
+    ref = analisis.referencia
+    return (
+        analisis.clase not in (None, "etf")
+        and ref is not None
+        and ref.exclusion is not None
+        and ref.ficha["pilares"].get("valoracion") is not None
+        and _voto_de_pares(analisis).get("voto") not in (None, "no_aplica")
+    )
+
+
+def texto_exclusion(analisis, panel_dicho: bool = False, guarda_dicha: bool = False) -> "str | None":
     """La guarda que la dejaría fuera, con su causa cuando la guarda la esconde.
 
     `historia_corta` culpa a la empresa de tener poca historia, y en el
@@ -273,20 +297,25 @@ def texto_exclusion(analisis, panel_dicho: bool = False) -> "str | None":
     y RIO.L en la Task 14 de N1). A una de la SEC no se le inventa causa.
 
     Con `panel_dicho`, el aviso del panel atrasado ya está a la vista y la
-    causa no se repite: con 7203.T se leía tres veces seguidas.
+    causa no se repite: con 7203.T se leía tres veces seguidas. Con
+    `guarda_dicha` (`guarda_dicha_por_pares`), la guarda ya está nombrada
+    encima y sólo queda su causa, si la hay y nadie la ha dicho.
     """
     ref = analisis.referencia
     if ref is None or ref.exclusion is None:
         return None
-    texto = etiqueta_exclusion(ref.exclusion)
-    texto = texto[0].upper() + texto[1:] + "."
+    causa, nexo = None, " "
     if ref.exclusion == "historia_corta":
         if ref.filas_posteriores:
             if not panel_dicho:
-                texto += _PANEL_ATRAS
+                causa, nexo = _PANEL_ATRAS, " Pero "
         elif analisis.clase in ("extranjera_sec", "sin_sec"):
-            texto += _SEMESTRALES
-    return texto
+            causa = _SEMESTRALES
+    if guarda_dicha:
+        return None if causa is None else causa[0].upper() + causa[1:]
+    texto = etiqueta_exclusion(ref.exclusion)
+    texto = texto[0].upper() + texto[1:] + "."
+    return texto if causa is None else texto + nexo + causa
 
 
 def sin_ficha(analisis, panel_dicho: bool = False) -> str:
@@ -326,8 +355,7 @@ def detalle_pares(analisis, panel_dicho: bool = False) -> "str | None":
             "sobre flujo libre, precio sobre valor contable), así que no tiene "
             "pilar de valoración con que votar."
         )
-    voto = ((analisis.valoracion or {}).get("votos") or {}).get("pares") or {}
-    if ref.exclusion is not None and voto.get("voto") not in (None, "no_aplica"):
+    if guarda_dicha_por_pares(analisis):
         return (
             "Frente a sus pares vota con su pilar de valoración aunque "
             f"{etiqueta_exclusion(ref.exclusion)}. En el ranking no competiría; aquí "
@@ -826,8 +854,10 @@ def fuentes_de(clase: "str | None") -> "tuple[str, ...]":
 
 _SIN_HECHOS = {
     "extranjera_sec": (
-        "Presenta 20-F o 40-F y no 8-K. Sus 6-K no se interpretan: no llevan códigos "
-        "de item, y el criterio de qué es material se construyó sobre ellos."
+        "Presenta 20-F o 40-F y no 8-K. Lo suyo son los 6-K —el formulario con que "
+        "una extranjera comunica a la SEC sus novedades—, y no se interpretan: no "
+        "llevan el código con que cada 8-K dice de qué tipo de hecho habla, y el "
+        "criterio de qué es material se construyó sobre esos códigos."
     ),
     "sin_sec": "No presenta en la SEC: aquí hay calendario y prensa, pero no hechos.",
     "etf": "Un ETF no presenta 8-K: aquí hay calendario y prensa, pero no hechos.",
@@ -861,7 +891,7 @@ def linea_de_hora(fuente: str, cuando, vigente: bool) -> str:
 
 _ORIGEN_SECTOR = {
     "sp500": "el de la tabla del S&P 500",
-    "yahoo": "el de Yahoo, traducido a GICS",
+    "yahoo": "el de Yahoo, traducido",
     "sin_sector": "Yahoo no da uno que se pueda traducir",
 }
 
@@ -877,8 +907,12 @@ def ficha_de_identidad(analisis) -> str:
         f"{FUENTE_DE_DATOS.get(analisis.clase, '—')}"
     ]
     if analisis.clase != "etf":
-        sector = plano(analisis.sector) if analisis.sector else "sin sector GICS"
-        lineas.append(f"**Sector**: {sector} ({_ORIGEN_SECTOR.get(analisis.fuente_sector, '—')})")
+        sector = plano(analisis.sector) if analisis.sector else "sin sector"
+        # GICS se glosa aquí, que es donde sale por primera vez en la pantalla.
+        lineas.append(
+            "**Sector** GICS —la clasificación por sectores que usa el S&P 500—: "
+            f"{sector} ({_ORIGEN_SECTOR.get(analisis.fuente_sector, '—')})"
+        )
     if identidad is not None:
         bolsa = plano(identidad.bolsa) if identidad.bolsa else "—"
         lineas.append(f"**Cotiza en** {plano(identidad.moneda or '—')}, en la bolsa {bolsa}")
@@ -957,6 +991,53 @@ AYUDA_PANEL = (
     "añadidos a mano. Unos dos minutos con la caché llena, y bastantes más la "
     "primera vez."
 )
+
+
+def fallo_al_escribir_el_panel(error: str, habia_panel: bool) -> str:
+    """El aviso de que el panel no se pudo escribir, sin hablar de un panel que no había.
+
+    `error` es el texto del `OSError`, que es ajeno: lleva rutas. «El panel de
+    antes sigue como estaba» se decía también al construirlo por primera vez.
+    """
+    queda = (
+        "El panel de antes sigue como estaba"
+        if habia_panel
+        else "Sigue sin haber panel de referencia"
+    )
+    return (
+        f"No se pudo escribir el panel: {plano(error)}. {queda}; puedes volver a "
+        "intentarlo en un momento."
+    )
+
+
+def precio_y_hora(analisis) -> str:
+    """«Precio: 100.00 USD, cotización del 26/10/2026 20:00 UTC.», o que no lo hay.
+
+    Sin precio se dice, en vez de «Precio: —, cotización del —.».
+    """
+    identidad = analisis.identidad
+    if identidad is None or identidad.precio is None:
+        return "Sin precio: Yahoo no dio la cotización."
+    precio = dinero(identidad.precio, identidad.moneda or "")
+    hora = hora_del_precio(identidad.hora)
+    if hora == "—":
+        return f"Precio: {precio}. Yahoo no dio la hora de la cotización."
+    return f"Precio: {precio}, cotización del {hora}."
+
+
+def pie_del_libro(cuantos: int, tope: int) -> str:
+    """Lo que se dice de un libro antes de cargarlo en el campo, con el tope si lo pasa."""
+    pie = (
+        f"{cuantos} {'activo' if cuantos == 1 else 'activos'}: lo que tienes ahora "
+        "más lo que el objetivo dice que deberías tener. Sólo viajan los tickers, "
+        "ni pesos ni importes."
+    )
+    if cuantos > tope:
+        pie += (
+            f" Son más de los {tope} que se analizan de una vez: se cargan todos, y "
+            f"tendrás que quitar {cuantos - tope} del campo para poder analizar."
+        )
+    return pie
 
 
 # --- El gate --------------------------------------------------------------------

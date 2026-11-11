@@ -7,6 +7,7 @@ etiqueta no hable de una clave que nadie escribe.
 """
 
 import ast
+from dataclasses import replace
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
@@ -748,7 +749,7 @@ def test_la_identidad_de_un_etf_no_habla_de_sector():
 def test_la_identidad_sin_sector_ni_identidad_lo_dice_sin_reventar():
     sin = Analisis("XYZ", "sin_sec", None, None, None, "sin_sector")
     texto = ma.ficha_de_identidad(sin)
-    assert "sin sector GICS" in texto and "Cotiza" not in texto
+    assert "sin sector (" in texto and "Cotiza" not in texto
 
 
 def test_la_identidad_de_una_que_se_valora_en_otra_moneda_que_la_del_precio():
@@ -859,3 +860,99 @@ def test_un_coste_no_positivo_se_dice_en_palabras_y_con_el_formato_de_la_pantall
 
 def test_otro_rechazo_se_dice_con_su_mensaje():
     assert ma.supuesto_imposible(ValueError("no cuadra")) == "no cuadra"
+
+
+# --- Arreglos de la revisión de las Tasks 11-19 ----------------------------------
+
+
+def test_la_guarda_que_ya_nombro_el_voto_de_pares_no_se_repite():
+    # AMX: «…vota con su pilar aunque <guarda>» y, debajo de la tarjeta, la
+    # misma guarda otra vez.
+    a = analisis("AMX", "extranjera_sec", ref=referencia(None, 423, "pilar_sin_datos", pilar=0.3),
+                 valoracion=_fija(votos=_votos("neutra")))
+    assert ma.guarda_dicha_por_pares(a)
+    assert MOTIVOS_EN_CASTELLANO["pilar_sin_datos"] in ma.detalle_pares(a)
+    assert ma.texto_exclusion(a, guarda_dicha=True) is None
+    # Sin el voto, el detalle de pares calla y la guarda se dice en su sitio.
+    b = analisis("AMX", "extranjera_sec", ref=referencia(None, 423, "pilar_sin_datos", pilar=0.3),
+                 valoracion=_fija(votos=_votos("no_aplica", "sin_pares")))
+    assert not ma.guarda_dicha_por_pares(b)
+    assert ma.texto_exclusion(b, guarda_dicha=False) == ma.texto_exclusion(b)
+
+
+def test_con_la_guarda_ya_dicha_queda_su_causa_que_nadie_ha_dicho():
+    # El detalle de pares nombra la guarda, no por qué salta: la causa de
+    # `historia_corta` se sigue diciendo, sin repetir la guarda.
+    a = analisis("NESN.SW", "sin_sec", ref=referencia(None, 423, "historia_corta", pilar=0.3),
+                 valoracion=_fija(votos=_votos("barata")))
+    causa = ma.texto_exclusion(a, guarda_dicha=True)
+    assert causa.startswith("Yahoo no trae trimestres suficientes")
+    assert MOTIVOS_EN_CASTELLANO["historia_corta"] not in causa
+    b = analisis("7203.T", "sin_sec", ref=referencia(None, 423, "historia_corta", pilar=0.3, posteriores=2),
+                 valoracion=_fija(votos=_votos("barata")))
+    assert ma.texto_exclusion(b, guarda_dicha=True).startswith("Aquí es el panel el que se quedó atrás")
+    assert ma.texto_exclusion(b, panel_dicho=True, guarda_dicha=True) is None
+
+
+@pytest.mark.parametrize("motivo", sorted(MOTIVOS_DE_LA_REFERENCIA))
+def test_sin_ficha_no_encadena_dos_veces_dos_puntos(motivo):
+    # «Sin ficha frente al sector: todos sus trimestres son posteriores al
+    # último del panel: es el panel…». Las etiquetas van siempre tras dos puntos.
+    assert ":" not in ma.MOTIVO_REFERENCIA[motivo]
+    assert ma.sin_ficha(analisis(motivo_referencia=motivo)).count(":") == 1
+
+
+def test_al_fallar_la_escritura_del_panel_solo_se_habla_del_de_antes_si_lo_habia():
+    con = ma.fallo_al_escribir_el_panel("disco lleno", habia_panel=True)
+    sin = ma.fallo_al_escribir_el_panel("disco lleno", habia_panel=False)
+    assert "El panel de antes sigue como estaba" in con
+    assert "de antes" not in sin and "Sigue sin haber panel" in sin
+    for mensaje in (con, sin):
+        assert mensaje.startswith("No se pudo escribir el panel: disco lleno.")
+        assert "volver a intentarlo" in mensaje
+
+
+def test_el_error_al_escribir_el_panel_es_texto_ajeno():
+    assert "$" not in ma.fallo_al_escribir_el_panel("cuesta $5 y $6", habia_panel=False).replace("\\$", "")
+
+
+def test_el_precio_con_su_hora_o_que_no_lo_hay():
+    assert ma.precio_y_hora(analisis()) == (
+        "Precio: 100.00 USD, cotización del 26/10/2026 20:00 UTC."
+    )
+    # Decía «Precio: —, cotización del —.»
+    sin_precio = ma.precio_y_hora(analisis(precio=None))
+    assert "—" not in sin_precio and sin_precio.startswith("Sin precio")
+
+
+def test_el_precio_sin_hora_lo_dice_en_vez_de_pintar_una_raya():
+    a = analisis()
+    a = replace(a, identidad=replace(a.identidad, hora=None))
+    assert ma.precio_y_hora(a) == "Precio: 100.00 USD. Yahoo no dio la hora de la cotización."
+
+
+def test_un_libro_con_mas_activos_que_el_tope_lo_dice_antes_de_cargar():
+    corto = ma.pie_del_libro(12, 15)
+    largo = ma.pie_del_libro(18, 15)
+    assert corto.startswith("12 activos") and "tope" not in corto
+    assert largo.startswith("18 activos")
+    assert "15" in largo and "quitar 3" in largo
+    # Lo de siempre se sigue diciendo en los dos.
+    for pie in (corto, largo):
+        assert "Sólo viajan los tickers" in pie
+    assert "quitar" not in ma.pie_del_libro(15, 15)
+    assert ma.pie_del_libro(1, 15).startswith("1 activo:")
+
+
+def test_la_jerga_de_la_identidad_y_de_los_hechos_va_glosada():
+    # «Registro del texto»: glosar qué es, la primera vez en cada pantalla.
+    ficha_ = ma.ficha_de_identidad(analisis())
+    assert "GICS" in ficha_ and "la clasificación por sectores que usa el S&P 500" in ficha_
+    assert ficha_.count("GICS") == 1
+    sin_sector = ma.ficha_de_identidad(replace(analisis(fuente_sector="sin_sector"), sector=None))
+    assert "sin sector (" in sin_sector and sin_sector.count("GICS") == 1
+    assert "IFRS" in ma.FUENTE_DE_DATOS["extranjera_sec"]
+    assert "normas contables internacionales" in ma.FUENTE_DE_DATOS["extranjera_sec"]
+    extranjera = ma.sin_hechos("extranjera_sec")
+    assert "6-K" in extranjera and "el formulario con que una extranjera" in extranjera
+    assert "códigos de item" not in extranjera and "código" in extranjera

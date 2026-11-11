@@ -9,8 +9,10 @@ Los dobles se ponen en los módulos, no en la pantalla: el guion se vuelve a
 ejecutar en cada pasada y vuelve a importar de ellos.
 """
 
-from datetime import datetime
+from dataclasses import replace
+from datetime import date, datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from streamlit.testing.v1 import AppTest
@@ -19,6 +21,9 @@ from analizador import sesion
 from analizador import valorar as v
 from analizador.analisis import Analisis
 from analizador.referencia import Frescura
+from analizador.resolver import MAX_TICKERS
+from aprobacion.carga import ContratoRoto, FaltanFichas
+from noticias.agenda import Evento
 from tests.test_analizador_valorar import _entradas
 from tests.test_medidores_analizador import identidad
 
@@ -36,9 +41,8 @@ def _analisis(ticker="MU", pilar=None, **entradas) -> Analisis:
     )
 
 
-class _Disponibilidad:
-    puede_generar = False
-    motivo_generacion = "Falta el correo para EDGAR."
+def _disponibilidad(puede_generar: bool):
+    return SimpleNamespace(puede_generar=puede_generar, motivo_generacion="Falta el correo para EDGAR.")
 
 
 @pytest.fixture
@@ -49,10 +53,15 @@ def pantalla(monkeypatch, tmp_path):
         "con_precio_nuevo": lambda anterior, panel, tabla=None: anterior,
         "traer": lambda fuente, ticker, descargar, forzar: ((), "", TRAIDO, True),
         "hora_panel": HORA_PANEL,
+        "puede_generar": False,
+        "construir_panel": lambda: None,
+        "candidatos": lambda: SimpleNamespace(fichas=[]),
     }
     monkeypatch.setattr("analizador.referencia.cargar_panel", lambda *a: (None, None))
     monkeypatch.setattr("analizador.referencia.frescura", lambda *a: Frescura(mundo["hora_panel"], None))
-    monkeypatch.setattr("aprobacion.generacion.disponibilidad", lambda *a: _Disponibilidad())
+    monkeypatch.setattr("aprobacion.generacion.disponibilidad", lambda *a: _disponibilidad(mundo["puede_generar"]))
+    monkeypatch.setattr("analizador.referencia.construir_panel", lambda *a: mundo["construir_panel"]())
+    monkeypatch.setattr("aprobacion.carga.cargar_candidatos", lambda *a: mundo["candidatos"]())
     monkeypatch.setattr("analizador.analisis.analizar", lambda *a: mundo["analizar"](*a))
     monkeypatch.setattr("analizador.analisis.con_precio_nuevo", lambda *a: mundo["con_precio_nuevo"](*a))
     monkeypatch.setattr("noticias.traer.traer", lambda *a: mundo["traer"](*a))
@@ -184,3 +193,131 @@ def test_si_la_consulta_de_8k_fallo_no_se_afirma_que_no_habia_ninguno(pantalla):
     assert "la SEC no responde" in escrito
     assert "se miró" not in escrito and "Ningún 8-K" not in escrito
     assert "no se sabe si hay alguno" in escrito
+
+
+# --- Arreglos menores de la revisión de las Tasks 11-19 --------------------------
+
+
+def test_al_fallar_construir_el_panel_no_se_habla_de_un_panel_de_antes(pantalla):
+    def sin_disco():
+        raise OSError("disco lleno")
+
+    pantalla.mundo["puede_generar"] = True
+    pantalla.mundo["construir_panel"] = sin_disco
+    pantalla.run()
+    _pulsar(pantalla, "Construir el panel")
+    (error,) = [e.value for e in pantalla.error]
+    assert "disco lleno" in error and "Sigue sin haber panel" in error
+    assert "de antes" not in error
+
+
+def test_sin_precio_se_dice_que_no_lo_hay(pantalla):
+    sin_precio = _analisis("MU")
+    sin_precio = replace(sin_precio, identidad=replace(sin_precio.identidad, precio=None))
+    pantalla.session_state[sesion.CLAVE_ANALISIS] = {"MU": sin_precio}
+    pantalla.run()
+    assert not pantalla.exception
+    pies = [c.value for c in pantalla.caption]
+    assert "Sin precio: Yahoo no dio la cotización." in pies
+    assert not any("cotización del —" in pie for pie in pies)
+
+
+def _resultados(dia: date) -> Evento:
+    return Evento("MU", "resultados", dia, f"Resultados del {dia:%d/%m}")
+
+
+def test_actualizar_noticias_repinta_lo_que_viene_y_el_proximo_evento(pantalla):
+    # «Lo que viene» y la columna «Próximo evento» se pintan antes que la
+    # pestaña: sin otra pasada, seguían con el calendario de antes del botón.
+    lejos, cerca = date.today() + timedelta(days=40), date.today() + timedelta(days=5)
+    calendario = {"agenda": (_resultados(lejos),)}
+
+    def traer(fuente, ticker, descargar, forzar):
+        if forzar:
+            calendario["agenda"] = (_resultados(cerca),)
+        return calendario.get(fuente, ()), "", TRAIDO, True
+
+    pantalla.mundo["traer"] = traer
+    pantalla.run()
+    assert f"**MU** — Resultados del {lejos:%d/%m}" in _textos(pantalla)
+    pantalla.button(key="analizador_noticias_MU").click().run()
+    assert not pantalla.exception
+    escrito = _textos(pantalla)
+    assert f"**MU** — Resultados del {cerca:%d/%m}" in escrito
+    assert f"Resultados del {lejos:%d/%m}" not in escrito
+    assert f"Resultados del {cerca:%d/%m}" in pantalla.dataframe[0].value["Próximo evento"].iloc[0]
+
+
+def test_si_actualizar_noticias_falla_el_aviso_sobrevive_a_la_pasada_que_repinta(pantalla):
+    # Con lo guardado todavía vigente, la pasada siguiente no vuelve a pedir
+    # nada: el fallo sólo lo vio la del botón, que termina en `st.rerun()`.
+    def traer(fuente, ticker, descargar, forzar):
+        problema = "Yahoo no responde" if forzar and fuente == "prensa" else ""
+        return (), problema, TRAIDO, not problema
+
+    def fallos():
+        return [w.value for w in pantalla.warning if "no se pudo traer" in w.value]
+
+    pantalla.mundo["traer"] = traer
+    pantalla.run()
+    assert not fallos()
+    pantalla.button(key="analizador_noticias_MU").click().run()
+    assert not pantalla.exception
+    (aviso,) = fallos()
+    assert aviso.startswith("**Prensa**") and "Yahoo no responde" in aviso
+    # Y se dice una vez: en la pasada siguiente ya no está.
+    pantalla.run()
+    assert not fallos()
+
+
+def test_un_libro_con_mas_activos_que_el_tope_lo_dice_antes_de_cargar(pantalla, monkeypatch):
+    libro = SimpleNamespace(libro=SimpleNamespace(asientos=(), objetivo=None))
+    muchos = [f"T{n}" for n in range(MAX_TICKERS + 2)]
+    monkeypatch.setattr("vistas.libros.disponibles", lambda: ([libro], {"Mi libro": libro}))
+    monkeypatch.setattr("vistas.libros.desplegable", lambda etiquetas, contenedor=None: libro)
+    monkeypatch.setattr("seguimiento.posiciones.tickers_a_mirar", lambda asientos, objetivo: muchos)
+    pantalla.run()
+    assert not pantalla.exception
+    (pie,) = [c.value for c in pantalla.caption if "Sólo viajan los tickers" in c.value]
+    assert f"más de los {MAX_TICKERS}" in pie and "quitar 2" in pie
+
+
+@pytest.mark.parametrize(
+    "fallo, dicho",
+    [
+        (FaltanFichas("No hay candidatos."), "todavía no hay candidatos"),
+        (ContratoRoto("falta `fichas`"), "no se puede leer"),
+    ],
+)
+def test_sin_candidatos_no_se_anade_y_se_dice_por_que(pantalla, fallo, dicho):
+    # Se añadía igual y se saltaba a Revisar candidatos, que sin candidatos se
+    # detiene antes de enseñar los añadidos.
+    def sin_candidatos():
+        raise fallo
+
+    pantalla.mundo["candidatos"] = sin_candidatos
+    pantalla.run()
+    assert not pantalla.exception
+    assert not pantalla.text_area and "anadidos" not in pantalla.session_state
+    (pie,) = [c.value for c in pantalla.caption if "Revisar candidatos" in c.value]
+    assert dicho in pie
+
+
+def test_con_candidatos_el_ticker_entra_en_los_anadidos_con_su_motivo(pantalla, monkeypatch):
+    saltos = []
+    monkeypatch.setattr("streamlit.switch_page", saltos.append)
+    pantalla.run()
+    pantalla.text_area(key=sesion.clave_motivo("MU")).set_value("Me gusta su caja.")
+    _pulsar(pantalla, "Añadir a la revisión")
+    (anadido,) = pantalla.session_state["anadidos"]
+    assert (anadido.ticker, anadido.motivo) == ("MU", "Me gusta su caja.")
+    assert anadido.valoracion == pantalla.session_state[sesion.CLAVE_ANALISIS]["MU"].valoracion
+    assert saltos == ["vistas/candidatos.py"]
+
+
+def test_uno_que_ya_esta_en_el_ranking_no_se_anade(pantalla):
+    pantalla.mundo["candidatos"] = lambda: SimpleNamespace(fichas=[{"ticker": "MU"}])
+    pantalla.run()
+    _pulsar(pantalla, "Añadir a la revisión")
+    assert "anadidos" not in pantalla.session_state or not pantalla.session_state["anadidos"]
+    assert len(pantalla.error) == 1
