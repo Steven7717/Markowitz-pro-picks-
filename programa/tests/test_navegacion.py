@@ -53,6 +53,23 @@ def test_noticias_salio_del_menu_y_del_repositorio():
     assert not (RAIZ / "vistas" / "noticias.py").exists()
 
 
+def test_primeros_pasos_presenta_el_analizador_donde_lo_pone_el_menu():
+    # Quedó como tarjeta 6 bajo «Seguir lo que compraste», y en el menú está en
+    # «Análisis», con los candidatos y el optimizador.
+    fuente = (RAIZ / "vistas" / "inicio.py").read_text(encoding="utf-8")
+    elegir, seguir = fuente.split('st.markdown("### Seguir lo que compraste")', 1)
+    assert "vistas/analizador.py" in elegir and "vistas/analizador.py" not in seguir
+    assert elegir.index("vistas/optimizador.py") < elegir.index("vistas/analizador.py")
+    assert "estas tres pantallas" not in fuente
+
+
+def test_la_clave_de_anthropic_se_pone_en_perfil_y_no_en_aprobacion():
+    for ruta in sorted((RAIZ / "vistas").glob("*.py")):
+        for linea in ruta.read_text(encoding="utf-8").splitlines():
+            if "Falta la clave de Anthropic" in linea:
+                assert "Perfil y ajustes" in linea, f"{ruta.name}: {linea.strip()}"
+
+
 def test_el_analizador_va_en_analisis_detras_de_revisar_candidatos():
     fuente = (RAIZ / "app.py").read_text(encoding="utf-8")
     analisis = fuente.split('"Análisis":', 1)[1].split('"Cartera":', 1)[0]

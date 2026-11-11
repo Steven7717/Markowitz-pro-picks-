@@ -384,7 +384,7 @@ if not _ops:
     st.caption("No hay ninguna operación que comentar: la propuesta está vacía.")
 elif not interprete_cliente.hay_clave():
     st.info(
-        "Falta la clave de Anthropic. Se pone en **Aprobación**, y la propuesta "
+        "Falta la clave de Anthropic. Se pone en **Perfil y ajustes**, y la propuesta "
         "de arriba funciona igual sin ella."
     )
 else:

@@ -69,12 +69,29 @@ with tres:
                      type="primary", icon=":material/insights:"):
             st.switch_page("vistas/optimizador.py")
 
+# Fuera de la fila numerada, a propósito: no es un paso del camino sino una
+# herramienta para mirar cualquier acción, y va en esta mitad porque en el menú
+# está en «Análisis», con los candidatos y el optimizador.
+with st.container(border=True):
+    st.markdown("#### Analizador · cualquier acción, esté o no entre los candidatos")
+    st.markdown(
+        "De la SEC, extranjera o de la BMV, con la misma ficha frente a su sector "
+        "y el mismo valor intrínseco que los candidatos, con supuestos que puedes "
+        "mover, un gráfico y sus noticias. Desde ahí se puede llevar a la "
+        "revisión, con su motivo escrito.\n\n"
+        "«Cargar de un libro» trae lo que tienes y lo que deberías tener. Los "
+        "**8-K** —lo que la empresa está obligada a presentar, con fecha y "
+        "firma— van separados de los titulares. Aquí no se recomienda nada."
+    )
+    if st.button("Abrir el analizador", icon=":material/query_stats:"):
+        st.switch_page("vistas/analizador.py")
+
 # La mitad que faltaba. Optimizar reparte el capital, pero ahí no se acaba
-# nada: lo que se compra hay que seguirlo, y estas tres pantallas existían sin
+# nada: lo que se compra hay que seguirlo, y estas dos pantallas existían sin
 # que la portada las nombrara ni una vez.
 st.markdown("### Seguir lo que compraste")
 
-cuatro, cinco, seis = st.columns(3)
+cuatro, cinco = st.columns(2)
 with cuatro:
     with st.container(border=True):
         st.markdown("#### 4 · Seguimiento")
@@ -104,22 +121,6 @@ with cinco:
         if st.button("Ver el rebalanceo", use_container_width=True,
                      icon=":material/balance:"):
             st.switch_page("vistas/rebalanceo.py")
-
-with seis:
-    with st.container(border=True):
-        st.markdown("#### 6 · Analizador")
-        st.markdown(
-            "Cualquier acción —esté o no entre los candidatos, de la SEC, "
-            "extranjera o de la BMV— con la misma ficha frente a su sector y el "
-            "mismo valor intrínseco, con supuestos que puedes mover, un gráfico y "
-            "sus noticias.\n\n"
-            "«Cargar de un libro» trae lo que tienes y lo que deberías tener. Los "
-            "**8-K** —lo que la empresa está obligada a presentar, con fecha y "
-            "firma— van separados de los titulares. Aquí no se recomienda nada."
-        )
-        if st.button("Abrir el analizador", width="stretch",
-                     icon=":material/query_stats:"):
-            st.switch_page("vistas/analizador.py")
 
 st.markdown("### Tres cosas que conviene saber antes de usarlo")
 
