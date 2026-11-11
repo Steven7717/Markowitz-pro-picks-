@@ -8,7 +8,7 @@ da un numero raro --sigue pintando texto, sin mas, hasta el dia en que uno lleve
 un dolar--.
 
 Eso es literalmente lo que habia pasado. Toda la app pinta el texto ajeno via
-`plano` --`vistas/noticias.py`, `vistas/panel_ia.py`, `vistas/rebalanceo.py`--
+`plano` --`vistas/analizador.py`, `vistas/panel_ia.py`, `vistas/rebalanceo.py`--
 menos la ficha del candidato, que pintaba la tesis, la afirmacion y la **cita
 copiada del filing** en crudo. No es XSS, porque Streamlit sanea el HTML; es
 inyeccion de markdown: enlaces al dominio de quien escribio el documento,

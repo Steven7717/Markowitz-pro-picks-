@@ -30,17 +30,18 @@ from datetime import datetime
 from noticias import traer
 
 # Las dos fuentes que el panel lee. El calendario --«agenda»-- no entra: el
-# panel enseña lo que **paso**, y lo que viene tiene su sitio en la pantalla
-# completa. Meterlo aqui obligaria a mezclar fechas futuras con fechas pasadas
-# en el mismo bloque corto, que es justo lo que la pantalla de Noticias separa.
+# panel enseña lo que **paso**, y lo que viene tiene su sitio en el Analizador.
+# Meterlo aqui obligaria a mezclar fechas futuras con fechas pasadas en el
+# mismo bloque corto, que es justo lo que alli se separa («Lo que viene» y
+# «Lo que paso»).
 FUENTES = ("hechos", "prensa")
 
 SIN_CACHE = "sin_cache"
 VIEJA = "vieja"
 AL_DIA = "al_dia"
 
-# Pocos, a proposito: esto es un panel y no la pantalla de Noticias. Lo que no
-# cabe no se esconde, se cuenta y se manda alli.
+# Pocos, a proposito: esto es un panel y no la pestaña de noticias del
+# Analizador. Lo que no cabe no se esconde, se cuenta y se manda alli.
 TOPE_HECHOS = 6
 TOPE_TITULARES = 5
 
@@ -63,8 +64,9 @@ class Resumen:
     titulares: tuple
     # La marca MAS ANTIGUA de todo lo que se esta enseñando, no la mas nueva.
     # Es la antiguedad de lo peor que estas mirando, y lo que se enseña tiene
-    # que poder defenderse entero. Es la misma regla que el pie de
-    # `vistas/noticias.py`. `None` solo cuando el estado es `SIN_CACHE`.
+    # que poder defenderse entero. Es la regla del pie de la pestaña de
+    # noticias del Analizador --la hora se enseña siempre--, llevada a varios
+    # activos. `None` solo cuando el estado es `SIN_CACHE`.
     cuando: "datetime | None"
     # Los activos de los que no hay **nada** guardado. Se nombran en vez de
     # contarse: saber que faltan cuatro no dice cuales, y de los que faltan no

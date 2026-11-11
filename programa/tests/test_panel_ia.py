@@ -1,6 +1,7 @@
 # programa/tests/test_panel_ia.py
-"""Lo que la pantalla de Noticias anuncia antes de pulsar, y lo que puede
-costar de verdad.
+"""Lo que el bloque de «Interpretar estos hechos» anuncia antes de pulsar, y lo
+que puede costar de verdad. Nació en la pantalla de Noticias, que ya no existe:
+hoy lo pintan Seguimiento y el Analizador (`vistas/panel_ia.py`).
 
 La pantalla decia «cuesta unos **0,10 $** como mucho» y el README repetia la
 cifra. Pero `interprete/noticias.py` **reenvia el turno de usuario entero** en
