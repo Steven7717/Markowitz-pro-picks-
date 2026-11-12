@@ -1,15 +1,14 @@
 # Contexto del proyecto — para retomar en una sesión nueva
 
 **Última actualización:** 2026-11-12
-**Rama:** `feat/analizador-individual`, sin fusionar · **Tests:** 3.494 pasando (`uv run pytest tests/ -q -m "not red"`), 3 omitidos —dos por permisos POSIX en Windows y uno de `test_valoracion_dcf.py` sin `numpy_financial`— más 38 marcados `red`
+**Rama:** `master` (N1 y N2 fusionados el 2026-11-12 desde `feat/analizador-individual`) · **Tests:** 3.494 pasando (`uv run pytest tests/ -q -m "not red"`), 3 omitidos —dos por permisos POSIX en Windows y uno de `test_valoracion_dcf.py` sin `numpy_financial`— más 38 marcados `red`
 **Remoto:** `https://github.com/Steven7717/Markowitz-pro-picks-.git` — `master` es lo publicado
 **Estructura:** el programa vive en `programa/`; en la raíz sólo están los dos
 lanzadores y el `README.md`. Los comandos (`uv run pytest`, `uv run streamlit`)
 se ejecutan desde `programa/`, no desde la raíz.
 
 > **Al retomar:** N1 y N2, las dos primeras partes del Analizador individual,
-> están hechas en la rama `feat/analizador-individual`, **sin fusionar** a
-> `master`. N1 es el paquete `analizador/`, que analiza cualquier ticker —una
+> están hechas y **fusionadas en `master`** (2026-11-12). N1 es el paquete `analizador/`, que analiza cualquier ticker —una
 > empresa de la SEC, una extranjera, una de la BMV o un ETF— con la misma ficha
 > frente al sector y el mismo valor intrínseco que los candidatos; N2 es la
 > pantalla **Analizador**, que absorbió «Noticias y calendario». Ver
@@ -20,6 +19,12 @@ se ejecutan desde `programa/`, no desde la raíz.
 > (`docs/superpowers/specs/2026-10-12-analizador-individual-design.md`) lleva al
 > final sus enmiendas del 2026-10-14 y del 2026-10-26, que mandan sobre el
 > texto de arriba.
+>
+> **yfinance va en la 1.8.0** (02980d8, 2026-11-12): Yahoo retiró la dirección
+> de la que la 1.6.0 sacaba la prensa (`/xhr/ncp`, ahora 404) y la 1.6.0 lo
+> leía como «YAHOO! FINANCE IS CURRENTLY DOWN», mientras los precios seguían
+> llegando. Si la prensa vuelve a decir eso con los precios bien, mirar antes
+> una versión nueva de yfinance que una caída de Yahoo.
 >
 > **El test roto conocido ya está arreglado** (23b8358, 2026-11-12):
 > `tests/test_seguimiento_rendimiento.py` contrastaba la TIR con
