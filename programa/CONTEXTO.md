@@ -1978,7 +1978,7 @@ Las de este plan (D1–D23):
   `COMPROBADAS_EN_WIDGET`, hoy vacía.
 - **D23.** `st.iframe` y `width="stretch"`, que la 1.62 no da por obsoletos.
 
-### Treinta y cuatro defectos, y ninguno en lo que se midió
+### Treinta y cuatro defectos, y ninguno en una cuenta
 
 | Defecto | Cómo se detectó |
 |---|---|
