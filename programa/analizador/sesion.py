@@ -26,6 +26,8 @@ CLAVE_TICKERS = "analizador_tickers"
 CLAVE_ANALISIS = "analizador_analisis"
 CLAVE_HORA_PANEL = "analizador_hora_panel"
 CLAVE_ELEGIDO = "analizador_elegido"
+# Una copia del elegido fuera del widget: ver `fijar_elegido`.
+_CLAVE_RECORDADO = "analizador_elegido_recordado"
 # El canal por el que otras pantallas mandan tickers a analizar.
 CANAL = "analizador_encargo"
 
@@ -98,9 +100,24 @@ def fijar_elegido(estado, opciones) -> None:
     entre las de ahora (`seguimiento.libro.fijar_eleccion`): un ticker que ya no
     se analiza, o uno que llegó por un encargo y salió sin clase. Sin opciones
     no se toca.
+
+    Y tira la clave de un widget que no se dibujó en una pasada: «Actualizar
+    precios» acaba en `st.rerun()` antes del desplegable, y el detalle volvía
+    al primero (con SPY elegido, a MU; recorrido de la app real, Task 21 de
+    N2). Sin clave, vuelve el último elegido (`recordar_elegido`) si sigue
+    entre las opciones.
     """
-    if opciones and estado.get(CLAVE_ELEGIDO) not in opciones:
+    if not opciones:
+        return
+    if CLAVE_ELEGIDO not in estado and estado.get(_CLAVE_RECORDADO) in opciones:
+        estado[CLAVE_ELEGIDO] = estado[_CLAVE_RECORDADO]
+    if estado.get(CLAVE_ELEGIDO) not in opciones:
         estado[CLAVE_ELEGIDO] = opciones[0]
+
+
+def recordar_elegido(estado, elegido: str) -> None:
+    """Tras dibujar el desplegable: una copia que Streamlit no tira (`fijar_elegido`)."""
+    estado[_CLAVE_RECORDADO] = elegido
 
 
 def clave_deslizador(ticker: str, nombre: str) -> str:

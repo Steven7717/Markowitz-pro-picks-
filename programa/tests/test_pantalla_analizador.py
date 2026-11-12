@@ -142,6 +142,39 @@ def test_tras_actualizar_precios_el_motivo_dice_el_veredicto_nuevo(pantalla):
     assert "señales mixtas" in pantalla.text_area(key=sesion.clave_motivo("MU")).value
 
 
+# --- El ticker elegido en el detalle sobrevive a las pasadas -------------------
+
+
+def _con_dos_tickers(at):
+    at.session_state[sesion.CLAVE_TEXTO] = "MU SPY"
+    at.session_state[sesion.CLAVE_TICKERS] = ["MU", "SPY"]
+    at.session_state[sesion.CLAVE_ANALISIS] = {"MU": _analisis("MU"), "SPY": _analisis("SPY")}
+    at.run()
+    at.selectbox(key=sesion.CLAVE_ELEGIDO).set_value("SPY").run()
+    assert not at.exception
+    assert at.selectbox(key=sesion.CLAVE_ELEGIDO).value == "SPY"
+
+
+def test_actualizar_precios_no_devuelve_el_detalle_al_primero(pantalla):
+    # Recorrido de la app real: con SPY en el detalle, «Actualizar precios»
+    # volvía a MU. El botón acaba en `st.rerun()` antes de dibujar el
+    # desplegable, y Streamlit tira la clave del widget que no se dibujó.
+    _con_dos_tickers(pantalla)
+    _pulsar(pantalla, "Actualizar precios")
+    assert pantalla.selectbox(key=sesion.CLAVE_ELEGIDO).value == "SPY"
+
+
+def test_el_detalle_elegido_sigue_aunque_cambie_el_nombre(pantalla):
+    # El rótulo del desplegable lleva el nombre, que sale de la identidad que
+    # trae «Actualizar precios»: no puede contar como otro desplegable.
+    _con_dos_tickers(pantalla)
+    pantalla.mundo["con_precio_nuevo"] = lambda anterior, *a: replace(
+        anterior, identidad=replace(anterior.identidad, nombre=anterior.identidad.nombre + " (nuevo)")
+    )
+    _pulsar(pantalla, "Actualizar precios")
+    assert pantalla.selectbox(key=sesion.CLAVE_ELEGIDO).value == "SPY"
+
+
 # --- Un supuesto imposible no enseña la clave interna ---------------------------
 
 

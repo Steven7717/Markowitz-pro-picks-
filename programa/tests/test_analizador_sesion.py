@@ -88,6 +88,25 @@ def test_el_detalle_elegido_tiene_que_estar_entre_las_opciones():
     assert vacio[sesion.CLAVE_ELEGIDO] == "MU"
 
 
+def test_sin_la_clave_del_desplegable_vuelve_el_ultimo_elegido():
+    # Streamlit tira la clave de un widget que no se dibujó: tras «Actualizar
+    # precios» el detalle volvía al primero.
+    estado = {}
+    sesion.recordar_elegido(estado, "TSM")
+    sesion.fijar_elegido(estado, ["MU", "TSM"])
+    assert estado[sesion.CLAVE_ELEGIDO] == "TSM"
+    # Si ya no está entre las opciones, el primero.
+    otro = {}
+    sesion.recordar_elegido(otro, "TSM")
+    sesion.fijar_elegido(otro, ["MU", "SPY"])
+    assert otro[sesion.CLAVE_ELEGIDO] == "MU"
+    # Y con la clave puesta (un encargo, o lo elegido en esta pasada) manda ella.
+    puesto = {sesion.CLAVE_ELEGIDO: "MU"}
+    sesion.recordar_elegido(puesto, "TSM")
+    sesion.fijar_elegido(puesto, ["MU", "TSM"])
+    assert puesto[sesion.CLAVE_ELEGIDO] == "MU"
+
+
 def test_restaurar_borra_lo_movido_y_deja_la_tasa_puesta_a_mano():
     estado = {
         sesion.clave_deslizador("MU", "beta"): 1.5,

@@ -870,4 +870,5 @@ elegido = st.selectbox(
     key=sesion.CLAVE_ELEGIDO,
     format_func=lambda t: f"{t} — {ma.nombre(hechos[t])}",
 )
+sesion.recordar_elegido(st.session_state, elegido)
 _detalle(hechos[elegido], contexto)
