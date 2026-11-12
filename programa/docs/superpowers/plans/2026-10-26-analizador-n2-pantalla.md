@@ -169,6 +169,8 @@ Lo único que no se conserva igual es **la lista conjunta de 8-K de todo un libr
 ---
 ### Task 1: Las etiquetas de los motivos del Analizador
 
+> **Ejecutada** (bbf824f) el 2026-10-26. De la revisión de las Tasks 1-10 (2026-10-27, d1c8480): `historia_corta` fuera de la SEC ya no niega que la empresa sea joven —«suele pasar con las que publican cada semestre»—, «ADR» va glosado y la celda dice «fuera del ranking». De la revisión de las Tasks 11-19 (2026-11-10, c11051b): «Sin ficha frente al sector» sin dos veces dos puntos. Manda el código vivo.
+
 `analizador/` devuelve claves y N1 dejó once sin rótulo en ningún sitio. Este módulo las dice todas, culpando a quien toca. Las exclusiones del ranking reutilizan las frases de `aprobacion/carga.py`.
 
 **Files:**
@@ -553,6 +555,8 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 ### Task 2: Lo que la pantalla necesita saber del panel
 
+> **Ejecutada** (7f347a5) el 2026-10-26, como estaba en el plan.
+
 Cuatro preguntas que la pantalla hace al panel: hasta qué trimestre llega, cuántas empresas tiene un sector, si un ticker tenía trimestres que no entraron (el panel se quedó atrás) y si el panel es más nuevo que los candidatos (decisión 1, D11, D12).
 
 **Files:**
@@ -810,6 +814,8 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 ### Task 3: Construir sólo el panel
 
+> **Ejecutada** (bb87027) el 2026-10-26. Su revisión añadió el test de que un panel vacío no pisa el de antes (c80aa47), y la revisión de las Tasks 1-10 (2026-10-27), el reintento de `os.replace` cuando otra sesión de Windows lee el panel (e16f150). `construir_panel` puede lanzar `OSError`, además de `CorridaAbortada`: la pantalla captura los dos. Manda el código vivo.
+
 Decisión 1: un botón del Analizador construye el panel sin tocar los candidatos, sus fichas ni sus marcas. La escritura es atómica.
 
 **Files:**
@@ -945,6 +951,8 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 ---
 ### Task 4: Los rótulos de los casos propios y los avisos de un ticker
+
+> **Ejecutada** (e2c3439) el 2026-10-27. Al ejecutar la Task 14, `texto_exclusion`, `detalle_pares` y `sin_ficha` ganaron `panel_dicho`: con 7203.T el panel atrasado se leía tres veces. De la revisión de las Tasks 11-19 (2026-11-10, c11051b): `guarda_dicha_por_pares` y `texto_exclusion(..., guarda_dicha=)`, porque con AMX la guarda se leía dos veces seguidas. Manda el código vivo.
 
 Decisión 9 y las notas de N1: el puesto global, la ficha fuera del ranking, BRK-B, la excluida que vota, los semestrales, la ficha sin valor base; y los avisos de un ticker (decisiones 5, 6 y 7, D1, D3): sin prima por riesgo país, la misma empresa que su base, la preferente, la ADR, el panel atrasado y el Bono M viejo. Cada aviso tiene una forma corta, para la fila del resumen, y una larga, para el detalle.
 
@@ -1559,6 +1567,8 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 ### Task 5: La valoración en la moneda del precio y «con tus supuestos»
 
+> **Ejecutada** (dbdd6e8) el 2026-10-27. De la revisión de las Tasks 1-10 (2026-10-27, d94cc9e): los formatos que comparte con `medidores_valoracion` pasan a públicos (`dinero`, `pct`, `como_numero`, `NOMBRE_SUPUESTO`), sin cambiar su comportamiento. Manda el código vivo.
+
 Decisión 3: los valores por acción se enseñan en la moneda del precio. Y el spec: con los deslizadores movidos, el distintivo dice «con tus supuestos» y el título de la lista deja de decir «del programa». Una línea con la valoración, para el acta y para los añadidos de Revisar candidatos.
 
 **Files:**
@@ -1801,6 +1811,8 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 ---
 ### Task 6: La proyección a 10 años
+
+> **Ejecutada** (ffa2c78) el 2026-10-27. Si se enseña un total de la proyección, se suma en orden, como `valor_empresa`, nunca con `sum()`.
 
 El spec pide, en la pestaña Valoración, «la proyección a 10 años (plegada)». `valor_empresa` la calculaba por dentro y la tiraba. D10: sale a `dcf.proyeccion`, y `valor_empresa` la suma en el mismo orden, así que la tabla y el valor base dan lo mismo hasta el último bit.
 
@@ -2057,6 +2069,8 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ---
 
 ### Task 7: Los deslizadores
+
+> **Ejecutada** (a9d1df5) el 2026-10-27. De la revisión de las Tasks 1-10 (2026-10-27, d94cc9e): la lista de supuestos de cada método pasa a `valoracion/supuestos.py` como `SUPUESTOS_DE`, para que los deslizadores no dependan de un módulo de pantalla. De la revisión de las Tasks 11-19 (2026-11-10, e3fbbc5): `aplicar` lanza `SupuestoImposible` y `CosteNoPositivo`, y `ma.supuesto_imposible` lo dice en palabras, sin la clave `k_e`. En la Task 20, el sabotaje de `cambios` no lo ve `test_un_deslizador_sin_tocar_no_cuenta_como_movido` sino `test_el_redondeo_de_ida_y_vuelta_no_cuenta_como_movido`. Manda el código vivo.
 
 Decisión 10. Qué supuestos se mueven en cada método, entre qué cifras, y qué cuenta como movido; más las palabras de alrededor: la etiqueta de cada deslizador, la lista de lo movido, por qué falta la tasa libre y las dos tablas (sensibilidad y proyección).
 
@@ -2498,6 +2512,8 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 ### Task 8: El gráfico de TradingView
 
+> **Ejecutada** (6f43635) el 2026-10-27. De la revisión de las Tasks 1-10 (2026-10-27, ec3024c): sin prefijo de bolsa TradingView tomaba T.TO (TELUS) por AT&T y BA.L (BAE) por Boeing. Ahora `en_widget(ticker, bolsa)`, `enlace(ticker, bolsa)` → `(rotulo, url)` y `avisos(ticker, bolsa)`; `simbolo` puede dar `None`; un ticker con sufijo sólo se incrusta si su bolsa está en `COMPROBADAS_EN_WIDGET`, hoy vacía. **`SOLO_EN_TRADINGVIEW` ya no existe**: donde este plan y la D22 la nombran, manda el código vivo.
+
 Decisión 12. El símbolo sale de una tabla congelada de bolsas; el HTML del widget lleva el símbolo como JSON, ocupa todo el marco y dice si no carga. Debajo, el texto del spec sobre el estudio D y lo que se sabe y se dice.
 
 Dos cosas que se vieron al aplicar este plan en un worktree temporal, con la app arrancada (D22):
@@ -2750,6 +2766,8 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ---
 ### Task 9: Actualizar el precio sin rehacer la ficha
 
+> **Ejecutada** (f1c42d5) el 2026-10-27. De la revisión de las Tasks 1-10 (2026-10-27, f8b0268): ante un defecto, `con_precio_nuevo` devuelve la fila de antes, que seguía bien, y deja la traza en el log; la pantalla no afirma «precio actualizado» y dice la hora del precio que tiene la fila. Manda el código vivo.
+
 Decisión 11 y D9. «Actualizar precios» rehace la identidad y la valoración, y conserva la ficha frente al sector, que no depende del precio de hoy. Y un defecto al hacer esa ficha ya no se lleva la fila entera: la identidad y la valoración se quedan.
 
 **Files:**
@@ -2935,6 +2953,8 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ---
 
 ### Task 10: La sesión del Analizador y los tickers de un libro
+
+> **Ejecutada** (a7798d3) el 2026-10-27. De la revisión de las Tasks 11-19 (2026-11-10, a2839b2): `preparar_motivo`, para que el motivo redactado siga a la valoración mientras no se edite. Del recorrido de la Task 21 (98ab58c): `recordar_elegido`, porque «Actualizar precios» devolvía el detalle al primer ticker. Manda el código vivo.
 
 Decisión 11 y la lección de «El formulario que se quedaba en blanco»: el campo de tickers se declara con clave y sin valor, lo que llega de otras pantallas se consume al usarlo, y los análisis se guardan mientras no cambie el panel. Y la regla de Noticias para los tickers de un libro sale de su guion a `seguimiento/posiciones.py`.
 
@@ -3256,6 +3276,8 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 ---
 ### Task 11: Las filas del resumen, «Lo que viene» y las noticias de un ticker
+
+> **Ejecutada** (5f6415c) el 2026-10-27. De la revisión de las Tasks 11-19 (2026-11-10, c11051b): `precio_y_hora`, `pie_del_libro`, `fallo_al_escribir_el_panel` y las glosas de GICS, IFRS, 6-K y los códigos de los 8-K. Del recorrido de la Task 21 (7b7095e): `sin_prensa`. Manda el código vivo.
 
 Las palabras de la pantalla que faltan: la fila de cada ticker en el resumen (con el nombre largo, la hora del precio y los avisos cortos), «Lo que viene» y lo que Noticias decía de los hechos, la prensa y la hora de cada descarga (sale del guion borrado a funciones con tests), qué pestañas tiene cada clase, la identidad del ticker, contra quién se compara y los textos del panel.
 
@@ -3832,6 +3854,8 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ---
 ### Task 12: El gate, en el acta
 
+> **Ejecutada** (e3cf215) el 2026-10-27. De la revisión de las Tasks 1-10 (2026-10-27, ce2a853): el test de escapes no notaba quitar el `texto.plano` de «Valor intrínseco al añadirla» en candidatos; ahora sí.
+
 Decisión 4 y el punto 9 de «Cómo se prueba». `Anadido` gana `valoracion`, el acta la escribe y las actas viejas se siguen leyendo. Las tres comprobaciones de «Añadir a mano» salen del guion de Revisar candidatos a `aprobacion.acta.problema_al_anadir`, para que el Analizador use las mismas. La puerta (sólo lo que cotiza en dólares) y el motivo ya redactado van en `medidores_analizador`. Y la valoración con que entró cada aprobada se enseña en Actas y en la lista de añadidos: un dato que se guarda y no se enseña es el defecto de «El aviso que se calculaba y no se enseñaba».
 
 **Files:**
@@ -4238,6 +4262,8 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ---
 ### Task 13: El archivo de las lecturas y el bloque de «Interpretar con IA»
 
+> **Ejecutada** (3a6b095) el 2026-10-27. `interpretar_hechos` gana `clave=`, y el Analizador la llama con `pesos=()` y `clave=f"analizador_ia_{ticker}"`. De la revisión de las Tasks 11-19 (2026-11-10, 484c078): `consultado`, sin valor por defecto, para no afirmar «se miró y no había ninguno» si la SEC no respondió. Del recorrido de la Task 21 (a88e486): los `$` del coste, que se leían como LaTeX, van escapados. Manda el código vivo.
+
 Decisión 2 y D7. El bloque de Seguimiento que interpreta los 8-K —el archivo, el botón con su coste, la lectura, lo guardado— sale de su guion a `vistas/panel_ia.interpretar_hechos`, parametrizado, para que el Analizador lo use igual. Las lecturas de un ticker se guardan en `analisis/<TICKER>.json`, con el formato de `interprete/archivo.py`, y `analisis/` va a `.gitignore` y a «Dónde vive todo».
 
 Al moverlo sale un defecto latente: en el guion, `_leidas` eran las urls ya leídas y, tras pulsar, pasaba a ser lo que devuelve `preparar` (una tupla de tuplas); si la lectura fallaba, `pintar_archivo` buscaba urls en esa tupla y no pintaba nada de lo guardado. Aquí van con dos nombres.
@@ -4620,6 +4646,8 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 ---
 ### Task 14: La pantalla, arriba y el resumen
+
+> **Ejecutada** (d97f858) el 2026-10-27. Sobre el plan: construir el panel captura también `OSError`, y el panel atrasado se dice una vez. `AppTest.from_file("vistas/analizador.py")` choca con un import circular que en la app no existe: el primer AppTest (a2839b2) usa `tests/guion_analizador.py`, que la ejecuta con `runpy`. De la revisión de las Tasks 11-19 (2026-11-10, c11051b): «el panel de antes» sólo si lo había, «Cargar de un libro» dice el tope antes de cargar. Manda el código vivo.
 
 La primera mitad de `vistas/analizador.py`: el campo de tickers con «Cargar de un libro» y «Analizar», el panel de referencia (su fecha, si es más nuevo que los candidatos, el botón para construirlo o rehacerlo), el resumen con «Actualizar precios», «Lo que viene» con los punteros macro, y el detalle con su primera pestaña, Resumen. Las demás pestañas llegan en las Tasks 15 a 17: `_PESTANAS` dice qué pestaña dibuja quién, y una pestaña sin función no se dibuja. El Analizador entra en el menú, en «Análisis», detrás de Revisar candidatos; Noticias sigue en el suyo hasta la Task 19.
 
@@ -5261,6 +5289,8 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ---
 ### Task 15: La pantalla, Fundamentales y Gráfico
 
+> **Ejecutada** (9ecda38) el 2026-10-27. Sobre el plan: el gráfico decide con ticker y bolsa (`en_widget`, `enlace` y `avisos` de ec3024c), y en Fundamentales el panel atrasado se dice una vez. Manda el código vivo.
+
 Las pestañas Fundamentales (la ficha de candidatos, con `medidores.py` sin cambios en lo que pinta) y Gráfico (TradingView, con el tema de la app y lo que se dice debajo). «Cómo se leen los medidores» sale del guion de Revisar candidatos a `medidores.como_se_leen()`, y las dos pantallas lo enseñan con las mismas palabras (D16).
 
 **Files:**
@@ -5499,6 +5529,8 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 ---
 
 ### Task 16: La pantalla, la valoración con sus deslizadores
+
+> **Ejecutada** (9ddfb07) el 2026-10-27. De la revisión de las Tasks 11-19 (2026-11-10, e3fbbc5): el error de un deslizador o de la tasa a mano se pinta con `ma.supuesto_imposible`, sin la clave interna ni el «con esos supuestos» repetido. Manda el código vivo.
 
 Decisión 10. La pestaña Valoración: los supuestos con su deslizador y su procedencia, «Restaurar los del programa», las lecturas con el distintivo «con tus supuestos», la tabla de sensibilidad y la proyección a 10 años plegada. Todo en un `st.fragment`, sin red; cada cuenta en un `try`; sin deslizadores con `error_interno`; lo movido no se guarda. Sin tasa libre (WALMEX sin token de Banxico), una casilla la pide.
 
@@ -5764,6 +5796,8 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 ### Task 17: La pantalla, noticias y calendario
 
+> **Ejecutada** (485c059) el 2026-10-27. De la revisión de las Tasks 11-19 (2026-11-10): `consultado` desde el problema de la descarga (484c078), y «Actualizar noticias» repinta «Lo que viene» y «Próximo evento» con el aviso del fallo viajando a esa pasada (c11051b). Del recorrido de la Task 21 (7b7095e): con la prensa o el calendario caídos ya no se dice «Sin noticias recientes» ni «Ninguna fecha próxima», y Seguimiento gana `Resumen.prensa_sin_consultar`. Manda el código vivo.
+
 La última pestaña: lo que hacía Noticias, para un ticker. Lo que viene, los 8-K destacados y plegados (sólo los de la SEC; las demás clases dicen por qué no tienen), la prensa con su medio y su formato, y la hora de cada descarga; y, junto a los 8-K, «Interpretar con IA» con el bloque compartido de la Task 13, sobre los seis destacados más recientes, sin cartera y guardado en `analisis/<TICKER>.json`.
 
 **Files:**
@@ -5981,6 +6015,8 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 ### Task 18: «Analizar a fondo» y «Añadir a la revisión»
 
+> **Ejecutada** (e1e3d03) el 2026-10-27. De la revisión de las Tasks 11-19 (2026-11-10): el motivo sigue a la valoración mientras no se edite (a2839b2), y sin candidatos no se añade a la revisión, y se dice por qué (c11051b). Manda el código vivo.
+
 El gate del spec: desde el Resumen del Analizador, «Añadir a la revisión» mete el ticker, con su motivo ya redactado y editable y con la valoración del programa, en los añadidos de Revisar candidatos, y salta allí; siguen en pie sus reglas. Y desde Revisar candidatos, «Analizar a fondo» manda los candidatos al Analizador (D6).
 
 **Files:**
@@ -6153,6 +6189,8 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 ---
 ### Task 19: El menú: Noticias sale
+
+> **Ejecutada** (3349555) el 2026-10-27. De la revisión de las Tasks 11-19 (2026-11-10): Primeros pasos presenta el Analizador con el análisis, donde lo pone el menú, y Rebalanceo dice que la clave de Anthropic va en Perfil y ajustes (9e4c1d6); los comentarios que aún nombraban Noticias (be29b02).
 
 «Noticias y calendario» sale de «Cartera» y se borra `vistas/noticias.py`: todo lo que hacía está ya en el Analizador (la tabla de la cabecera de este plan). Se repasan los `st.switch_page` que apuntaban a ella (Seguimiento y Primeros pasos), los textos que la nombraban y el README. Un test nuevo comprueba que ningún `switch_page` va a una pantalla que no está en el menú: ese fallo no sale al arrancar, sale al pulsar el botón.
 
@@ -6372,6 +6410,8 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 ### Task 20: Sabotaje de las guardas
 
+> **Ejecutada** el 2026-11-12, sin commit: ninguna guarda estaba sin test. 58 filas —las 35 de abajo y 23 con las guardas de la revisión de las Tasks 11-19—, y las 58 tumban al menos un test. La 17 no tumba el test que nombra la tabla: lo ve `test_el_redondeo_de_ida_y_vuelta_no_cuenta_como_movido`. La tabla con su resultado está en CONTEXTO.
+
 El punto 10 de «Cómo se prueba», con el formato de la Task 16 de N1. Antes de cada sabotaje se copia el fichero fuera del repo (al scratchpad); se aplica el cambio, se corre el fichero de tests indicado, se comprueba que **falla** el test de la tabla, y se restaura copiando la copia de vuelta. No se commitea nada. Si un sabotaje no tumba ningún test, el trabajo no es repetirlo: es averiguar qué otra cosa está devolviendo la respuesta correcta y escribir el test que falta (ése sí se commitea). Un sabotaje inerte es una pregunta.
 
 | # | Sabotaje | Test que debe caer |
@@ -6427,6 +6467,8 @@ Expected: el mismo total que antes de empezar la tarea.
 ---
 
 ### Task 21: Suite completa y recorrido con la app arrancada
+
+> **Ejecutada** el 2026-11-12 con MU, WALMEX.MX, TSM, JPM y SPY, más «Cargar de un libro» y «Analizar a fondo» (SNDK). No se pulsó la IA ni «Aprobar»: no se escribió ningún acta. Salieron tres defectos, arreglados con test: el `$` del coste (a88e486), el detalle que volvía al primero (98ab58c) y «Sin noticias recientes» con Yahoo caído (7b7095e). El recorrido entero está en CONTEXTO.
 
 El punto 12 de «Cómo se prueba». Con el navegador integrado (`preview_start` con `markowitz-app`, de `.claude/launch.json` en la raíz del repo) y los tickers MU, WALMEX.MX, TSM, JPM y SPY.
 
@@ -6497,6 +6539,8 @@ Un ticker o una pantalla que no sale como se esperaba **no se arregla aquí**: s
 ---
 
 ### Task 22: El spec, CONTEXTO.md y las notas de cada tarea
+
+> **Ejecutada** el 2026-11-12, en el commit que la acompaña.
 
 **Files:**
 - Modify: `docs/superpowers/specs/2026-10-12-analizador-individual-design.md`

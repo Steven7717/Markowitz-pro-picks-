@@ -1,28 +1,32 @@
 # Contexto del proyecto — para retomar en una sesión nueva
 
-**Última actualización:** 2026-10-25
-**Rama:** `feat/analizador-individual`, sin fusionar · **Tests:** 3.166 pasando (`uv run pytest tests/ -q -m "not red"`), 5 omitidos —dos por permisos POSIX en Windows y tres sin `numpy_financial`— más 38 marcados `red`
+**Última actualización:** 2026-11-12
+**Rama:** `feat/analizador-individual`, sin fusionar · **Tests:** 3.494 pasando (`uv run pytest tests/ -q -m "not red"`), 3 omitidos —dos por permisos POSIX en Windows y uno de `test_valoracion_dcf.py` sin `numpy_financial`— más 38 marcados `red`
 **Remoto:** `https://github.com/Steven7717/Markowitz-pro-picks-.git` — `master` es lo publicado
 **Estructura:** el programa vive en `programa/`; en la raíz sólo están los dos
 lanzadores y el `README.md`. Los comandos (`uv run pytest`, `uv run streamlit`)
 se ejecutan desde `programa/`, no desde la raíz.
 
-> **Al retomar:** N1, la primera parte del Analizador individual, está hecho en
-> la rama `feat/analizador-individual`, **sin fusionar** a `master`. Es el
-> paquete `analizador/`, que analiza cualquier ticker —una empresa de la SEC,
-> una extranjera, una de la BMV o un ETF— con la misma ficha frente al sector y
-> el mismo valor intrínseco que los candidatos, todavía sin pantalla. Ver
-> «Sub-proyecto N, parte 1: los datos de cualquier ticker». **Lo siguiente es
-> escribir el plan de N2**, la pantalla, sobre el código real de N1; después
-> vendrá N3, la IA. El spec
+> **Al retomar:** N1 y N2, las dos primeras partes del Analizador individual,
+> están hechas en la rama `feat/analizador-individual`, **sin fusionar** a
+> `master`. N1 es el paquete `analizador/`, que analiza cualquier ticker —una
+> empresa de la SEC, una extranjera, una de la BMV o un ETF— con la misma ficha
+> frente al sector y el mismo valor intrínseco que los candidatos; N2 es la
+> pantalla **Analizador**, que absorbió «Noticias y calendario». Ver
+> «Sub-proyecto N, parte 1» y «Sub-proyecto N, parte 2». **Lo siguiente es
+> escribir el plan de N3**, la IA, sobre el código real de N2, con «Lo que queda
+> para N3» de la parte 2: sobre todo los avisos de `anotar_hechos` y de
+> `pesos=()`. El spec
 > (`docs/superpowers/specs/2026-10-12-analizador-individual-design.md`) lleva al
-> final sus enmiendas del 2026-10-14, que mandan sobre el texto de arriba.
+> final sus enmiendas del 2026-10-14 y del 2026-10-26, que mandan sobre el
+> texto de arriba.
 >
-> **Hay un test roto conocido, fuera de N:**
-> `tests/test_seguimiento_rendimiento.py::test_contraste_contra_numpy_financial`
-> llama a `numpy_financial.xirr`, que no existe. No está marcado `red`: se omite
-> porque `numpy_financial` no está instalado —son dos de los cinco omitidos, uno
-> por caso—, y por eso la suite no lo ve. Se arreglará al terminar N.
+> **El test roto conocido ya está arreglado** (23b8358, 2026-11-12):
+> `tests/test_seguimiento_rendimiento.py` contrastaba la TIR con
+> `numpy_financial.xirr`, que no existe, y se omitía siempre por no estar
+> instalada la librería: nunca contrastó nada. Ahora la referencia es una
+> bisección propia sobre la misma ecuación, con un caso de solución exacta
+> (10 %). Por eso los omitidos bajan de cinco a tres.
 >
 > Lo último que entró en `master`, el 2026-10-14, fue el sub-proyecto M: el
 > valor intrínseco de cada candidato en Revisar candidatos —cuatro lecturas,
@@ -86,7 +90,7 @@ El objetivo mayor es construir, **aguas arriba de esa app**, un sistema donde un
 | K | El panel de seguimiento | Monitor real de la cartera | ✅ **terminado** |
 | L | Rendimiento real en pesos (MXN) | TWR/TIR en pesos y reales (Fisher), vía Banxico | ✅ **terminado** |
 | M | Valor intrínseco | Veredicto por cuatro lecturas y tres votos en cada candidato | ✅ **terminado** |
-| N | Analizador individual | La mecánica de candidatos para cualquier ticker, con gráfico, noticias e IA | 🔨 **en curso**: N1 (datos) hecho; N2 (pantalla) y N3 (IA) pendientes |
+| N | Analizador individual | La mecánica de candidatos para cualquier ticker, con gráfico, noticias e IA | 🔨 **en curso**: N1 (datos) y N2 (pantalla) hechos; N3 (IA) pendiente |
 
 ## Resultado del sub-proyecto D
 
@@ -1865,6 +1869,302 @@ cuando se escriba; esto es lo que no puede olvidar:
 - **La caché de Banxico no se puede aislar en los tests `red`**: su `raiz` por
   defecto se fija al definir la función.
 
+## Sub-proyecto N, parte 2: la pantalla
+
+La pantalla **Analizador** (`vistas/analizador.py`), sobre el paquete de N1, con
+**328 tests más** que antes del plan —de 3.166 a 3.494—. Está en la rama
+`feat/analizador-individual`, **sin fusionar**. Plan:
+`docs/superpowers/plans/2026-10-26-analizador-n2-pantalla.md`, donde cada tarea
+lleva al principio lo que encontró su revisión; el spec lleva sus enmiendas del
+2026-10-26 al final.
+
+Desde la app se analiza cualquier ticker con su ficha frente al sector, su
+valor intrínseco con deslizadores, el gráfico de TradingView, sus noticias y su
+calendario, y se lleva a Revisar candidatos con su valoración en el acta.
+«Noticias y calendario» salió del menú sin que se perdiera lo que hacía. **La
+pantalla sólo pinta**: lo que decide vive en módulos sin Streamlit, con tests.
+La IA nueva —tesis, MD&A, explicar la valoración— es de N3.
+
+### Qué entrega
+
+- **`vistas/analizador.py`**: arriba, el campo de tickers (hasta `MAX_TICKERS`,
+  con clave y sin `value=`), «Cargar de un libro» (sólo tickers) y «Analizar»
+  con barra de progreso; el panel de referencia con sus dos fechas y el botón
+  de construirlo o rehacerlo; el resumen, con «Actualizar precios»; «Lo que
+  viene» de todos y los punteros macro; y el detalle, elegido con un
+  desplegable, en cinco pestañas —Resumen, Valoración, Fundamentales, Gráfico,
+  Noticias y calendario; un ETF, tres—. Los deslizadores viven en un
+  `st.fragment`. «Añadir a la revisión» va al final del Resumen.
+- **`medidores_analizador.py`**: las palabras —la etiqueta de cada motivo, los
+  rótulos del puesto global, los avisos de un ticker, la fila del resumen, la
+  moneda del precio (`en_moneda_del_precio`), las tablas de sensibilidad y de
+  proyección, los textos del panel, de las noticias y del gate (`puerta`,
+  `motivo_para_la_revision`)—.
+- **`analizador/sesion.py`** (las claves de la sesión, los encargos de otras
+  pantallas, la caché de análisis que vale mientras no cambie el panel, el
+  motivo redactado y el elegido del detalle), **`deslizadores.py`** (qué se
+  mueve, entre qué cifras y qué cuenta como movido), **`grafico.py`** (el
+  símbolo de TradingView, si se incrusta o se enlaza, y el HTML del widget) y
+  **`archivo.py`** (dónde se guardan las lecturas de la IA: `analisis/`).
+- **En N1**: `referencia.construir_panel`, `frescura`, `trimestre_final`,
+  `pares_en_panel` y `Referencia.filas_posteriores`; `analisis.con_precio_nuevo`
+  y `pilar_valoracion`; una ficha que falla ya no se lleva la fila;
+  `divisas.SEPARACION_MAXIMA_SUBASTAS`.
+- **Fuera de `analizador/`**: `dcf.proyeccion`, que `valor_empresa` pasa a
+  sumar; `supuestos.SUPUESTOS_DE`, `SupuestoImposible` y `CosteNoPositivo`;
+  `Anadido.valoracion` en el acta, `problema_al_anadir` y
+  `valoracion_de_entrada`; `medidores.como_se_leen()`;
+  `panel_ia.interpretar_hechos`, compartido con Seguimiento;
+  `posiciones.tickers_a_mirar`; `noticias.texto.cuanto_falta`;
+  `Resumen.hechos_sin_consultar` y `prensa_sin_consultar`; «Analizar a fondo»
+  en candidatos y «Abrir en el Analizador» en Seguimiento. **`vistas/noticias.py`
+  se borró**; el menú pone el Analizador en «Análisis», detrás de Revisar
+  candidatos.
+
+### Decisiones que no hay que relitigar
+
+Las doce del usuario (2026-10-26):
+
+1. **El panel se construye aparte** (`construir_panel`, atómico): «Generar
+   gratis» pisaría las fichas con IA pagadas, las casillas y los añadidos.
+2. **La IA es de N3**; «Interpretar con IA» junto a los 8-K, que ya existía, sí
+   está.
+3. **El valor se enseña en la moneda del precio** (`valor / tipo_precio`).
+4. **El gate sólo deja pasar lo que cotiza en dólares**; al acta, la valoración
+   del programa en su moneda, con `moneda` y `divisa`.
+5. **`sin_prima_pais` sólo fuera del S&P 500.**
+6. **AAPL.MX y parecidos se avisan como la misma empresa**, sin fusionarlos.
+7. **El Bono M enseña su subasta y avisa pasados 56 días.**
+8. **Las etiquetas de todos los motivos, en un módulo puro con tests**
+   (`medidores_analizador.py`).
+9. **Casos con rótulo propio**: el puesto global, el veredicto sin valor base
+   (7203.T), BRK-B sin múltiplos, el voto de pares con la empresa excluida, los
+   semestrales en `historia_corta`.
+10. **Los deslizadores, en un fragmento**, sin red, cada llamada en un `try`;
+    lo movido no se guarda.
+11. **El `Analisis` se cachea en la sesión**, con barra de progreso.
+12. **El gráfico es el Advanced Chart de TradingView**, con su tabla congelada
+    de bolsas y el texto del estudio D.
+
+Las de este plan (D1–D23):
+
+- **D1.** «La misma empresa» sólo con `.MX`.
+- **D2.** «Del S&P 500» es la tabla congelada de sectores, no el panel.
+- **D3.** Las preferentes se reconocen por su forma y se avisan, sin bloquear.
+- **D4.** El detalle se elige con un desplegable, no pulsando la fila.
+- **D5.** Un ETF no tiene «Añadir a la revisión».
+- **D6.** «Analizar a fondo» manda los quince y deja elegido el de la ficha.
+- **D7.** El bloque de «Interpretar con IA» es uno, compartido, sobre los seis
+  destacados, con `pesos=()` y guardado en `analisis/<TICKER>.json`.
+- **D8.** «Actualizar precios» respeta la caché de quince minutos.
+- **D9.** Un defecto en la ficha frente al sector no se lleva la fila.
+- **D10.** La proyección a 10 años sale de `dcf.proyeccion`, que suma el valor.
+- **D11.** «Panel más nuevo que los candidatos», por la hora de los ficheros.
+- **D12.** «Panel atrasado», por `filas_posteriores` y
+  `sin_trimestres_comparables`.
+- **D13.** «Cargar de un libro» rellena el campo y no analiza.
+- **D14.** Sin `EDGAR_IDENTITY` el resolver no cambia; se avisa una vez.
+- **D15.** En el recorrido, «Aprobar» escribe un acta real: se pide permiso.
+- **D16.** El glosario y «Cómo se leen los medidores», una vez, encima de las
+  pestañas.
+- **D17.** El motivo redactado habla de los supuestos del programa.
+- **D18.** La pantalla no usa `analizar_varios`.
+- **D19.** No se tocan las dos `.info` por ticker ni las duplicaciones de N1.
+- **D20.** «Ver todas las noticias» de Seguimiento pasa a «Abrir en el
+  Analizador».
+- **D21.** El gráfico no deja cambiar de símbolo.
+- **D22.** Un ticker con sufijo de bolsa no se incrusta: se enlaza. Manda el
+  código vivo sobre el plan: ya no hay `SOLO_EN_TRADINGVIEW`, sino
+  `COMPROBADAS_EN_WIDGET`, hoy vacía.
+- **D23.** `st.iframe` y `width="stretch"`, que la 1.62 no da por obsoletos.
+
+### Treinta y cuatro defectos, y ninguno en lo que se midió
+
+| Defecto | Cómo se detectó |
+|---|---|
+| Tras una lectura de 8-K fallida, Seguimiento no pintaba lo ya guardado: `leidas` se reasignaba con lo que devuelve `preparar` | Al planear (Task 13) |
+| El gráfico de TradingView salía de 150 píxeles en un marco de 520: con `autosize` reescribe el contenedor, y sin altura en `html` y `body` no hay de dónde tomarla | Al aplicar el plan en un worktree, con la pantalla arrancada |
+| El widget no enseña la BMV: «Símbolo solo disponible en TradingView» con `BMV:WALMEX` | Ídem |
+| Streamlit 1.62 da por obsoletos `components.v1.html` y `use_container_width` | Ídem, en la consola |
+| **Un ticker de fuera enseñaba el gráfico de otra empresa**: sin prefijo, T.TO (TELUS) salía como AT&T y BA.L (BAE) como Boeing | Revisión de las Tasks 1-10 (ec3024c) |
+| En Windows, `os.replace` da `PermissionError` mientras otra sesión lee el panel | Ídem (e16f150) |
+| `historia_corta` fuera de la SEC negaba que la empresa fuera joven, y una salida a bolsa reciente también cae ahí; «ADR» sin glosar; la celda no decía «fuera del ranking» | Ídem (d1c8480) |
+| Un defecto al actualizar el precio se llevaba la fila, que seguía bien | Ídem (f8b0268) |
+| Los deslizadores dependían de un módulo de pantalla para la lista de supuestos de cada método | Ídem (d94cc9e) |
+| Quitar el `texto.plano` de «Valor intrínseco al añadirla» en candidatos no lo notaba ningún test | Ídem (ce2a853) |
+| Faltaba el test de que un panel vacío no pisa el de antes | Revisión de la Task 3 (c80aa47) |
+| `construir_panel` puede lanzar `OSError`, y la pantalla sólo capturaba `CorridaAbortada` | Al ejecutar la Task 14 |
+| El panel atrasado se leía tres veces seguidas (7203.T): el aviso, la exclusión y el detalle de pares | Ídem: `panel_dicho` |
+| Tras un defecto al actualizar, la pantalla afirmaba «precio actualizado» con la fila de antes | Ídem: dice la hora del precio que tiene la fila |
+| `AppTest.from_file("vistas/analizador.py")` choca con un import circular que en la app no existe (`vistas/` primero en `sys.path`) | Al escribir el primer AppTest: `tests/guion_analizador.py` lo ejecuta con `runpy` |
+| **El motivo redactado conservaba el veredicto y la fecha de antes** al rehacer el análisis, y al acta llegaba la valoración nueva con ese motivo | Revisión de las Tasks 11-19 (a2839b2) |
+| Un supuesto imposible enseñaba la clave interna: «k_e: con esos supuestos el coste del capital propio sale -25.52%» | Ídem (e3fbbc5) |
+| **Sin 8-K se afirmaba «se miró y no había ninguno» aunque la SEC no hubiera respondido**, en el Analizador y en Seguimiento, donde `sin_cachear` no veía a quien tenía prensa | Ídem (484c078) |
+| Con AMX, la guarda que ya nombró el voto de pares se repetía bajo la tarjeta | Ídem (c11051b) |
+| «Sin ficha frente al sector» con dos veces dos puntos | Ídem |
+| Al fallar la escritura del panel se hablaba de «el panel de antes» sin que lo hubiera | Ídem |
+| Sin precio se leía «Precio: —, cotización del —.» | Ídem |
+| «Actualizar noticias» no repintaba «Lo que viene» ni «Próximo evento», y el aviso del fallo se perdía en la pasada que repinta | Ídem |
+| «Cargar de un libro» no decía antes de cargar que el libro pasaba del tope | Ídem |
+| Sin candidatos se añadía a la revisión y se saltaba a una pantalla que no lo enseñaba | Ídem |
+| GICS, IFRS, 6-K y los códigos de los 8-K sin glosar | Ídem |
+| Primeros pasos presentaba el Analizador como tarjeta 6 bajo «Seguir lo que compraste»; Rebalanceo decía que la clave de Anthropic se pone en Aprobación | Ídem (9e4c1d6) |
+| Comentarios que aún nombraban la pantalla de Noticias | Ídem (be29b02) |
+| El sabotaje 17 de la tabla del plan apuntaba a un test que no lo ve (con las cifras de su doble la ida y vuelta sale exacta) | Task 20: lo ve su hermano, y la tabla de abajo lo corrige |
+| **El coste de interpretar los 8-K salía «0.26 **, y normalmente alrededor de **0.12 .»**: los dos `$` se leían como LaTeX. Anterior a N2, en el bloque compartido | Recorrido de la Task 21 (a88e486) |
+| **«Actualizar precios» devolvía el detalle al primer ticker**: acaba en `st.rerun()` antes del desplegable, y Streamlit tira la clave de un widget que no se dibujó | Ídem (98ab58c) |
+| **Con Yahoo caído y nada guardado, la prensa decía a la vez «no se pudo traer» y «Sin noticias recientes.»**; igual el calendario | Ídem (7b7095e) |
+| En Seguimiento, con los 8-K guardados y la prensa sin responder, «si no hay, es que la fuente no devolvió ninguno» | Ídem, buscando la misma clase (7b7095e) |
+| El test de la TIR contra `numpy_financial.xirr`, que no existe, se omitía siempre y nunca contrastó nada | Fuera de N (23b8358) |
+
+**La lección: ninguno de los defectos de la pantalla estaba en una cuenta.** Las
+cuentas —la moneda del precio, la proyección, los deslizadores— salieron bien a
+la primera y sus sabotajes las cubren. Lo que falló fue siempre lo que la
+pantalla **afirmaba**: que se miró cuando no se pudo mirar (8-K, prensa,
+calendario), que había un panel de antes, que el precio estaba al día, que el
+motivo decía el veredicto de ahora. Es el patrón de «sin hechos recientes» de H,
+que volvió tres veces en tres fuentes distintas. Y los tres del recorrido sólo
+se veían con la app arrancada y Yahoo caído de verdad: ningún test los
+buscaba, porque nadie había pensado en preguntar.
+
+### Los sabotajes de la Task 20
+
+Cada sabotaje: copia del fichero fuera del repo, el cambio, el fichero de tests
+indicado, y restauración desde la copia con `git diff --quiet` limpio. 58 filas:
+las 35 del plan y 23 añadidas (**A**) con las guardas de la revisión de las
+Tasks 11-19. **Las 58 tumban al menos un test**; la 17 no tumbaba el que
+nombraba el plan, y sí su hermano.
+
+| # | Sabotaje | Test que debe caer | Resultado |
+|---|---|---|---|
+| 1 | En `ma.en_moneda_del_precio`, deja el precio sin dividir (`"precio": valoracion.get("precio")`) | `test_los_valores_se_ensenan_en_la_moneda_del_precio` | Cae (1) |
+| 2 | En `ma.en_moneda_del_precio`, escribe en `valoracion` en vez de en una copia | `test_los_valores_se_ensenan_en_la_moneda_del_precio` | Cae (1) |
+| 3 | En `ma.puerta`, quita la comparación con `"USD"` (devuelve None salvo a un ETF) | `test_lo_que_cotiza_en_pesos_no_y_se_explica` | Cae, con `test_lo_que_cotiza_en_otra_moneda_que_no_es_el_peso_tampoco_pasa` y `test_sin_identidad_la_puerta_no_revienta_y_no_deja_pasar` (3) |
+| 4 | En `ma.aviso_sin_prima_pais`, quita `or analisis.fuente_sector == "sp500"` | `test_sin_prima_pais_solo_fuera_del_sp500` | Cae (1) |
+| 5 | En `ma.aviso_misma_empresa`, acepta cualquier sufijo (`base = ticker.rpartition(".")[0]`) | `test_la_misma_empresa_solo_en_el_sic_de_la_bmv` | Cae (1) |
+| 6 | En `ma.aviso_bono_m`, compara con 0 días en vez de con `SEPARACION_MAXIMA_SUBASTAS` | `test_el_bono_m_viejo_se_avisa_y_el_reciente_no` | Cae (1) |
+| 7 | En `ma.texto_exclusion`, quita la rama de `filas_posteriores` | `test_historia_corta_con_el_panel_atrasado_culpa_al_panel` | Cae, con `test_con_el_panel_ya_dicho_la_exclusion_no_lo_repite` y `test_con_la_guarda_ya_dicha_queda_su_causa_que_nadie_ha_dicho` (3) |
+| 8 | En `ma.detalle_pares`, quita la rama del pilar de valoración vacío | `test_brk_b_no_vota_por_sus_multiplos_y_no_por_falta_de_pares` | Cae (1) |
+| 9 | En `ma.fila`, el valor base sale de `analisis.valoracion` sin pasar por `en_moneda_del_precio` | `test_el_valor_de_la_fila_va_en_la_moneda_del_precio` | Cae (1) |
+| 10 | En `ma.motivo_de_la_valoracion`, quita la rama del Bono M | `test_una_fallida_por_el_bono_m_dice_el_motivo_concreto` | Cae (1) |
+| 11 | En `referencia.frente_al_sector`, `posteriores = 0` siempre | `test_las_filas_posteriores_al_panel_se_cuentan` | Cae (1) |
+| 12 | En `Frescura.panel_posterior`, compara con `timedelta(0)` | `test_un_panel_escrito_con_sus_candidatos_no_es_posterior` | Cae (1) |
+| 13 | En `referencia.construir_panel`, escribe directamente en `ruta` (sin temporal ni `os.replace`) | `test_un_corte_al_escribir_deja_el_panel_de_antes_y_ningun_temporal` | Cae, con los dos de los reintentos del reemplazo (3) |
+| 14 | En `referencia.construir_panel`, llama a `ranking.run.guardar(resultado, ruta.parent)` en vez de escribir el panel | `test_construir_el_panel_solo_escribe_el_panel` | Cae, con los tres de la escritura atómica (4) |
+| 15 | En `analisis._analizar`, quita el `try` de `_frente_al_sector` | `test_un_defecto_en_la_ficha_no_se_lleva_la_identidad_ni_la_valoracion` | Cae (1) |
+| 16 | En `analisis.con_precio_nuevo`, devuelve siempre `analizar(...)` | `test_actualizar_el_precio_no_rehace_la_ficha_frente_al_sector` | Cae, con `test_un_defecto_al_actualizar_deja_la_traza_y_conserva_la_fila` (2) |
+| 17 | En `deslizadores.cambios`, compara con `!=` en vez de `math.isclose` | ~~`test_un_deslizador_sin_tocar_no_cuenta_como_movido`~~ → `test_el_redondeo_de_ida_y_vuelta_no_cuenta_como_movido` | **El test de la tabla no cae**: con las cifras de su doble la ida y vuelta por la pantalla sale exacta. Cae su hermano, que usa 0,029 a propósito (1). La guarda está protegida; la tabla nombraba el test equivocado |
+| 18 | En `deslizadores.rango`, no ensancha el recorrido | `test_el_recorrido_se_ensancha_para_que_quepa_la_cifra_del_programa` | Cae (1) |
+| 19 | En `deslizadores.movibles`, devuelve `SUPUESTOS_DE[metodo_]` entero | `test_lo_derivado_nunca_tiene_deslizador` | Cae, con otros cuatro (5) |
+| 20 | En `dcf.proyeccion`, descuenta con `(1 + wacc) ** (ano - 1)` | `test_dos_etapas_contra_un_valor_presente_escrito_a_mano` y `test_la_proyeccion_son_diez_anos_con_los_crecimientos_del_dcf` | Caen los dos, con los de Gordon y la perpetuidad (4) |
+| 21 | En `grafico.simbolo`, no quita el sufijo de bolsa | `test_el_simbolo_de_tradingview[WALMEX.MX-MEX-BMV:WALMEX]` | Cae, con otras tres bolsas y los dos del enlace (6) |
+| 22 | En `grafico.html`, quita el `.replace("</", "<\\/")` | `test_nada_del_simbolo_puede_cerrar_la_etiqueta_del_script` | Cae (1) |
+| 23 | En `sesion.recoger`, `estado.get(CANAL)` en vez de `pop` | `test_un_encargo_se_consume_al_usarlo` | Cae, con `test_lo_que_no_es_un_encargo_se_tira` (2) |
+| 24 | En `sesion.preparar`, no vacía la caché al cambiar el panel | `test_los_analisis_valen_mientras_no_cambie_el_panel` | Cae (1) |
+| 25 | En `sesion.pendientes`, sólo los que faltan (quita la condición de la clase) | `test_se_analiza_lo_que_falta_y_lo_que_fallo_en_su_orden` | Cae (1) |
+| 26 | En `sesion.restaurar_deslizadores`, borra también la tasa puesta a mano | `test_restaurar_borra_lo_movido_y_deja_la_tasa_puesta_a_mano` | Cae (1) |
+| 27 | En `acta.construir_acta`, no escribe `"valoracion"` en los manuales | `test_el_anadido_desde_el_analizador_llega_al_acta_con_su_valoracion` | Cae, con `test_un_anadido_a_mano_lleva_la_valoracion_vacia` (2) |
+| 28 | En `acta.problema_al_anadir`, quita la comprobación del ranking | `test_problema_al_anadir_dice_lo_mismo_que_dira_el_acta` | Cae (1) |
+| 29 | En `acta.valoracion_de_entrada`, `entrada["valoracion"]` en vez de `.get` | `test_un_acta_vieja_sin_valoracion_en_sus_anadidos_se_sigue_leyendo` | Cae (1) |
+| 30 | En `posiciones.tickers_a_mirar`, sin los del objetivo | `test_los_tickers_de_un_libro_son_lo_que_tiene_mas_lo_que_deberia_tener` | Cae, con `test_los_tickers_de_un_libro_salen_en_orden_alfabetico` (2) |
+| 31 | En `vistas/analizador.py`, `_a_la_revision` añade `valoracion=None` | `test_lo_que_va_al_acta_es_la_valoracion_del_programa` | Cae, con el AppTest `test_con_candidatos_el_ticker_entra_en_los_anadidos_con_su_motivo` (2) |
+| 32 | En `vistas/analizador.py`, saca `sensibilidad(entradas, cambios)` del `try` | `test_cada_cuenta_de_los_deslizadores_va_en_un_try_con_value_error` | Cae, con el AppTest `test_un_deslizador_imposible_se_dice_en_palabras` (2) |
+| 33 | En `vistas/analizador.py`, `_resumen` pinta `ma.nombre(analisis)` sin `texto.plano` | `test_lo_que_no_escribio_el_programa_se_escapa_antes_de_pintarlo` | Cae (1) |
+| 34 | En `vistas/panel_ia.py`, `interpretar_hechos` desempaqueta lo de `preparar` en `leidas` | `test_tras_un_fallo_lo_guardado_se_sigue_pintando` | Cae (1) |
+| 35 | En `vistas/seguimiento.py`, el botón vuelve a `st.switch_page("vistas/noticias.py")` | `test_cada_switch_page_va_a_una_pantalla_del_menu_que_existe` | Cae (1) |
+| A1 | En `sesion.preparar_motivo`, un `setdefault` a secas (`if clave not in estado:`): sin tocar ya no sigue a la valoración | `test_un_motivo_sin_tocar_sigue_a_la_valoracion` | Cae, con el AppTest `test_al_rehacer_el_analisis_el_motivo_sin_tocar_dice_el_veredicto_nuevo` (2) |
+| A2 | En `sesion.preparar_motivo`, editado nunca avisa (`return False`) | `test_un_motivo_editado_se_conserva_y_se_avisa_de_que_la_valoracion_cambio` | Cae, con el AppTest `test_al_rehacer_el_analisis_el_motivo_editado_se_conserva_y_se_avisa` (2) |
+| A3 | En `ma.supuesto_imposible`, quita la rama de `CosteNoPositivo` (sale `str(error)`) | `test_un_coste_no_positivo_se_dice_en_palabras_y_con_el_formato_de_la_pantalla` | Cae, con los AppTest `test_un_deslizador_imposible_se_dice_en_palabras` y `test_una_tasa_a_mano_imposible_se_dice_en_palabras` (3) |
+| A4 | En `supuestos.aplicar`, `en_palabras = nombre` (la clave interna en el mensaje) | `test_lo_que_se_rechaza_se_dice_en_palabras_y_sin_la_clave_interna` | Caen tres de sus casos (3) |
+| A5 | En `supuestos.exigir_costes_positivos`, `SupuestoImposible` con «k_e: con esos supuestos…» en vez de `CosteNoPositivo` | `test_lo_que_se_rechaza_se_dice_en_palabras_y_sin_la_clave_interna` | Cae, con los dos del coste nulo o negativo, la tasa a mano y los de pantalla (8) |
+| A6 | En `vistas/analizador.py`, la tasa a mano rechazada se pinta con `{error}` y no con `ma.supuesto_imposible` | `test_una_tasa_a_mano_imposible_se_dice_en_palabras` | Cae (1) |
+| A7 | En `vistas/analizador.py`, el deslizador imposible se pinta con `{error}` | `test_un_deslizador_imposible_se_dice_en_palabras` | Cae (1) |
+| A8 | En `panel_ia.interpretar_hechos`, quita la rama de `not consultado` | `test_sin_hechos_porque_la_fuente_fallo_no_se_afirma_que_no_habia` | Cae (1) |
+| A9 | En `vistas/analizador.py`, `_noticias` pasa `consultado=True` siempre | `test_si_la_consulta_de_8k_fallo_no_se_afirma_que_no_habia_ninguno` | Cae (1) |
+| A10 | En `vistas/analizador.py`, `_hechos` dice «Ningún 8-K» sin mirar `consultado` | `test_si_la_consulta_de_8k_fallo_no_se_afirma_que_no_habia_ninguno` | Cae (1) |
+| A11 | En `noticias.resumen`, no apunta en `hechos_sin_consultar` al que no tiene consulta de 8-K | `test_se_nombra_de_quien_no_hay_guardada_ninguna_consulta_de_8k` | Cae (1) |
+| A12 | En `vistas/seguimiento.py`, `consultado=True` en vez de `not resumen_noticias.hechos_sin_consultar` | `test_seguimiento_dice_si_los_8k_de_todos_se_llegaron_a_consultar` | Cae (1) |
+| A13 | En `ma.texto_exclusion`, quita la rama de `guarda_dicha` | `test_con_la_guarda_ya_dicha_queda_su_causa_que_nadie_ha_dicho` | Cae, con el AppTest `test_la_guarda_que_ya_nombro_el_voto_de_pares_no_se_repite` (2) |
+| A14 | En `vistas/analizador.py`, `texto_exclusion` sin `guarda_dicha=` | `test_la_guarda_que_ya_nombro_el_voto_de_pares_no_se_pinta_otra_vez` | Cae (1) |
+| A15 | En `ma.sin_ficha`, quita la rama del panel atrasado ya dicho | `test_sin_ficha_dice_su_causa_salvo_si_ya_se_dijo` | Cae (1) |
+| A16 | En `ma.fallo_al_escribir_el_panel`, «el panel de antes» siempre (`if True`) | `test_al_fallar_la_escritura_del_panel_solo_se_habla_del_de_antes_si_lo_habia` | Cae, con el AppTest `test_al_fallar_construir_el_panel_no_se_habla_de_un_panel_de_antes` (2) |
+| A17 | En `vistas/analizador.py`, `habia_panel=True` | `test_al_fallar_construir_el_panel_no_se_habla_de_un_panel_de_antes` | Cae (1) |
+| A18 | En `ma.precio_y_hora`, sin la rama de la identidad sin precio | `test_el_precio_con_su_hora_o_que_no_lo_hay` | Cae, con el AppTest `test_sin_precio_se_dice_que_no_lo_hay` (2) |
+| A19 | En `ma.pie_del_libro`, nunca dice el tope (`if False:`) | `test_un_libro_con_mas_activos_que_el_tope_lo_dice_antes_de_cargar` | Caen el de medidores y el AppTest del mismo nombre (2) |
+| A20 | En `vistas/analizador.py`, sin candidatos se sigue (`del_ranking = set()` en vez de `return`) | `test_sin_candidatos_no_se_anade_y_se_dice_por_que[fallo0-…]` | Cae (1) |
+| A21 | En `vistas/analizador.py`, «Actualizar noticias» no guarda los fallos para la pasada que repinta | `test_si_actualizar_noticias_falla_el_aviso_sobrevive_a_la_pasada_que_repinta` | Cae (1) |
+| A22 | En `vistas/analizador.py`, la pasada que repinta no lee los fallos de la anterior (`aviso = problema`) | `test_si_actualizar_noticias_falla_el_aviso_sobrevive_a_la_pasada_que_repinta` | Cae (1) |
+| A23 | En `vistas/rebalanceo.py`, la clave de Anthropic vuelve a ponerse «en Aprobación» | `test_la_clave_de_anthropic_se_pone_en_perfil_y_no_en_aprobacion` | Cae (1) |
+
+### El recorrido de la Task 21
+
+La app arrancada el 2026-11-12, con el panel de referencia del 05/11/2026
+(trimestres hasta 2026Q3) y los candidatos del mismo día: no hizo falta
+construirlo. `salidas/` y `actas/` quedaron idénticos y `analisis/` no llegó a
+existir. No se pulsó la IA ni «Aprobar»: **no se escribió ningún acta**, porque
+no se pidió permiso para escribir una real (D15), y el acta se comprueba con los
+tests de la Task 12. Yahoo Finance devolvía «YAHOO! FINANCE IS CURRENTLY DOWN»
+para la prensa durante todo el recorrido. El menú: «Análisis» con Optimizador,
+Revisar candidatos y Analizador; «Cartera» sin Noticias y calendario.
+
+| Ticker | Lo que sale |
+|---|---|
+| MU | `sec`, Information Technology de la tabla del S&P 500, 797,72 $. En rango: valor base 666,51, margen −16,4 %; puesto global 1 de 423. Siete deslizadores, sensibilidad 5×5 y proyección; la beta de 2,09 a 1,89 da 735,00 «con tus supuestos», y «Restaurar» vuelve a 666,51. Fundamentales contra «las otras 72 empresas»; gráfico `NASDAQ:MU` con el texto del estudio D; 16 8-K (10 destacados, 6 plegados) y «Interpretar estos hechos (6 nuevos)» con su coste. «Añadir a la revisión» se rechaza: ya está en el ranking |
+| WALMEX.MX | `sin_sec`, Consumer Staples de Yahoo, 54,28 MXN. En rango, base 40,70; tasa libre del 9,2 % del Bono M, subasta del 2026-10-22 (21 días, sin aviso); 244 de 424 con la nota de que se cuenta a sí misma; la frase del riesgo país; el gráfico no se incrusta y enlaza a `BMV:WALMEX`; «No presenta en la SEC». No va a la revisión: cotiza en pesos |
+| TSM | `extranjera_sec` (20-F), IFRS anual, estados de TWD a dólares; aviso sin prima por riesgo país (Taiwan); base 275,81 $; 25 de 424; los 6-K explicados. El motivo redactado, «Analizador, 12/11/2026: en rango, supuestos del programa.», y «Añadir» salta a Revisar candidatos con «Aprobar 1 empresas y pasar al optimizador» |
+| JPM | `sec`, Financials, beneficio residual (ROE exigido 15,0 % frente a 15,8 %), EPV «No aplica»; fuera del ranking con 4 de 17 KPIs, y la frase de que el voto de pares cuenta aunque la guarda la dejaría fuera; sin sensibilidad ni proyección; seis deslizadores propios |
+| SPY | ETF: sólo Resumen, Gráfico (`AMEX:SPY`) y Noticias y calendario; sin valoración, y la frase de añadirlo a mano |
+
+«Lo que viene» salió con los eventos de los cinco y los cuatro punteros macro.
+«Actualizar precios» tardó 3 s y la hora no cambió (menos de quince minutos).
+«Cargar de un libro» trajo los cinco activos de un libro real, sólo tickers.
+«Analizar a fondo» desde SNDK aterrizó con los quince y SNDK elegido, con la
+ficha idéntica a la de candidatos (+0,64/+1,22/+0,03/+1,29) y el puesto global
+2. Salieron tres defectos, ya arreglados con test (tabla de arriba): el `$` del
+coste, el detalle que volvía al primero y «Sin noticias recientes» con Yahoo
+caído.
+
+### Lo que queda para N3
+
+- **La pestaña IA**, con sus tres bloques —tesis y riesgos, contraste con el
+  MD&A y explicación de la valoración— y su confirmación con bandera; y **la
+  misma confirmación en los 8-K**, que hoy van sin ella, como en Seguimiento.
+- **`interprete.archivo.anotar_hechos` reescribe `analisis/<TICKER>.json` sólo
+  con `hechos` y `rebalanceo`**: una clave que N3 guarde ahí se perdería en la
+  siguiente lectura de 8-K. Hay que cambiar cómo se escribe antes de añadir
+  claves.
+- **Con `pesos=()`, el prompt de `interprete/noticias.py` dice «Solo puedes
+  nombrar los activos que aparecen en la cartera de abajo» con la cartera vacía.** Mirar
+  cómo lo lee el modelo con un ticker suelto antes de construir encima.
+
+### Lo que N2 no resuelve
+
+- **El precio de la fila y el de la valoración difieren unos céntimos**: salen
+  de dos `.info` con cachés de quince minutos separadas (MU 797,72 y 797,59;
+  TSM 406,91 y 406,80; JPM 343,87 y 343,79 en el recorrido). D19 lo dejó fuera.
+- **Un resto del Analizador en otras páginas**: en una sesión del recorrido,
+  tras «Añadir a la revisión» de TSM, sus pestañas siguieron dibujadas en
+  Revisar candidatos, Optimizador y Seguimiento hasta recargar, y en otra el
+  `switch_page` no cambió de página (TSM sí quedó añadido). Las dos con el
+  panel del navegador **oculto**; con la ventana visible y en una reproducción
+  mínima no se reprodujo. Sin confirmar.
+- **La fecha de los estados va un trimestre por detrás** en la valoración (MU
+  «estados hasta 2026-05-28» con el 10-K de 2026-09 ya presentado; JPM hasta
+  2026-06-30): es la limitación de `Valoracion.estados_hasta`, que viene de M.
+- **El error de la prensa llega en crudo**: «MU: *** YAHOO! FINANCE IS
+  CURRENTLY DOWN! ***».
+- **Seguimiento no tiene AppTest**: sus arreglos de N2 se prueban leyendo la
+  fuente, y su pestaña Noticias no se recorrió (el resto del Analizador la
+  tapaba).
+- **El motivo editado de «Añadir a la revisión» se pierde tras «Actualizar
+  precios»**: vive en un `st.form` que no se dibuja en esa pasada, Streamlit
+  tira su clave y el programa lo vuelve a redactar.
+- **Ningún ticker con sufijo de bolsa se incrusta en el gráfico**:
+  `COMPROBADAS_EN_WIDGET` está vacía, y cada bolsa hay que verla en el widget
+  antes de añadirla.
+- **`analizar_varios` sigue sin uso en pantalla** (D18): sólo lo usa
+  `scripts/sondear_analizador.py`.
+
 ## La auditoría (2026-09-13/14) — y el patrón que encontró
 
 Auditoría completa en seis frentes, arreglo, y **re-auditoría con agentes que no
@@ -2367,7 +2667,7 @@ para arreglar algo que se arregla solo no se escribe.
 
 ```bash
 # Todos estos se ejecutan desde programa/, no desde la raiz del repo.
-pytest tests/ -q -m "not red"       # 3.166 tests, sin red
+pytest tests/ -q -m "not red"       # 3.494 tests, sin red
 python -m research.run              # correr el estudio (~5 min, luego caché)
 streamlit run app.py                # la app: optimizador + pagina de revision
 python scripts/bootstrap_universe.py   # regenerar el snapshot del universo

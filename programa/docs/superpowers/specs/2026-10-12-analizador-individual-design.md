@@ -1,8 +1,8 @@
 # Analizador individual — sub-proyecto N
 
 **Fecha:** 2026-10-12
-**Estado:** N1 (los datos de cualquier ticker) implementado en la rama
-`feat/analizador-individual`; N2 (la pantalla) y N3 (la IA) pendientes
+**Estado:** N1 (los datos) y N2 (la pantalla) implementados en la rama
+`feat/analizador-individual`; N3 (la IA) pendiente
 **Depende de:** el sub-proyecto M, el valor intrínseco
 (`2026-10-12-valor-intrinseco-design.md`). N no empieza hasta que M esté en
 `master`.
@@ -683,3 +683,98 @@ promete:
 Donde estas enmiendas contradicen el texto de arriba, mandan ellas. El texto de
 arriba no se reescribe, salvo el estado de la cabecera y las dos filas de
 «Cachés y frescura» que remiten aquí.
+
+## Enmiendas del 2026-10-26, al planear y ejecutar N2
+
+El plan es `docs/superpowers/plans/2026-10-26-analizador-n2-pantalla.md`. Lo
+que cambia de lo de arriba:
+
+- **El panel se construye aparte** (`referencia.construir_panel`), sin tocar
+  los candidatos. «Si el panel no existe, la pestaña Fundamentales ofrece
+  construirlo gratis: la misma corrida que Generar gratis» pasa a ser un botón
+  del Analizador que sólo escribe `panel.parquet`: `ranking.run.guardar` habría
+  pisado las fichas con IA que el usuario pagó y, con ellas, sus casillas
+  marcadas y sus añadidos a mano. Escribe de forma atómica (un temporal y
+  `os.replace`, con unos pocos reintentos si otra sesión lo está leyendo en
+  Windows). Como panel y candidatos ya no tienen por qué ser de la misma
+  corrida, la pantalla enseña las dos fechas y avisa si el panel es más nuevo
+  que los candidatos (por la hora de los ficheros, con un minuto de holgura:
+  `corrida.json` lleva el día pero no la hora) o si se quedó atrás de los
+  trimestres de algún ticker (`Referencia.filas_posteriores`).
+- **Los valores se enseñan en la moneda del precio** (`valor /
+  divisa.tipo_precio`; AMX: 554,5 MXN son 29,69 $). El margen de seguridad es
+  un cociente y sale igual. Lo que va al acta, en la de la valoración, con
+  `moneda` y `divisa`, porque tiene que ser comparable entre actas.
+- **`sin_prima_pais` sólo se avisa fuera del S&P 500**, que es la tabla
+  congelada de sectores (`fuente_sector == "sp500"`) y no el panel: GRMN, ACN o
+  MDT se valoran exactamente como en M, y avisarlas diría que su valoración es
+  distinta de la de candidatos.
+- **«La misma empresa» sólo con `.MX`**, el Sistema Internacional de
+  Cotizaciones de la BMV: en otras bolsas el mismo símbolo es otra empresa (T.TO
+  es TELUS y T, AT&T; BA.L es BAE Systems y BA, Boeing).
+- **Las preferentes se avisan** por su forma (`-P` y la serie: `JPM-PC`,
+  `T-PA`) y no se bloquean: su ficha y su valoración son las de la empresa
+  entera.
+- **El Bono M avisa pasados 56 días** (`divisas.SEPARACION_MAXIMA_SUBASTAS`, la
+  mayor separación medida entre dos subastas): `divisas.bono_m` sirve la última
+  subasta guardada tenga la edad que tenga.
+- **El resumen** lleva además «Nombre» (un `BRK B` mal partido da BRK y B, y B
+  es Barrick), «Hora del precio» y «Avisos», y **el detalle se elige con un
+  desplegable**, no pulsando la fila: la tabla de Streamlit es un lienzo que no
+  lee bien un lector de pantalla. La elección sobrevive a «Actualizar precios»
+  y a cualquier otra pasada mientras el ticker siga en la lista.
+- **Un ETF no va a la revisión** desde el Analizador: no se valora. Se dice
+  que se añade a mano en Revisar candidatos.
+- **«Analizar a fondo»** manda los quince candidatos (son exactamente
+  `MAX_TICKERS`) y, desde la ficha de uno, deja ése elegido.
+- **«Actualizar precios»** respeta la caché de quince minutos de `mercado`, y
+  no afirma que el precio esté al día: dice la hora de la cotización que tiene
+  la fila. Un defecto al actualizar deja la fila de antes.
+- **«Interpretar con IA» junto a los 8-K** es el bloque de Seguimiento,
+  compartido (`vistas/panel_ia.interpretar_hechos`), sobre los seis destacados
+  más recientes (`resumen.TOPE_HECHOS`), con `pesos=()`, guardado en
+  `analisis/<TICKER>.json` con el formato de `interprete/archivo.py`. Sin
+  confirmación adicional, como en Seguimiento: N3 la añade a los cuatro
+  bloques. `interprete.archivo.anotar_hechos` reescribe el fichero sólo con
+  `hechos` y `rebalanceo`: N3 tiene que cambiar cómo se escribe antes de
+  guardar otras claves ahí.
+- **Sin 8-K, sin prensa o sin calendario por un fallo no se dice que no haya**:
+  una lista vacía porque no hay ninguno y una vacía porque la fuente no
+  respondió llegan iguales. `interpretar_hechos` recibe `consultado`, sin valor
+  por defecto; la prensa vacía con la descarga fallida dice «no se sabe», o de
+  cuándo es lo guardado; el calendario, igual. En Seguimiento,
+  `Resumen.hechos_sin_consultar` y `prensa_sin_consultar` nombran los activos
+  de los que no hay respuesta guardada.
+- **«Noticias y calendario» salió del menú.** Su lista conjunta de 8-K de un
+  libro pasa a ser ticker a ticker en el Analizador; el resumen conjunto sigue
+  en la pestaña Noticias de Seguimiento, cuyo «Ver todas las noticias» pasa a
+  «Abrir en el Analizador».
+- **El gráfico no deja cambiar de símbolo**, y se incrusta con `st.iframe` a
+  toda la altura del marco (`html,body{height:100%}`: con `autosize`,
+  TradingView reescribe el contenedor y sin eso salía de 150 píxeles).
+- **Un ticker con sufijo de bolsa no se incrusta en el widget de TradingView**
+  salvo que su bolsa esté en `grafico.COMPROBADAS_EN_WIDGET`, hoy vacía. Con
+  `BMV:WALMEX` el widget dijo «Símbolo solo disponible en TradingView», y sin
+  el prefijo de bolsa TradingView toma el símbolo por uno de EE. UU.: T.TO
+  (TELUS) enseñaba AT&T y BA.L (BAE) Boeing. En su lugar, un enlace: a la
+  página del símbolo en TradingView si se conoce el prefijo, a la cotización
+  en Yahoo si no. El spec daba por hecho que se vería.
+- **«Errores»**: la fila de un ticker que Yahoo no conoce dice «Yahoo no
+  devolvió datos (sin conexión o un símbolo que no conoce)», como ya anunciaba
+  la enmienda del 2026-10-14.
+- **El motivo ya redactado de «Añadir a la revisión» sigue a la valoración
+  mientras no se edite**: con un `setdefault`, al rehacer el análisis llegaba
+  al acta la valoración nueva con el veredicto y la fecha de antes. Editado se
+  conserva y se avisa de que la valoración cambió. Sin candidatos no se añade,
+  porque Revisar candidatos no llegaría a enseñarlo.
+- **Un supuesto imposible se dice en palabras**: `aplicar` lanza
+  `SupuestoImposible` (un `ValueError` con `.nombre`) y los costes,
+  `CosteNoPositivo` (con `.valor`). Decía «k_e: con esos supuestos el coste del
+  capital propio sale -25.52%».
+- **Los `$` de pantalla van escapados** (`\$`): en el markdown de Streamlit
+  `$…$` es LaTeX, y el coste de interpretar los 8-K salía «cuesta como mucho
+  0.26 **, y normalmente alrededor de **0.12 .». Un test lo exige de todos los
+  literales de `vistas/` y `medidores*.py`.
+
+Donde estas enmiendas contradicen el texto de arriba, mandan ellas, también
+sobre las del 2026-10-14.
