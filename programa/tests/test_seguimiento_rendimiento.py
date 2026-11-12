@@ -159,15 +159,32 @@ def test_control_negativo_una_sola_compra_ata_las_tres_medidas():
     [(date(2026, 1, 1), -5000.0), (date(2026, 6, 1), -2000.0),
      (date(2027, 3, 1), 7800.0)],
 ])
-def test_contraste_contra_numpy_financial(caso):
-    # Implementacion nativa contrastada contra una libreria externa, en un test
-    # que se omite solo si no esta instalada: el patron que este repo ya usa con
-    # Ledoit-Wolf frente a scikit-learn y con RSI frente a pandas-ta-classic.
-    npf = pytest.importorskip("numpy_financial")
-    fechas = [f for f, _ in caso]
-    importes = [v for _, v in caso]
-    referencia = npf.xirr(importes, fechas)
-    assert rendimiento.tir(caso) == pytest.approx(referencia, abs=1e-6)
+def test_contraste_contra_una_xirr_de_referencia(caso):
+    # Antes se contrastaba con `numpy_financial.xirr`, que no existe: la
+    # librería sólo trae `irr`, de periodos iguales, y el test se omitía
+    # siempre por no estar instalada, así que nunca contrastó nada. La
+    # referencia es ahora una bisección escrita aquí, con otro algoritmo que el
+    # `brentq` de `tir`, sobre la misma ecuación de XIRR (Excel, días/365).
+    t0 = caso[0][0]
+
+    def valor_actual(r):
+        return sum(v / (1.0 + r) ** ((f - t0).days / 365.0) for f, v in caso)
+
+    bajo, alto = -0.99, 10.0
+    assert valor_actual(bajo) * valor_actual(alto) < 0
+    for _ in range(200):
+        medio = (bajo + alto) / 2.0
+        if valor_actual(bajo) * valor_actual(medio) <= 0:
+            alto = medio
+        else:
+            bajo = medio
+    assert rendimiento.tir(caso) == pytest.approx((bajo + alto) / 2.0, abs=1e-9)
+
+
+def test_xirr_con_solucion_exacta():
+    # 365 días de −1000 a +1100: la tasa es el 10% exacto, sin solver de por medio.
+    caso = [(date(2026, 1, 1), -1000.0), (date(2027, 1, 1), 1100.0)]
+    assert rendimiento.tir(caso) == pytest.approx(0.10, abs=1e-12)
 
 
 from seguimiento.libro import Asiento
