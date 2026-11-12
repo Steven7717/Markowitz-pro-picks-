@@ -173,6 +173,15 @@ def test_sin_hechos_porque_la_fuente_fallo_no_se_afirma_que_no_habia(tmp_path):
     assert "no se sabe si hay alguno" in pie
 
 
+def test_seguimiento_no_afirma_que_no_haya_titulares_si_la_prensa_no_respondio():
+    fuente = (RAIZ / "vistas" / "seguimiento.py").read_text(encoding="utf-8")
+    titulares = fuente.split('st.markdown("##### Titulares")', 1)[1].split("st.divider()", 1)[0]
+    assert "prensa_sin_consultar" in titulares
+    assert titulares.index("prensa_sin_consultar") < titulares.index("la fuente no devolvió ninguno")
+    # Y de los que faltan se dice quiénes, como con los 8-K.
+    assert "{', '.join(resumen_noticias.prensa_sin_consultar)}" in titulares
+
+
 def test_seguimiento_dice_si_los_8k_de_todos_se_llegaron_a_consultar():
     import ast
 

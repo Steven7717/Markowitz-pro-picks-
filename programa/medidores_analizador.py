@@ -869,6 +869,29 @@ def sin_hechos(clase: "str | None") -> "str | None":
     return _SIN_HECHOS.get(clase)
 
 
+def sin_prensa(fallida: bool, cuando) -> str:
+    """Lo que se dice con la lista de prensa vacía, que no siempre es «no hay».
+
+    Vacía porque se miró y no había, o porque la descarga falló (`fallida`):
+    con Yahoo caído salían a la vez el aviso del fallo y «Sin noticias
+    recientes.», que afirma una consulta que no respondió. Es el criterio de
+    `consultado` en los 8-K. Si queda algo guardado y estaba vacío, se dice de
+    cuándo es (`cuando`): entonces sí se miró, pero no ahora.
+    """
+    if not fallida:
+        return "Sin noticias recientes."
+    if cuando is None:
+        return (
+            "No se pudo preguntar a la prensa —el aviso está arriba—, así que no "
+            "se sabe si hay noticias: no es lo mismo que no haya ninguna."
+        )
+    return (
+        f"Lo último guardado, del {cuando.astimezone():%d/%m/%Y}, no traía ninguna "
+        "noticia, y la descarga de ahora falló —el aviso está arriba—: no se sabe "
+        "si hay alguna nueva."
+    )
+
+
 def linea_de_hora(fuente: str, cuando, vigente: bool) -> str:
     """Cuándo se trajo lo que se está viendo de una fuente, en markdown.
 

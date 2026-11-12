@@ -220,7 +220,20 @@ def _lo_que_viene(agenda, problemas) -> None:
             f"**{texto.plano(evento.ticker)}** — {texto.plano(evento.detalle)}  \n"
             f"{evento.cuando:%d/%m/%Y} · {texto.cuanto_falta(evento.cuando)}"
         )
-    if not proximos:
+    fallidos = {t for afectados in problemas.values() for t in afectados}
+    if not proximos and agenda and fallidos >= set(agenda):
+        # Vacío porque no respondió no es «ninguna fecha»: el criterio de
+        # `consultado` en los 8-K.
+        st.caption(
+            "No se pudo traer el calendario —el aviso está arriba—: no se sabe si "
+            "hay fechas próximas."
+        )
+    elif not proximos and fallidos:
+        st.caption(
+            "Ninguna fecha próxima de los que sí respondieron; de los del aviso de "
+            "arriba no se sabe."
+        )
+    elif not proximos:
         st.caption(
             "Ninguna fecha próxima para estos tickers. El calendario sólo trae "
             "resultados y dividendos, y no todas las empresas los tienen "
@@ -670,7 +683,13 @@ def _noticias(analisis, contexto) -> None:
             f"**{texto.plano(evento.detalle)}** — {evento.cuando:%d/%m/%Y} · "
             f"{texto.cuanto_falta(evento.cuando)}"
         )
-    if not proximos:
+    if not proximos and "agenda" in fallidas:
+        # Como con la prensa y los 8-K: vacío porque falló no es «ninguna».
+        st.caption(
+            "No se pudo traer el calendario —el aviso está arriba—: no se sabe si "
+            "hay fechas próximas."
+        )
+    elif not proximos:
         st.caption(
             "Ninguna fecha próxima. El calendario sólo trae resultados y dividendos, "
             "y no todas las empresas los tienen publicados: que esto esté vacío no "
@@ -692,7 +711,7 @@ def _noticias(analisis, contexto) -> None:
     prensa = sorted(recogido["prensa"], key=lambda n: n.cuando, reverse=True)
     visibles, fuera = ma.recorte(prensa)
     if not visibles:
-        st.caption("Sin noticias recientes.")
+        st.caption(ma.sin_prensa("prensa" in fallidas, horas["prensa"][0]))
     for noticia in visibles:
         firma = " · ".join(
             p for p in (texto.plano(noticia.medio), texto.plano(ma.formato_noticia(noticia.clase))) if p

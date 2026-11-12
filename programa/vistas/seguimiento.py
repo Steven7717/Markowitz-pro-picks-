@@ -1166,10 +1166,26 @@ with noticias:
                     f"Y {sobran} titulares más. En el **Analizador** van los de cada "
                     "activo, con su medio y su formato."
                 )
+        elif len(resumen_noticias.prensa_sin_consultar) == len(tickers):
+            # Como con los 8-K: sin una respuesta guardada de la prensa no se
+            # afirma que no devolviera ninguno.
+            st.caption(
+                "**No se sabe si hay titulares.** De ninguno de estos activos hay "
+                "guardada una respuesta de la prensa: no respondió, o aún no se le "
+                "ha preguntado. No es lo mismo que no haber ninguno."
+            )
         else:
             st.caption(
                 "Ningún titular guardado de estos activos. Aquí no se filtra "
                 "nada: si no hay, es que la fuente no devolvió ninguno."
+            )
+        if resumen_noticias.prensa_sin_consultar and (
+            len(resumen_noticias.prensa_sin_consultar) < len(tickers)
+        ):
+            st.caption(
+                f"De {', '.join(resumen_noticias.prensa_sin_consultar)} no hay "
+                "guardada ninguna respuesta de la prensa: los titulares de arriba "
+                "no hablan de ahí."
             )
 
     st.divider()

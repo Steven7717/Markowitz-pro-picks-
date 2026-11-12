@@ -228,6 +228,63 @@ def test_si_la_consulta_de_8k_fallo_no_se_afirma_que_no_habia_ninguno(pantalla):
     assert "no se sabe si hay alguno" in escrito
 
 
+def _prensa_caida(cuando):
+    def traer(fuente, ticker, descargar, forzar):
+        if fuente == "prensa":
+            return (), "Yahoo no responde", cuando, False
+        return (), "", TRAIDO, True
+
+    return traer
+
+
+def test_si_la_prensa_fallo_y_no_hay_nada_guardado_no_se_dice_sin_noticias(pantalla):
+    # Recorrido de la app real (WALMEX.MX con Yahoo caído): salían a la vez el
+    # aviso del fallo y «Sin noticias recientes.», que afirma que se miró.
+    pantalla.mundo["traer"] = _prensa_caida(None)
+    pantalla.run()
+    assert not pantalla.exception
+    escrito = _textos(pantalla)
+    assert "Yahoo no responde" in escrito
+    assert "Sin noticias recientes" not in escrito
+    assert "no se sabe si hay noticias" in escrito
+
+
+def test_si_la_prensa_fallo_con_lo_guardado_vacio_se_dice_de_cuando_es(pantalla):
+    pantalla.mundo["traer"] = _prensa_caida(datetime(2026, 10, 30, 12, 0).astimezone())
+    pantalla.run()
+    escrito = _textos(pantalla)
+    assert "Sin noticias recientes" not in escrito
+    assert "del 30/10/2026, no traía ninguna noticia" in escrito
+
+
+def test_si_el_calendario_fallo_no_se_dice_que_no_haya_fechas(pantalla):
+    def traer(fuente, ticker, descargar, forzar):
+        if fuente == "agenda":
+            return (), "Yahoo no responde", None, False
+        return (), "", TRAIDO, True
+
+    pantalla.mundo["traer"] = traer
+    pantalla.run()
+    escrito = _textos(pantalla)
+    assert "Ninguna fecha próxima" not in escrito
+    assert "no se sabe si hay fechas próximas" in escrito
+
+
+def test_si_el_calendario_fallo_para_uno_no_se_dice_de_todos(pantalla):
+    def traer(fuente, ticker, descargar, forzar):
+        if fuente == "agenda" and ticker == "SPY":
+            return (), "Yahoo no responde", None, False
+        return (), "", TRAIDO, True
+
+    pantalla.mundo["traer"] = traer
+    pantalla.session_state[sesion.CLAVE_TICKERS] = ["MU", "SPY"]
+    pantalla.session_state[sesion.CLAVE_ANALISIS] = {"MU": _analisis("MU"), "SPY": _analisis("SPY")}
+    pantalla.run()
+    escrito = _textos(pantalla)
+    assert "Ninguna fecha próxima para estos tickers" not in escrito
+    assert "de los del aviso de arriba no se sabe" in escrito
+
+
 # --- Arreglos menores de la revisión de las Tasks 11-19 --------------------------
 
 

@@ -55,6 +55,18 @@ def cache_de(contenido: dict):
     return lambda fuente, ticker: contenido.get((fuente, ticker))
 
 
+def test_se_nombra_de_quien_no_hay_guardada_ninguna_consulta_de_prensa():
+    # Como `hechos_sin_consultar`: con los 8-K guardados y la prensa caída,
+    # Seguimiento decía «si no hay, es que la fuente no devolvió ninguno».
+    r = resumen.resumir(["AAPL", "MSFT"], cacheado=cache_de({
+        ("hechos", "AAPL"): ((), AHORA, True),
+        ("hechos", "MSFT"): ((), AHORA, True),
+        ("prensa", "MSFT"): ((), AHORA, True),
+    }))
+    assert r.prensa_sin_consultar == ("AAPL",)
+    assert resumen.resumir(["AAPL"], cacheado=cache_de({})).prensa_sin_consultar == ("AAPL",)
+
+
 def test_no_haber_mirado_no_es_lo_mismo_que_no_haber_nada():
     """El caso que se confunde: cache vacia contra activo al dia y sin 8-K.
 

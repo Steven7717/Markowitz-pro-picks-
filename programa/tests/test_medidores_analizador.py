@@ -956,3 +956,15 @@ def test_la_jerga_de_la_identidad_y_de_los_hechos_va_glosada():
     extranjera = ma.sin_hechos("extranjera_sec")
     assert "6-K" in extranjera and "el formulario con que una extranjera" in extranjera
     assert "códigos de item" not in extranjera and "código" in extranjera
+
+
+# --- Sin prensa: no es lo mismo no haber noticias que no haber podido mirar ------
+
+
+def test_sin_prensa_solo_se_afirma_si_se_pudo_mirar():
+    assert ma.sin_prensa(False, None) == "Sin noticias recientes."
+    sin_nada = ma.sin_prensa(True, None)
+    assert "Sin noticias recientes" not in sin_nada and "no se sabe si hay noticias" in sin_nada
+    viejo = ma.sin_prensa(True, datetime(2026, 10, 30, 12, 0).astimezone())
+    assert "Sin noticias recientes" not in viejo
+    assert "del 30/10/2026, no traía ninguna noticia" in viejo
