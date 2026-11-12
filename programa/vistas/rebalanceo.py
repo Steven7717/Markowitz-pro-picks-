@@ -389,7 +389,7 @@ elif not interprete_cliente.hay_clave():
     )
 else:
     st.caption(
-        "Comentar la propuesta cuesta menos de **0,01 $**: aquí no se manda "
+        "Comentar la propuesta cuesta menos de **0,01 \\$**: aquí no se manda "
         "ningún documento, sólo los pesos y las operaciones. Lo que costó de "
         "verdad se dice al terminar."
     )
@@ -462,7 +462,7 @@ else:
                     _coste_aj = interprete_cliente.coste(_com.entrada_tokens, _com.salida_tokens)
                     _avisos_aj.append((
                         "info",
-                        f"Este comentario costó **{_coste_aj:.3f} $** "
+                        f"Este comentario costó **{_coste_aj:.3f} \\$** "
                         f"({_com.entrada_tokens:,} tokens de entrada y "
                         f"{_com.salida_tokens:,} de salida, a la tarifa de "
                         f"{interprete_cliente.MODELO}).",
@@ -481,7 +481,7 @@ else:
             if _com.entrada_tokens or _com.salida_tokens:
                 _coste_aj = interprete_cliente.coste(_com.entrada_tokens, _com.salida_tokens)
                 st.info(
-                    f"Este comentario costó **{_coste_aj:.3f} $** "
+                    f"Este comentario costó **{_coste_aj:.3f} \\$** "
                     f"({_com.entrada_tokens:,} tokens de entrada y "
                     f"{_com.salida_tokens:,} de salida, a la tarifa de "
                     f"{interprete_cliente.MODELO})."

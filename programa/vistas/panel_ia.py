@@ -195,7 +195,7 @@ def avisos(lectura):
         _coste = cliente_mod.coste(lectura.entrada_tokens, lectura.salida_tokens)
         mensajes.append((
             "info",
-            f"Esta lectura costó **{_coste:.3f} $** "
+            f"Esta lectura costó **{_coste:.3f} \\$** "
             f"({lectura.entrada_tokens:,} tokens de entrada y "
             f"{lectura.salida_tokens:,} de salida, a la tarifa de "
             f"{cliente_mod.MODELO}).",
@@ -336,8 +336,8 @@ def interpretar_hechos(
         cuantos = len(nuevos) or len(a_leer)
         st.caption(
             f"Leer {cuantos} documentos cuesta como mucho "
-            f"**{coste_peor_caso(cuantos):.2f} $**, y normalmente "
-            f"alrededor de **{coste_estimado(cuantos):.2f} $**. El "
+            f"**{coste_peor_caso(cuantos):.2f} \\$**, y normalmente "
+            f"alrededor de **{coste_estimado(cuantos):.2f} \\$**. El "
             "tope cuenta el reintento, que lo dispara el propio documento. Lo "
             "que costó de verdad se dice al terminar."
         )

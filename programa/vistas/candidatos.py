@@ -104,7 +104,7 @@ puede = disponibilidad()
 opciones = ["Sin IA — sólo números, gratis"]
 if puede.puede_usar_ia:
     opciones.append(
-        f"Con IA — narrativa y citas verificadas (hasta {COSTE_APROXIMADO_USD:.2f} $)"
+        f"Con IA — narrativa y citas verificadas (hasta {COSTE_APROXIMADO_USD:.2f} \\$)"
     )
 
 with st.container(border=True):
@@ -181,7 +181,7 @@ if pulsado:
 if st.session_state.get(_CONFIRMAR) and puede.puede_usar_ia:
     with st.container(border=True):
         st.warning(
-            f"**Esto cuesta dinero: hasta {COSTE_APROXIMADO_USD:.2f} $** en tu "
+            f"**Esto cuesta dinero: hasta {COSTE_APROXIMADO_USD:.2f} \\$** en tu "
             "cuenta de Anthropic, cargados al generar. Es el peor caso —todas "
             "las fichas reintentadas—; lo que cueste de verdad se dice aquí "
             "mismo al terminar. Sin IA la lista sale igual de ordenada, sólo "
@@ -189,7 +189,7 @@ if st.session_state.get(_CONFIRMAR) and puede.puede_usar_ia:
         )
         columna_si, columna_no, _ = st.columns([2, 1, 3])
         if columna_si.button(
-            f"Sí, generar con IA (hasta {COSTE_APROXIMADO_USD:.2f} $)",
+            f"Sí, generar con IA (hasta {COSTE_APROXIMADO_USD:.2f} \\$)",
             key="confirmar_ia",
             type="primary",
         ):
@@ -209,7 +209,7 @@ if _gasto is not None and _gasto.llamadas:
     # `respuesta.usage` de la API y la tiraba entera, al contrario que
     # `interprete/cliente.py`, que la conserva y la enseña.
     st.success(
-        f"La última corrida con IA costó **{_gasto.usd:.2f} $**: "
+        f"La última corrida con IA costó **{_gasto.usd:.2f} \\$**: "
         f"{_gasto.llamadas} llamadas, {_gasto.entrada_tokens:,} tokens de "
         f"entrada y {_gasto.salida_tokens:,} de salida."
     )
