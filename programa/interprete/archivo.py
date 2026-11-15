@@ -121,17 +121,31 @@ def ruta_de(ruta_libro: Path) -> Path:
     return ruta_libro.parent / SUBCARPETA / ruta_libro.name
 
 
-def cargar(ruta: Path) -> Archivo:
-    """Lo guardado. Que no exista es un libro que nadie ha interpretado."""
+def leer_crudo(ruta: Path) -> "dict | None":
+    """El objeto JSON del fichero tal cual, o `None` si no existe.
+
+    Lo comparten este módulo y `analizador/archivo.py`, que guarda sus lecturas
+    en el mismo fichero bajo otras claves. **Levanta `ArchivoIlegible`** si el
+    fichero existe y no es un objeto JSON: lo perdido sería historial.
+    """
     ruta = Path(ruta)
     if not ruta.exists():
-        return Archivo()
+        return None
     try:
         crudo = json.loads(ruta.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as error:
         raise ArchivoIlegible(f"No se pudo leer {ruta}: {error}") from error
     if not isinstance(crudo, dict):
         raise ArchivoIlegible(f"{ruta} no contiene un objeto JSON.")
+    return crudo
+
+
+def cargar(ruta: Path) -> Archivo:
+    """Lo guardado. Que no exista es un libro que nadie ha interpretado."""
+    ruta = Path(ruta)
+    crudo = leer_crudo(ruta)
+    if crudo is None:
+        return Archivo()
     # Las dos claves tienen que estar. `_escribir` siempre escribe las dos, asi
     # que un fichero sin alguna no lo escribio este programa -- y aceptarlo como
     # archivo vacio seria indistinguible de «nadie ha interpretado este libro»,
@@ -241,62 +255,11 @@ def juicio_guardado(guardado: Archivo, url: str) -> "Anotada | None":
     return ultima
 
 
-def _escribir(ruta: Path, guardado: Archivo) -> None:
-    """Atomico, y releyendo justo antes.
-
-    Streamlit permite dos ventanas del mismo libro: releer inmediatamente antes
-    de escribir reduce la ventana en la que una pisa a la otra. Misma decision
-    que `libro.actualizar`. El riesgo residual se acepta: un usuario, una app.
-    """
+def escribir_crudo(ruta: Path, crudo: dict) -> None:
+    """Escribir el objeto entero, de forma atómica."""
     ruta = Path(ruta)
     ruta.parent.mkdir(parents=True, exist_ok=True)
-    texto = json.dumps(
-        {
-            "hechos": [
-                {
-                    "cuando": s.cuando.isoformat(),
-                    "modelo": s.modelo,
-                    "version": s.version,
-                    "en_conjunto": s.en_conjunto,
-                    "juicios": [
-                        {
-                            "url": a.url,
-                            "ticker": a.ticker,
-                            "hecho_cuando": a.hecho_cuando.isoformat(),
-                            "tipos": list(a.tipos),
-                            "que_dice": a.juicio.que_dice,
-                            "por_que_te_toca": a.juicio.por_que_te_toca,
-                            "cita": a.juicio.cita,
-                            "verificada": a.juicio.verificada,
-                        }
-                        for a in s.juicios
-                    ],
-                }
-                for s in guardado.hechos
-            ],
-            "rebalanceo": [
-                {
-                    "cuando": c.cuando.isoformat(),
-                    "modelo": c.modelo,
-                    "version": c.version,
-                    "en_conjunto": c.en_conjunto,
-                    "foto": {
-                        "pesos_reales": [list(p) for p in c.foto.pesos_reales],
-                        "pesos_objetivo": [list(p) for p in c.foto.pesos_objetivo],
-                        "operaciones": [list(o) for o in c.foto.operaciones],
-                    },
-                    "observaciones": [
-                        {"sobre": sobre, "dice": dice}
-                        for sobre, dice in c.observaciones
-                    ],
-                }
-                for c in guardado.rebalanceo
-            ],
-        },
-        ensure_ascii=False,
-        indent=2,
-        allow_nan=False,
-    )
+    texto = json.dumps(crudo, ensure_ascii=False, indent=2, allow_nan=False)
     # Un nombre de temporal fijo lo comparten todas las pasadas, y este programa
     # admite dos ventanas del mismo libro. Si el `replace` de una cae mientras
     # otra está a mitad de su escritura, lo que aterriza en el destino es JSON
@@ -316,6 +279,61 @@ def _escribir(ruta: Path, guardado: Archivo) -> None:
     except BaseException:
         tmp.unlink(missing_ok=True)
         raise
+
+
+def _escribir(ruta: Path, guardado: Archivo) -> None:
+    """Atómico, releyendo justo antes, y **sin tocar las claves ajenas**.
+
+    El Analizador guarda en este mismo fichero sus lecturas (`tesis`, `mdna`,
+    `valoracion`): reescribirlo sólo con las dos claves de aquí las borraba en
+    la siguiente lectura de 8-K.
+
+    Streamlit permite dos ventanas del mismo libro: releer inmediatamente antes
+    de escribir reduce la ventana en la que una pisa a la otra. Misma decisión
+    que `libro.actualizar`. El riesgo residual se acepta: un usuario, una app.
+    """
+    crudo = leer_crudo(ruta) or {}
+    crudo["hechos"] = [
+        {
+            "cuando": s.cuando.isoformat(),
+            "modelo": s.modelo,
+            "version": s.version,
+            "en_conjunto": s.en_conjunto,
+            "juicios": [
+                {
+                    "url": a.url,
+                    "ticker": a.ticker,
+                    "hecho_cuando": a.hecho_cuando.isoformat(),
+                    "tipos": list(a.tipos),
+                    "que_dice": a.juicio.que_dice,
+                    "por_que_te_toca": a.juicio.por_que_te_toca,
+                    "cita": a.juicio.cita,
+                    "verificada": a.juicio.verificada,
+                }
+                for a in s.juicios
+            ],
+        }
+        for s in guardado.hechos
+    ]
+    crudo["rebalanceo"] = [
+        {
+            "cuando": c.cuando.isoformat(),
+            "modelo": c.modelo,
+            "version": c.version,
+            "en_conjunto": c.en_conjunto,
+            "foto": {
+                "pesos_reales": [list(p) for p in c.foto.pesos_reales],
+                "pesos_objetivo": [list(p) for p in c.foto.pesos_objetivo],
+                "operaciones": [list(o) for o in c.foto.operaciones],
+            },
+            "observaciones": [
+                {"sobre": sobre, "dice": dice}
+                for sobre, dice in c.observaciones
+            ],
+        }
+        for c in guardado.rebalanceo
+    ]
+    escribir_crudo(ruta, crudo)
 
 
 def anotar_hechos(
