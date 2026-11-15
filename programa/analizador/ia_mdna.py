@@ -81,7 +81,7 @@ class Contraste:
     problema: str = ""
 
 
-_INVISIBLES = str.maketrans("", "", "​‌‍﻿")
+_INVISIBLES = str.maketrans("", "", "\u200b\u200c\u200d\ufeff")
 
 
 def _vacio(texto: str) -> bool:
