@@ -40,7 +40,7 @@ class Resultado:
     panel: "pd.DataFrame | None" = None
 
 
-def _contexto(ficha: dict) -> str:
+def contexto(ficha: dict) -> str:
     """Describe the candidate to the model in words, with no digits to echo."""
     lineas = [
         f"Empresa: {ficha['ticker']}, sector {ficha['sector_gics']}.",
@@ -60,7 +60,7 @@ def _con_narrativa(ficha: dict, cache_dir: Path | None) -> dict:
     if riesgos is None:
         return ficha
 
-    narrativa = redactar_con_cache(_contexto(ficha), riesgos.texto, cache_dir=cache_dir)
+    narrativa = redactar_con_cache(contexto(ficha), riesgos.texto, cache_dir=cache_dir)
     if narrativa is None:
         return ficha
 
