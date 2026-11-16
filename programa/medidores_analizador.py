@@ -796,7 +796,7 @@ ETIQUETA_FUENTE = {"agenda": "Calendario", "hechos": "Hechos (8-K)", "prensa": "
 # Era el `TOPE` de Noticias, que listaba un libro entero; aquí es por ticker.
 TOPE_NOTICIAS = 40
 
-PESTANAS = ("Resumen", "Valoración", "Fundamentales", "Gráfico", "Noticias y calendario")
+PESTANAS = ("Resumen", "Valoración", "Fundamentales", "Gráfico", "Noticias y calendario", "IA")
 # Un ETF no se valora ni se compara con un sector: las pestañas que saldrían
 # vacías no se dibujan (spec, «Las pestañas del detalle»).
 PESTANAS_ETF = ("Resumen", "Gráfico", "Noticias y calendario")
@@ -1125,3 +1125,90 @@ def motivo_para_la_revision(valoracion, hoy: date) -> str:
         partes.append(f"{_y(en_contra)} en contra")
     detalle = f" ({', '.join(partes)})" if partes else ""
     return f"Analizador, {fecha}: {veredicto}{detalle}, supuestos del programa."
+
+
+# --- La pestaña IA ------------------------------------------------------------------
+
+POSTURA = {
+    "respalda": "Respalda el escenario base",
+    "contradice": "Contradice el escenario base",
+    "matiza": "Matiza el escenario base",
+}
+LECTURA_DE_VALORACION = {
+    "flujos": "Flujos descontados",
+    "sin_crecimiento": "Valor sin crecimiento",
+    "pares": "Frente a sus pares",
+}
+SIN_DOCUMENTO_OFICIAL = (
+    "Esta empresa no presenta informes en la SEC, así que **no hay documento "
+    "oficial que citar**: la tesis y el contraste con la empresa necesitan uno. "
+    "La explicación de la valoración sí está, porque no lee ningún documento."
+)
+MOTIVO_INFORME = {
+    "sin_secciones": (
+        "presenta un formulario 40-F, que remite a sus documentos canadienses y "
+        "no trae secciones que citar"
+    ),
+    "sin_identidad_edgar": "falta el correo de contacto para la SEC; se pone en Perfil y ajustes",
+    "sin_red_edgar": "no se pudo consultar la SEC",
+    "sin_informe": "la SEC no tiene ningún informe anual suyo",
+}
+SIN_RIESGOS = (
+    "El informe anual no trae sus factores de riesgo: remite a otro documento. "
+    "Sin texto que citar no se redacta la tesis. **No se ha gastado nada.**"
+)
+SIN_MDNA = (
+    "No se localizó el informe de gestión (MD&A) en el informe anual: la empresa "
+    "lo incorpora por referencia a otro documento y no se encontró su "
+    "encabezado. No se manda otra sección en su lugar. **No se ha gastado nada.**"
+)
+
+
+def sin_informe(motivo: object) -> str:
+    return (
+        f"No se pudo traer el informe anual: {etiqueta(MOTIVO_INFORME, motivo)}. "
+        "**No se ha gastado nada.**"
+    )
+
+
+def procedencia_de_lectura(fuente, cuando) -> str:
+    """De qué documento sale una lectura guardada, y cuándo se leyó."""
+    recorte = ", recortado" if fuente.recortado else ""
+    return (
+        f"Leído el {cuando:%d/%m/%Y} del {fuente.formulario} presentado el "
+        f"{fuente.fecha} ({fuente.seccion}{recorte}), accession {fuente.accession}."
+    )
+
+
+def aviso_informe_nuevo(fuente, ultimo: "tuple[str, str] | None") -> "str | None":
+    """Si la SEC tiene un informe anual posterior al que se leyó. `ultimo` es `(accession, fecha)`."""
+    if ultimo is None or ultimo[0] == fuente.accession:
+        return None
+    return (
+        f"Hay un {fuente.formulario} más reciente que el leído: se presentó el "
+        f"{ultimo[1]}, y esta lectura es del presentado el {fuente.fecha}. "
+        "Puedes volver a leer."
+    )
+
+
+def de_entonces(cuando) -> str:
+    return (
+        f"Explicación del {cuando:%d/%m/%Y}, **con los números de entonces**: "
+        "los votos de hoy son otros, y este texto no habla de ellos."
+    )
+
+
+def coste_de_lectura(usd: float, entrada_tokens: int, salida_tokens: int) -> str:
+    return (
+        f"Esta lectura costó **{usd:.3f} \\$** ({entrada_tokens:,} tokens de "
+        f"entrada y {salida_tokens:,} de salida)."
+    )
+
+
+def aviso_de_gasto(usd_maximo: float) -> str:
+    return (
+        f"**Esto cuesta dinero: hasta {usd_maximo:.2f} \\$** en tu cuenta de "
+        "Anthropic. Es el peor caso, con el reintento; lo que cueste de verdad "
+        "se dice aquí mismo al terminar."
+    )
+

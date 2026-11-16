@@ -1,9 +1,14 @@
 """Lo que el Analizador guarda en la sesión, con un diccionario en lugar de `st.session_state`."""
 
+from dataclasses import replace
 from datetime import datetime
 from types import SimpleNamespace
 
-from analizador import sesion
+from analizador import deslizadores, sesion
+from analizador import valorar as v
+from analizador.analisis import Analisis
+from tests.test_analizador_valorar import _entradas
+from tests.test_medidores_analizador import identidad
 
 
 def test_un_encargo_rellena_el_campo_y_elige_el_detalle():
@@ -174,3 +179,48 @@ def test_el_motivo_de_un_ticker_no_toca_el_de_otro():
     sesion.preparar_motivo(estado, "MU", "infravalorada")
     sesion.preparar_motivo(estado, "MUX", "sobrevalorada")
     assert estado[sesion.clave_motivo("MU")] == "infravalorada"
+
+
+# --- La valoración que hay en pantalla --------------------------------------------
+
+
+def _analisis_mu() -> Analisis:
+    traidas = _entradas(ticker="MU")
+    return Analisis(
+        "MU", "sec", identidad("MU"), None, "Information Technology", "sp500",
+        None, "sin_panel", traidas, v.valorar(traidas, None),
+    )
+
+
+def test_sin_mover_nada_la_valoracion_en_pantalla_es_la_del_programa():
+    analisis = _analisis_mu()
+    assert sesion.valoracion_en_pantalla({}, analisis) == (analisis.valoracion, ())
+
+
+def test_con_un_deslizador_movido_sale_la_valoracion_movida_y_se_dice_cual():
+    analisis = _analisis_mu()
+    programa = deslizadores.del_programa(analisis.entradas)
+    estado = {
+        sesion.clave_deslizador("MU", "beta"): deslizadores.a_pantalla("beta", programa["beta"]) + 0.3
+    }
+    valoracion, movidos = sesion.valoracion_en_pantalla(estado, analisis)
+    assert "beta" in movidos
+    assert valoracion["supuestos"]["beta"]["valor"] != analisis.valoracion["supuestos"]["beta"]["valor"]
+
+
+def test_con_supuestos_imposibles_se_explica_la_del_programa(monkeypatch):
+    analisis = _analisis_mu()
+    programa = deslizadores.del_programa(analisis.entradas)
+    estado = {sesion.clave_deslizador("MU", "beta"): deslizadores.a_pantalla("beta", programa["beta"]) + 0.3}
+
+    def imposible(*_a, **_k):
+        raise ValueError("wacc_bajo_crecimiento")
+
+    monkeypatch.setattr(sesion, "valorar", imposible)
+    assert sesion.valoracion_en_pantalla(estado, analisis) == (analisis.valoracion, ())
+
+
+def test_sin_entradas_no_hay_nada_que_mover():
+    analisis = replace(_analisis_mu(), entradas=None)
+    assert sesion.valoracion_en_pantalla({"cualquiera": 1}, analisis) == (analisis.valoracion, ())
+

@@ -968,3 +968,53 @@ def test_sin_prensa_solo_se_afirma_si_se_pudo_mirar():
     viejo = ma.sin_prensa(True, datetime(2026, 10, 30, 12, 0).astimezone())
     assert "Sin noticias recientes" not in viejo
     assert "del 30/10/2026, no traía ninguna noticia" in viejo
+
+
+# --- La pestaña IA ------------------------------------------------------------------
+
+
+def test_la_pestana_ia_es_de_las_empresas_y_no_de_un_etf():
+    assert ma.pestanas_de("sec")[-1] == "IA"
+    assert "IA" in ma.pestanas_de("sin_sec")
+    assert "IA" not in ma.pestanas_de("etf")
+
+
+def _fuente():
+    from analizador.archivo import Fuente
+
+    return Fuente("10-K", "2026-10-09", "0000723125-26-000023", "Item 1A", True)
+
+
+def test_la_procedencia_de_una_lectura_dice_de_que_documento_sale():
+    linea = ma.procedencia_de_lectura(_fuente(), datetime(2026, 11, 15, 10, 30))
+    assert linea == (
+        "Leído el 15/11/2026 del 10-K presentado el 2026-10-09 (Item 1A, recortado), "
+        "accession 0000723125-26-000023."
+    )
+
+
+def test_el_aviso_de_informe_nuevo_solo_sale_si_el_ultimo_es_otro():
+    assert ma.aviso_informe_nuevo(_fuente(), None) is None
+    assert ma.aviso_informe_nuevo(_fuente(), ("0000723125-26-000023", "2026-10-09")) is None
+    aviso = ma.aviso_informe_nuevo(_fuente(), ("0000723125-27-000001", "2027-10-08"))
+    assert "Hay un 10-K más reciente" in aviso and "2027-10-08" in aviso
+
+
+def test_el_coste_de_una_lectura_escapa_el_dolar():
+    assert ma.coste_de_lectura(0.0123, 4000, 300) == (
+        "Esta lectura costó **0.012 \\$** (4,000 tokens de entrada y 300 de salida)."
+    )
+
+
+def test_un_informe_que_no_se_pudo_traer_dice_por_que_y_que_no_se_gasto():
+    aviso = ma.sin_informe("sin_secciones")
+    assert "40-F" in aviso and "No se ha gastado nada" in aviso
+    assert "No se ha gastado nada" in ma.SIN_MDNA and "No se ha gastado nada" in ma.SIN_RIESGOS
+
+
+def test_cada_postura_y_cada_lectura_tienen_su_etiqueta():
+    from analizador import archivo, ia_mdna
+
+    assert set(ma.POSTURA) == set(ia_mdna.POSTURAS)
+    assert set(ma.LECTURA_DE_VALORACION) == set(archivo.NOMBRES_DE_VOTO)
+
