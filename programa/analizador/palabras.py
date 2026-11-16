@@ -101,6 +101,11 @@ def contexto_valoracion(
 ) -> "tuple[str, dict[str, str]] | None":
     """El bloque que lee el modelo y el mapa letra → lectura, o `None` sin votos.
 
+    `ticker` no se manda: uno como `7203.T` metería un dígito en un texto que
+    promete no llevar ninguno. Se conserva en la firma por quien ya llama así.
+    También es `None` si hay votos pero ninguno con valor: no habría nada que
+    comentar.
+
     `movidos_dichos` es la lista de supuestos que movió el usuario, ya en
     palabras (`medidores_analizador.lista_de_supuestos`).
     """
@@ -117,7 +122,7 @@ def contexto_valoracion(
         "pares": _MULTIPLOS.get(voto_de["pares"]),
     }
     lineas = [
-        f"Empresa: {ticker}, sector {sector or 'sin clasificar'}.",
+        f"Empresa del sector {sector or 'sin clasificar'}.",
         f"Veredicto del programa: {_VEREDICTO.get(valoracion.get('veredicto'), 'sin veredicto')}.",
     ]
     mapa = {}
@@ -130,6 +135,8 @@ def contexto_valoracion(
             partes.append(detalle[nombre])
         lineas.append(f"[{letra}] {nombres[nombre]}: {'; '.join(partes)}.")
         mapa[letra] = nombre
+    if not mapa:
+        return None
     procedencia = ((valoracion.get("supuestos") or {}).get("beta") or {}).get("procedencia") or {}
     r2 = procedencia.get("r2")
     if isinstance(r2, (int, float)) and r2 < R2_POCO_FIABLE:

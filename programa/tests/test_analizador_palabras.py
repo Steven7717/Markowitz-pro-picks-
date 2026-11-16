@@ -128,3 +128,21 @@ def test_sin_ficha_el_contexto_de_la_tesis_lo_dice():
     assert palabras.contexto_tesis(analisis) == (
         "Empresa: TSM, sector sin clasificar.\nNo hay comparación con sus pares del sector."
     )
+
+
+def test_el_bloque_no_nombra_el_ticker_y_dice_el_sector():
+    bloque, _ = palabras.contexto_valoracion("MU", "Information Technology", _valoracion())
+    assert bloque.splitlines()[0] == "Empresa del sector Information Technology."
+    assert "MU" not in bloque
+    sin_sector, _ = palabras.contexto_valoracion("MU", None, _valoracion())
+    assert sin_sector.splitlines()[0] == "Empresa del sector sin clasificar."
+
+
+def test_un_ticker_con_digitos_no_los_mete_en_el_bloque():
+    bloque, _ = palabras.contexto_valoracion("7203.T", "Consumer Discretionary", _valoracion())
+    assert sin_digitos(bloque)
+
+
+def test_con_votos_pero_ninguno_con_valor_no_hay_nada_que_comentar():
+    votos = {"flujos": {"voto": None}, "sin_crecimiento": {}, "pares": {"voto": None}}
+    assert palabras.contexto_valoracion("MU", "Tech", _valoracion(votos=votos)) is None
