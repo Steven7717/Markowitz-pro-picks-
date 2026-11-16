@@ -632,6 +632,7 @@ def _hechos(ticker: str, hechos: list, consultado: bool) -> None:
         clave=f"analizador_ia_{ticker}",
         consultado=consultado,
         con_enlace_a_perfil=True,
+        con_confirmacion=True,
     )
 
 

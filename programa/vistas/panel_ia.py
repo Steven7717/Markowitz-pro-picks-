@@ -253,8 +253,34 @@ def pintar_archivo(st, guardado, hechos, leidas):
         st.info(texto.plano(ultima.en_conjunto))
 
 
+def confirmar(st, clave: str, etiqueta: str, aviso: str, icono: str = ":material/auto_awesome:") -> bool:
+    """Un botón que gasta, con su confirmación. `True` sólo en la pasada en que se confirma.
+
+    Es el patrón de Revisar candidatos: la bandera **no es de un widget** y se
+    desarma **antes** de devolver `True`, así que no sobrevive a nada. Si la
+    llamada falla a mitad, hay que volver a pedirla y volver a confirmar: el
+    gasto nunca queda a un clic.
+    """
+    bandera = f"{clave}_confirmar"
+    if st.button(etiqueta, icon=icono, key=f"{clave}_pedir"):
+        st.session_state[bandera] = True
+    if not st.session_state.get(bandera):
+        return False
+    with st.container(border=True):
+        st.warning(aviso)
+        columna_si, columna_no, _hueco = st.columns([2, 1, 3])
+        if columna_si.button("Sí, leer con IA", key=f"{clave}_si", type="primary"):
+            st.session_state[bandera] = False
+            return True
+        if columna_no.button("Cancelar", key=f"{clave}_no"):
+            st.session_state[bandera] = False
+            st.rerun()
+    return False
+
+
 def interpretar_hechos(
-    st, a_leer, ruta_archivo, tickers, pesos, clave, *, consultado, con_enlace_a_perfil=False
+    st, a_leer, ruta_archivo, tickers, pesos, clave, *, consultado, con_enlace_a_perfil=False,
+    con_confirmacion=False,
 ):
     """El botón de «Interpretar estos hechos», con su archivo.
 
@@ -274,6 +300,8 @@ def interpretar_hechos(
       8-K de todos los activos. Sin valor por defecto, a propósito: una lista
       vacía porque no hay ninguno y una vacía porque la SEC no respondió, o
       porque no se ha pedido, llegan iguales, y sólo quien llama sabe cuál es.
+    - `con_confirmacion`: si el botón pasa por `confirmar`. El Analizador lo
+      pide; Seguimiento sigue como estaba.
 
     **Se pinta desde el archivo, nunca desde la `Lectura` recién hecha.** Un
     solo camino, y así la fecha de cada juicio vive donde pertenece --en la
@@ -341,7 +369,18 @@ def interpretar_hechos(
             "tope cuenta el reintento, que lo dispara el propio documento. Lo "
             "que costó de verdad se dice al terminar."
         )
-        if st.button(etiqueta, icon=":material/auto_awesome:", key=f"{clave}_interpretar"):
+        if con_confirmacion:
+            pulsado = confirmar(
+                st,
+                f"{clave}_interpretar",
+                etiqueta,
+                f"**Esto cuesta dinero: hasta {coste_peor_caso(cuantos):.2f} \\$** en tu "
+                "cuenta de Anthropic. Es el peor caso, con el reintento; lo que "
+                "cueste de verdad se dice aquí mismo al terminar.",
+            )
+        else:
+            pulsado = st.button(etiqueta, icon=":material/auto_awesome:", key=f"{clave}_interpretar")
+        if pulsado:
             with st.spinner("Bajando los documentos y leyéndolos…"):
                 if nuevos:
                     entradas, ya_leidas, sin_doc, recortados = preparar(a_leer, guardado)

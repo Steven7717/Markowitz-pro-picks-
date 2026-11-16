@@ -12,6 +12,10 @@ Es el mismo defecto que ya se cerro en la pantalla hermana con
 por el texto de un tercero.
 """
 
+import contextlib
+
+import pytest
+
 from interprete import cliente as cliente_mod
 from interprete import documentos
 from noticias import resumen
@@ -192,3 +196,78 @@ def test_seguimiento_dice_si_los_8k_de_todos_se_llegaron_a_consultar():
     )
     claves = {k.arg: ast.unparse(k.value) for k in llamada.keywords}
     assert claves["consultado"] == "not resumen_noticias.hechos_sin_consultar"
+
+
+# --- La confirmación con bandera ------------------------------------------------
+
+
+class _Recarga(Exception):
+    pass
+
+
+class _StConfirmar:
+    """Lo justo de Streamlit para ejecutar `confirmar` pasada a pasada."""
+
+    def __init__(self, estado, pulsados=()):
+        self.session_state = estado
+        self.pulsados = set(pulsados)
+        self.avisos = []
+        self.botones = []
+
+    def button(self, _etiqueta, key=None, **_resto):
+        self.botones.append(key)
+        return key in self.pulsados
+
+    def warning(self, texto):
+        self.avisos.append(texto)
+
+    def container(self, **_resto):
+        return contextlib.nullcontext()
+
+    def columns(self, reparto):
+        return [self] * len(reparto)
+
+    def rerun(self):
+        raise _Recarga()
+
+
+def _pasada(estado, pulsados=()):
+    st = _StConfirmar(estado, pulsados)
+    return panel_ia.confirmar(st, "x", "Leer", "Cuesta hasta 0.12 \\$."), st
+
+
+def test_sin_pulsar_no_se_confirma_ni_se_avisa():
+    confirmado, st = _pasada({})
+    assert confirmado is False and st.avisos == [] and st.botones == ["x_pedir"]
+
+
+def test_pulsar_el_boton_no_gasta_solo_arma_la_confirmacion():
+    estado = {}
+    confirmado, st = _pasada(estado, {"x_pedir"})
+    assert confirmado is False
+    assert st.avisos == ["Cuesta hasta 0.12 \\$."]
+    assert "x_si" in st.botones and "x_no" in st.botones
+
+
+def test_confirmar_devuelve_true_una_sola_vez_y_desarma_la_bandera_antes():
+    estado = {}
+    _pasada(estado, {"x_pedir"})
+    confirmado, _ = _pasada(estado, {"x_si"})
+    assert confirmado is True
+    # Desarmada antes de devolver: si la llamada falla, no queda a un clic.
+    assert not estado["x_confirmar"]
+    confirmado, st = _pasada(estado)
+    assert confirmado is False and st.avisos == []
+
+
+def test_cancelar_desarma_y_recarga():
+    estado = {}
+    _pasada(estado, {"x_pedir"})
+    with pytest.raises(_Recarga):
+        _pasada(estado, {"x_no"})
+    assert not estado["x_confirmar"]
+
+
+def test_los_8k_del_analizador_piden_confirmacion_y_los_de_seguimiento_no():
+    assert "con_confirmacion=True" in (RAIZ / "vistas" / "analizador.py").read_text(encoding="utf-8")
+    assert "con_confirmacion" not in (RAIZ / "vistas" / "seguimiento.py").read_text(encoding="utf-8")
