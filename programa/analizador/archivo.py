@@ -4,7 +4,7 @@
 `libros/`, y fuera de git. N2 guarda ahí sólo las lecturas de los 8-K, con el
 formato y las funciones de `interprete/archivo.py` tal cual: append-only, un
 archivo ilegible no se trata como vacío ni se pisa, y lo ya leído se pinta sin
-pagar. N3 añade aquí lo de los otros tres bloques.
+pagar.
 
 N3 guarda aquí las otras tres lecturas —`tesis`, `mdna` y `valoracion`— en el
 mismo fichero, bajo sus propias claves. `interprete.archivo` conserva las claves
@@ -111,7 +111,7 @@ def _fuente(crudo: dict) -> Fuente:
         _texto(crudo["fecha"], "fecha"),
         _texto(crudo["accession"], "accession"),
         _texto(crudo["seccion"], "seccion"),
-        _booleano(crudo["recortado"]),
+        _booleano(crudo["recortado"], "recortado"),
     )
 
 
@@ -148,16 +148,39 @@ def _contraste(crudo: dict) -> Contraste:
     )
 
 
+def _texto_o_nada(valor: object, campo: str) -> "str | None":
+    return None if valor is None else _texto(valor, campo)
+
+
+def _votos(valor: object) -> "tuple[tuple[str, str | None], ...]":
+    """Exactamente los tres pares `[nombre, voto]`, con los nombres y el orden de siempre."""
+    if not isinstance(valor, list) or len(valor) != len(NOMBRES_DE_VOTO):
+        raise ValueError(f"'votos' no son los tres pares esperados: {valor!r}")
+    votos = []
+    for par, esperado in zip(valor, NOMBRES_DE_VOTO):
+        if not isinstance(par, list) or len(par) != 2 or par[0] != esperado:
+            raise ValueError(f"'votos' no trae el par de '{esperado}' en su sitio: {par!r}")
+        votos.append((esperado, _texto_o_nada(par[1], "voto")))
+    return tuple(votos)
+
+
+def _movidos(valor: object) -> "tuple[str, ...]":
+    """`tuple("beta")` da `('b', 'e', 't', 'a')` y no se queja: se exige una lista."""
+    if not isinstance(valor, list):
+        raise ValueError(f"'movidos' no es una lista de textos: {valor!r}")
+    return tuple(_texto(m, "movidos") for m in valor)
+
+
 def _explicacion(crudo: dict) -> Explicacion:
     return Explicacion(
         datetime.fromisoformat(crudo["cuando"]),
         _texto(crudo["modelo"], "modelo"),
         _texto(crudo["version"], "version"),
-        tuple((_texto(nombre, "voto"), voto) for nombre, voto in crudo["votos"]),
-        crudo["veredicto"],
-        tuple(_texto(m, "movidos") for m in crudo["movidos"]),
+        _votos(crudo["votos"]),
+        _texto_o_nada(crudo["veredicto"], "veredicto"),
+        _movidos(crudo["movidos"]),
         tuple(
-            (_texto(o["sobre"], "sobre"), _texto(o["dice"], "dice"), _booleano(o["marcada"]))
+            (_texto(o["sobre"], "sobre"), _texto(o["dice"], "dice"), _booleano(o["marcada"], "marcada"))
             for o in crudo["observaciones"]
         ),
         _texto(crudo["en_conjunto"], "en_conjunto"),
@@ -204,10 +227,16 @@ def _anotar(ruta: Path, clave: str, entrada: dict) -> None:
     """Añadir una entrada bajo `clave`, sin tocar lo demás.
 
     Antes valida lo que hay: escribir encima de un fichero que no se entiende
-    perdería el historial. Un fichero nuevo nace con `hechos` y `rebalanceo`
-    vacías, que es lo que `interprete.archivo.cargar` exige para leerlo.
+    perdería el historial. Y valida lo que va a escribir con su propio lector:
+    una entrada que luego no se pudiera leer dejaría el fichero ilegible para
+    siempre. Un fichero nuevo nace con `hechos` y `rebalanceo` vacías, que es
+    lo que `interprete.archivo.cargar` exige para leerlo.
     """
     cargar(ruta)
+    try:
+        _LECTORES[clave](entrada)
+    except (KeyError, TypeError, ValueError) as error:
+        raise ValueError(f"No se guarda: la entrada de '{clave}' no se podría leer después ({error}).") from error
     crudo = leer_crudo(ruta)
     if crudo is None:
         crudo = {"hechos": [], "rebalanceo": []}

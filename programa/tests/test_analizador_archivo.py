@@ -119,3 +119,82 @@ def test_los_votos_de_una_valoracion_son_los_tres_en_orden():
     valoracion = {"votos": {"pares": {"voto": "barata"}, "flujos": {"voto": "neutra"}}}
     assert archivo.votos_de(valoracion) == (("flujos", "neutra"), ("sin_crecimiento", None), ("pares", "barata"))
     assert archivo.votos_de({"motivo": "sin_red"}) == (("flujos", None), ("sin_crecimiento", None), ("pares", None))
+
+
+# --- La forma de la explicación al leer ---------------------------------------------
+
+
+def _con_explicacion(tmp_path, **cambios):
+    ruta = tmp_path / "MU.json"
+    archivo.anotar_explicacion(ruta, EXPLICACION)
+    crudo = json.loads(ruta.read_text(encoding="utf-8"))
+    crudo["valoracion"][0].update(cambios)
+    ruta.write_text(json.dumps(crudo), encoding="utf-8")
+    return ruta
+
+
+@pytest.mark.parametrize(
+    "cambios",
+    [
+        {"movidos": "beta"},
+        {"movidos": ["beta", 3]},
+        {"veredicto": 5},
+        {"votos": [["flujos", "neutra"], ["sin_crecimiento", "neutra"]]},
+        {"votos": [["pares", "barata"], ["sin_crecimiento", "neutra"], ["flujos", "neutra"]]},
+        {"votos": [["flujos", "neutra"], ["sin_crecimiento", "neutra"], ["otro", "barata"]]},
+        {"votos": [["flujos", 3], ["sin_crecimiento", "neutra"], ["pares", "barata"]]},
+        {"votos": "flujos"},
+        {"votos": [["flujos"], ["sin_crecimiento", "neutra"], ["pares", "barata"]]},
+    ],
+)
+def test_una_explicacion_con_otra_forma_es_un_fichero_corrupto(tmp_path, cambios):
+    ruta = _con_explicacion(tmp_path, **cambios)
+    with pytest.raises(interprete_archivo.ArchivoIlegible):
+        archivo.cargar(ruta)
+
+
+def test_una_explicacion_con_veredicto_y_votos_vacios_se_lee(tmp_path):
+    ruta = _con_explicacion(
+        tmp_path, veredicto=None,
+        votos=[["flujos", None], ["sin_crecimiento", None], ["pares", None]],
+    )
+    leida = archivo.cargar(ruta).valoracion[0]
+    assert leida.veredicto is None and leida.votos[0] == ("flujos", None)
+
+
+def test_el_error_de_un_booleano_nombra_su_campo(tmp_path):
+    ruta = tmp_path / "MU.json"
+    archivo.anotar_tesis(ruta, TESIS)
+    crudo = json.loads(ruta.read_text(encoding="utf-8"))
+    crudo["tesis"][0]["fuente"]["recortado"] = "no"
+    ruta.write_text(json.dumps(crudo), encoding="utf-8")
+    with pytest.raises(interprete_archivo.ArchivoIlegible, match="'recortado'"):
+        archivo.cargar(ruta)
+    archivo.anotar_explicacion(tmp_path / "otro.json", EXPLICACION)
+    crudo = json.loads((tmp_path / "otro.json").read_text(encoding="utf-8"))
+    crudo["valoracion"][0]["observaciones"][0]["marcada"] = "si"
+    (tmp_path / "otro.json").write_text(json.dumps(crudo), encoding="utf-8")
+    with pytest.raises(interprete_archivo.ArchivoIlegible, match="'marcada'"):
+        archivo.cargar(tmp_path / "otro.json")
+
+
+# --- Lo que se escribe también se valida --------------------------------------------
+
+
+def test_una_entrada_que_no_se_podria_leer_no_se_escribe(tmp_path):
+    mala = archivo.Tesis(CUANDO, "m", "v", FUENTE, "t", (("a", "c", 1),))
+    ruta = tmp_path / "MU.json"
+    with pytest.raises(ValueError):
+        archivo.anotar_tesis(ruta, mala)
+    assert not ruta.exists()
+
+
+def test_una_entrada_mala_deja_el_fichero_como_estaba(tmp_path):
+    ruta = tmp_path / "MU.json"
+    archivo.anotar_tesis(ruta, TESIS)
+    antes = ruta.read_text(encoding="utf-8")
+    mala = archivo.Tesis(CUANDO, "m", "v", FUENTE, "t", (("a", "c", 1),))
+    with pytest.raises(ValueError):
+        archivo.anotar_tesis(ruta, mala)
+    assert ruta.read_text(encoding="utf-8") == antes
+    assert archivo.cargar(ruta).tesis == (TESIS,)

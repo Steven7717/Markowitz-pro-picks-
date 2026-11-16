@@ -164,7 +164,7 @@ def cargar(ruta: Path) -> Archivo:
         raise ArchivoIlegible(f"{ruta} tiene una forma que no se reconoce: {error}") from error
 
 
-def _booleano(valor: object) -> bool:
+def _booleano(valor: object, campo: str = "verificada") -> bool:
     """Un booleano de verdad, no lo que `bool()` opine de el.
 
     `bool("false")` es `True`, porque toda cadena no vacia lo es. Con un fichero
@@ -177,7 +177,7 @@ def _booleano(valor: object) -> bool:
     fichero corrupto, y corrupto aqui se dice en vez de arreglarse adivinando.
     """
     if not isinstance(valor, bool):
-        raise ValueError(f"'verificada' no es un booleano: {valor!r}")
+        raise ValueError(f"'{campo}' no es un booleano: {valor!r}")
     return valor
 
 
