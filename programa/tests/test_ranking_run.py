@@ -354,7 +354,7 @@ def test_una_narrativa_no_producible_cae_a_plantilla_sin_abortar_la_corrida(sin_
 
 
 def test_el_contexto_no_lleva_ni_un_digito():
-    # _contexto usa descriptor() precisamente para que no haya ninguna cifra
+    # contexto usa descriptor() precisamente para que no haya ninguna cifra
     # que el modelo pueda copiar a la tesis o a una afirmación. Nadie lo
     # comprobaba: sin_digitos ya existe en ranking/verificacion.py para esto.
     ficha = {
