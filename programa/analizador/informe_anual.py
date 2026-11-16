@@ -53,6 +53,13 @@ _MDNA = re.compile(
 _RIESGOS = re.compile(
     r"^[^\S\n]*(?:d\.[^\S\n]*)?risk factors[^\S\n]*$", re.IGNORECASE | re.MULTILINE
 )
+# Una línea que acaba en un número de página (con o sin puntos de relleno) es de
+# un índice; un encabezado, en cambio, va con una línea en blanco por encima.
+_PAGINA = re.compile(r"\d+[^\S\n]*$")
+_BLANCO_ANTES = re.compile(r"\n[^\S\n]*\n$")
+# Una remisión a otro documento: «reference is made», «incorporated by reference».
+_REMISION = re.compile(r"reference\s+is\s+made|incorporated\s+by\s+reference", re.IGNORECASE)
+_VENTANA_REMISION = 600
 _NOMBRES = {"10-K": ("Item 1A", "Item 7"), "20-F": ("Item 3.D", "Item 5")}
 
 
@@ -85,9 +92,16 @@ def _desde(texto: str, patron, dentro_de: "int | None" = None) -> "str | None":
     return texto[hallado.start():]
 
 
+def _remite(cuerpo: str) -> bool:
+    """Si al principio del cuerpo dice que la sección está en otro documento."""
+    return _REMISION.search(cuerpo[:_VENTANA_REMISION]) is not None
+
+
 def riesgos_10k(seccion: "str | None") -> "str | None":
     """El Item 1A entero, o `None` si es una remisión."""
-    return seccion if seccion and len(seccion) >= MINIMO_SECCION else None
+    if not seccion or len(seccion) < MINIMO_SECCION or _remite(seccion):
+        return None
+    return seccion
 
 
 def riesgos_20f(item3: "str | None") -> "str | None":
@@ -95,7 +109,30 @@ def riesgos_20f(item3: "str | None") -> "str | None":
     if not item3:
         return None
     cortado = _desde(item3, _RIESGOS)
-    return cortado if cortado is not None and len(cortado) >= MINIMO_SECCION else None
+    if cortado is None or len(cortado) < MINIMO_SECCION:
+        return None
+    # El cuerpo empieza tras la línea de encabezado.
+    return None if _remite(cortado.partition("\n")[2]) else cortado
+
+
+def _desde_encabezado_de_anexo(anexo: str) -> "str | None":
+    """Desde el primer encabezado del MD&A del anexo que no sea un índice ni una mención.
+
+    Cuenta la coincidencia que va tras una línea en blanco (o al principio) y
+    cuya línea no acaba en un número de página.
+    """
+    for hallado in _MDNA.finditer(anexo):
+        antes = anexo[: hallado.start()]
+        if antes.strip() and not _BLANCO_ANTES.search(antes):
+            continue
+        fin = anexo.find("\n", hallado.end())
+        linea = anexo[hallado.start(): len(anexo) if fin == -1 else fin]
+        if _PAGINA.search(linea):
+            continue
+        cortado = anexo[hallado.start():]
+        if len(cortado) >= MINIMO_SECCION:
+            return cortado
+    return None
 
 
 def mdna(seccion: "str | None", anexos: "list[str]") -> "tuple[str | None, str]":
@@ -103,8 +140,8 @@ def mdna(seccion: "str | None", anexos: "list[str]") -> "tuple[str | None, str]"
     if seccion and len(seccion) >= MINIMO_SECCION:
         return (_desde(seccion, _MDNA, _BUSCAR_EN) or seccion), "informe"
     for anexo in sorted((a for a in anexos if a), key=len, reverse=True):
-        cortado = _desde(anexo, _MDNA)
-        if cortado is not None and len(cortado) >= MINIMO_SECCION:
+        cortado = _desde_encabezado_de_anexo(anexo)
+        if cortado is not None:
             return cortado, "ex_13"
     return None, ""
 

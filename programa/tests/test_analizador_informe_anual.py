@@ -44,12 +44,40 @@ def test_el_mdna_incorporado_por_referencia_se_busca_en_el_anexo_13():
     remision = f"ITEM 7. {ENCABEZADO}\n\nIncorporated by reference from the Annual Report."
     anexo = (
         "Notes to the financial statements. " * 300
-        + "\nManagement’s Discussion and Analysis of Financial Condition and Results of\nOperations\n\n"
+        + "\n\nManagement’s Discussion and Analysis of Financial Condition and Results of\nOperations\n\n"
         + LARGO
     )
     texto, origen = ia.mdna(remision, [anexo])
     assert texto.startswith("Management’s Discussion and Analysis")
     assert origen == "ex_13"
+
+
+def test_un_indice_al_principio_del_anexo_no_es_el_encabezado():
+    # El índice acaba en un número de página: el MD&A de verdad está mucho después.
+    remision = f"ITEM 7. {ENCABEZADO}\n\nIncorporated by reference."
+    relleno = "Notes to the financial statements. " * 3_500  # 122.500 caracteres
+    anexo = (
+        "\nManagement’s Discussion and Analysis of Financial Condition 25\n\n"
+        + relleno
+        + "\n\nManagement’s Discussion and Analysis of Financial Condition and Results of\nOperations\n\n"
+        + LARGO
+    )
+    texto, origen = ia.mdna(remision, [anexo])
+    assert texto.startswith("Management’s Discussion and Analysis of Financial Condition and Results")
+    assert len(texto) < 20_000 and origen == "ex_13"
+
+
+def test_un_indice_con_puntos_de_relleno_tampoco():
+    anexo = "\n\nManagement’s Discussion and Analysis ........ 25\n\n" + LARGO
+    assert ia.mdna("Incorporated by reference.", [anexo]) == (None, "")
+
+
+def test_una_mencion_partida_por_el_ajuste_de_linea_no_es_un_encabezado():
+    anexo = (
+        "These statements should be read together with\n"
+        "Management’s Discussion and Analysis included elsewhere in this report. " + LARGO
+    )
+    assert ia.mdna("Incorporated by reference.", [anexo]) == (None, "")
 
 
 def test_un_anexo_sin_el_encabezado_no_se_hace_pasar_por_mdna():
@@ -89,6 +117,21 @@ def test_unos_riesgos_que_remiten_a_otro_documento_no_son_los_riesgos():
     item3 = "ITEM 3 KEY INFORMATION\n\nD. RISK FACTORS\n\nReference is made to the Annual Report."
     assert ia.riesgos_20f(item3) is None
     assert ia.riesgos_10k("Risk Factors. See the Annual Report.") is None
+
+
+def test_unos_riesgos_que_remiten_tras_varios_miles_de_caracteres_tampoco_lo_son():
+    # NVO: el Item 3 mide 6.897 caracteres, casi todos de lo demás.
+    item3 = (
+        "ITEM 3 KEY INFORMATION\n\nA. [RESERVED]\n\nB. CAPITALISATION AND INDEBTEDNESS\n\n"
+        "Not applicable.\n\nC. REASONS FOR THE OFFER AND USE OF PROCEEDS\n\nNot applicable.\n\n"
+        "D. RISK FACTORS\n\nFor information on risk factors, reference is\nmade to ‘Risk management’ "
+        "on pages 41-42 of our Annual Report 2025, " + LARGO
+    )
+    assert ia.riesgos_20f(item3) is None
+
+
+def test_un_10k_que_incorpora_por_referencia_no_tiene_riesgos_aunque_sea_largo():
+    assert ia.riesgos_10k("Incorporated\nby reference from the Annual Report. " + LARGO) is None
 
 
 def test_los_riesgos_de_un_10k_van_enteros():
