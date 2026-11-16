@@ -20,6 +20,8 @@ def test_kupiec_no_rechaza_la_tasa_exacta_y_si_el_doble_largo():
     assert backtest.kupiec(10, 1000, 0.01) == pytest.approx(1.0)
     assert backtest.kupiec(30, 1000, 0.01) < 0.001
     assert 0 < backtest.kupiec(0, 1000, 0.01) < 0.001
+    # Todo fallos: el LR es enorme y el p-valor es 0 (no NaN ni error).
+    assert backtest.kupiec(1000, 1000, 0.01) == 0.0
 
 
 def _garch(n, semilla, omega=2e-6, a=0.10, b=0.88):
@@ -32,14 +34,35 @@ def _garch(n, semilla, omega=2e-6, a=0.10, b=0.88):
     return r
 
 
-def test_pronosticos_solo_miran_el_pasado():
+@pytest.mark.parametrize("metodo", ["historico", "ewma", "fhs"])
+def test_pronosticos_solo_miran_el_pasado(metodo):
     r = np.random.default_rng(3).normal(0, 0.01, 800)
-    p = backtest.pronosticos(r, "historico")
+    p = backtest.pronosticos(r, metodo)
     assert len(p["var99"]) == 800 - backtest.VENTANA_ESTIMACION
     # Cambiar el último día no puede cambiar ninguna previsión: ninguna lo mira.
     r2 = r.copy()
     r2[-1] = -0.5
-    np.testing.assert_array_equal(p["var99"], backtest.pronosticos(r2, "historico")["var99"])
+    np.testing.assert_array_equal(p["var99"], backtest.pronosticos(r2, metodo)["var99"])
+
+
+@pytest.mark.parametrize("n", [0, 300, 500, 600, backtest.MINIMO_OBSERVACIONES - 1])
+def test_backtestear_rechaza_series_cortas(n):
+    r = np.random.default_rng(8).normal(0, 0.01, n)
+    with pytest.raises(ValueError, match=str(n)):
+        backtest.backtestear(r, "normal")
+
+
+def test_backtestear_acepta_el_minimo():
+    r = np.random.default_rng(9).normal(0, 0.01, backtest.MINIMO_OBSERVACIONES)
+    assert backtest.backtestear(r, "normal").excepciones.size == backtest.VENTANA_BASILEA
+
+
+def test_backtestear_rechaza_nan_e_infinitos():
+    for malo in (np.nan, np.inf):
+        r = np.random.default_rng(10).normal(0, 0.01, 900)
+        r[700] = malo
+        with pytest.raises(ValueError, match="finit"):
+            backtest.backtestear(r, "normal")
 
 
 def test_sobre_normales_iid_la_normal_acierta_la_tasa():

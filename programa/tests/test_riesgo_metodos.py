@@ -86,3 +86,22 @@ def test_las_varianzas_ewma_siguen_la_recursion():
 
 def test_cada_clave_tiene_etiqueta():
     assert set(metodos.METODOS) == set(metodos.ETIQUETAS)
+
+
+@pytest.mark.parametrize("clave", list(metodos.METODOS))
+@pytest.mark.parametrize("alpha", [0.99, 0.975])
+def test_ceros_al_principio_y_series_constantes_dan_numeros(clave, alpha):
+    """Un activo que no cotiza en las primeras sesiones de la ventana no puede
+    dar NaN (0/0 en la semilla EWMA, curtosis de una serie constante)."""
+    ruido = np.random.default_rng(11).normal(0, 0.01, 460)
+    for r in (np.concatenate([np.zeros(40), ruido]), np.zeros(500)):
+        var, es = metodos.METODOS[clave](r, alpha)
+        assert np.isfinite(var) and np.isfinite(es)
+
+
+@pytest.mark.parametrize("alpha", [0.99, 0.975])
+def test_los_momentos_a_mano_dan_lo_mismo_que_scipy(alpha):
+    r = np.random.default_rng(12).standard_t(5, 500) * 0.01
+    sesgo, exceso = metodos._sesgo_y_exceso(r)
+    assert sesgo == pytest.approx(stats.skew(r))
+    assert exceso == pytest.approx(stats.kurtosis(r))

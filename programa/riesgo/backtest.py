@@ -20,6 +20,8 @@ VENTANA_BASILEA = 250
 # sería el segundo o tercer peor día del año, que no es un cuantil, es una
 # anécdota; Basilea pide como mínimo un año, no como máximo.
 VENTANA_ESTIMACION = 500
+# Lo mínimo para que haya al menos una ventana de Basilea que contar.
+MINIMO_OBSERVACIONES = VENTANA_ESTIMACION + VENTANA_BASILEA
 # Del acumulado binomial: verde por debajo del 95 %, roja desde el 99,99 %.
 _CORTE_VERDE, _CORTE_ROJO = 0.95, 0.9999
 
@@ -46,11 +48,8 @@ def kupiec(x: int, n: int, p: float) -> float:
         fallos = x * np.log(q) if x > 0 else 0.0
         return aciertos + fallos
     lr = -2 * (_ll(p) - _ll(x / n))
-    return float(1 - chi2.cdf(max(lr, 0.0), 1))
-
-
-# Lo mínimo para que haya al menos una ventana de Basilea que contar.
-MINIMO_OBSERVACIONES = VENTANA_ESTIMACION + VENTANA_BASILEA
+    # sf y no 1 - cdf: conserva precisión en la cola (con x = n llega a 0).
+    return float(chi2.sf(max(lr, 0.0), 1))
 
 
 def pronosticos(r: np.ndarray, metodo: str, ventana: int = VENTANA_ESTIMACION) -> dict:
@@ -86,6 +85,14 @@ class Backtest:
 
 
 def backtestear(r: np.ndarray, metodo: str) -> Backtest:
+    if len(r) < MINIMO_OBSERVACIONES:
+        raise ValueError(
+            f"Hacen falta al menos {MINIMO_OBSERVACIONES} retornos diarios "
+            f"({VENTANA_ESTIMACION} de estimación y {VENTANA_BASILEA} de Basilea); hay {len(r)}.")
+    if not np.isfinite(r).all():
+        # Un NaN envenena el EWMA y `pérdida > NaN` es False: contaría como
+        # «sin excepción» y empujaría hacia el verde sin avisar.
+        raise ValueError("Los retornos tienen valores no finitos (NaN o infinito).")
     p = pronosticos(r, metodo)
     realizados = r[VENTANA_ESTIMACION:]
     perdida = -realizados
@@ -93,6 +100,8 @@ def backtestear(r: np.ndarray, metodo: str) -> Backtest:
     conteos = np.convolve(excepciones.astype(int), np.ones(VENTANA_BASILEA, int), "valid")
     verde, _ = limites_semaforo()
     cola = perdida > p["var975"]
+    # Cociente de medias a propósito (no media de cocientes): un día de ES
+    # previsto minúsculo no puede dominar el resultado.
     razon = float(perdida[cola].mean() / p["es975"][cola].mean()) if cola.any() else float("nan")
     x, n = int(excepciones.sum()), len(excepciones)
     return Backtest(
