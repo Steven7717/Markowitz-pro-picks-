@@ -1,8 +1,9 @@
 # Analizador individual — sub-proyecto N
 
 **Fecha:** 2026-10-12
-**Estado:** N1 (los datos) y N2 (la pantalla) implementados en la rama
-`feat/analizador-individual`; N3 (la IA) pendiente
+**Estado:** N1 (los datos), N2 (la pantalla) y N3 (la IA) hechos. N1 y N2 están
+fusionados en `master`; N3 está en la rama `feat/analizador-n3-ia`, sin fusionar
+(2026-11-17), con su recorrido de pago a medias
 **Depende de:** el sub-proyecto M, el valor intrínseco
 (`2026-10-12-valor-intrinseco-design.md`). N no empieza hasta que M esté en
 `master`.
@@ -778,3 +779,107 @@ que cambia de lo de arriba:
 
 Donde estas enmiendas contradicen el texto de arriba, mandan ellas, también
 sobre las del 2026-10-14.
+
+## Enmiendas del 2026-11-15, al planear y ejecutar N3
+
+El plan es `docs/superpowers/plans/2026-11-15-analizador-n3-ia.md`, ejecutado
+del 2026-11-15 al 2026-11-17 en la rama `feat/analizador-n3-ia`. Lo que cambia de
+lo de arriba:
+
+- **El cargador de riesgos del 20-F no va «al lado de `cargar_riesgos`»**, sino
+  en `analizador/informe_anual.py`, que trae los riesgos y el MD&A del mismo
+  expediente con una caché de un día. Para un 10-K, el texto de los riesgos es
+  idéntico al que ya usan los candidatos (un test `red` lo comprueba con MU
+  contra `ranking.filings.cargar_riesgos`).
+- **El extractor sigue unas reglas sacadas de un sondeo contra EDGAR** (2026-11-15,
+  edgartools 5.52), que está en el plan y en `CONTEXTO.md`. Una sección de menos
+  de 5.000 caracteres no es la sección, es una remisión. Si el MD&A de un 10-K
+  está incorporado por referencia, se busca en el anexo EX-13 su encabezado
+  como línea propia, precedida de una línea en blanco y sin acabar en número de
+  página (así no vale un índice ni una frase partida); si no está, no se
+  localiza y se dice: nunca se manda otra sección en su lugar. Los riesgos de
+  un 20-F se cortan desde la línea «Risk Factors» del Item 3. Unos riesgos que
+  empiezan con «reference is made» o «incorporated by reference» en los
+  primeros 600 caracteres son una remisión, por largos que sean (NVO: 6.897).
+  **Un 40-F no tiene secciones que citar** (RY: 829 caracteres de remisión).
+  **WFC no se localiza**: ni su MD&A (su anexo lo llama «Financial Review») ni
+  sus riesgos (el Item 1A del 10-K son 289 caracteres que remiten a «Financial
+  Review – Risk Factors» del informe anual), así que para WFC no hay tesis ni
+  contraste y la pantalla lo dice. ASML y SHEL (20-F) tampoco dan MD&A.
+- **`ranking.run._contexto` es `contexto`**: el plan lo llamaba con el guion
+  bajo, y el rename va en el mismo cambio que el bloque de la ficha.
+- **Las raíces de recomendación se afinaron y después se rehicieron.** El spec
+  decía `compr`, `vend`, `recomiend`, `aconsej`; `compr` a secas marcaba
+  «comprende» y «compromiso», y a `recomiend` se le escapaba «recomendación».
+  Ni siquiera con límite de palabra bastó: el detector marcaba frases que
+  describen («La empresa vende memoria», «Vendrán tiempos mejores») y dejaba
+  pasar recomendaciones («Cómprala», «Conviene mantener la posición»). Ahora
+  cubre familias de formas, y sigue siendo léxico: no puede ser completo.
+- **El párrafo de conjunto de la explicación se vacía** si lleva un dígito o una
+  recomendación; no lleva la regla de las siglas de I.
+- **Sin cartera, el prompt de los 8-K dice «en estudio»** (`VERSION_PROMPT`
+  i4), en vez de mirar con una llamada de pago cómo lo leía el modelo con una
+  cartera vacía.
+- **`interprete.archivo` conserva las claves ajenas** al escribir, y las tres
+  claves nuevas (`tesis`, `contraste`, `explicacion`) son opcionales al leer, de
+  modo que un fichero de antes sigue leyéndose. Antes de escribir una entrada,
+  `analizador.archivo` la valida con su propio lector: una entrada mal tipada
+  dejaba el fichero ilegible.
+- **Con el archivo ilegible no se ofrece leer con IA**: se dice, y no se pisa.
+- **La confirmación de los 8-K es sólo del Analizador** (`con_confirmacion`);
+  Seguimiento sigue igual, porque no se pidió.
+- **La explicación y el contraste usan la valoración que hay en pantalla**, con
+  lo movido en los deslizadores dicho en el texto guardado («Se explicó con tus
+  supuestos»); lo movido no se guarda. El aviso «con los números de entonces»
+  compara con la valoración que hay en pantalla y no con la del programa: una
+  explicación recién pagada con supuestos movidos se pintaba «de entonces»
+  desde el primer segundo.
+- **El aviso de informe más reciente** pregunta a la SEC una vez al día y sólo si
+  hay algo leído; sobre lo ya leído (tesis o contraste), avisa si hay uno más nuevo.
+- **El tope de coste no va en la etiqueta del primer botón** sino en el aviso de
+  la confirmación, que es lo que hay que leer antes de gastar. Los topes se
+  anuncian **redondeados hacia arriba**, y el del contraste cuenta con 2,5
+  caracteres por token (texto con tablas), una cota prudente y no medida; con
+  ella el contraste anuncia hasta 0,15 \$. Antes se contaban 3,30, medidos sobre
+  prosa, y los topes se redondeaban a la baja.
+- **A la explicación de la valoración no se le manda la clase del ticker**: sólo
+  el sector, los votos y los supuestos en palabras. Y el bloque de la valoración
+  **no nombra el ticker**: uno con dígitos (7203.T) metía un dígito en un texto
+  que se exige sin ninguno; sin ninguna letra en el ticker, no hay bloque.
+
+Al ejecutar N3 salió además esto, que también cambia lo que el spec dice o
+promete:
+
+- **La tesis no reinicia el contador de gasto del proceso.** `ranking.llm` lleva
+  un contador global contra el tope; `ia_tesis` lo reiniciaba. Ahora toma la
+  diferencia (resta el gasto antes y después) y sólo reinicia al borde del
+  tope. Queda un residuo: una corrida simultánea en otra sesión del mismo
+  proceso falsea la diferencia.
+- **Una lectura pagada se guarda o se pinta, nunca se pierde.** `_guardar` no
+  capturaba `ValueError` ni `TypeError`; ahora, si no se puede guardar, se pinta
+  igual y se dice. Tras un fallo se dice lo gastado, y lo que no es un fallo de
+  llamada no dice que lo fue.
+- **El reintento pide la respuesta completa**, no sólo lo que falló, para no
+  tirar lo bueno del primer turno.
+- **Una lectura vacía no se guarda**: una explicación vacía, o un contraste
+  vacío por descartes (todas las citas sin verificar), taparía la lectura
+  buena que hubiera antes.
+- **Cuando no hay informe anual se dice el motivo real** (el que da
+  `resolver.formularios_sec` o `informe_anual.cargar`, con su etiqueta en
+  `medidores_analizador.MOTIVO_INFORME`), no siempre
+  «sin red». Y la bandera de confirmación se documenta como es: sigue armada si
+  se cambia de ticker sin responder; no gasta sin el «Sí».
+- **El MD&A del anexo EX-13 exige línea en blanco previa y que la línea no acabe
+  en número de página.** El plan tomaba la primera mención a principio de línea,
+  que en PGR podía ser un índice o una frase partida por el ajuste.
+- **Sin Bono M no se ofrece contrastar ni explicar.** Los bloques miran la
+  valoración del programa para decidir si hay algo que explicar; con la tasa
+  puesta a mano en el deslizador, sin Bono M, la valoración del programa no
+  existe y los dos botones no salen.
+- **Desviaciones menores del código del plan**: el plan pisaba ayudantes de test
+  que ya existían (`_falso_que_apunta`, `_St`); `_INVISIBLES` va con escapes y
+  no con los caracteres literales; y `_valoracion` de la vista lleva una guarda
+  de `None`.
+
+Donde estas enmiendas contradicen el texto de arriba, mandan ellas, también
+sobre las del 2026-10-14 y las del 2026-10-26.

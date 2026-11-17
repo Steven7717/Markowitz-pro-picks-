@@ -10,6 +10,15 @@
 
 **Spec:** `docs/superpowers/specs/2026-10-12-analizador-individual-design.md`, secciones «La IA» y «El archivo», con sus enmiendas. Este plan añade las suyas en la Task 15.
 
+> **Antes de leer el código de este plan:** estaba sin ejecutar al escribirlo, y
+> las dos revisiones de la ejecución encontraron en él los defectos que se
+> cuentan en las notas «Ejecutada» de cada tarea y en «Sub-proyecto N, parte 3»
+> de `CONTEXTO.md`. **Manda el código del repositorio, no el de este plan**: lo
+> que aquí aparece sin el arreglo (el extractor del anexo, el detector de
+> recomendaciones, los topes, `_guardar`, el aviso «de entonces») está mal. El
+> plan se deja como se escribió, con sus notas, para que se vea qué se pensó y
+> qué hubo que corregir.
+
 ---
 
 ## Reglas que valen para todas las tareas
@@ -70,6 +79,8 @@ De ahí las reglas del extractor (Task 4):
 ---
 
 ### Task 1: `interprete/archivo.py` deja de pisar las claves que no son suyas
+
+> **Ejecutada.** `251eddd`. Sin desviaciones.
 
 Hoy `_escribir` reescribe el fichero entero con `hechos` y `rebalanceo`. Como N3 guarda tres claves más en `analisis/<TICKER>.json`, la siguiente lectura de 8-K las borraría.
 
@@ -206,6 +217,8 @@ git commit -m "fix: anotar una lectura de 8-K ya no borra las claves ajenas del 
 ---
 
 ### Task 2: `analizador/archivo.py` guarda las tres lecturas nuevas
+
+> **Ejecutada.** `11ad07e`, y `df7bee9` de la primera revisión: `_explicacion` no validaba `votos`, `veredicto` ni `movidos` al leer, y `_anotar` no validaba la entrada antes de escribir (una mal tipada dejaba el fichero ilegible). Ahora valida las dos cosas.
 
 **Files:**
 - Modify: `analizador/archivo.py`
@@ -598,6 +611,8 @@ git commit -m "feat: el archivo del Analizador guarda la tesis, el contraste y l
 
 ### Task 3: sin cartera, el prompt de los 8-K no enseña una cartera vacía
 
+> **Ejecutada.** `36c5954`, y `192762d` (el comentario de `test_ranking_run` nombra `contexto`, no `_contexto`). Desviación: el plan pisaba el ayudante de test `_falso_que_apunta`, que ya existía en `test_interprete_noticias.py`; se reutilizó el existente.
+
 Con `pesos=()`, el turno de usuario dice «Tu cartera:» y nada debajo, mientras la regla dice «Solo puedes nombrar los activos que aparecen en la cartera de abajo». En vez de pagar una llamada para ver cómo lo lee el modelo, se quita la ambigüedad: sin pesos, en el sitio de la cartera va la lista de tickers «en estudio».
 
 **Files:**
@@ -722,6 +737,8 @@ git commit -m "fix: sin cartera, el prompt de los 8-K dice «en estudio» y no u
 
 ---
 ### Task 4: `analizador/informe_anual.py` — los riesgos y el MD&A del último informe anual
+
+> **Ejecutada.** `22439db`, y `89fcb46` de la primera revisión. El código del plan tenía dos defectos: el MD&A del anexo EX-13 tomaba la primera mención a principio de línea (un índice o una frase partida valían; ahora exige línea en blanco previa y que la línea no acabe en número de página), y unos riesgos que son una remisión larga pasaban por sección (NVO, 6.897 caracteres; ahora «reference is made» o «incorporated by reference» en los primeros 600 caracteres los descarta). Añadido al ejecutar: WFC tampoco trae sus factores de riesgo en el 10-K (su Item 1A son 289 caracteres que remiten al informe anual), así que para WFC no hay tesis ni contraste.
 
 Un solo módulo trae las dos secciones, porque salen del mismo expediente. No se usa `ranking.filings.cargar_riesgos`: sólo conoce el 10-K y su caché no caduca nunca, y aquí hace falta saber si hay un informe más nuevo. El texto de los riesgos de un 10-K sale **idéntico** al de `cargar_riesgos` (la sección entera cortada a `filings.MAX_CARACTERES`), así que la caché por contenido de `ranking.llm` sirve la misma ficha a candidatos y al Analizador sin pagar dos veces.
 
@@ -1291,6 +1308,8 @@ git commit -m "feat: los riesgos y el MD&A del último informe anual, con las re
 
 ### Task 5: la ficha y la valoración, en palabras
 
+> **Ejecutada.** `5048dc5`, y `a3cc9e6` de la primera revisión: un ticker con dígitos (7203.T) metía un dígito en el bloque de la valoración; el bloque ya no nombra el ticker, y sin ninguna letra no hay bloque. `ranking.run._contexto` pasa a `contexto` en esta tarea.
+
 El modelo no ve cifras de la valoración: el código las traduce a frases de un vocabulario cerrado. `ranking.run._contexto` pasa a ser pública, como pide el spec.
 
 **Files:**
@@ -1640,6 +1659,8 @@ git commit -m "feat: la ficha y la valoración en palabras, sin un dígito, para
 
 ---
 ### Task 6: `analizador/ia_valoracion.py` — explicar la valoración
+
+> **Ejecutada.** `e6cdee8`; `8b76a86` (los invisibles, con escapes y no literales); y de la segunda revisión, `b40152d` (el detector de recomendaciones, rehecho por familias de formas: marcaba frases que describen y dejaba pasar recomendaciones) y `de19e7e` (el reintento pide la respuesta completa).
 
 No hay documento que citar, así que el guardarraíl es el de `interprete/ajuste.py`: pertenencia a un conjunto de letras, cero dígitos y, aquí además, nada de recomendar.
 
@@ -2004,6 +2025,8 @@ git commit -m "feat: explicar la valoración con IA, sin cifras ni recomendacion
 ---
 
 ### Task 7: `analizador/ia_mdna.py` — contrastar el escenario base con el MD&A
+
+> **Ejecutada.** `aba317b`; `8b76a86` (`_INVISIBLES` con escapes, como en la 6); y `de19e7e` (el reintento pide la respuesta completa, para no tirar lo bueno del primer turno).
 
 Ésta sí tiene verdad contrastable: cada juicio lleva una cita que se verifica carácter a carácter contra el documento que se mandó.
 
@@ -2370,6 +2393,8 @@ git commit -m "feat: contrastar el escenario base con el MD&A, con la cita verif
 
 ### Task 8: la tesis de B con su gasto, y lo que puede costar cada botón
 
+> **Ejecutada.** `0c57b73`; y de la segunda revisión, `6a4123e` (el tope del contraste usaba 3,30 caracteres por token, medido sobre prosa; ahora 2,5 para texto con tablas, una cota prudente y no medida, 0,15 \$, y los topes se anuncian redondeados hacia arriba) y `11c6096` (`ia_tesis` reiniciaba el contador global de gasto de `ranking.llm`; ahora resta antes y después, y sólo reinicia al borde del tope; queda el residuo de una corrida simultánea en otra sesión).
+
 La tesis es `ranking.llm.redactar_con_cache`, sin tocar. Lo único que falta es saber lo que costó: `redactar` anota su gasto en un contador de módulo, y hay que reiniciarlo antes y leerlo después.
 
 **Files:**
@@ -2560,6 +2585,8 @@ git commit -m "feat: la tesis de candidatos desde el Analizador, con su gasto y 
 
 ### Task 9: la confirmación con bandera, y los 8-K del Analizador la usan
 
+> **Ejecutada.** `a17c241`, y `28274bc` (la bandera de confirmar se documenta como es: sigue armada si se cambia de ticker sin responder, y no gasta sin el «Sí»). Desviación: el plan pisaba el ayudante de test `_St`, que ya existía.
+
 **Files:**
 - Modify: `vistas/panel_ia.py`, `vistas/analizador.py` (la llamada a `interpretar_hechos`)
 - Test: `tests/test_panel_ia.py`
@@ -2724,6 +2751,8 @@ git commit -m "feat: confirmación con bandera para los botones de IA, y los 8-K
 
 ---
 ### Task 10: la pestaña IA
+
+> **Ejecutada.** `d8a8128`, y de la segunda revisión `962e19c` (el aviso «con los números de entonces» comparaba con la valoración del programa y no con la que hay en pantalla), `b1b6724` (`_guardar` no capturaba `ValueError` ni `TypeError`: una lectura pagada se habría perdido), `9cee199` (tras un fallo se dice lo gastado), `4878dd5` (una explicación o un contraste vacíos por descartes no se guardan) y `28274bc` (sin informe anual se dice el motivo real). Desviación: una guarda de `None` en `_valoracion` de la vista.
 
 Tres piezas: la valoración que hay en pantalla (`analizador/sesion.py`), los textos (`medidores_analizador.py`) y la vista (`vistas/analizador_ia.py`). La vista sólo pinta y encadena; lo que decide algo está en los módulos de las tareas anteriores.
 
@@ -3412,6 +3441,8 @@ git commit -m "feat: la pestaña IA del Analizador, con la tesis, el contraste y
 
 ### Task 11: la pestaña, ejecutada de verdad con `AppTest`
 
+> **Ejecutada.** `ebd72f1`. Sin desviaciones.
+
 **Files:**
 - Test: `tests/test_pantalla_analizador.py`
 
@@ -3732,6 +3763,8 @@ git commit -m "test: la pestaña IA ejecutada con AppTest, con dobles y sin gast
 
 ### Task 12: el extractor, contra EDGAR de verdad
 
+> **Ejecutada.** `c0e06fc`: los seis `red` pasan contra EDGAR (MU, PGR desde el EX-13, TSM, NVO, WFC, y que los riesgos de MU son idénticos a los de `ranking.filings.cargar_riesgos`).
+
 **Files:**
 - Test: `tests/test_analizador_red.py`
 
@@ -3806,6 +3839,8 @@ git commit -m "test: el extractor del informe anual contra EDGAR (MU, PGR, WFC, 
 ---
 
 ### Task 13: un sabotaje por guarda
+
+> **Ejecutada.** `8b26d1f`. 119 sabotajes: 100 rompieron un test a la primera y 19 salieron inertes, cada uno con su test nuevo.
 
 La regla de siempre: se copia el fichero al scratchpad, se rompe **una** guarda, se ejecutan los tests de ese módulo, se restaura desde la copia y se comprueba con `git diff --quiet -- <fichero>`. **Un sabotaje que no hace fallar ningún test es una pregunta**: falta un test, y se escribe antes de seguir.
 
@@ -3882,6 +3917,8 @@ git commit -m "test: los tests que faltaban según los sabotajes de N3"
 
 ### Task 14: recorrido con la app arrancada — **pide permiso antes de gastar**
 
+> **Ejecutada a medias.** Se arrancó la app, se analizaron MU, WALMEX.MX, TSM, JPM, PGR, WFC, SPY y RY, y se comprobó que la pestaña IA de MU se pinta con sus tres bloques y sin errores. El usuario eligió no gastar saldo. Al intentar pulsar el contraste en WFC (que no llama al modelo), el script del agente que conducía el navegador falló al cambiar de ticker y no se detuvo: pulsó «Contrastar con la empresa» y «Sí, leer con IA» sobre MU. Fue un error del agente, contra la decisión del usuario, y costó 0,035 \$ (13.742 tokens de entrada y 770 de salida; el aviso anunciaba «hasta 0,15 \$»). Dejó `analisis/MU.json` con un contraste de cinco juicios sobre el Item 7 del 10-K del 2026-10-09, con las cinco citas verificadas; el usuario decidió conservarlo. Es la única lectura de pago hecha con el modelo de verdad. Sin recorrer: los demás tickers, los casos de WFC y RY, la tesis, la explicación, los 8-K con confirmación, y releer con la app reabierta. Lección: un paso que falla tiene que parar el guion antes de cualquier botón que gaste.
+
 Los botones de IA gastan saldo real del usuario y escriben en `analisis/`, que son datos suyos. **Antes de pulsar ninguno se le pregunta**, con esta tabla y el total, y se espera su sí. Sin permiso, sólo se hace la parte gratis (pasos 1 a 3) y se deja dicho.
 
 | Ticker | Botones | Tope |
@@ -3931,6 +3968,8 @@ Cada defecto, con su test antes del arreglo y su commit. Un texto del modelo que
 ---
 
 ### Task 15: documentación
+
+> **Ejecutada.** Esta tarea, en el commit `docs: N3 hecho, con sus enmiendas al spec y CONTEXTO al día`. El README gana la pestaña IA del Analizador y su fila de costes.
 
 **Files:**
 - Modify: `docs/superpowers/specs/2026-10-12-analizador-individual-design.md`, `CONTEXTO.md`, `README.md` si menciona las pestañas del Analizador, y este plan (las notas «Ejecutada»).
