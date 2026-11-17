@@ -15,11 +15,6 @@ def _pilares(ficha: dict) -> str:
     return " · ".join(partes)
 
 
-def _coma(valor: float) -> str:
-    """Coma decimal, como el resto de la pantalla (`textos.ajuste_ficha`)."""
-    return f"{valor:.2f}".replace(".", ",")
-
-
 def _kpis(items: list[dict]) -> str:
     return ", ".join(f"{item['kpi']} ({item['z']:+.2f})" for item in items) or "—"
 
@@ -98,7 +93,7 @@ def render(
             f"> **Entorno macro:** fase {textos.NOMBRE_FASE[macro['fase']]}, "
             f"región {textos.NOMBRE_REGION[macro['region']]}, "
             f"dato de {textos.mes_legible(macro['mes_dato'])}. El orden incluye "
-            f"±{_coma(macro['inclinacion'])} "
+            f"±{textos.cifra(macro['inclinacion'])} "
             "por sector según la fase, así que los compuestos pueden no ir en orden.",
             f"> Entran por la macro: {entradas}. Salen: {salidas}.",
             "",

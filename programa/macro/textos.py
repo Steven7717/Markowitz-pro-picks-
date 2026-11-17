@@ -89,32 +89,59 @@ AVISO_EVIDENCIA = (
 _MESES = ("ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic")
 
 
+def cifra(valor: float) -> str:
+    """Dos decimales con coma, como el resto de la pantalla."""
+    return f"{valor:.2f}".replace(".", ",")
+
+
 def mes_legible(mes: "date | str") -> str:
-    if isinstance(mes, str):
-        mes = date.fromisoformat(mes)
-    return f"{_MESES[mes.month - 1]} {mes.year}"
+    """El mes en palabras; si no es una fecha, el texto tal cual (viene de disco)."""
+    try:
+        if isinstance(mes, str):
+            mes = date.fromisoformat(mes)
+        return f"{_MESES[mes.month - 1]} {mes.year}"
+    except (ValueError, AttributeError, TypeError):
+        return str(mes)
+
+
+def _nombre(tabla: dict, clave) -> str:
+    """El nombre de pantalla, o la clave cruda si el acta trae una que ya no existe."""
+    try:
+        return tabla.get(clave, str(clave))
+    except TypeError:  # clave no hashable
+        return str(clave)
 
 
 def etiqueta_corrida(bloque: "dict | None") -> str:
-    if not bloque:
+    if not bloque or not isinstance(bloque, dict):
         return "sin macro"
+    fase, region = bloque.get("fase"), bloque.get("region")
     return (
-        f"con macro: {NOMBRE_FASE[bloque['fase']]} "
-        f"({NOMBRE_REGION[bloque['region']]}, {mes_legible(bloque['mes_dato'])})"
+        f"con macro: {_nombre(NOMBRE_FASE, fase)} "
+        f"({_nombre(NOMBRE_REGION, region)}, {mes_legible(bloque.get('mes_dato'))})"
     )
+
+
+def _lista(valor) -> list:
+    return list(valor) if isinstance(valor, (list, tuple)) else []
 
 
 def lo_que_movio(bloque: dict) -> str:
+    if not isinstance(bloque, dict):
+        return "Esta corrida no lleva entorno macro."
     cabeza = (
-        f"El Top está inclinado por la fase **{NOMBRE_FASE[bloque['fase']]}** de "
-        f"{NOMBRE_REGION[bloque['region']]} (dato de {mes_legible(bloque['mes_dato'])}). "
+        f"El Top está inclinado por la fase **{_nombre(NOMBRE_FASE, bloque.get('fase'))}** de "
+        f"{_nombre(NOMBRE_REGION, bloque.get('region'))} "
+        f"(dato de {mes_legible(bloque.get('mes_dato'))}). "
     )
-    if not bloque["entradas"] and not bloque["salidas"]:
+    entradas = [str(t) for t in _lista(bloque.get("entradas"))]
+    salidas = [str(t) for t in _lista(bloque.get("salidas"))]
+    if not entradas and not salidas:
         return cabeza + "Con esta inclinación la lista no cambió."
     return (
         cabeza
-        + f"Entraron por la macro: {', '.join(bloque['entradas']) or 'ninguna'}. "
-        + f"Salieron por la macro: {', '.join(bloque['salidas']) or 'ninguna'}."
+        + f"Entraron por la macro: {', '.join(entradas) or 'ninguna'}. "
+        + f"Salieron por la macro: {', '.join(salidas) or 'ninguna'}."
     )
 
 
@@ -122,9 +149,8 @@ def ajuste_ficha(ajuste: "float | None") -> "str | None":
     if ajuste is None:
         return None
     # Coma decimal, como el resto de la pantalla: `f"{0.25:.2f}"` da «0.25».
-    cifra = f"{abs(ajuste):.2f}".replace(".", ",")
     if ajuste > 0:
-        return f"La macro la subió (+{cifra})."
+        return f"La macro la subió (+{cifra(abs(ajuste))})."
     if ajuste < 0:
-        return f"La macro la bajó (−{cifra})."
+        return f"La macro la bajó (−{cifra(abs(ajuste))})."
     return "La macro no la tocó."

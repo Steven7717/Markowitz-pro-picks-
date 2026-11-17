@@ -46,3 +46,28 @@ def test_ajuste_de_ficha():
     assert textos.ajuste_ficha(-0.25) == "La macro la bajó (−0,25)."
     assert textos.ajuste_ficha(0.0) == "La macro no la tocó."
     assert textos.ajuste_ficha(None) is None
+
+
+def test_un_bloque_raro_no_revienta_nada():
+    raro = {"region": "marte", "fase": "caos", "mes_dato": "no es una fecha"}
+    assert "marte" in textos.etiqueta_corrida(raro) and "caos" in textos.etiqueta_corrida(raro)
+    assert "no es una fecha" in textos.etiqueta_corrida(raro)
+    assert "no cambió" in textos.lo_que_movio(raro)
+    assert textos.mes_legible("no es una fecha") == "no es una fecha"
+    assert textos.mes_legible(None) == "None"
+
+
+def test_un_bloque_que_no_es_un_dict_cuenta_como_sin_macro():
+    for basura in ([], "texto", 3, {}):
+        assert textos.etiqueta_corrida(basura) == "sin macro"
+    assert textos.lo_que_movio(None)
+    assert textos.lo_que_movio([1])
+
+
+def test_entradas_y_salidas_ausentes_son_listas_vacias():
+    bloque = {"region": "usa", "fase": "expansion", "mes_dato": "2026-10-01"}
+    assert "no cambió" in textos.lo_que_movio(bloque)
+
+
+def test_cifra_usa_coma_decimal():
+    assert textos.cifra(0.25) == "0,25"
