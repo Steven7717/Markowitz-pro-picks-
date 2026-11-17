@@ -63,12 +63,17 @@ def _narrativa(ficha: dict) -> list[str]:
     return lineas + ["", _procedencia(narrativa)]
 
 
-def render(fichas: list[dict], exclusiones: dict[str, int]) -> str:
+def render(
+    fichas: list[dict], exclusiones: dict[str, int], macro: "dict | None" = None
+) -> str:
     """Human-readable report.
 
     Unverified quotes are marked in the body rather than footnoted: a warning
     nobody sees is the same as no warning, and the whole point of verifying was
     that the human gate can trust what it reads.
+
+    Con `macro` (el bloque de `corrida["macro"]`), el orden ya no es el del
+    compuesto: lo dice el informe, o los compuestos desordenados parecerían un fallo.
     """
     lineas = [
         "# Candidatos del sub-proyecto B",
@@ -80,6 +85,16 @@ def render(fichas: list[dict], exclusiones: dict[str, int]) -> str:
         "> selección transparente, no una previsión de rentabilidad.",
         "",
     ]
+    if macro:
+        entradas = ", ".join(macro["entradas"]) or "ninguna"
+        salidas = ", ".join(macro["salidas"]) or "ninguna"
+        lineas += [
+            f"> **Entorno macro:** fase {macro['fase']}, región {macro['region']}, "
+            f"dato de {macro['mes_dato']}. El orden incluye ±{macro['inclinacion']} "
+            "por sector según la fase, así que los compuestos pueden no ir en orden.",
+            f"> Entran por la macro: {entradas}. Salen: {salidas}.",
+            "",
+        ]
 
     for ficha in fichas:
         lineas += [
@@ -90,7 +105,12 @@ def render(fichas: list[dict], exclusiones: dict[str, int]) -> str:
             # promedio de los segundos. No lo es: es ese promedio ponderado
             # re-estandarizado dentro del sector (enmienda 1 del diseño), así que
             # un compuesto de +1,5 puede convivir con pilares de +0,1.
-            f"Compuesto (z dentro del sector) {ficha['compuesto']:+.2f}",
+            f"Compuesto (z dentro del sector) {ficha['compuesto']:+.2f}"
+            + (
+                f" · Ajuste macro de la fase {ficha['ajuste_macro']:+.2f}"
+                if macro and ficha.get("ajuste_macro")
+                else ""
+            ),
             f"Pilares (media de los z frente a sus pares del sector): {_pilares(ficha)}",
             "",
             f"- Fuerte en: {_kpis(ficha['destacados'])}",

@@ -172,3 +172,35 @@ def test_el_recorte_del_filing_se_declara():
 def test_sin_exclusiones_no_finge_que_no_hubo_guardas():
     texto = render([FICHA], {})
     assert "ninguna" in texto.lower()
+
+
+# --- La macro en el informe -----------------------------------------------
+
+MACRO = {
+    "region": "usa",
+    "fase": "recuperacion",
+    "mes_dato": "2026-10-01",
+    "inclinacion": 0.25,
+    "entradas": ["FIN1"],
+    "salidas": ["TEC1"],
+}
+
+
+def test_sin_macro_el_informe_no_habla_de_ciclo():
+    assert "fase" not in render([FICHA], EXCLUSIONES).lower().split("## 1.")[0]
+    assert render([FICHA], EXCLUSIONES) == render([FICHA], EXCLUSIONES, macro=None)
+
+
+def test_con_macro_el_informe_dice_fase_region_mes_y_movimientos():
+    texto = render([FICHA], EXCLUSIONES, macro=MACRO)
+    assert "fase recuperacion" in texto and "región usa" in texto
+    assert "2026-10-01" in texto
+    assert "FIN1" in texto and "TEC1" in texto
+    assert "±0.25" in texto
+
+
+def test_con_macro_la_ficha_con_ajuste_lo_muestra_junto_al_compuesto():
+    con = {**FICHA, "ajuste_macro": 0.25}
+    sin = {**FICHA, "ajuste_macro": 0.0}
+    assert "Ajuste macro de la fase +0.25" in render([con], EXCLUSIONES, macro=MACRO)
+    assert "Ajuste macro" not in render([sin], EXCLUSIONES, macro=MACRO)

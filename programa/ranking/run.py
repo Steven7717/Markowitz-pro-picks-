@@ -274,7 +274,7 @@ def guardar(resultado: Resultado, destino: Path) -> None:
         encoding="utf-8",
     )
     (destino / "informe.md").write_text(
-        render(resultado.fichas, resultado.exclusiones), encoding="utf-8"
+        render(resultado.fichas, resultado.exclusiones, resultado.corrida.get("macro")), encoding="utf-8"
     )
     (destino / "corrida.json").write_text(
         json.dumps(resultado.corrida, ensure_ascii=False, indent=2, allow_nan=False),
