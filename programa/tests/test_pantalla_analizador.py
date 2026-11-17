@@ -17,13 +17,16 @@ from types import SimpleNamespace
 import pytest
 from streamlit.testing.v1 import AppTest
 
-from analizador import sesion
+from analizador import archivo as archivo_analizador
+from analizador import ia_mdna, ia_tesis, ia_valoracion, informe_anual, sesion
 from analizador import valorar as v
 from analizador.analisis import Analisis
 from analizador.referencia import Frescura
 from analizador.resolver import MAX_TICKERS
 from aprobacion.carga import ContratoRoto, FaltanFichas
 from noticias.agenda import Evento
+from noticias.texto import plano as texto_plano
+from ranking import llm
 from tests.test_analizador_valorar import _entradas
 from tests.test_medidores_analizador import identidad
 
@@ -411,3 +414,286 @@ def test_uno_que_ya_esta_en_el_ranking_no_se_anade(pantalla):
     _pulsar(pantalla, "Añadir a la revisión")
     assert "anadidos" not in pantalla.session_state or not pantalla.session_state["anadidos"]
     assert len(pantalla.error) == 1
+
+
+# --- La pestaña IA ------------------------------------------------------------------
+
+BOTONES_IA = {
+    "Redactar la tesis y los riesgos", "Volver a redactar la tesis",
+    "Contrastar con la empresa", "Volver a contrastar",
+    "Explicar la valoración", "Volver a explicar la valoración",
+}
+FUENTE_IA = archivo_analizador.Fuente("10-K", "2026-10-09", "0000723125-26-000023", "Item 1A", False)
+CUANDO_IA = datetime(2026, 11, 15, 10, 30)
+INFORME = informe_anual.Informe(
+    "MU", "10-K", "2026-10-09", "0000723125-26-000023",
+    informe_anual.Seccion("Item 1A", "Los riesgos.", 12, False),
+    informe_anual.Seccion("Item 7", "El informe de gestión.", 22, False),
+)
+
+
+def _con_clave(monkeypatch):
+    monkeypatch.setattr("interprete.cliente.hay_clave", lambda: True)
+
+
+def _con_informe(monkeypatch, informe=INFORME, motivo="ok"):
+    monkeypatch.setattr("analizador.informe_anual.formulario_de", lambda ticker: "10-K")
+    monkeypatch.setattr("analizador.informe_anual.cargar", lambda ticker, formulario: (informe, motivo))
+    monkeypatch.setattr("analizador.informe_anual.ultimo_presentado", lambda ticker, formulario: None)
+
+
+def _etiquetas(at) -> set:
+    return {b.label for b in at.button}
+
+
+def test_la_pestana_ia_existe_y_sin_clave_no_ofrece_gastar(pantalla):
+    pantalla.run()
+    assert not pantalla.exception
+    assert "IA" in [pestana.label for pestana in pantalla.tabs]
+    assert "Falta la clave de Anthropic" in _textos(pantalla)
+    assert not (_etiquetas(pantalla) & BOTONES_IA)
+
+
+def test_con_clave_se_ofrecen_los_tres_botones_y_ninguno_llama_solo(pantalla, monkeypatch):
+    _con_clave(monkeypatch)
+    llamadas = []
+    monkeypatch.setattr("analizador.ia_valoracion.explicar", lambda *a, **k: llamadas.append("valoracion"))
+    monkeypatch.setattr("analizador.ia_mdna.contrastar", lambda *a, **k: llamadas.append("mdna"))
+    monkeypatch.setattr("analizador.ia_tesis.redactar", lambda *a, **k: llamadas.append("tesis"))
+    pantalla.run()
+    assert {"Redactar la tesis y los riesgos", "Contrastar con la empresa", "Explicar la valoración"} <= _etiquetas(pantalla)
+    assert llamadas == []
+
+
+def _explicacion_hecha():
+    return ia_valoracion.Explicacion(
+        ia_valoracion.HECHA,
+        (ia_valoracion.Observacion("flujos", "Depende de que el crecimiento se sostenga.", False),),
+        "Las tres lecturas miran cosas distintas.",
+        entrada_tokens=900,
+        salida_tokens=300,
+    )
+
+
+def test_explicar_pide_confirmacion_y_solo_entonces_llama_y_guarda(pantalla, monkeypatch, tmp_path):
+    _con_clave(monkeypatch)
+    llamadas = []
+
+    def explicar(bloque, mapa, **_resto):
+        llamadas.append(bloque)
+        return _explicacion_hecha()
+
+    monkeypatch.setattr("analizador.ia_valoracion.explicar", explicar)
+    pantalla.run()
+    _pulsar(pantalla, "Explicar la valoración")
+    assert llamadas == []
+    assert "Esto cuesta dinero" in _textos(pantalla)
+    _pulsar(pantalla, "Sí, leer con IA")
+    assert len(llamadas) == 1
+    assert "Depende de que el crecimiento se sostenga." in _textos(pantalla)
+    assert "Esta lectura costó" in _textos(pantalla)
+    guardadas = archivo_analizador.cargar(tmp_path / "MU.json").valoracion
+    assert len(guardadas) == 1 and guardadas[0].observaciones[0][0] == "flujos"
+    # Al volver a abrir se pinta lo guardado, sin llamar.
+    pantalla.run()
+    assert len(llamadas) == 1
+    assert "Depende de que el crecimiento se sostenga." in _textos(pantalla)
+    assert "Volver a explicar la valoración" in _etiquetas(pantalla)
+
+
+def test_el_modelo_no_ve_ni_un_digito_de_la_valoracion(pantalla, monkeypatch):
+    from ranking.verificacion import sin_digitos
+
+    _con_clave(monkeypatch)
+    vistos = []
+
+    def explicar(bloque, mapa, **_resto):
+        vistos.append(bloque)
+        return _explicacion_hecha()
+
+    monkeypatch.setattr("analizador.ia_valoracion.explicar", explicar)
+    pantalla.run()
+    _pulsar(pantalla, "Explicar la valoración")
+    _pulsar(pantalla, "Sí, leer con IA")
+    assert vistos and sin_digitos(vistos[0])
+    assert vistos[0].startswith("Empresa del sector ") and "MU" not in vistos[0]
+
+
+def test_un_fallo_no_guarda_nada_ni_deja_el_gasto_a_un_clic(pantalla, monkeypatch, tmp_path):
+    _con_clave(monkeypatch)
+    llamadas = []
+
+    def explicar(bloque, mapa, **_resto):
+        llamadas.append(bloque)
+        return ia_valoracion.Explicacion(ia_valoracion.FALLO, problema="La API no respondio")
+
+    monkeypatch.setattr("analizador.ia_valoracion.explicar", explicar)
+    pantalla.run()
+    _pulsar(pantalla, "Explicar la valoración")
+    _pulsar(pantalla, "Sí, leer con IA")
+    assert "No se pudo explicar la valoración" in _textos(pantalla)
+    assert not (tmp_path / "MU.json").exists()
+    pantalla.run()
+    assert "Sí, leer con IA" not in _etiquetas(pantalla)
+    assert len(llamadas) == 1
+
+
+def test_cancelar_no_llama(pantalla, monkeypatch):
+    _con_clave(monkeypatch)
+    llamadas = []
+    monkeypatch.setattr("analizador.ia_valoracion.explicar", lambda *a, **k: llamadas.append(1))
+    pantalla.run()
+    _pulsar(pantalla, "Explicar la valoración")
+    _pulsar(pantalla, "Cancelar")
+    assert llamadas == [] and "Sí, leer con IA" not in _etiquetas(pantalla)
+
+
+def test_una_explicacion_con_otros_votos_se_pinta_como_de_entonces(pantalla, tmp_path):
+    vieja = archivo_analizador.Explicacion(
+        CUANDO_IA, "claude-sonnet-5", "n1",
+        (("flujos", "cara"), ("sin_crecimiento", "cara"), ("pares", "cara")),
+        "sobrevalorada", (), (("flujos", "Estaba cara.", False),), "",
+    )
+    archivo_analizador.anotar_explicacion(tmp_path / "MU.json", vieja)
+    pantalla.run()
+    assert "con los números de entonces" in _textos(pantalla)
+    assert "Estaba cara." in _textos(pantalla)
+
+
+def test_una_observacion_que_recomienda_sale_marcada(pantalla, tmp_path):
+    hoy = pantalla.session_state[sesion.CLAVE_ANALISIS]["MU"].valoracion
+    marcada = archivo_analizador.Explicacion(
+        CUANDO_IA, "claude-sonnet-5", "n1", archivo_analizador.votos_de(hoy), hoy.get("veredicto"),
+        (), (("pares", "Conviene comprar.", True),), "",
+    )
+    archivo_analizador.anotar_explicacion(tmp_path / "MU.json", marcada)
+    pantalla.run()
+    assert "suena a recomendación" in _textos(pantalla)
+    assert "con los números de entonces" not in _textos(pantalla)
+
+
+def _redaccion(verificada=True):
+    narrativa = {
+        "tesis": "Vende memoria.",
+        "riesgos": [{"afirmacion": "Depende de pocos clientes.", "cita": "a small number of customers", "verificada": verificada}],
+    }
+    return ia_tesis.Redaccion(narrativa, False, llm.Gasto(1, 24_000, 400))
+
+
+def test_la_tesis_se_redacta_tras_confirmar_y_queda_guardada_con_su_documento(pantalla, monkeypatch, tmp_path):
+    _con_clave(monkeypatch)
+    _con_informe(monkeypatch)
+    vistos = []
+
+    def redactar(contexto, riesgos, **_resto):
+        vistos.append((contexto, riesgos))
+        return _redaccion(verificada=False)
+
+    monkeypatch.setattr("analizador.ia_tesis.redactar", redactar)
+    pantalla.run()
+    _pulsar(pantalla, "Redactar la tesis y los riesgos")
+    assert vistos == []
+    _pulsar(pantalla, "Sí, leer con IA")
+    assert vistos == [("Empresa: MU, sector Information Technology.\nNo hay comparación con sus pares del sector.", "Los riesgos.")]
+    textos = _textos(pantalla)
+    assert "Vende memoria." in textos and "Cita SIN VERIFICAR" in textos
+    assert texto_plano("del 10-K presentado el 2026-10-09") in textos
+    guardada = archivo_analizador.cargar(tmp_path / "MU.json").tesis[0]
+    assert guardada.fuente.accession == "0000723125-26-000023" and guardada.riesgos[0][2] is False
+
+
+def test_sin_factores_de_riesgo_no_se_llama_y_se_dice_que_no_se_gasto(pantalla, monkeypatch):
+    _con_clave(monkeypatch)
+    _con_informe(monkeypatch, replace(INFORME, riesgos=None))
+    llamadas = []
+    monkeypatch.setattr("analizador.ia_tesis.redactar", lambda *a, **k: llamadas.append(1))
+    pantalla.run()
+    _pulsar(pantalla, "Redactar la tesis y los riesgos")
+    _pulsar(pantalla, "Sí, leer con IA")
+    assert llamadas == []
+    assert "no trae sus factores de riesgo" in _textos(pantalla)
+
+
+def test_un_informe_que_no_se_pudo_traer_no_gasta(pantalla, monkeypatch):
+    _con_clave(monkeypatch)
+    _con_informe(monkeypatch, None, "sin_red_edgar")
+    llamadas = []
+    monkeypatch.setattr("analizador.ia_tesis.redactar", lambda *a, **k: llamadas.append(1))
+    pantalla.run()
+    _pulsar(pantalla, "Redactar la tesis y los riesgos")
+    _pulsar(pantalla, "Sí, leer con IA")
+    assert llamadas == [] and "no se pudo consultar la SEC" in _textos(pantalla)
+
+
+def test_el_contraste_pinta_la_postura_y_marca_la_cita_sin_verificar(pantalla, monkeypatch, tmp_path):
+    _con_clave(monkeypatch)
+    _con_informe(monkeypatch)
+    vistos = []
+
+    def contrastar(ticker, supuesto, documento, **_resto):
+        vistos.append((ticker, supuesto, documento))
+        return ia_mdna.Contraste(
+            ia_mdna.HECHA,
+            (ia_mdna.Juicio("La dirección espera más demanda.", "contradice", "we expect demand to grow", False),),
+            entrada_tokens=18_000,
+            salida_tokens=500,
+        )
+
+    monkeypatch.setattr("analizador.ia_mdna.contrastar", contrastar)
+    pantalla.run()
+    _pulsar(pantalla, "Contrastar con la empresa")
+    _pulsar(pantalla, "Sí, leer con IA")
+    assert vistos[0][0] == "MU" and vistos[0][2] == "El informe de gestión."
+    assert vistos[0][1].startswith("El escenario base supone")
+    textos = _textos(pantalla)
+    assert "Contradice el escenario base" in textos and "Cita SIN VERIFICAR" in textos
+    assert archivo_analizador.cargar(tmp_path / "MU.json").mdna[0].supuesto == vistos[0][1]
+
+
+def test_un_mdna_que_no_se_localiza_no_se_sustituye_por_otra_seccion(pantalla, monkeypatch):
+    _con_clave(monkeypatch)
+    _con_informe(monkeypatch, replace(INFORME, mdna=None))
+    llamadas = []
+    monkeypatch.setattr("analizador.ia_mdna.contrastar", lambda *a, **k: llamadas.append(1))
+    pantalla.run()
+    _pulsar(pantalla, "Contrastar con la empresa")
+    _pulsar(pantalla, "Sí, leer con IA")
+    assert llamadas == []
+    assert "No se localizó el informe de gestión" in _textos(pantalla)
+
+
+def test_lo_ya_leido_se_pinta_sin_clave_y_avisa_de_un_informe_mas_nuevo(pantalla, monkeypatch, tmp_path):
+    tesis = archivo_analizador.Tesis(
+        CUANDO_IA, "claude-sonnet-5", "b3", FUENTE_IA, "Vende memoria.",
+        (("Depende de pocos clientes.", "a small number of customers", True),),
+    )
+    archivo_analizador.anotar_tesis(tmp_path / "MU.json", tesis)
+    monkeypatch.setattr(
+        "analizador.informe_anual.ultimo_presentado", lambda ticker, formulario: ("0000723125-27-000001", "2027-10-08")
+    )
+    pantalla.run()
+    textos = _textos(pantalla)
+    assert "Vende memoria." in textos
+    assert "Hay un 10-K más reciente" in textos
+    assert not (_etiquetas(pantalla) & BOTONES_IA)
+
+
+def test_un_archivo_ilegible_se_dice_no_se_toca_y_no_ofrece_leer(pantalla, monkeypatch, tmp_path):
+    _con_clave(monkeypatch)
+    (tmp_path / "MU.json").write_text("{", encoding="utf-8")
+    pantalla.run()
+    assert not pantalla.exception
+    assert "no se ha tocado" in _textos(pantalla)
+    assert not (_etiquetas(pantalla) & BOTONES_IA)
+    assert (tmp_path / "MU.json").read_text(encoding="utf-8") == "{"
+
+
+def test_una_empresa_fuera_de_la_sec_solo_tiene_la_explicacion(pantalla, monkeypatch):
+    _con_clave(monkeypatch)
+    pantalla.session_state[sesion.CLAVE_ANALISIS] = {"MU": replace(_analisis("MU"), clase="sin_sec")}
+    pantalla.run()
+    assert not pantalla.exception
+    assert "no hay documento" in _textos(pantalla)
+    etiquetas = _etiquetas(pantalla)
+    assert "Explicar la valoración" in etiquetas
+    assert "Redactar la tesis y los riesgos" not in etiquetas and "Contrastar con la empresa" not in etiquetas
