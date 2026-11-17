@@ -1,15 +1,14 @@
 # Contexto del proyecto — para retomar en una sesión nueva
 
 **Última actualización:** 2026-11-17
-**Rama:** `master` (N1 y N2 fusionados el 2026-11-12 desde `feat/analizador-individual`); el sub-proyecto O está en `claude/portfolio-optimizer-var-es-dbe5f0`, **sin fusionar todavía** · **Tests:** 3.632 pasando en esa rama (3.494 en `master`) (`uv run pytest tests/ -q -m "not red"`), 3 omitidos —dos por permisos POSIX en Windows y uno de `test_valoracion_dcf.py` sin `numpy_financial`— más 38 marcados `red`
+**Rama:** `master` (el sub-proyecto O fusionado el 2026-11-17 desde `claude/portfolio-optimizer-var-es-dbe5f0`; N1 y N2 el 2026-11-12) · **Tests:** 3.632 pasando (`uv run pytest tests/ -q -m "not red"`), 3 omitidos —dos por permisos POSIX en Windows y uno de `test_valoracion_dcf.py` sin `numpy_financial`— más 38 marcados `red`
 **Remoto:** `https://github.com/Steven7717/Markowitz-pro-picks-.git` — `master` es lo publicado
 **Estructura:** el programa vive en `programa/`; en la raíz sólo están los dos
 lanzadores y el `README.md`. Los comandos (`uv run pytest`, `uv run streamlit`)
 se ejecutan desde `programa/`, no desde la raíz.
 
-> **Al retomar:** el sub-proyecto O (VaR y ES en el optimizador) está hecho en la
-> rama `claude/portfolio-optimizer-var-es-dbe5f0` y **pendiente de fusionar a
-> `master`**; ver «Resultado del sub-proyecto O». N1 y N2, las dos primeras partes del Analizador individual,
+> **Al retomar:** el sub-proyecto O (VaR y ES en el optimizador) está en `master`
+> desde el 2026-11-17 y la rama `claude/portfolio-optimizer-var-es-dbe5f0` ya se borró; ver «Resultado del sub-proyecto O». N1 y N2, las dos primeras partes del Analizador individual,
 > están hechas y **fusionadas en `master`** (2026-11-12). N1 es el paquete `analizador/`, que analiza cualquier ticker —una
 > empresa de la SEC, una extranjera, una de la BMV o un ETF— con la misma ficha
 > frente al sector y el mismo valor intrínseco que los candidatos; N2 es la
@@ -98,7 +97,7 @@ El objetivo mayor es construir, **aguas arriba de esa app**, un sistema donde un
 | L | Rendimiento real en pesos (MXN) | TWR/TIR en pesos y reales (Fisher), vía Banxico | ✅ **terminado** |
 | M | Valor intrínseco | Veredicto por cuatro lecturas y tres votos en cada candidato | ✅ **terminado** |
 | N | Analizador individual | La mecánica de candidatos para cualquier ticker, con gráfico, noticias e IA | 🔨 **en curso**: N1 (datos) y N2 (pantalla) hechos; N3 (IA) pendiente |
-| O | VaR y ES en el optimizador | VaR 99 % y ES 97,5/99 % de la cartera y por activo, método elegido por el semáforo de Basilea | ✅ terminado (en su rama, sin fusionar) |
+| O | VaR y ES en el optimizador | VaR 99 % y ES 97,5/99 % de la cartera y por activo, método elegido por el semáforo de Basilea | ✅ terminado |
 
 ## Resultado del sub-proyecto D
 
