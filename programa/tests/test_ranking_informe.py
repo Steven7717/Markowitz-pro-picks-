@@ -193,14 +193,18 @@ def test_sin_macro_el_informe_no_habla_de_ciclo():
 
 def test_con_macro_el_informe_dice_fase_region_mes_y_movimientos():
     texto = render([FICHA], EXCLUSIONES, macro=MACRO)
-    assert "fase recuperacion" in texto and "región usa" in texto
-    assert "2026-10-01" in texto
+    assert "fase Recuperación" in texto and "región Estados Unidos" in texto
+    assert "oct 2026" in texto
+    assert "recuperacion" not in texto and "región usa" not in texto
+    assert "2026-10-01" not in texto
     assert "FIN1" in texto and "TEC1" in texto
-    assert "±0.25" in texto
+    assert "±0,25" in texto
 
 
 def test_con_macro_la_ficha_con_ajuste_lo_muestra_junto_al_compuesto():
     con = {**FICHA, "ajuste_macro": 0.25}
     sin = {**FICHA, "ajuste_macro": 0.0}
-    assert "Ajuste macro de la fase +0.25" in render([con], EXCLUSIONES, macro=MACRO)
-    assert "Ajuste macro" not in render([sin], EXCLUSIONES, macro=MACRO)
+    assert "La macro la subió (+0,25)." in render([con], EXCLUSIONES, macro=MACRO)
+    bajada = {**FICHA, "ajuste_macro": -0.25}
+    assert "La macro la bajó (−0,25)." in render([bajada], EXCLUSIONES, macro=MACRO)
+    assert "La macro la" not in render([sin], EXCLUSIONES, macro=MACRO)

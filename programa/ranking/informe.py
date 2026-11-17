@@ -1,6 +1,7 @@
 from datetime import date
 
 from fundamentals.kpis import TODOS_LOS_KPIS
+from macro import textos
 
 SIN_VERIFICAR = " **[cita sin verificar]**"
 SIN_PROCEDENCIA = "_Procedencia no disponible: la cita no se puede localizar._"
@@ -12,6 +13,11 @@ def _pilares(ficha: dict) -> str:
         for pilar, valor in ficha["pilares"].items()
     ]
     return " · ".join(partes)
+
+
+def _coma(valor: float) -> str:
+    """Coma decimal, como el resto de la pantalla (`textos.ajuste_ficha`)."""
+    return f"{valor:.2f}".replace(".", ",")
 
 
 def _kpis(items: list[dict]) -> str:
@@ -89,8 +95,10 @@ def render(
         entradas = ", ".join(macro["entradas"]) or "ninguna"
         salidas = ", ".join(macro["salidas"]) or "ninguna"
         lineas += [
-            f"> **Entorno macro:** fase {macro['fase']}, región {macro['region']}, "
-            f"dato de {macro['mes_dato']}. El orden incluye ±{macro['inclinacion']} "
+            f"> **Entorno macro:** fase {textos.NOMBRE_FASE[macro['fase']]}, "
+            f"región {textos.NOMBRE_REGION[macro['region']]}, "
+            f"dato de {textos.mes_legible(macro['mes_dato'])}. El orden incluye "
+            f"±{_coma(macro['inclinacion'])} "
             "por sector según la fase, así que los compuestos pueden no ir en orden.",
             f"> Entran por la macro: {entradas}. Salen: {salidas}.",
             "",
@@ -107,7 +115,7 @@ def render(
             # un compuesto de +1,5 puede convivir con pilares de +0,1.
             f"Compuesto (z dentro del sector) {ficha['compuesto']:+.2f}"
             + (
-                f" · Ajuste macro de la fase {ficha['ajuste_macro']:+.2f}"
+                f" · {textos.ajuste_ficha(ficha['ajuste_macro'])}"
                 if macro and ficha.get("ajuste_macro")
                 else ""
             ),
