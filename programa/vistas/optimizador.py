@@ -512,6 +512,12 @@ def _ejecutar() -> dict | None:
                 # Datos no finitos o pesos que no casan con las columnas: un
                 # defecto que contar, no un motivo para tirar la optimización.
                 riesgo = {"error": str(error)}
+            except Exception as error:  # noqa: BLE001
+                # Lo que nadie previó (un LinAlgError, un KeyError de una forma
+                # de datos rara) tampoco justifica tirar un reparto válido. Se
+                # guarda con su tipo, para que el aviso diga qué pasó.
+                riesgo = {"error": "fallo al medir el riesgo "
+                                   f"({type(error).__name__}: {error})"}
 
     benchmark = None
     if not market["benchmark_returns"].empty:
@@ -1025,7 +1031,9 @@ with riesgo_tab:
     if inf is None:
         st.info("Esta corrida es de antes de medir el riesgo. Vuelve a optimizar.")
     elif isinstance(inf, dict) and inf.get("error"):
-        st.warning(f"No se pudo medir el riesgo de cola: {inf['error']} "
+        # Los motivos llegan con y sin punto final (el de un ValueError es el
+        # que sea): se normaliza aquí para que la frase no quede pegada.
+        st.warning(f"No se pudo medir el riesgo de cola: {inf['error'].rstrip('.')}. "
                    "El reparto de las otras pestañas no depende de esto.")
     elif isinstance(inf, dict):
         falta = inf["falta"]

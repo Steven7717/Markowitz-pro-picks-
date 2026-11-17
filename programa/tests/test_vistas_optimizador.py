@@ -254,3 +254,24 @@ def test_cualquier_otro_fallo_del_riesgo_tampoco_tumba_la_corrida():
     assert "Exception" in capturados
     assert '"error":' in _cuerpo("_ejecutar")
     assert 'inf.get("error")' in FUENTE or "inf[\"error\"]" in FUENTE
+
+
+def _try_que_llama(nombre: str) -> ast.Try:
+    """El `try` cuyo cuerpo hace la llamada, no uno cualquiera de la función."""
+    funcion = next(n for n in ast.walk(ARBOL)
+                   if isinstance(n, ast.FunctionDef) and n.name == "_ejecutar")
+    return next(
+        t for t in ast.walk(funcion) if isinstance(t, ast.Try)
+        and any(isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
+                and n.func.id == nombre for b in t.body for n in ast.walk(b)))
+
+
+def test_el_informe_de_riesgo_no_tumba_la_corrida_por_nada():
+    """`HistoriaInsuficiente` y `ValueError` son los fallos que se esperan;
+    un `KeyError` o un `LinAlgError` de un caso que nadie previó también
+    dejaría la página en rojo con un reparto perfectamente válido. El último
+    manejador del `try` del informe es `Exception`, y guarda su tipo."""
+    tipos = [ast.get_source_segment(FUENTE, h.type)
+             for h in _try_que_llama("informe_riesgo").handlers]
+    assert tipos == ["HistoriaInsuficiente", "ValueError", "Exception"]
+    assert "type(error).__name__" in _cuerpo("_ejecutar")
