@@ -71,7 +71,7 @@ class Preferencias:
         elif clave != self.horizonte:
             cambios["horizonte"] = clave
 
-        if self.estrategia not in STRATEGY_LABELS:
+        if not (isinstance(self.estrategia, str) and self.estrategia in STRATEGY_LABELS):
             avisos.append(
                 f"La estrategia guardada ({self.estrategia!r}) ya no existe; "
                 "se usa Máximo Sharpe."
@@ -96,7 +96,7 @@ class Preferencias:
         if maximo != self.peso_max:
             cambios["peso_max"] = maximo
 
-        if self.region_macro not in REGIONES:
+        if not (isinstance(self.region_macro, str) and self.region_macro in REGIONES):
             avisos.append(
                 f"La región macro guardada ({self.region_macro!r}) ya no existe; "
                 "se usa Estados Unidos."

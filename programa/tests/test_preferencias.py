@@ -190,3 +190,18 @@ def test_una_region_macro_desconocida_cae_a_usa_y_avisa():
     limpias, avisos = Preferencias(region_macro="marte").saneadas()
     assert limpias.region_macro == "usa"
     assert any("región" in a for a in avisos)
+
+
+import pytest
+
+
+@pytest.mark.parametrize("campo", ["region_macro", "estrategia"])
+@pytest.mark.parametrize("valor", [[], {}])
+def test_un_valor_no_hashable_no_revienta_al_cargar(tmp_path, campo, valor):
+    import json
+    from preferencias import cargar
+    ruta = tmp_path / "p.json"
+    ruta.write_text(json.dumps({campo: valor}), encoding="utf-8")
+    limpias, avisos = cargar(ruta)
+    assert getattr(limpias, campo) in ("usa", limpias.estrategia)
+    assert avisos
