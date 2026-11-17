@@ -46,6 +46,8 @@ def test_ajuste_de_ficha():
     assert textos.ajuste_ficha(-0.25) == "La macro la bajó (−0,25)."
     assert textos.ajuste_ficha(0.0) == "La macro no la tocó."
     assert textos.ajuste_ficha(None) is None
+    for basura in ("0.25", [], True, float("nan")):
+        assert textos.ajuste_ficha(basura) is None
 
 
 def test_un_bloque_raro_no_revienta_nada():

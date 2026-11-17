@@ -154,7 +154,9 @@ def lo_que_movio(bloque: dict) -> str:
 
 
 def ajuste_ficha(ajuste: "float | None") -> "str | None":
-    if ajuste is None:
+    # Viene de fichas.json: algo que no es un número (editado, de otra versión)
+    # es como no tener ajuste, no una pantalla rota.
+    if isinstance(ajuste, bool) or not isinstance(ajuste, (int, float)) or ajuste != ajuste:
         return None
     # Coma decimal, como el resto de la pantalla: `f"{0.25:.2f}"` da «0.25».
     if ajuste > 0:

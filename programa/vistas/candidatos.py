@@ -9,10 +9,13 @@ llegó a ver, y la revisión en curso desaparecía sin decir nada. Sin credencia
 en esta pantalla, no queda ninguna recarga que pueda hacer eso.
 """
 
+from datetime import date
+
 import streamlit as st
 
 import medidores
 import medidores_valoracion
+import preferencias as preferencias_mod
 import tema
 from aprobacion.acta import (
     Anadido,
@@ -39,6 +42,9 @@ from aprobacion.generacion import (
     disponibilidad,
     hay_revision_en_curso,
 )
+from macro import textos as textos_macro
+from macro.criterio import REGIONES
+from macro.estado import leer_region
 from noticias import texto
 
 st.markdown(
@@ -55,8 +61,12 @@ if "anadidos" not in st.session_state:
     st.session_state.anadidos = []
 
 
-def _generar(con_ia: bool) -> None:
-    """Run sub-project B and overwrite salidas/, then reload the page."""
+def _generar(con_ia: bool, estado_macro=None) -> None:
+    """Run sub-project B and overwrite salidas/, then reload the page.
+
+    `estado_macro` (un `macro.estado.Estado` que puede inclinar) inclina el Top
+    por su fase; None es el Top de siempre.
+    """
     from fundamentals.fetch import CorridaAbortada
     from ranking.llm import gasto_acumulado, reiniciar_gasto
     from ranking.run import construir_ranking, guardar
@@ -73,7 +83,14 @@ def _generar(con_ia: bool) -> None:
             + " calculando su valor intrínseco… puede tardar unos minutos. "
             "No cierres ni recargues."
         ):
-            guardar(construir_ranking(con_llm=con_ia), "salidas")
+            guardar(
+                construir_ranking(
+                    con_llm=con_ia,
+                    macro=estado_macro.fase if estado_macro else None,
+                    region=estado_macro.region if estado_macro else None,
+                ),
+                "salidas",
+            )
     except CorridaAbortada as error:
         # Ni se limpia el estado ni se recarga: no se llegó a sobrescribir
         # salidas/, así que lo que el revisor tenga marcado sigue apuntando a la
@@ -94,6 +111,11 @@ def _generar(con_ia: bool) -> None:
         del st.session_state[clave]
     st.session_state.anadidos = []
     st.rerun()
+
+
+@st.cache_data(ttl=3600, show_spinner="Leyendo la fase macro...")
+def _estado_macro(region: str, hoy: date):
+    return leer_region(region, hoy)
 
 
 # A la vista y no dentro de un desplegable: el caso de uso que lo motivó es
@@ -136,6 +158,34 @@ with st.container(border=True):
         if st.button("Configurar mis credenciales", icon=":material/key:"):
             st.switch_page("vistas/perfil.py")
 
+    # Apagada y sin recordar entre sesiones, a propósito: el Top de siempre es el
+    # criterio congelado, y activar uno que no lo es tiene que ser un gesto
+    # consciente cada vez (spec de O, «Pantallas»). En la pasada que confirma el
+    # pago con IA la casilla sigue igual, así que `estado_macro` vale lo mismo.
+    inclinar = st.checkbox("Inclinar el Top por la fase macro", value=False, key="inclinar_macro")
+    estado_macro = None
+    if inclinar:
+        guardadas, _ = preferencias_mod.cargar()
+        claves = list(REGIONES)
+        region = st.selectbox(
+            "Región del ciclo", claves,
+            index=claves.index(guardadas.region_macro),
+            format_func=textos_macro.NOMBRE_REGION.get,
+            key="region_macro_candidatos",
+        )
+        estado = _estado_macro(region, date.today())
+        if estado.motivo_no_inclinar:
+            st.warning(
+                textos_macro.MOTIVO.get(estado.motivo_no_inclinar, estado.motivo_no_inclinar)
+                + " La corrida saldrá sin macro."
+            )
+        else:
+            estado_macro = estado
+            st.caption(
+                f"Se usará la fase **{textos_macro.NOMBRE_FASE[estado.fase.clave]}** "
+                f"(dato de {textos_macro.mes_legible(estado.fase.mes_dato)})."
+            )
+
 st.caption(
     "Regenerar **sobrescribe** los candidatos de abajo. El ranking es "
     "determinista: con los mismos datos sale el mismo orden, así que sin IA "
@@ -176,7 +226,7 @@ if pulsado:
     if con_ia:
         st.session_state[_CONFIRMAR] = True
     else:
-        _generar(False)
+        _generar(False, estado_macro)
 
 if st.session_state.get(_CONFIRMAR) and puede.puede_usar_ia:
     with st.container(border=True):
@@ -197,7 +247,7 @@ if st.session_state.get(_CONFIRMAR) and puede.puede_usar_ia:
             # `_generar` vuelve sin recargar y la página no puede quedarse con
             # la confirmación puesta de la vez anterior.
             st.session_state[_CONFIRMAR] = False
-            _generar(True)
+            _generar(True, estado_macro)
         if columna_no.button("Cancelar", key="cancelar_ia"):
             st.session_state[_CONFIRMAR] = False
             st.rerun()
@@ -242,6 +292,10 @@ except ContratoRoto as error:
     st.stop()
 
 st.info(resumen_corrida(candidatos.corrida))
+_bloque_macro = (candidatos.corrida or {}).get("macro")
+_con_macro = textos_macro.lleva_macro(_bloque_macro)
+if _con_macro:
+    st.info(textos_macro.lo_que_movio(_bloque_macro))
 # Tras el corte de `ranking/run.py` (sin tasa libre, o sin red dos veces
 # seguidas) las fichas que quedaban llevan todas el mismo motivo, y sin red
 # desde el principio lo llevan las quince. Nada fuera de los desplegables lo
@@ -322,6 +376,10 @@ for ficha in candidatos.fichas:
         aprobados.add(ticker)
 
     with st.expander(f"Ver la ficha completa de {ticker}"):
+        # `.get`: las fichas anteriores a O no traen la clave, y entonces no se dice nada.
+        _linea_macro = textos_macro.ajuste_ficha(ficha.get("ajuste_macro")) if _con_macro else None
+        if _linea_macro:
+            st.caption(_linea_macro)
         st.markdown(
             "**Los cuatro pilares** —calidad, crecimiento, valoración y "
             "solidez—, frente a sus pares del sector"
