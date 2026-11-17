@@ -318,3 +318,4 @@ bien visible. Lo que no hace es dejar que ese dato mueva el Top.
    signo **contrario**. Un último mes plano no desmiente nada.
 5. **La pantalla es `vistas/entorno_macro.py`, no `vistas/macro.py`.** Así el
    nombre de la página no puede tapar al paquete `macro`.
+6. **Los huecos no se saltan.** La serie se lee en meses de calendario: si falta t, t−1 o t−3, no hay fase y el motivo es `serie_con_huecos`. Comparar por posición habría convertido «hace tres meses» en «hace cuatro» sin decirlo.

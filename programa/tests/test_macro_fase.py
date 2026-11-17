@@ -75,8 +75,74 @@ def test_fases_por_mes_deja_none_donde_no_hay_regla():
     assert list(por_mes.iloc[3:]) == ["expansion", "expansion"]
 
 
-def test_un_nan_en_la_serie_se_descarta_y_no_se_lee_como_cero():
-    serie = _serie([100.5, float("nan"), 100.6, 100.7, 100.8])
+def test_un_nan_dentro_de_la_ventana_deja_la_serie_con_huecos():
+    # Falta t-1: «hace un mes» no puede ser el dato de hace dos.
+    fase = determinar(_serie([100.5, 100.6, 100.7, float("nan"), 100.8]))
+    assert fase.clave is None and fase.motivo == "serie_con_huecos"
+    assert fase.mes_dato == date(2026, 5, 1)
+    assert fase.meses_en_fase == 0
+
+
+def test_un_nan_en_t_menos_3_deja_la_serie_con_huecos():
+    fase = determinar(_serie([100.5, 100.6, float("nan"), 100.7, 100.8, 100.9]))
+    assert fase.motivo == "serie_con_huecos"
+
+
+def test_un_nan_fuera_de_la_ventana_no_estorba():
+    serie = _serie([100.5, float("nan"), 100.6, 100.7, 100.8, 100.9])
+    # t = junio, t-3 = marzo; febrero (NaN) queda fuera de la ventana.
+    assert determinar(serie).clave == "expansion"
+
+
+def test_un_mes_ausente_del_indice_se_lee_por_calendario():
+    indice = pd.to_datetime(
+        ["2026-01-01", "2026-02-01", "2026-06-01", "2026-07-01", "2026-08-01", "2026-09-01"]
+    )
+    serie = pd.Series([100.5, 100.6, 100.7, 100.8, 100.9, 101.0], index=indice)
+    fase = determinar(serie)
+    # t-3 = junio: existe, así que hay fase, y la racha son 1 mes (t-1..t-3 existen,
+    # pero antes de septiembre solo agosto y julio tienen t-3 en la rejilla).
+    assert fase.clave == "expansion"
+    assert fase.mes_dato == date(2026, 9, 1)
+    assert fase.cambio == pytest.approx(0.3)
+    assert fase.meses_en_fase == 1
+
+
+def test_un_mes_ausente_entre_t_y_t_menos_3_son_huecos():
+    indice = pd.to_datetime(["2026-01-01", "2026-02-01", "2026-03-01", "2026-05-01"])
+    serie = pd.Series([100.5, 100.6, 100.7, 100.8], index=indice)
+    fase = determinar(serie)
+    assert fase.motivo == "serie_con_huecos"
+
+
+def test_indices_duplicados_no_cuentan_doble():
+    serie = _serie([100.5, 100.6, 100.7, 100.8, 100.9])
+    duplicada = pd.concat([serie, serie.iloc[-1:]])
+    assert determinar(duplicada).meses_en_fase == determinar(serie).meses_en_fase == 2
+
+
+def test_serie_desordenada_da_lo_mismo():
+    serie = _serie([100.5, 100.6, 100.7, 100.8, 100.9])
+    assert determinar(serie.iloc[::-1]) == determinar(serie)
+
+
+def test_inf_no_se_toma_como_dato():
+    serie = _serie([100.5, 100.6, 100.7, 100.8, float("inf")])
+    fase = determinar(serie)
+    # El último mes con dato es abril; mayo (inf) no existe.
+    assert fase.mes_dato == date(2026, 4, 1)
+    assert fase.nivel == pytest.approx(100.8)
+    assert fase.clave == "expansion"
+
+
+def test_inf_dentro_de_la_ventana_son_huecos():
+    serie = _serie([100.5, 100.6, 100.8, float("inf"), 100.9])
+    assert determinar(serie).motivo == "serie_con_huecos"
+
+
+def test_acepta_fechas_a_mitad_de_mes():
+    indice = pd.to_datetime(["2026-01-15", "2026-02-15", "2026-03-15", "2026-04-15"])
+    serie = pd.Series([100.5, 100.6, 100.7, 100.8], index=indice)
     assert determinar(serie).clave == "expansion"
 
 
