@@ -154,6 +154,20 @@ def cartera(pesos: "tuple[tuple[str, float, float | None], ...]") -> str:
     return "\n".join(filas)
 
 
+def en_estudio(tickers) -> str:
+    """Lo que va en el sitio de la cartera cuando no hay cartera.
+
+    El Analizador lee los 8-K de un ticker suelto: no hay pesos que enseñar. Una
+    cartera vacía bajo «Solo puedes nombrar los activos que aparecen en la
+    cartera de abajo» deja al modelo sin nada que pueda nombrar; así la regla
+    sigue siendo cierta y no se inventa ningún peso.
+    """
+    return "\n".join(
+        f"- {_en_una_linea(ticker)}: en estudio, sin posición en la cartera"
+        for ticker in sorted(tickers)
+    )
+
+
 def operaciones(
     propuestas: "tuple[tuple[str, str, float, bool], ...]",
 ) -> "tuple[str, dict[str, str]]":

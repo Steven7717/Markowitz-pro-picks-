@@ -1,6 +1,7 @@
 # programa/tests/test_interprete_archivo.py
 """El registro append-only de lo interpretado."""
 
+import json
 from datetime import date, datetime
 
 import pytest
@@ -264,3 +265,45 @@ def test_anotar_rebalanceo_tambien_anade_y_no_pisa(tmp_path):
     assert [c.observaciones[0][1] for c in guardado.rebalanceo] == [
         "primera", "segunda"
     ]
+
+
+# --- Las claves que no son de este módulo -----------------------------------
+
+
+def _con_clave_ajena(tmp_path):
+    ruta = tmp_path / "MU.json"
+    ruta.write_text(
+        json.dumps({"hechos": [], "rebalanceo": [], "tesis": [{"cuando": "2026-11-15T10:00:00"}]}),
+        encoding="utf-8",
+    )
+    return ruta
+
+
+def test_anotar_hechos_conserva_las_claves_que_no_son_suyas(tmp_path):
+    # El Analizador guarda sus lecturas en el mismo fichero: reescribirlo sólo
+    # con `hechos` y `rebalanceo` borraba una tesis ya pagada.
+    ruta = _con_clave_ajena(tmp_path)
+    archivo.anotar_hechos(ruta, "modelo", "i4", (), "")
+    crudo = json.loads(ruta.read_text(encoding="utf-8"))
+    assert crudo["tesis"] == [{"cuando": "2026-11-15T10:00:00"}]
+    assert len(crudo["hechos"]) == 1
+
+
+def test_anotar_rebalanceo_conserva_las_claves_que_no_son_suyas(tmp_path):
+    ruta = _con_clave_ajena(tmp_path)
+    archivo.anotar_rebalanceo(ruta, "modelo", "i2", archivo.Foto((), (), ()), (), "")
+    crudo = json.loads(ruta.read_text(encoding="utf-8"))
+    assert crudo["tesis"] == [{"cuando": "2026-11-15T10:00:00"}]
+    assert len(crudo["rebalanceo"]) == 1
+
+
+def test_leer_crudo_devuelve_none_si_no_hay_fichero(tmp_path):
+    assert archivo.leer_crudo(tmp_path / "nada.json") is None
+
+
+def test_leer_crudo_no_se_traga_un_fichero_roto(tmp_path):
+    ruta = tmp_path / "roto.json"
+    ruta.write_text("{", encoding="utf-8")
+    with pytest.raises(archivo.ArchivoIlegible):
+        archivo.leer_crudo(ruta)
+    assert ruta.read_text(encoding="utf-8") == "{"

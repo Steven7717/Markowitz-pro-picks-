@@ -176,9 +176,13 @@ candidatos, aprobarlos, y repartir el capital.
 
 Para mirar a fondo cualquier acción —esté o no entre los candidatos— está el
 **Analizador**, en el mismo menú: su ficha frente a su sector, su valor
-intrínseco con supuestos que puedes mover, un gráfico y sus noticias. El
-gráfico es un widget de TradingView que se carga de su web: TradingView sabe
-qué ticker estás mirando, y sin conexión no se ve.
+intrínseco con supuestos que puedes mover, un gráfico, sus noticias y una
+pestaña **IA** con tres lecturas de pago, cada una tras su confirmación: la
+tesis y los riesgos de la empresa, el contraste de tu escenario base con el
+informe de gestión de su último informe anual, y una explicación en palabras de
+la valoración. Lo que la IA cita del informe oficial se comprueba contra el
+documento. El gráfico es un widget de TradingView que se carga de su web:
+TradingView sabe qué ticker estás mirando, y sin conexión no se ve.
 
 ---
 
@@ -325,6 +329,7 @@ El programa funciona en dos mitades:
 |---|---|
 | Análisis completo del S&P 500 con fichas | hasta **1,60 $** (es el peor caso, con un reintento en las quince fichas). El programa se planta solo en 2,50 $ |
 | Interpretar los 8-K de tu cartera (Seguimiento) o de una empresa (Analizador) | ~**0,12 $** de media, hasta **0,26 $** por pulsación. El programa se planta solo en 0,50 $ |
+| La pestaña IA del Analizador: tesis y riesgos, contraste con el informe de gestión, o explicar la valoración | hasta **0,11 $**, **0,15 $** y **0,05 $** por pulsación, y lo normal es bastante menos (un contraste real costó 0,035 $) |
 | Comentar una propuesta de rebalanceo | menos de **0,01 $** |
 
 Las pantallas que cuestan dinero **avisan antes de gastarlo y dicen lo que

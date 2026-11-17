@@ -35,7 +35,10 @@ HECHA = "hecha"
 # marca de cierre que el modelo acaba de ver-- y la cabecera de cada hecho deja
 # de admitir saltos de linea, que es como una descripcion del indice de la SEC
 # se colocaba en una linea propia por encima de la valla.
-VERSION_PROMPT = "i3"
+#
+# i4: sin pesos --el Analizador, que lee un ticker suelto-- el bloque de la
+# cartera deja de ir vacio y lleva los tickers «en estudio».
+VERSION_PROMPT = "i4"
 
 SISTEMA = """Eres un analista que lee expedientes de la SEC para alguien que ya \
 tiene una cartera montada. Tu trabajo es decir que dice cada documento y a que \
@@ -204,7 +207,11 @@ def leer(
     bloque_leidos = contexto.leidos(leidos)
     mensajes = [{
         "role": "user",
-        "content": _prompt(bloque, contexto.cartera(pesos), bloque_leidos),
+        "content": _prompt(
+            bloque,
+            contexto.cartera(pesos) if pesos else contexto.en_estudio(tickers),
+            bloque_leidos,
+        ),
     }]
 
     entrada_tokens = 0

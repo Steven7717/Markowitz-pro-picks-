@@ -97,3 +97,63 @@ def test_tsm_se_valora_en_dolares_sin_aviso_de_adr():
     assert a.entradas.divisa.convertida and a.entradas.divisa.moneda_estados == "TWD"
     assert not divisas.adr_dudosa(a.entradas.cociente_adr)
     json.dumps(a.valoracion, allow_nan=False)
+
+
+# --- El informe anual (N3) ---------------------------------------------------------
+
+from analizador import informe_anual
+
+
+@pytest.fixture
+def sin_cache_de_informes(monkeypatch, tmp_path):
+    monkeypatch.setattr(informe_anual, "RAIZ_CACHE", tmp_path)
+
+
+def test_el_informe_de_mu_trae_los_riesgos_y_el_mdna(sin_cache_de_informes):
+    _con_edgar()
+    informe, motivo = informe_anual.cargar("MU", "10-K")
+    assert motivo == "ok"
+    assert informe.riesgos.nombre == "Item 1A" and informe.riesgos.caracteres_totales > 50_000
+    assert informe.mdna.nombre == "Item 7"
+    assert "discussion and analysis" in informe.mdna.texto[:300].lower()
+    assert informe_anual.ultimo_presentado("MU", "10-K") == (informe.accession, informe.fecha)
+
+
+def test_el_mdna_de_pgr_sale_de_su_anexo_13(sin_cache_de_informes):
+    _con_edgar()
+    informe, _ = informe_anual.cargar("PGR", "10-K")
+    assert informe.mdna.nombre == "EX-13"
+    assert informe.mdna.texto.lower().startswith("management")
+
+
+def test_wfc_remite_el_mdna_y_los_riesgos_a_su_informe_y_no_se_cita_nada(sin_cache_de_informes):
+    _con_edgar()
+    # Su Item 1A son 289 caracteres («incorporated into this item by reference»,
+    # a «Financial Review - Risk Factors» del anexo) y su Item 7 también remite,
+    # a un anexo sin el encabezado «Management's Discussion and Analysis».
+    informe, motivo = informe_anual.cargar("WFC", "10-K")
+    assert motivo == "ok" and informe.mdna is None and informe.riesgos is None
+
+
+def test_el_20f_de_tsm_corta_los_riesgos_desde_su_encabezado(sin_cache_de_informes):
+    _con_edgar()
+    informe, _ = informe_anual.cargar("TSM", "20-F")
+    assert informe.riesgos.nombre == "Item 3.D"
+    assert informe.riesgos.texto.lower().startswith("risk factors")
+    assert informe.mdna.nombre == "Item 5"
+
+
+def test_el_20f_de_nvo_remite_los_riesgos_al_informe_anual(sin_cache_de_informes):
+    _con_edgar()
+    informe, motivo = informe_anual.cargar("NVO", "20-F")
+    assert motivo == "ok" and informe.riesgos is None
+
+
+def test_los_riesgos_de_mu_son_los_que_lee_candidatos(sin_cache_de_informes, tmp_path):
+    _con_edgar()
+    # El mismo texto, para que la ficha ya pagada salga de la caché por contenido.
+    from ranking.filings import cargar_riesgos
+
+    informe, _ = informe_anual.cargar("MU", "10-K")
+    de_candidatos = cargar_riesgos("MU", cache_dir=tmp_path / "riesgos", refresh=True)
+    assert informe.riesgos.texto == de_candidatos.texto

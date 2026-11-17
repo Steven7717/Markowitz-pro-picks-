@@ -1,25 +1,27 @@
 # Contexto del proyecto — para retomar en una sesión nueva
 
 **Última actualización:** 2026-11-17
-**Rama:** `master` (el sub-proyecto O fusionado el 2026-11-17 desde `claude/portfolio-optimizer-var-es-dbe5f0`; N1 y N2 el 2026-11-12) · **Tests:** 3.632 pasando (`uv run pytest tests/ -q -m "not red"`), 3 omitidos —dos por permisos POSIX en Windows y uno de `test_valoracion_dcf.py` sin `numpy_financial`— más 38 marcados `red`
+**Rama:** `master` (N3 fusionado el 2026-11-17 desde `feat/analizador-n3-ia`; el sub-proyecto O, el mismo día, desde `claude/portfolio-optimizer-var-es-dbe5f0`; N1 y N2 el 2026-11-12) · **Tests:** 3.864 pasando (`uv run pytest tests/ -q -m "not red"`), 3 omitidos —dos por permisos POSIX en Windows y uno de `test_valoracion_dcf.py` sin `numpy_financial`— más 44 marcados `red`
 **Remoto:** `https://github.com/Steven7717/Markowitz-pro-picks-.git` — `master` es lo publicado
 **Estructura:** el programa vive en `programa/`; en la raíz sólo están los dos
 lanzadores y el `README.md`. Los comandos (`uv run pytest`, `uv run streamlit`)
 se ejecutan desde `programa/`, no desde la raíz.
 
-> **Al retomar:** el sub-proyecto O (VaR y ES en el optimizador) está en `master`
-> desde el 2026-11-17 y la rama `claude/portfolio-optimizer-var-es-dbe5f0` ya se borró; ver «Resultado del sub-proyecto O». N1 y N2, las dos primeras partes del Analizador individual,
-> están hechas y **fusionadas en `master`** (2026-11-12). N1 es el paquete `analizador/`, que analiza cualquier ticker —una
-> empresa de la SEC, una extranjera, una de la BMV o un ETF— con la misma ficha
-> frente al sector y el mismo valor intrínseco que los candidatos; N2 es la
-> pantalla **Analizador**, que absorbió «Noticias y calendario». Ver
-> «Sub-proyecto N, parte 1» y «Sub-proyecto N, parte 2». **Lo siguiente es
-> escribir el plan de N3**, la IA, sobre el código real de N2, con «Lo que queda
-> para N3» de la parte 2: sobre todo los avisos de `anotar_hechos` y de
-> `pesos=()`. El spec
+> **Al retomar:** N, el Analizador individual, está **entero en `master`**
+> (N1 y N2 desde el 2026-11-12; N3 fusionado el 2026-11-17). N3 añade la pestaña
+> **IA**: tesis y riesgos, contraste del escenario base con el MD&A y
+> explicación de la valoración, guardadas en `analisis/<TICKER>.json` y con
+> confirmación en cada botón, incluidos los 8-K del Analizador. Ver
+> «Sub-proyecto N, parte 1», «parte 2» y «parte 3». **Pendiente: el recorrido de
+> pago de la Task 14**, que no se hizo entero (el usuario eligió no gastar saldo;
+> sólo hay una lectura de pago real, un contraste de MU, por un error del agente
+> que conducía el navegador). El sub-proyecto O (VaR y ES en el optimizador)
+> también está en `master` desde el 2026-11-17 y su rama
+> `claude/portfolio-optimizer-var-es-dbe5f0` ya se borró; ver «Resultado del
+> sub-proyecto O». **Lo siguiente lo decide el usuario.** El spec
 > (`docs/superpowers/specs/2026-10-12-analizador-individual-design.md`) lleva al
-> final sus enmiendas del 2026-10-14 y del 2026-10-26, que mandan sobre el
-> texto de arriba.
+> final sus enmiendas del 2026-10-14, del 2026-10-26 y del 2026-11-15, que
+> mandan sobre el texto de arriba.
 >
 > **yfinance va en la 1.8.0** (02980d8, 2026-11-12): Yahoo retiró la dirección
 > de la que la 1.6.0 sacaba la prensa (`/xhr/ncp`, ahora 404) y la 1.6.0 lo
@@ -96,7 +98,7 @@ El objetivo mayor es construir, **aguas arriba de esa app**, un sistema donde un
 | K | El panel de seguimiento | Monitor real de la cartera | ✅ **terminado** |
 | L | Rendimiento real en pesos (MXN) | TWR/TIR en pesos y reales (Fisher), vía Banxico | ✅ **terminado** |
 | M | Valor intrínseco | Veredicto por cuatro lecturas y tres votos en cada candidato | ✅ **terminado** |
-| N | Analizador individual | La mecánica de candidatos para cualquier ticker, con gráfico, noticias e IA | 🔨 **en curso**: N1 (datos) y N2 (pantalla) hechos; N3 (IA) pendiente |
+| N | Analizador individual | La mecánica de candidatos para cualquier ticker, con gráfico, noticias e IA | ✅ **terminado**: N1, N2 y N3 en `master`; el recorrido de pago de N3, a medias |
 | O | VaR y ES en el optimizador | VaR 99 % y ES 97,5/99 % de la cartera y por activo, método elegido por el semáforo de Basilea | ✅ terminado |
 
 ## Resultado del sub-proyecto D
@@ -2171,6 +2173,205 @@ caído.
   antes de añadirla.
 - **`analizar_varios` sigue sin uso en pantalla** (D18): sólo lo usa
   `scripts/sondear_analizador.py`.
+
+## Sub-proyecto N, parte 3: la IA
+
+La pestaña **IA** del Analizador, con **232 tests más** que antes del plan —de
+3.494 a 3.726— y seis `red` nuevos contra EDGAR. Se fusionó en
+`master` el 2026-11-17 desde `feat/analizador-n3-ia`, con el recorrido de pago a medias
+(ver «El recorrido de la Task 14»). Plan:
+`docs/superpowers/plans/2026-11-15-analizador-n3-ia.md`, donde cada tarea lleva
+al principio su nota «Ejecutada»; el spec lleva sus enmiendas del 2026-11-15 al
+final. Ejecutado del 2026-11-15 al 2026-11-17, con un agente por tarea o par de
+tareas y dos revisiones.
+
+Con esto N está entero: desde la pantalla se pide, con un clic y su
+confirmación, la tesis y los riesgos de una empresa, el contraste de su
+escenario base con el informe de gestión (MD&A) del último informe anual, y la
+explicación de su valoración en palabras. Todo queda en `analisis/<TICKER>.json`
+y se pinta al reabrir sin pulsar nada. **Ningún camino del programa llama al
+modelo sin el clic en «Sí»**: la segunda revisión lo buscó expresamente y no
+encontró ninguno.
+
+### Qué entrega
+
+- **`analizador/informe_anual.py`**: el último informe anual de un ticker
+  —riesgos y MD&A— con las reglas del sondeo, caché de un día en
+  `analizador/.cache/`, y `ultimo_presentado`, que pregunta a la SEC una vez al
+  día cuál es el más reciente (sin red no guarda nada). Un 10-K da los mismos
+  riesgos que `ranking.filings.cargar_riesgos`; un 40-F no tiene secciones y no
+  baja nada. `TOPE_MDNA` es 60.000 caracteres: lo que pasa se corta y se dice.
+- **`analizador/palabras.py`**: lo que el modelo ve de la empresa y de su
+  valoración, redactado por el código y **sin un solo dígito**: la ficha para la
+  tesis (`contexto_tesis`), la valoración con sus votos y supuestos en palabras
+  (`contexto_valoracion`) y el supuesto de crecimiento del contraste. No nombra
+  el ticker ni manda la clase; sí el sector.
+- **`analizador/ia_tesis.py`**: la tesis de B (`ranking.llm.redactar`) para un
+  ticker suelto, con su gasto y su caché; sale «de la caché, sin coste» si el
+  ticker ya estaba en los candidatos con IA.
+- **`analizador/ia_mdna.py`**: contrasta el escenario base con el MD&A. El modelo
+  da hasta cinco juicios —respalda, contradice o matiza— y cada uno lleva una
+  cita que el código **verifica** contra el documento; una cita que no aparece
+  se descarta, y un contraste vacío por descartes no se guarda.
+- **`analizador/ia_valoracion.py`**: explica la valoración (los tres votos, el
+  veredicto y los supuestos movidos) sin cifras ni recomendaciones. El párrafo de
+  conjunto se vacía si lleva un dígito o `recomienda()` lo marca; las
+  observaciones recomendadoras salen marcadas.
+- **`analizador/ia_costes.py`**: lo más que puede costar cada botón, antes de
+  pulsarlo. Son topes, no estimaciones: cuentan los dos turnos.
+- **`analizador/archivo.py`**: guarda `tesis`, `contraste` y `explicacion` en el
+  mismo fichero que los 8-K, con lectores que validan la forma entera, y valida
+  toda entrada antes de escribirla. Y **`interprete/archivo.py`** deja de pisar
+  las claves que no son suyas: era el defecto que N2 dejó anotado.
+- **`vistas/analizador_ia.py`**: la pestaña, que sólo pinta, con los tres
+  bloques. **`vistas/panel_ia.py`** gana la confirmación con bandera
+  (`con_confirmacion`) y los 8-K del Analizador la usan; Seguimiento no.
+  `analizador/sesion.valoracion_en_pantalla` da la valoración con los
+  deslizadores movidos y dice cuáles.
+- **Fuera de `analizador/`**: `interprete/contexto.py` y `interprete/noticias.py`
+  (sin cartera, el prompt de los 8-K dice «en estudio», `VERSION_PROMPT` i4) y
+  `ranking/run.py` (`_contexto` pasa a `contexto`).
+
+### Decisiones que no hay que relitigar
+
+- **Nunca se manda otra sección en lugar del MD&A.** Si no se localiza, no hay
+  contraste y se dice (WFC); un MD&A que sólo es una remisión no se manda.
+- **El modelo no recibe un dígito de la valoración ni el ticker**: sólo palabras.
+  Las cifras las pinta el código, y lo que el modelo escribe se pinta siempre con
+  `noticias.texto.plano` o `texto.cita_en_bloque`.
+- **El código verifica toda cita** contra el documento; la no verificada se
+  descarta (contraste) o se marca (tesis).
+- **Confirmación con bandera para los tres botones y para los 8-K del
+  Analizador**, con el tope en el aviso y no en la etiqueta; los topes se
+  anuncian redondeados hacia arriba.
+- **Lo movido en los deslizadores no se guarda**; la explicación sólo anota qué
+  supuestos eran, y «con los números de entonces» se dice si los votos de ahora
+  son otros que los de la lectura.
+- **Con el archivo ilegible no se ofrece leer con IA**, y no se pisa.
+- **Seguimiento no gana confirmación** en sus 8-K: no se pidió.
+
+### El sondeo del MD&A
+
+Hecho el 2026-11-15 con edgartools 5.52 contra EDGAR, **antes de escribir el
+extractor**. El último informe anual de estas empresas:
+
+| Ticker | Informe | MD&A (`management_discussion`) | Riesgos (`risk_factors`) | Anexo EX-13 |
+|---|---|---|---|---|
+| MU | 10-K | 39.867 caracteres, empieza en «ITEM 7…» | 118.479 | no |
+| VEEV | 10-K | 41.123 | 117.427 | no |
+| SNDK | 10-K | 46.476 | 114.630 | no |
+| JPM | 10-K | 414.433; empieza con una tabla de cifras y el encabezado cae en el carácter 5.549 | 112.862 | no |
+| PGR | 10-K | **243**: «Incorporated by reference…» | 72.573 | sí, 501.112; el encabezado está al principio de una línea en el 307.025, y sólo ahí |
+| WFC | 10-K | **385**: incorporado por referencia | **289**: remite a «Financial Review – Risk Factors» (añadido al ejecutar) | sí, 1.344.203, **sin** ese encabezado: lo llama «Financial Review» |
+| TSM | 20-F | 37.151 (Item 5) | 62.160: el **Item 3 entero**, con «Risk Factors» como línea propia en el 138 | — |
+| NVO | 20-F | 22.484 (Item 5) | 6.897: el Item 3.D remite al informe anual (**sin riesgos**) | — |
+| ASML, SHEL | 20-F | **0** | 352.039 y 835.675 | — |
+| RY | 40-F | el objeto no tiene `management_discussion` | 829: una remisión | — |
+
+De ahí las reglas: una sección de menos de 5.000 caracteres es una remisión; un
+10-K con el MD&A incorporado por referencia se busca en el EX-13 y, si no
+aparece su encabezado, no se localiza; los riesgos de un 20-F se cortan desde la
+línea «Risk Factors»; un 40-F no tiene secciones. Lo que el sondeo no vio y
+salió al ejecutar: **WFC tampoco trae sus factores de riesgo en el 10-K**, así
+que para WFC no hay tesis ni contraste, y la pantalla lo dice.
+
+### Catorce defectos en dos revisiones
+
+Todos del código del plan, y todos arreglados con su test. El plan está
+marcado en su cabecera: el código que lleva no es el definitivo, manda el del
+repositorio.
+
+**Primera revisión, Tasks 1 a 5 (cinco importantes):**
+
+| Defecto | Arreglo |
+|---|---|
+| El MD&A del anexo EX-13 tomaba la primera mención a principio de línea: un índice o una frase partida por el ajuste valían | Exige línea en blanco previa y que la línea no acabe en número de página (`89fcb46`) |
+| Unos riesgos que son una remisión larga pasaban por sección (NVO, 6.897 caracteres) | «reference is made» o «incorporated by reference» en los primeros 600 caracteres los descarta (`89fcb46`) |
+| `_explicacion` no validaba `votos`, `veredicto` ni `movidos` al leer | Valida la forma entera y un fichero distinto es un fichero corrupto (`df7bee9`) |
+| `_anotar` no validaba la entrada antes de escribir: una mal tipada dejaba el fichero ilegible | Valida con su lector antes de escribir (`df7bee9`) |
+| Un ticker con dígitos (7203.T) metía un dígito en el bloque de la valoración | El bloque ya no nombra el ticker, y sin ninguna letra no hay bloque (`a3cc9e6`) |
+
+**Segunda revisión, Tasks 6 a 10 (nueve arreglos):**
+
+| Defecto | Arreglo |
+|---|---|
+| Una explicación hecha con supuestos movidos se pintaba «con los números de entonces» recién pagada: se comparaba con la valoración del programa | Se compara con la que hay en pantalla (`962e19c`) |
+| El detector de recomendaciones marcaba frases que describen («La empresa vende memoria», «Vendrán tiempos mejores») y se le escapaban recomendaciones («Cómprala», «Conviene mantener la posición») | Rehecho por familias de formas (`b40152d`) |
+| `_guardar` no capturaba `ValueError` ni `TypeError`: una lectura pagada se habría perdido | Se pinta igual, y se dice que no se guardó (`b1b6724`) |
+| Tras un fallo no se decía lo gastado, y lo que no era un fallo de llamada decía que lo fue | Se dice lo gastado (`9cee199`) |
+| El reintento podía tirar lo bueno del primer turno | Pide la respuesta completa (`de19e7e`) |
+| Una explicación vacía, o un contraste vacío por descartes, se guardaban y tapaban la lectura buena de antes | No se guardan (`4878dd5`) |
+| El tope del contraste usaba 3,30 caracteres por token, medido sobre prosa, y los topes se redondeaban a la baja | 2,5 para texto con tablas, cota prudente y no medida (0,15 \$); los topes, hacia arriba (`6a4123e`) |
+| `ia_tesis` reiniciaba el contador global de gasto de `ranking.llm` | Resta antes y después, y sólo reinicia al borde del tope (`11c6096`); **queda el residuo** de una corrida simultánea en otra sesión |
+| `_informe` decía «sin red» o un motivo genérico | Dice el motivo real (`28274bc`) |
+
+**La lección: los defectos eran de cuándo, no de cuánto.** Casi todos son una
+guarda que el plan pensó para el caso feliz y que el documento real —un índice,
+una remisión, una cita que no está— o la pantalla real —supuestos movidos, un
+fichero que no se puede escribir— rompían. Y los dos más caros por poco no se
+ven leyendo: un detector léxico que marca lo que describe y deja pasar lo que
+recomienda sólo se ve con frases escritas a propósito, y un tope calculado con
+la medida de otra clase de texto sólo se ve comparándolo con la clase real.
+
+### Los sabotajes de la Task 13
+
+**119 sabotajes**, uno por guarda, con el mismo método que N2: copia del fichero
+fuera del repo, el cambio, el test que debe caer y restauración con
+`git diff --quiet` limpio. **100 rompieron un test a la primera y 19 salieron
+inertes**, y cada inerte tiene su test nuevo, visto fallar con el sabotaje y
+pasar sin él (la tabla, con el test que cae en cada fila, quedó en el cuaderno de la
+sesión y no en el repo; los tests nuevos están en `8b26d1f`). Entre los
+inertes: que `_anotar` lea el fichero antes de escribir, que `_MDNA` empiece en
+`^`, que el informe se pida sin enmiendas, que la caché vigente se mire, que la
+remisión se busque sólo en la ventana inicial, que el contraste use lo movido en
+los deslizadores y que la tesis de la caché diga que no costó.
+
+### El recorrido de la Task 14
+
+**No se hizo entero**, y hay que contarlo como fue.
+
+- **Lo gratis, hecho.** Con la app arrancada se analizaron MU, WALMEX.MX, TSM, JPM,
+  PGR, WFC, SPY y RY, y se comprobó que la pestaña IA de MU se pinta con sus tres
+  bloques y sin errores. El usuario eligió **no gastar saldo**.
+- **Un error del agente, y costó dinero.** Al intentar pulsar el contraste en WFC
+  —que no llama al modelo—, el guion del agente que conducía el navegador falló al
+  cambiar de ticker y **no se detuvo**: pulsó «Contrastar con la empresa» y «Sí,
+  leer con IA» sobre MU, contra la decisión del usuario. Costó **0,035 \$**
+  (13.742 tokens de entrada y 770 de salida; el aviso anunciaba «hasta 0,15 \$»).
+  Dejó `analisis/MU.json` con un contraste de cinco juicios sobre el Item 7 del
+  10-K del 2026-10-09, con las cinco citas verificadas, y **el usuario decidió
+  conservarlo**. Es la única lectura de pago hecha con el modelo de verdad.
+- **Sin recorrer:** los demás tickers, los casos de WFC y de RY, la tesis, la
+  explicación, los 8-K con confirmación, y releer con la app reabierta.
+- **Lección para quien conduzca el navegador:** un paso que falla tiene que parar
+  el guion **antes de cualquier botón que gaste**. Un guion que sigue tras un
+  fallo no sabe en qué pantalla está.
+- **Los seis `red` contra EDGAR (Task 12) sí pasan:** MU, PGR desde el EX-13, TSM,
+  NVO, WFC, y que los riesgos de MU son idénticos a los de
+  `ranking.filings.cargar_riesgos`.
+
+### Lo que N3 no resuelve
+
+- **El recorrido de pago pendiente** (ver arriba). Lo único comprobado con el
+  modelo de verdad es un contraste de MU. Una lectura de pago de cada tipo, con
+  la app reabierta, es lo primero que habría que hacer antes de fiarse de
+  los textos.
+- **WFC y los 20-F que remiten sus riesgos o su MD&A a otro documento**: ASML y
+  SHEL no dan MD&A. **El 40-F** no tiene secciones.
+- **Sin Bono M no se ofrece ni contrastar ni explicar**, aunque la tasa se ponga a
+  mano: los bloques miran la valoración del programa para decidir si hay algo
+  que explicar.
+- **La bandera de confirmación sigue armada si se cambia de ticker sin
+  responder**. No gasta sin el «Sí», pero el aviso puede reaparecer al volver.
+- **El aviso de informe más reciente pregunta a la SEC en cada pasada cuando no
+  hay red**, porque un `None` no se guarda.
+- **`ranking.llm.redactar` no dice por qué falló la tesis**: devuelve `None` para
+  todo y B no se tocó.
+- **El detector de recomendaciones es léxico y no puede ser completo.** Marca por
+  familias de formas; una recomendación con otras palabras pasa.
+- **El contador de gasto del proceso**, con una corrida simultánea en otra
+  sesión, puede falsear la diferencia que toma `ia_tesis`.
+- **El 6-K de los emisores extranjeros** sigue sin interpretarse.
 
 ## Resultado del sub-proyecto O
 
