@@ -714,3 +714,20 @@ def test_una_explicacion_recien_pagada_con_deslizadores_movidos_no_sale_como_de_
     textos = _textos(pantalla)
     assert "Se explicó con tus supuestos" in textos
     assert "con los números de entonces" not in textos
+
+
+def test_si_el_guardado_lanza_valueerror_la_lectura_pagada_se_ve_igual(pantalla, monkeypatch):
+    _con_clave(monkeypatch)
+    monkeypatch.setattr("analizador.ia_valoracion.explicar", lambda bloque, mapa, **_resto: _explicacion_hecha())
+
+    def anotar(ruta, explicacion):
+        raise ValueError("la entrada no se podría leer después")
+
+    monkeypatch.setattr("analizador.archivo.anotar_explicacion", anotar)
+    pantalla.run()
+    _pulsar(pantalla, "Explicar la valoración")
+    _pulsar(pantalla, "Sí, leer con IA")
+    assert not pantalla.exception
+    textos = _textos(pantalla)
+    assert "No se pudo guardar la lectura" in textos and "no se podría leer después" in textos
+    assert "Depende de que el crecimiento se sostenga." in textos

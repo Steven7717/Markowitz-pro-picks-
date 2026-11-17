@@ -42,10 +42,12 @@ def _guardar(clave: str, anotar, ruta, lectura, pintar, avisos: list) -> None:
     """Guardar y repintar desde el archivo; si no se puede guardar, enseñar la lectura igual."""
     try:
         anotar(ruta, lectura)
-    except (OSError, ArchivoIlegible) as fallo:
+    except (OSError, ArchivoIlegible, ValueError, TypeError) as fallo:
         # Ya se pagó: un traceback aquí perdería la única copia que existe.
+        # `ValueError` es la entrada que no se podría leer después
+        # (`archivo._anotar`) y `TypeError` lo que `json` no sabe escribir.
         st.error(
-            f"**No se pudo guardar la lectura: {fallo}**\n\n"
+            f"**No se pudo guardar la lectura: {texto.plano(fallo)}**\n\n"
             "Lo que se acaba de leer **no ha quedado guardado**, y volver a "
             "pedirlo se cobra otra vez. Aquí abajo está entero."
         )
