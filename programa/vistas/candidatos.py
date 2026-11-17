@@ -236,6 +236,13 @@ if st.session_state.get(_CONFIRMAR) and puede.puede_usar_ia:
             "las fichas reintentadas—; lo que cueste de verdad se dice aquí "
             "mismo al terminar. Sin IA la lista sale igual de ordenada, sólo "
             "que sin narrativa ni citas."
+            + (
+                " Irá inclinada por la fase "
+                f"{textos_macro.NOMBRE_FASE[estado_macro.fase.clave]} de "
+                f"{textos_macro.NOMBRE_REGION[estado_macro.region]}."
+                if estado_macro
+                else ""
+            )
         )
         columna_si, columna_no, _ = st.columns([2, 1, 3])
         if columna_si.button(

@@ -153,3 +153,25 @@ def test_un_bloque_sin_fase_cuenta_como_sin_macro(pantalla, tmp_path):
     _correr(pantalla)
     texto = _textos(pantalla)
     assert "El Top está inclinado" not in texto and "no lleva entorno macro" not in texto
+
+
+def test_el_pago_con_ia_lleva_la_macro_y_el_aviso_lo_dice(pantalla, monkeypatch):
+    monkeypatch.setattr(
+        "aprobacion.generacion.disponibilidad",
+        lambda *a: SimpleNamespace(puede_generar=True, puede_usar_ia=True,
+                                   motivo="", motivo_generacion=""),
+    )
+    _correr(pantalla)
+    pantalla.checkbox(key="inclinar_macro").check().run()
+    pantalla.radio(key="modo_generacion").set_value(
+        next(o for o in pantalla.radio(key="modo_generacion").options if o.startswith("Con IA"))
+    ).run()
+    next(b for b in pantalla.button if b.label == "Generar con IA").click().run()
+    assert not pantalla.exception, pantalla.exception
+    assert pantalla.mundo["llamadas"] == []  # pulsar no gasta: falta confirmar
+    assert "Irá inclinada por la fase Expansión de Estados Unidos." in _textos(pantalla)
+    pantalla.button(key="confirmar_ia").click().run()
+    assert not pantalla.exception, pantalla.exception
+    llamada = pantalla.mundo["llamadas"][-1]
+    assert llamada["macro"].clave == "expansion"
+    assert llamada["region"] == "usa"
