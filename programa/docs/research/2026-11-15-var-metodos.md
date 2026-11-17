@@ -79,7 +79,7 @@ Sesiones por ticker: {'TSLA': 1255, 'AMD': 1255, 'COIN': 1255, 'PLTR': 1255}
 | Cartera | Gana | Tiempo en verde | Tasa del ganador | Cómo se decide |
 |---|---|---|---|---|
 | Tecnológicas | Histórica filtrada (EWMA) | 64 % | 1,46 % | Primer criterio: Cornish-Fisher queda en 60 % |
-| Defensivas | Paramétrico normal | 100 % | 1,06 % | Seis métodos menos la histórica empatan en 100 %; gana la tasa más cercana al 1 % |
+| Defensivas | Paramétrico normal | 100 % | 1,06 % | Cinco métodos empatan en 100 %; gana la tasa más cercana al 1 % |
 | Mixta con bonos | Cornish-Fisher | 100 % | 0,66 % | Primer criterio: histórica y t quedan en 98 % |
 | Volátiles | Paramétrico normal | 100 % | 1,06 % | Empata con la t de Student en 100 %; gana la tasa más cercana al 1 % |
 
@@ -128,8 +128,8 @@ Esto es descriptivo; el criterio lo eligió el usuario y no se toca aquí.
 - La regla premia **estar en verde**, y estar en verde le cuesta poco al
   conservador: un método que sobrestima la cola tiene pocas excepciones por
   construcción. Cornish-Fisher es el más conservador de los seis en las cuatro
-  carteras y gana en una, queda segundo o tercero en las demás por el tiempo en
-  verde (60 %, 100 %, 85 %).
+  carteras y gana en una; en las demás queda en
+  verde 60 %, 100 % (empatado) y 85 %.
 - El desempate por tasa cercana al 1 % sólo actúa cuando el primer criterio
   empata, y sólo empata de verdad cuando varios métodos están en 100 %
   (Defensivas y Volátiles). Cuando no empata, la tasa no entra: en la mixta con
