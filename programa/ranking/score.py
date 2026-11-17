@@ -2,6 +2,7 @@ import pandas as pd
 
 from fundamentals.kpis import TODOS_LOS_KPIS
 from fundamentals.sectors import MIN_PARES, zscore_within_sector
+from macro.criterio import INCLINACION, SECTORES_POR_FASE
 from ranking.criterio import (
     MAX_ANTIGUEDAD_TRIMESTRES,
     MIN_KPIS_CON_DATO,
@@ -261,3 +262,25 @@ def marcar_sin_pares(
     motivos[huerfanas & motivos.isna() & (tamanos < MIN_PARES)] = "sector_sin_pares"
     motivos[huerfanas & motivos.isna()] = "sin_dispersion_sectorial"
     return motivos
+
+
+def ajuste_de(sector: "str | None", fase: str) -> float:
+    """Lo que la fase suma o resta a un sector: ±INCLINACION, o 0 si es neutro."""
+    listas = SECTORES_POR_FASE[fase]
+    if sector in listas["favorecidos"]:
+        return INCLINACION
+    if sector in listas["desfavorecidos"]:
+        return -INCLINACION
+    return 0.0
+
+
+def inclinar(compuestos: pd.Series, sectores: pd.Series, fase: str) -> pd.Series:
+    """El compuesto desplazado por la fase macro, antes de `seleccionar`.
+
+    Encaja limpio porque `compuesto` ya re-estandariza dentro del sector: todos
+    los sectores parten de media 0, así que esto es exactamente el desplazamiento
+    de un sector frente a otro, en desviaciones. Un NaN sigue siendo NaN: una
+    empresa excluida no vuelve a entrar por la macro.
+    """
+    ajustes = sectores.reindex(compuestos.index).map(lambda s: ajuste_de(s, fase))
+    return compuestos + ajustes.astype(float)

@@ -466,3 +466,30 @@ def test_un_pilar_sin_ningun_kpi_sigue_siendo_ausente_y_no_cero():
 
     assert pilares.loc["SIN_NADA"].isna().all()
     assert (conteo.loc["SIN_NADA"] == 0).all()
+
+
+from macro.criterio import INCLINACION
+from ranking.score import ajuste_de, inclinar
+
+
+def test_inclinar_suma_y_resta_por_sector_y_deja_neutros():
+    compuestos = pd.Series({"F1": 1.0, "S1": 1.0, "E1": 1.0, "X1": float("nan")})
+    sectores = pd.Series(
+        {"F1": "Financials", "S1": "Utilities", "E1": "Energy", "X1": "Financials"}
+    )
+    inclinados = inclinar(compuestos, sectores, "recuperacion")
+    assert inclinados["F1"] == pytest.approx(1.0 + INCLINACION)
+    assert inclinados["S1"] == pytest.approx(1.0 - INCLINACION)
+    assert inclinados["E1"] == pytest.approx(1.0)
+    assert pd.isna(inclinados["X1"])
+
+
+def test_inclinar_no_modifica_la_entrada():
+    compuestos = pd.Series({"F1": 1.0})
+    inclinar(compuestos, pd.Series({"F1": "Financials"}), "recuperacion")
+    assert compuestos["F1"] == 1.0
+
+
+def test_ajuste_de_un_sector_desconocido_es_cero():
+    assert ajuste_de(None, "expansion") == 0.0
+    assert ajuste_de("Sector inventado", "expansion") == 0.0
