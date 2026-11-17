@@ -1,8 +1,8 @@
 # Entorno macro — la fase del ciclo y su inclinación del Top
 
 **Fecha:** 2026-11-15
-**Estado:** diseño aprobado, sin implementar
-**Sub-proyecto:** O
+**Estado:** implementado y en `master` (2026-11-17)
+**Sub-proyecto:** P (se escribió como O y se renombró al fusionar: O ya era el VaR)
 
 ## Qué entrega
 

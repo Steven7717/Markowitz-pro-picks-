@@ -461,3 +461,22 @@ def test_el_rebalanceo_tiene_el_mismo_tope():
     )
     assert len(llamadas) == 1
     assert comentario.estado == ajuste.HECHO
+
+
+_JUICIO = {"hecho": "A", "que_dice": "Dice algo.", "por_que_te_toca": "Te toca.", "cita": CITA}
+
+
+def test_sin_pesos_el_prompt_dice_en_estudio_y_no_una_cartera_vacia():
+    cliente, llamadas = _falso_que_apunta([_salida([_JUICIO])])
+    noticias.leer((ENTRADA,), {"MSFT"}, cliente=cliente, pesos=())
+    turno = llamadas[0]["messages"][0]["content"]
+    assert "- MSFT: en estudio, sin posición en la cartera" in turno
+    assert "Tu cartera:\n\n" not in turno
+
+
+def test_con_pesos_el_prompt_sigue_llevando_la_cartera():
+    cliente, llamadas = _falso_que_apunta([_salida([_JUICIO])])
+    noticias.leer((ENTRADA,), {"MSFT"}, cliente=cliente, pesos=(("MSFT", 0.2, None),))
+    turno = llamadas[0]["messages"][0]["content"]
+    assert "- MSFT: pesa 20,0%" in turno
+    assert "en estudio" not in turno

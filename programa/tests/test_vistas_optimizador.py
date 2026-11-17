@@ -207,3 +207,124 @@ def test_la_pantalla_si_sigue_traduciendo_para_mirarla():
     cabecera de la pantalla y en la leyenda de la frontera eficiente.
     """
     assert "STRATEGY_LABELS[corrida[\"estrategia\"]]" in FUENTE
+
+
+# ── Riesgo de cola: VaR y ES ──────────────────────────────────────────────────
+
+def test_el_riesgo_se_calcula_una_vez_en_la_corrida():
+    """Como la validación: repintar no puede volver a descargar ni backtestear."""
+    cuerpo = _cuerpo("_ejecutar")
+    assert "informe_riesgo(" in cuerpo
+    assert '"riesgo":' in cuerpo
+    assert FUENTE.count("informe_riesgo(") == 1
+
+
+def test_la_falta_de_historia_se_explica_y_no_tumba_la_corrida():
+    cuerpo = _cuerpo("_ejecutar")
+    assert "except HistoriaInsuficiente" in cuerpo
+
+
+def test_hay_pestana_de_riesgo():
+    assert '"Riesgo: VaR y ES"' in FUENTE
+
+
+def test_un_ticker_sin_datos_diarios_se_nombra_como_tal():
+    """Con un ticker a 0 sesiones la historia común es 0, y «la que más recorta
+    es X, con 0» manda a quitar historia que no existe: lo que pasa es que
+    yfinance no devolvió ni un día de ese activo, y la pestaña tiene que
+    decirlo así."""
+    assert "sin_datos" in _cuerpo("_ejecutar")
+    assert FUENTE.count("sin_datos") >= 2   # se guarda... y se lee en la pestaña
+
+
+def _manejadores(cuerpo_de: str) -> list[ast.ExceptHandler]:
+    funcion = next(n for n in ast.walk(ARBOL)
+                   if isinstance(n, ast.FunctionDef) and n.name == cuerpo_de)
+    return [n for n in ast.walk(funcion) if isinstance(n, ast.ExceptHandler)]
+
+
+def test_cualquier_otro_fallo_del_riesgo_tampoco_tumba_la_corrida():
+    """Un NaN que se cuele, pesos y columnas que no casen o la red caída en la
+    descarga diaria: el reparto sigue valiendo, así que se guarda el motivo y
+    la pestaña lo enseña. Sin `except:` desnudo, que se tragaría hasta Ctrl+C."""
+    manejadores = _manejadores("_ejecutar")
+    assert all(m.type is not None for m in manejadores)
+    capturados = {ast.get_source_segment(FUENTE, m.type) for m in manejadores}
+    assert "ValueError" in capturados
+    assert "Exception" in capturados
+    assert '"error":' in _cuerpo("_ejecutar")
+    assert 'inf.get("error")' in FUENTE or "inf[\"error\"]" in FUENTE
+
+
+def _try_que_llama(nombre: str) -> ast.Try:
+    """El `try` cuyo cuerpo hace la llamada, no uno cualquiera de la función."""
+    funcion = next(n for n in ast.walk(ARBOL)
+                   if isinstance(n, ast.FunctionDef) and n.name == "_ejecutar")
+    return next(
+        t for t in ast.walk(funcion) if isinstance(t, ast.Try)
+        and any(isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
+                and n.func.id == nombre for b in t.body for n in ast.walk(b)))
+
+
+def test_el_informe_de_riesgo_no_tumba_la_corrida_por_nada():
+    """`HistoriaInsuficiente` y `ValueError` son los fallos que se esperan;
+    un `KeyError` o un `LinAlgError` de un caso que nadie previó también
+    dejaría la página en rojo con un reparto perfectamente válido. El último
+    manejador del `try` del informe es `Exception`, y guarda su tipo."""
+    tipos = [ast.get_source_segment(FUENTE, h.type)
+             for h in _try_que_llama("informe_riesgo").handlers]
+    assert tipos == ["HistoriaInsuficiente", "ValueError", "Exception"]
+    assert "type(error).__name__" in _cuerpo("_ejecutar")
+
+
+def _seccion_riesgo() -> str:
+    return FUENTE[FUENTE.index("with riesgo_tab:"):FUENTE.index("with exportar:")]
+
+
+def _formateador_pct():
+    """La función del módulo, sin ejecutar el guion: se compila sola."""
+    nodo = next(n for n in ARBOL.body
+                if isinstance(n, ast.FunctionDef) and n.name == "_pct")
+    espacio: dict = {}
+    exec(compile(ast.Module([nodo], []), "optimizador.py", "exec"), espacio)
+    return espacio["_pct"]
+
+
+def test_un_porcentaje_de_cero_no_lleva_signo():
+    pct = _formateador_pct()
+    assert pct(-1e-17) == "0.0%"
+    assert pct(-0.0004) == "0.0%"
+    assert pct(-0.0004, 2) == "-0.04%"
+    assert pct(0.1234) == "12.3%"
+    assert pct(-0.25, 0) == "-25%"
+
+
+def test_la_tabla_por_activo_formatea_todos_sus_porcentajes_igual():
+    """Una aportación al ES de −1e-17 salía «−0.0%»: toda columna en % de la
+    tabla por activo pasa por `_pct`, ninguna por un f-string suelto."""
+    tabla = _seccion_riesgo()
+    tabla = tabla[tabla.index("##### Por activo"):]
+    tabla = tabla[:tabla.index("for f in inf.activos")]
+    assert "%}" not in tabla
+    for columna in ("f.peso", "f.var99", "f.es975", "f.es99",
+                    "f.fraccion_verde", "f.aportacion_es"):
+        assert f"_pct({columna}" in tabla
+
+
+def test_la_zona_no_lleva_flecha():
+    """«3 excepciones» no es una subida: es un recuento, y la flecha ↑ lo
+    pintaba como si lo fuera."""
+    assert 'delta_arrow="off"' in _seccion_riesgo()
+
+
+def test_una_diversificacion_nula_no_se_escribe_en_negativo():
+    seccion = _seccion_riesgo()
+    assert "inf.diversificacion > 0" in seccion
+    assert "Diversificar no reduce el ES de esta cartera" in seccion
+
+
+def test_la_tabla_de_metodos_ensena_el_var_medio():
+    """Para que un ganador que gana por exceso de prudencia se vea: su tiempo
+    en verde sale alto y su VaR medio, también."""
+    assert '"VaR medio":' in _seccion_riesgo()
+    assert "b.var99.mean()" in _seccion_riesgo()

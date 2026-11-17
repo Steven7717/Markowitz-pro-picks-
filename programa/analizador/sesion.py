@@ -21,6 +21,10 @@ contra el de hoy no van en la misma tabla.
 
 from dataclasses import dataclass
 
+from analizador import deslizadores
+from analizador.analisis import pilar_valoracion
+from analizador.valorar import valorar
+
 CLAVE_TEXTO = "analizador_texto"
 CLAVE_TICKERS = "analizador_tickers"
 CLAVE_ANALISIS = "analizador_analisis"
@@ -186,3 +190,34 @@ def preparar_motivo(estado, ticker: str, redactado: str) -> bool:
         estado[clave] = estado[huella] = redactado
         return False
     return estado.get(huella) != redactado
+
+
+def valoracion_en_pantalla(estado, analisis) -> "tuple[dict | None, tuple[str, ...]]":
+    """La valoración con lo que marcan los deslizadores ahora, y qué se movió.
+
+    Los bloques de IA explican lo que el usuario tiene delante, y los
+    deslizadores viven en un fragmento: lo movido sólo está en las claves de
+    sus widgets. Sin entradas, sin nada movido o con supuestos que rompen las
+    fórmulas, es la del programa y nada movido.
+    """
+    entradas = analisis.entradas
+    if entradas is None:
+        return analisis.valoracion, ()
+    puesta = estado.get(clave_a_mano(analisis.ticker))
+    r_f_a_mano = None if puesta is None else puesta / 100
+    try:
+        programa = deslizadores.del_programa(entradas, r_f_a_mano)
+        if programa is None:
+            return analisis.valoracion, ()
+        en_pantalla = {
+            nombre: estado.get(clave_deslizador(analisis.ticker, nombre))
+            for nombre in programa
+            if not (nombre == "r_f" and entradas.r_f is None)
+        }
+        cambios = deslizadores.cambios(en_pantalla, programa, r_f_a_mano)
+        if not cambios:
+            return analisis.valoracion, ()
+        movida = valorar(entradas, pilar_valoracion(analisis.referencia), cambios)
+        return movida, deslizadores.nombres_movidos(entradas, cambios)
+    except ValueError:
+        return analisis.valoracion, ()

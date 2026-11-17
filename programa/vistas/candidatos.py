@@ -160,7 +160,7 @@ with st.container(border=True):
 
     # Apagada y sin recordar entre sesiones, a propósito: el Top de siempre es el
     # criterio congelado, y activar uno que no lo es tiene que ser un gesto
-    # consciente cada vez (spec de O, «Pantallas»). En la pasada que confirma el
+    # consciente cada vez (spec del entorno macro, «Pantallas»). En la pasada que confirma el
     # pago con IA la casilla sigue igual, así que `estado_macro` vale lo mismo.
     inclinar = st.checkbox("Inclinar el Top por la fase macro", value=False, key="inclinar_macro")
     estado_macro = None

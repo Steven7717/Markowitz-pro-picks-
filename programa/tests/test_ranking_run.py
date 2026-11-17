@@ -13,7 +13,7 @@ from fundamentals.kpis import TODOS_LOS_KPIS
 from ranking.filings import Riesgos
 from ranking.llm import Narrativa, Riesgo
 from ranking.llm import redactar_con_cache as redactar_con_cache_real
-from ranking.run import Resultado, _contexto, construir_ranking, guardar
+from ranking.run import Resultado, construir_ranking, contexto, guardar
 from ranking.verificacion import sin_digitos
 from tests.dobles_valoracion import fundamentos, perfil
 from valoracion.motor import calcular
@@ -378,7 +378,7 @@ def test_una_narrativa_no_producible_cae_a_plantilla_sin_abortar_la_corrida(sin_
 
 
 def test_el_contexto_no_lleva_ni_un_digito():
-    # _contexto usa descriptor() precisamente para que no haya ninguna cifra
+    # contexto usa descriptor() precisamente para que no haya ninguna cifra
     # que el modelo pueda copiar a la tesis o a una afirmación. Nadie lo
     # comprobaba: sin_digitos ya existe en ranking/verificacion.py para esto.
     ficha = {
@@ -393,7 +393,7 @@ def test_el_contexto_no_lleva_ni_un_digito():
         "destacados": [{"kpi": "roic", "valor": 0.31, "z": 2.4}],
         "flojos": [{"kpi": "per", "valor": 34.2, "z": 2.0}],
     }
-    assert sin_digitos(_contexto(ficha))
+    assert sin_digitos(contexto(ficha))
 
 
 # --- La pregunta en frío: universos degenerados no deben mentir -----------
@@ -649,7 +649,7 @@ def test_si_falla_la_escritura_del_panel_se_guardan_las_fichas_sin_panel(
     assert "panel" in caplog.text and "PermissionError" in caplog.text
 
 
-# --- La inclinación macro (sub-proyecto O) --------------------------------
+# --- La inclinación macro (sub-proyecto P) ----------------------------
 
 from datetime import date as _date
 

@@ -44,7 +44,7 @@ class Resultado:
     panel: "pd.DataFrame | None" = None
 
 
-def _contexto(ficha: dict) -> str:
+def contexto(ficha: dict) -> str:
     """Describe the candidate to the model in words, with no digits to echo."""
     lineas = [
         f"Empresa: {ficha['ticker']}, sector {ficha['sector_gics']}.",
@@ -64,7 +64,7 @@ def _con_narrativa(ficha: dict, cache_dir: Path | None) -> dict:
     if riesgos is None:
         return ficha
 
-    narrativa = redactar_con_cache(_contexto(ficha), riesgos.texto, cache_dir=cache_dir)
+    narrativa = redactar_con_cache(contexto(ficha), riesgos.texto, cache_dir=cache_dir)
     if narrativa is None:
         return ficha
 
@@ -122,7 +122,7 @@ def construir_ranking(
     fichas que quedan heredan ese motivo sin llamar al motor.
 
     `macro` inclina el compuesto por la fase del ciclo antes de seleccionar
-    (sub-proyecto O). Con `None`, el Top es el de siempre. Con fase, se
+    (sub-proyecto P, el entorno macro). Con `None`, el Top es el de siempre. Con fase, se
     selecciona dos veces —sin inclinar e inclinado— y la diferencia queda en
     `corrida["macro"]`, como las desplazadas por el tope: un criterio que
     reordena la lista tiene que dejarse ver.

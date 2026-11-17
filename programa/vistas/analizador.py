@@ -9,6 +9,9 @@ Absorbe «Noticias y calendario», que salió del menú: lo que aquella pantalla
 hacía para un libro entero se hace aquí con «Cargar de un libro», y cada ticker
 tiene sus hechos, su prensa y su calendario en su pestaña.
 
+La pestaña IA vive en `vistas/analizador_ia.py`: tres lecturas de pago, cada una
+con su confirmación, y lo ya leído guardado en `analisis/<TICKER>.json`.
+
 **El precio no se refresca solo, a propósito.** Un veredicto que cambia cada
 minuto con el precio es ruido: cada fila lleva la hora de su cotización, y
 «Actualizar precios» la vuelve a pedir. El tiempo real está en el gráfico, que
@@ -38,7 +41,7 @@ from fundamentals.fetch import CorridaAbortada
 from fundamentals.sectors import load_sectors
 from noticias import macro, resumen, texto, traer
 from seguimiento import posiciones
-from vistas import libros, panel_ia
+from vistas import analizador_ia, libros, panel_ia
 
 st.markdown(
     tema.cabecera(
@@ -632,6 +635,7 @@ def _hechos(ticker: str, hechos: list, consultado: bool) -> None:
         clave=f"analizador_ia_{ticker}",
         consultado=consultado,
         con_enlace_a_perfil=True,
+        con_confirmacion=True,
     )
 
 
@@ -735,6 +739,11 @@ def _noticias(analisis, contexto) -> None:
     )
 
 
+def _ia(analisis, contexto) -> None:
+    """La pestaña IA: la tesis, el contraste con la empresa y la explicación de la valoración."""
+    analizador_ia.pintar(analisis)
+
+
 # Qué función dibuja cada pestaña de `ma.pestanas_de`. Una pestaña sin función
 # no se dibuja, en vez de salir vacía.
 _PESTANAS = {
@@ -743,6 +752,7 @@ _PESTANAS = {
     "Fundamentales": _fundamentales,
     "Gráfico": _grafico,
     "Noticias y calendario": _noticias,
+    "IA": _ia,
 }
 
 
