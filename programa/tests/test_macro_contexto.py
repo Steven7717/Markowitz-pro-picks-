@@ -38,3 +38,39 @@ def test_inflacion_interanual():
 def test_sin_series_todo_es_none():
     c = calcular(curva=None, desempleo=None, ipc=None)
     assert (c.curva, c.sahm, c.inflacion) == (None, None, None)
+
+
+def _sin(serie, mes):
+    return serie.drop(pd.Timestamp(mes))
+
+
+def test_inflacion_lee_t_menos_12_por_fecha_aunque_falte_un_mes_intermedio():
+    # 2025-01..2026-09 con 2025-10 ausente; t-12 = 2025-09 existe.
+    valores = [100.0 + i for i in range(21)]
+    ipc = _sin(_mensual(valores, "2025-01"), "2025-10")
+    esperado = 120.0 / 108.0 - 1  # 2026-09 frente a 2025-09
+    assert calcular(curva=None, desempleo=None, ipc=ipc).inflacion == pytest.approx(esperado)
+
+
+def test_inflacion_es_none_si_falta_t_menos_12():
+    ipc = _sin(_mensual([100.0 + i for i in range(22)], "2025-01"), "2025-10")
+    # t = 2026-10, t-12 = 2025-10: es el hueco.
+    assert calcular(curva=None, desempleo=None, ipc=ipc).inflacion is None
+
+
+def test_sahm_con_un_hueco_dentro_de_los_12_meses_previos_es_none():
+    desempleo = _sin(_mensual([4.0] * 20 + [4.8], "2025-01"), "2025-10")
+    assert calcular(curva=None, desempleo=desempleo, ipc=None).sahm is None
+
+
+def test_sahm_con_un_hueco_en_los_ultimos_3_meses_es_none():
+    desempleo = _sin(_mensual([4.0] * 24, "2024-01"), "2025-11")  # acaba en 2025-12
+    assert calcular(curva=None, desempleo=desempleo, ipc=None).sahm is None
+
+
+def test_sahm_con_un_hueco_antiguo_se_calcula():
+    # 2024-01..2025-12; el hueco de 2024-03 queda fuera de los 12 previos de 2025-12.
+    valores = [4.0] * 21 + [4.5, 4.7, 4.9]
+    desempleo = _sin(_mensual(valores, "2024-01"), "2024-03")
+    c = calcular(curva=None, desempleo=desempleo, ipc=None)
+    assert c.sahm == pytest.approx(0.7)

@@ -8,7 +8,10 @@ que «expansión» significara cosas distintas según la región (ver el spec).
 
 from dataclasses import dataclass
 
+import numpy as np
 import pandas as pd
+
+from macro.mensual import mensual
 
 UMBRAL_SAHM = 0.5
 SERIES = {"curva": "T10Y3M", "desempleo": "UNRATE", "ipc": "CPIAUCSL"}
@@ -24,22 +27,29 @@ class ContextoUSA:
 
 
 def _sahm(desempleo: "pd.Series | None") -> "float | None":
-    """Media de 3 meses menos el mínimo de esa media en los 12 meses anteriores."""
+    """Media de 3 meses menos el mínimo de esa media en los 12 meses anteriores.
+
+    En meses de calendario: una media con un hueco es NaN, no se salta.
+    """
     if desempleo is None:
         return None
-    media = desempleo.dropna().rolling(3).mean().dropna()
-    if len(media) < 13:
+    media = mensual(desempleo).rolling(3).mean()
+    if len(media) < 13 or np.isnan(media.iloc[-1]):
         return None
-    return float(media.iloc[-1] - media.iloc[-13:-1].min())
+    previos = media.iloc[-13:-1].dropna()
+    if len(previos) < 12:
+        return None
+    return float(media.iloc[-1] - previos.min())
 
 
 def _inflacion(ipc: "pd.Series | None") -> "float | None":
+    """t frente a t-12 por fecha; None si falta cualquiera de los dos."""
     if ipc is None:
         return None
-    limpio = ipc.dropna()
-    if len(limpio) < 13:
+    m = mensual(ipc)
+    if len(m) < 13 or np.isnan(m.iloc[-1]) or np.isnan(m.iloc[-13]):
         return None
-    return float(limpio.iloc[-1] / limpio.iloc[-13] - 1)
+    return float(m.iloc[-1] / m.iloc[-13] - 1)
 
 
 def calcular(curva, desempleo, ipc) -> ContextoUSA:

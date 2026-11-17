@@ -20,6 +20,7 @@ import numpy as np
 import pandas as pd
 
 from macro.criterio import MAX_ANTIGUEDAD_MESES, MESES_DIRECCION, NIVEL_NEUTRO
+from macro.mensual import mensual
 
 
 @dataclass(frozen=True)
@@ -41,26 +42,10 @@ def _clave(nivel: float, cambio: float, ultimo: float) -> "str | None":
     return "recuperacion" if sube else "contraccion"
 
 
-def _mensual(serie: pd.Series) -> pd.Series:
-    """Rejilla mensual continua: inicio de mes, sin duplicados, sin inf, ordenada."""
-    if len(serie) == 0:
-        return pd.Series([], index=pd.DatetimeIndex([]), dtype=float)
-    valores = pd.to_numeric(serie, errors="coerce").astype(float)
-    valores = valores.where(np.isfinite(valores))
-    indice = pd.DatetimeIndex(serie.index).to_period("M").to_timestamp()
-    valores = pd.Series(valores.to_numpy(), index=indice)
-    valores = valores[~valores.index.duplicated(keep="last")].sort_index()
-    con_dato = valores.dropna()
-    if con_dato.empty:
-        return con_dato
-    rejilla = pd.date_range(con_dato.index[0], con_dato.index[-1], freq="MS")
-    return valores.reindex(rejilla)
-
-
 def fases_por_mes(serie: pd.Series) -> pd.Series:
     """La clave de cada mes de la rejilla, o None si faltan t, t-1 o t-3 o no decide."""
-    mensual = _mensual(serie)
-    valores = mensual.to_numpy()
+    rejilla = mensual(serie)
+    valores = rejilla.to_numpy()
     claves: list = []
     for i in range(len(valores)):
         if i < MESES_DIRECCION:
@@ -71,22 +56,22 @@ def fases_por_mes(serie: pd.Series) -> pd.Series:
             claves.append(None)
             continue
         claves.append(_clave(ahora, ahora - hace_n, ahora - previo))
-    return pd.Series(claves, index=mensual.index, dtype="object")
+    return pd.Series(claves, index=rejilla.index, dtype="object")
 
 
 def determinar(serie: pd.Series) -> Fase:
-    mensual = _mensual(serie)
-    if len(mensual) < MESES_DIRECCION + 1:
+    rejilla = mensual(serie)
+    if len(rejilla) < MESES_DIRECCION + 1:
         return Fase(None, "serie_corta", None, None, None, 0)
 
-    mes = mensual.index[-1].date()
-    nivel = float(mensual.iloc[-1])
-    previo = mensual.iloc[-2]
-    hace_n = mensual.iloc[-1 - MESES_DIRECCION]
+    mes = rejilla.index[-1].date()
+    nivel = float(rejilla.iloc[-1])
+    previo = rejilla.iloc[-2]
+    hace_n = rejilla.iloc[-1 - MESES_DIRECCION]
     if np.isnan(previo) or np.isnan(hace_n):
         return Fase(None, "serie_con_huecos", mes, nivel, None, 0)
 
-    por_mes = fases_por_mes(mensual)
+    por_mes = fases_por_mes(rejilla)
     clave = por_mes.iloc[-1]
     cambio = float(nivel - hace_n)
     if clave is None:

@@ -100,8 +100,7 @@ def test_un_mes_ausente_del_indice_se_lee_por_calendario():
     )
     serie = pd.Series([100.5, 100.6, 100.7, 100.8, 100.9, 101.0], index=indice)
     fase = determinar(serie)
-    # t-3 = junio: existe, así que hay fase, y la racha son 1 mes (t-1..t-3 existen,
-    # pero antes de septiembre solo agosto y julio tienen t-3 en la rejilla).
+    # Septiembre tiene fase (t-3 = junio existe). Agosto no: su t-3, mayo, es un hueco.
     assert fase.clave == "expansion"
     assert fase.mes_dato == date(2026, 9, 1)
     assert fase.cambio == pytest.approx(0.3)
