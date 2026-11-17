@@ -130,6 +130,30 @@ def test_el_ranking_es_reproducible(sin_red):
     assert [f["ticker"] for f in primera.fichas] == [f["ticker"] for f in segunda.fichas]
 
 
+# Calculado con el código de antes de la inclinación macro (eca3a11) y con el de
+# ahora: idénticos hasta el último decimal. Si este test cae, sin macro el Top ya
+# no es el que era, y eso es un fallo aunque todo lo demás siga en verde.
+TOP_SIN_MACRO = [
+    ("FI0", 1.5277407203319124),
+    ("TE5", 1.2745897681749936),
+    ("HE0", 1.142848207672796),
+    ("TE3", 1.0119970412965922),
+    ("HE3", 1.0037226790998488),
+    ("FI2", 0.5848483650684606),
+    ("HE2", 0.4635822463899281),
+    ("TE4", 0.24477981988547357),
+    ("FI1", 0.0038554024305262635),
+]
+
+
+def test_el_top_sin_macro_es_el_de_antes_de_la_inclinacion(sin_red):
+    resultado = construir_ranking(con_llm=False, n=15)
+    assert [f["ticker"] for f in resultado.fichas] == [t for t, _ in TOP_SIN_MACRO]
+    assert [f["compuesto"] for f in resultado.fichas] == pytest.approx(
+        [c for _, c in TOP_SIN_MACRO]
+    )
+
+
 def test_cuenta_las_exclusiones_por_motivo(sin_red):
     resultado = construir_ranking(con_llm=False, n=5)
     assert isinstance(resultado.exclusiones, dict)
