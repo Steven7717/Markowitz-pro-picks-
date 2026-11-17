@@ -171,6 +171,12 @@ if region == "usa":
         "Inflación interanual",
         "—" if contexto.inflacion is None else f"{contexto.inflacion:.1%}".replace(".", ","),
     )
+    if contexto.mes_inflacion is not None:
+        inflacion.caption(f"Dato de {textos.mes_legible(contexto.mes_inflacion)}.")
+    if contexto.sahm is None:
+        sahm.caption("FRED no tiene meses suficientes para calcularlo.")
+    if contexto.inflacion is None:
+        inflacion.caption("FRED no tiene meses suficientes para calcularlo.")
     st.caption("El contexto no entra en la fase: se enseña al lado.")
 else:
     st.caption("El contexto de curva, desempleo e inflación solo está para EE. UU.")
