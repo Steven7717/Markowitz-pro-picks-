@@ -8,6 +8,9 @@ Un fallo es un resultado con nombre, no una excepción, como en
 `seguimiento/banxico.py`. Si la red cae y hay algo guardado, se devuelve lo
 guardado marcado `vieja=True`: un dato viejo con su fecha a la vista sirve, uno
 que se lee como fresco sin serlo no.
+
+Cada fuente pide un User-Agent distinto: la OCDE rechaza el de urllib y FRED
+deja colgada la petición con uno que no reconoce (ver `_traer`).
 """
 
 import http.client
@@ -59,6 +62,8 @@ def parsear_cli(texto: str) -> pd.Series:
         raise _Vacia()
     indice = pd.PeriodIndex(marco["TIME_PERIOD"].astype(str), freq="M").to_timestamp()
     serie = pd.Series(marco["OBS_VALUE"].astype(float).to_numpy(), index=indice)
+    if serie.index.duplicated().any():
+        raise ValueError("el CSV de la OCDE trae periodos duplicados")
     return serie.sort_index()
 
 

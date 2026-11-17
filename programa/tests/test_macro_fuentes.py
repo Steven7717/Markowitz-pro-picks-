@@ -108,3 +108,55 @@ def test_traer_fred(tmp_path):
     r = fuentes.traer_fred("T10Y3M", raiz=tmp_path, abrir=abrir)
     assert r.motivo == "ok" and list(r.datos) == [0.78, 0.83]
     assert abrir.urls[0].endswith("fredgraph.csv?id=T10Y3M")
+
+
+def test_parsear_cli_con_periodos_duplicados_es_ilegible():
+    duplicado = CSV_OCDE + CSV_OCDE.splitlines()[1] + "\n"
+    with pytest.raises(ValueError):
+        fuentes.parsear_cli(duplicado)
+
+
+def test_un_cli_con_periodos_duplicados_acaba_en_respuesta_ilegible(tmp_path):
+    duplicado = CSV_OCDE + CSV_OCDE.splitlines()[1] + "\n"
+    r = fuentes.traer_cli("usa", raiz=tmp_path, abrir=_abre(duplicado))
+    assert r.motivo == "respuesta_ilegible"
+
+
+def test_el_user_agent_de_cada_fuente():
+    """La OCDE rechaza el de urllib y FRED cuelga uno que no reconoce."""
+    visto = {}
+
+    def abrir(peticion, timeout):
+        visto[peticion.full_url] = peticion.get_header("User-agent")
+        return _Respuesta((CSV_FRED if "fred" in peticion.full_url else CSV_OCDE).encode())
+
+    import tempfile
+    from pathlib import Path
+
+    with tempfile.TemporaryDirectory() as d:
+        fuentes.traer_cli("usa", raiz=Path(d), abrir=abrir)
+        fuentes.traer_fred("T10Y3M", raiz=Path(d), abrir=abrir)
+    agentes = {("fred" if "fred" in u else "ocde"): a for u, a in visto.items()}
+    assert agentes["ocde"] == "markowitz-pro-picks"
+    assert agentes["fred"] != "markowitz-pro-picks"
+
+
+def test_una_cache_que_no_es_una_serie_acaba_en_red(tmp_path):
+    from noticias import cache
+
+    cache.guardar(tmp_path, "macro", "cli_USA", ["no", "es", "una", "serie"])
+    r = fuentes.traer_cli("usa", raiz=tmp_path, abrir=_falla(urllib.error.URLError("x")))
+    assert r.datos is None and r.motivo == "sin_red"
+
+
+def test_un_503_es_sin_red(tmp_path):
+    error = urllib.error.HTTPError("u", 503, "Service Unavailable", {}, None)
+    r = fuentes.traer_cli("usa", raiz=tmp_path, abrir=_falla(error))
+    assert r.motivo == "sin_red"
+
+
+def test_una_respuesta_ilegible_con_cache_vieja_devuelve_la_cache_marcada(tmp_path):
+    fuentes.traer_cli("usa", raiz=tmp_path, abrir=_abre(CSV_OCDE))
+    manana = datetime.now(timezone.utc) + fuentes.VALIDEZ * 2
+    r = fuentes.traer_cli("usa", raiz=tmp_path, abrir=_abre("<html>caído</html>"), ahora=manana)
+    assert r.motivo == "ok" and r.vieja is True and len(r.datos) == 3

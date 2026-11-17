@@ -3,6 +3,10 @@
 
 Las dos pantallas necesitan lo mismo —la serie para el gráfico, la fase y si
 puede mover el Top— y dos copias de esta unión se separarían.
+
+Decisión: una caché vieja (`vieja=True`) puede inclinar el Top si `mes_dato` no
+es rancio, porque lo que importa es la antigüedad del dato, no la de la
+descarga. La pantalla avisa con `vieja`.
 """
 
 from dataclasses import dataclass
