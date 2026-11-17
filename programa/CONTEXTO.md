@@ -1,13 +1,15 @@
 # Contexto del proyecto — para retomar en una sesión nueva
 
-**Última actualización:** 2026-11-12
-**Rama:** `master` (N1 y N2 fusionados el 2026-11-12 desde `feat/analizador-individual`) · **Tests:** 3.494 pasando (`uv run pytest tests/ -q -m "not red"`), 3 omitidos —dos por permisos POSIX en Windows y uno de `test_valoracion_dcf.py` sin `numpy_financial`— más 38 marcados `red`
+**Última actualización:** 2026-11-17
+**Rama:** `master` (N1 y N2 fusionados el 2026-11-12 desde `feat/analizador-individual`); el sub-proyecto O está en `claude/portfolio-optimizer-var-es-dbe5f0`, **sin fusionar todavía** · **Tests:** 3.632 pasando en esa rama (3.494 en `master`) (`uv run pytest tests/ -q -m "not red"`), 3 omitidos —dos por permisos POSIX en Windows y uno de `test_valoracion_dcf.py` sin `numpy_financial`— más 38 marcados `red`
 **Remoto:** `https://github.com/Steven7717/Markowitz-pro-picks-.git` — `master` es lo publicado
 **Estructura:** el programa vive en `programa/`; en la raíz sólo están los dos
 lanzadores y el `README.md`. Los comandos (`uv run pytest`, `uv run streamlit`)
 se ejecutan desde `programa/`, no desde la raíz.
 
-> **Al retomar:** N1 y N2, las dos primeras partes del Analizador individual,
+> **Al retomar:** el sub-proyecto O (VaR y ES en el optimizador) está hecho en la
+> rama `claude/portfolio-optimizer-var-es-dbe5f0` y **pendiente de fusionar a
+> `master`**; ver «Resultado del sub-proyecto O». N1 y N2, las dos primeras partes del Analizador individual,
 > están hechas y **fusionadas en `master`** (2026-11-12). N1 es el paquete `analizador/`, que analiza cualquier ticker —una
 > empresa de la SEC, una extranjera, una de la BMV o un ETF— con la misma ficha
 > frente al sector y el mismo valor intrínseco que los candidatos; N2 es la
@@ -96,6 +98,7 @@ El objetivo mayor es construir, **aguas arriba de esa app**, un sistema donde un
 | L | Rendimiento real en pesos (MXN) | TWR/TIR en pesos y reales (Fisher), vía Banxico | ✅ **terminado** |
 | M | Valor intrínseco | Veredicto por cuatro lecturas y tres votos en cada candidato | ✅ **terminado** |
 | N | Analizador individual | La mecánica de candidatos para cualquier ticker, con gráfico, noticias e IA | 🔨 **en curso**: N1 (datos) y N2 (pantalla) hechos; N3 (IA) pendiente |
+| O | VaR y ES en el optimizador | VaR 99 % y ES 97,5/99 % de la cartera y por activo, método elegido por el semáforo de Basilea | ✅ terminado (en su rama, sin fusionar) |
 
 ## Resultado del sub-proyecto D
 
@@ -2169,6 +2172,65 @@ caído.
   antes de añadirla.
 - **`analizar_varios` sigue sin uso en pantalla** (D18): sólo lo usa
   `scripts/sondear_analizador.py`.
+
+## Resultado del sub-proyecto O
+
+Paquete `riesgo/` (`metodos.py`, `backtest.py`, `datos.py`, `informe.py`; lógica,
+sin Streamlit salvo la descarga) y una pestaña de riesgo en `vistas/optimizador.py`.
+Se calcula en `_ejecutar` y se guarda en la corrida. Plan:
+`docs/superpowers/plans/2026-11-15-var-expected-shortfall.md`; medida:
+`docs/research/2026-11-15-var-metodos.md`; script: `scripts/medir_var.py`. Suite
+de la rama: 3.632 pasando. No se tocaron `vistas/candidatos.py`,
+`vistas/analizador.py` ni `analizador/`.
+
+### Decisiones del plan que mandan
+
+- **1. Datos diarios siempre, aparte del horizonte.** El semáforo de Basilea es
+  VaR 99 % a un día sobre las 250 últimas sesiones; el horizonte del optimizador
+  puede ser de meses. El riesgo tiene su propia descarga de 5 años diarios
+  (≈1.255 retornos: 500 de estimación, ≈755 de backtest, ≈506 ventanas de 250).
+- **5. «Zona verde la mayor parte del tiempo»** se mide como la fracción de
+  ventanas móviles de 250 días con ≤ 4 excepciones. Gana la mayor; desempates,
+  en este orden: tasa de excepciones más cercana al 1 % y VaR medio más bajo.
+  Seis métodos compiten: histórico, normal, t de Student, EWMA, histórica
+  filtrada y Cornish-Fisher. **El criterio lo eligió el usuario.**
+- **8. Por activo:** VaR/ES del activo solo con su propia competencia, su zona,
+  su aportación al ES de la cartera (Euler por escenarios, en cuotas que suman
+  100 %) y el beneficio de diversificación `1 − ES_cartera / Σ|w_i|·ES_i`.
+- **10. Fuera de alcance:** PDF, Excel y el JSON guardado del portafolio.
+
+### Tres defectos que encontró la revisión
+
+- **Resultados silenciosos con series cortas o con NaN.** Con menos de 750
+  retornos, o con un valor no finito, el backtest devolvía cifras sin avisar (un
+  NaN envenena el EWMA y `pérdida > NaN` es falso: contaba como «sin excepción» y
+  empujaba al verde). Ahora `riesgo/backtest.py` lanza `ValueError`, y las
+  varianzas EWMA llevan un suelo.
+- **Diversificación mal medida con cortos.** Con posiciones cortas el beneficio de
+  diversificación salía mal. Ahora `riesgo/informe.py` calcula el denominador con el método de la
+  cartera sobre cada serie con signo `w_i·r_i`.
+- **Cornish-Fisher fuera de su dominio.** La expansión sólo es monótona para
+  ciertos pares (asimetría, curtosis en exceso); fuera de ellos da cuantiles sin
+  sentido. En la cartera tecnológica real (S 0,98, K 14,8) daba VaR 99 % de
+  8,6 % y ES 99 % de 15 %, frente a ≈ 5 % y 6,5 % de los otros métodos, y
+  «ganaba» sólo por sobreconservador. Ahora se proyecta al dominio de
+  monotonía (Maillard 2012, |S| ≤ 1). Tras el arreglo sigue ganando en esa
+  cartera (83,6 % en verde, tasa 0,80 %, VaR medio ≈ 10 % sobre el histórico),
+  mientras histórica y t pasan ≈ 50 % del tiempo en verde.
+
+### Lo que midió la Task 8 (2026-11-17, cuatro carteras a pesos iguales)
+
+Ganan: **Tecnológicas**, histórica filtrada (64 % en verde; Cornish-Fisher 60 %);
+**Defensivas**, normal (empate a 100 % con otros cuatro, gana la tasa más cercana
+al 1 %); **Mixta con bonos**, Cornish-Fisher (100 % frente a 98 % de histórica y
+t); **Volátiles**, normal (empate a 100 % con la t, por tasa). La tasa del
+ganador queda por debajo del 1 % en una de las cuatro. Cornish-Fisher tiene la
+tasa por debajo del 1 % y el VaR medio más alto en las cuatro. EWMA, histórica
+simple y t no ganan en ninguna. Lo esperado por la literatura (`fhs` o `ewma`
+ganan, `normal` se queda atrás) sólo se cumple a medias: el normal gana en dos
+carteras, por desempate. **La regla premia la conservaduría**; si se quiere
+cambiar (la tasa o el p de Kupiec antes de la fracción verde) es decisión del
+usuario, y no se ha tocado. Detalle y tablas en la nota de investigación.
 
 ## La auditoría (2026-09-13/14) — y el patrón que encontró
 
