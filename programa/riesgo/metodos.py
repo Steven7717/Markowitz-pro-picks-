@@ -20,6 +20,11 @@ LAMBDA_EWMA = 0.94
 _SEMILLA_EWMA = 30
 # Puntos con los que se integra la cola de Cornish-Fisher para su ES.
 _PUNTOS_COLA = 200
+# Techo de |asimetría| con el que entra Cornish-Fisher. El dominio en que la
+# expansión es un cuantil válido se estrecha deprisa con el sesgo (Maillard,
+# 2012) y, pasado |S| ≈ 1, lo que queda de curtosis admisible ya no describe
+# una serie de retornos diaria: se recorta el sesgo antes de proyectar.
+_SESGO_MAX_CF = 1.0
 # ν por momentos: la curtosis de una t sólo existe por encima de 4. El techo es
 # 100 y no 30: una muestra normal de 200.000 puntos tiene exceso de curtosis
 # ≈ 0,008 (ν ≈ 760), y recortarla a 30 inflaba el ES al 99 % un 4 % sobre la
@@ -123,9 +128,38 @@ def fhs(r: np.ndarray, alpha: float) -> tuple[float, float]:
     return float(-sigma * q), float(-sigma * z[z <= q].mean())
 
 
+def _proyectar_cf(sesgo: float, exceso: float) -> tuple[float, float]:
+    """Lleva (S, K) al dominio en que la expansión de Cornish-Fisher es monótona.
+
+    Fuera de él la «cuantil» de Cornish-Fisher no es un cuantil: deja de crecer
+    con z y la cola se dispara. Sobre la cartera real (S ≈ +1, K ≈ 15) daba un
+    VaR 99 % de 8,6 % donde la histórica, la t y la FHS daban ≈ 5 %, y ganaba
+    el backtest sólo por pasarse de conservadora. Maillard (2012, «A User's
+    Guide to the Cornish Fisher Expansion») da la condición de monotonía:
+
+        S²/9 − 4·(K/8 − S²/6)·(1 − K/8 − 5S²/36) ≤ 0
+
+    Con a = K/8 la condición es una cuadrática en a: para cada S, K válido es
+    un intervalo [K_min, K_max] con forma cerrada. Se conserva el sesgo
+    (recortado a ±_SESGO_MAX_CF) y se lleva K al intervalo: casi siempre es
+    bajarla hasta K_max, que es lo que hace la cola real. El borde de abajo
+    también cuenta: con S ≈ 1 y K pequeña la expansión ya no es monótona en
+    z = −2,33, justo el 99 %. Con S ≈ 0 ese borde es K ≈ 0, así que a una
+    muestra normal sólo le mueve una curtosis de ruido.
+    """
+    s = float(np.clip(sesgo, -_SESGO_MAX_CF, _SESGO_MAX_CF))
+    s2 = s * s
+    p, q = s2 / 6, 1 - 5 * s2 / 36
+    # (a − p)(q − a) ≥ s²/36  ⇔  a entre las dos raíces. Con |S| ≤ 1 el
+    # discriminante es ≥ 0,37: las raíces existen siempre.
+    raiz = np.sqrt((q - p) ** 2 - s2 / 9)
+    suelo, techo = 4 * (p + q - raiz), 4 * (p + q + raiz)
+    return s, float(min(max(exceso, suelo), techo))
+
+
 def cornish_fisher(r: np.ndarray, alpha: float) -> tuple[float, float]:
     mu, s = r.mean(), r.std(ddof=1)
-    sesgo, exceso = _sesgo_y_exceso(r)
+    sesgo, exceso = _proyectar_cf(*_sesgo_y_exceso(r))
     z, _ = _normal_cola(alpha)
     q = (z + (z * z - 1) * sesgo / 6 + (z**3 - 3 * z) * exceso / 24
          - (2 * z**3 - 5 * z) * sesgo * sesgo / 36)
@@ -133,8 +167,8 @@ def cornish_fisher(r: np.ndarray, alpha: float) -> tuple[float, float]:
     m1, m2, m3, m4 = _momentos_cola_cf(alpha)
     q_cola = m1 + m2 * sesgo / 6 + m3 * exceso / 24 - m4 * sesgo * sesgo / 36
     es = -(mu + s * q_cola)
-    # Con curtosis muy alta la expansión deja de ser monótona y el ES integrado
-    # puede quedar por debajo del VaR, que es imposible. Se acota.
+    # Ya dentro del dominio de monotonía no debería pasar, pero el ES integrado
+    # por la rejilla nunca puede quedar por debajo del VaR. Se acota.
     return float(var), float(max(es, var))
 
 

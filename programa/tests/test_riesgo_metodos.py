@@ -105,3 +105,74 @@ def test_los_momentos_a_mano_dan_lo_mismo_que_scipy(alpha):
     sesgo, exceso = metodos._sesgo_y_exceso(r)
     assert sesgo == pytest.approx(stats.skew(r))
     assert exceso == pytest.approx(stats.kurtosis(r))
+
+
+# ── Cornish-Fisher dentro de su dominio (Maillard, 2012) ──────────────────────
+
+def _cf_sin_proyectar(r, alpha):
+    """La fórmula tal cual, con los momentos de la muestra: la de antes."""
+    mu, s = r.mean(), r.std(ddof=1)
+    sesgo, exceso = metodos._sesgo_y_exceso(r)
+    z, _ = metodos._normal_cola(alpha)
+    q = (z + (z * z - 1) * sesgo / 6 + (z**3 - 3 * z) * exceso / 24
+         - (2 * z**3 - 5 * z) * sesgo * sesgo / 36)
+    m1, m2, m3, m4 = metodos._momentos_cola_cf(alpha)
+    q_cola = m1 + m2 * sesgo / 6 + m3 * exceso / 24 - m4 * sesgo * sesgo / 36
+    var = -(mu + s * q)
+    return float(var), float(max(-(mu + s * q_cola), var))
+
+
+def _fuera_del_dominio(s, k):
+    return s * s / 9 - 4 * (k / 8 - s * s / 6) * (1 - k / 8 - 5 * s * s / 36)
+
+
+def _como_la_cartera_real():
+    """El perfil de la max-Sharpe real (AAPL+NVDA): una t de colas gruesas y
+    tres subidas enormes. Sesgo ≈ +1 y exceso ≈ 17, puestos por la cola de la
+    derecha; la izquierda, la que mide el VaR, es moderada."""
+    g = np.random.default_rng(3)
+    r = g.standard_t(5, 500) * 0.015 * np.sqrt(3 / 5)
+    r[g.choice(500, 3, replace=False)] = [0.10, 0.12, 0.14]
+    return r
+
+
+def test_con_colas_gruesas_cornish_fisher_no_se_dispara():
+    r = _como_la_cartera_real()
+    sesgo, exceso = metodos._sesgo_y_exceso(r)
+    assert 0.9 < sesgo < 1.2 and exceso > 14          # el caso que se pretende
+    historica = metodos.historico(r, 0.99)[0]
+    assert _cf_sin_proyectar(r, 0.99)[0] > 1.3 * historica   # el test muerde...
+    assert metodos.cornish_fisher(r, 0.99)[0] <= 1.3 * historica  # ...y pasa
+
+
+@pytest.mark.parametrize("muestra", ["normal", "t8"])
+@pytest.mark.parametrize("alpha", [0.99, 0.975])
+def test_dentro_del_dominio_no_cambia_nada(muestra, alpha):
+    g = np.random.default_rng(22)
+    r = (g.normal(0, 0.01, 5000) if muestra == "normal"
+         else g.standard_t(8, 5000) * 0.01)
+    momentos = metodos._sesgo_y_exceso(r)
+    assert _fuera_del_dominio(*momentos) <= 0          # la premisa del test
+    assert metodos._proyectar_cf(*momentos) == momentos
+    assert metodos.cornish_fisher(r, alpha) == _cf_sin_proyectar(r, alpha)
+
+
+@pytest.mark.parametrize("semilla", range(6))
+def test_a_una_normal_el_borde_de_abajo_casi_no_la_toca(semilla):
+    """Media muestra normal cae con K un pelo por debajo de 0, fuera del
+    dominio por el borde de abajo, y subirla al suelo (≈ 0) la mueve. Poco: en
+    200 muestras de 5.000 el cambio máximo fue un 3,8 %, y en tres de cada
+    cuatro casos el valor proyectado quedó igual o más cerca del normal
+    teórico. Es ruido de curtosis, no información."""
+    r = np.random.default_rng(semilla).normal(0, 0.01, 5000)
+    for alpha in (0.99, 0.975):
+        nuevo, viejo = metodos.cornish_fisher(r, alpha), _cf_sin_proyectar(r, alpha)
+        assert nuevo == pytest.approx(viejo, rel=0.05)
+
+
+@pytest.mark.parametrize("sesgo", [-3.0, -1.0, -0.4, 0.0, 0.5, 0.98, 2.5])
+@pytest.mark.parametrize("exceso", [0.0, 3.0, 6.0, 14.8, 40.0])
+def test_lo_proyectado_cumple_la_condicion_de_monotonia(sesgo, exceso):
+    s, k = metodos._proyectar_cf(sesgo, exceso)
+    assert abs(s) <= metodos._SESGO_MAX_CF
+    assert _fuera_del_dominio(s, k) <= 1e-12
