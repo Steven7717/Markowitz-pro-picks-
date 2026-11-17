@@ -11,6 +11,7 @@ noticias/.cache/
 seguimiento/.cache/
 valoracion/.cache/
 analizador/.cache/
+macro/.cache/
 actas/*.tmp
 portafolios/*.tmp
 .venv/
