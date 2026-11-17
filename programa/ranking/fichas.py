@@ -44,6 +44,7 @@ def ficha_numerica(
     z: pd.Series,
     valores: pd.Series,
     desplazo_a: list[str],
+    ajuste_macro: float = 0.0,
 ) -> dict:
     """Build the half of the ficha the code owns. Never touches the network.
 
@@ -76,6 +77,10 @@ def ficha_numerica(
             "kpis_por_pilar": {pilar: int(n) for pilar, n in conteo.items()},
         },
         "desplazo_a": list(desplazo_a),
+        # Aparte del compuesto a propósito (enmienda 3 del spec de O): el
+        # compuesto sigue siendo el juicio sobre la empresa, y esto el juicio
+        # sobre el ciclo. Sumados en un solo número no se distinguirían.
+        "ajuste_macro": float(ajuste_macro),
         "generada_por": "plantilla",
         "narrativa": None,
     }

@@ -163,3 +163,24 @@ def test_el_descriptor_traduce_el_z_a_palabras_sin_digitos():
     assert descriptor(-2.0) == "muy por debajo de sus pares"
     for z in (-3.0, -1.0, 0.0, 1.0, 3.0):
         assert not any(c.isdigit() for c in descriptor(z))
+
+
+def _ficha(**extra):
+    import pandas as pd
+    from fundamentals.kpis import TODOS_LOS_KPIS
+    from ranking.criterio import PILARES
+    from ranking.fichas import ficha_numerica
+
+    z = pd.Series({kpi: 0.1 for kpi in TODOS_LOS_KPIS})
+    return ficha_numerica(
+        ticker="AAA", sector="Financials", puesto=1, compuesto=1.0,
+        pilares=pd.Series({p: 0.5 for p in PILARES}),
+        conteo=pd.Series({p: len(k) for p, k in PILARES.items()}),
+        z=z, valores=z, desplazo_a=[], **extra,
+    )
+
+
+def test_la_ficha_lleva_el_ajuste_macro_y_por_defecto_es_cero():
+    assert _ficha()["ajuste_macro"] == 0.0
+    assert _ficha(ajuste_macro=0.25)["ajuste_macro"] == 0.25
+    assert _ficha(ajuste_macro=0.25)["compuesto"] == 1.0
