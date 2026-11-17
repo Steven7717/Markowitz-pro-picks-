@@ -275,3 +275,56 @@ def test_el_informe_de_riesgo_no_tumba_la_corrida_por_nada():
              for h in _try_que_llama("informe_riesgo").handlers]
     assert tipos == ["HistoriaInsuficiente", "ValueError", "Exception"]
     assert "type(error).__name__" in _cuerpo("_ejecutar")
+
+
+def _seccion_riesgo() -> str:
+    return FUENTE[FUENTE.index("with riesgo_tab:"):FUENTE.index("with exportar:")]
+
+
+def _formateador_pct():
+    """La función del módulo, sin ejecutar el guion: se compila sola."""
+    nodo = next(n for n in ARBOL.body
+                if isinstance(n, ast.FunctionDef) and n.name == "_pct")
+    espacio: dict = {}
+    exec(compile(ast.Module([nodo], []), "optimizador.py", "exec"), espacio)
+    return espacio["_pct"]
+
+
+def test_un_porcentaje_de_cero_no_lleva_signo():
+    pct = _formateador_pct()
+    assert pct(-1e-17) == "0.0%"
+    assert pct(-0.0004) == "0.0%"
+    assert pct(-0.0004, 2) == "-0.04%"
+    assert pct(0.1234) == "12.3%"
+    assert pct(-0.25, 0) == "-25%"
+
+
+def test_la_tabla_por_activo_formatea_todos_sus_porcentajes_igual():
+    """Una aportación al ES de −1e-17 salía «−0.0%»: toda columna en % de la
+    tabla por activo pasa por `_pct`, ninguna por un f-string suelto."""
+    tabla = _seccion_riesgo()
+    tabla = tabla[tabla.index("##### Por activo"):]
+    tabla = tabla[:tabla.index("for f in inf.activos")]
+    assert "%}" not in tabla
+    for columna in ("f.peso", "f.var99", "f.es975", "f.es99",
+                    "f.fraccion_verde", "f.aportacion_es"):
+        assert f"_pct({columna}" in tabla
+
+
+def test_la_zona_no_lleva_flecha():
+    """«3 excepciones» no es una subida: es un recuento, y la flecha ↑ lo
+    pintaba como si lo fuera."""
+    assert 'delta_arrow="off"' in _seccion_riesgo()
+
+
+def test_una_diversificacion_nula_no_se_escribe_en_negativo():
+    seccion = _seccion_riesgo()
+    assert "inf.diversificacion > 0" in seccion
+    assert "Diversificar no reduce el ES de esta cartera" in seccion
+
+
+def test_la_tabla_de_metodos_ensena_el_var_medio():
+    """Para que un ganador que gana por exceso de prudencia se vea: su tiempo
+    en verde sale alto y su VaR medio, también."""
+    assert '"VaR medio":' in _seccion_riesgo()
+    assert "b.var99.mean()" in _seccion_riesgo()

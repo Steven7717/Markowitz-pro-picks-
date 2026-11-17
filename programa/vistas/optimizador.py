@@ -1019,11 +1019,14 @@ with graficos:
     g4.plotly_chart(fig_pie, use_container_width=True, key="tarta_graficos")
 
 # ── Riesgo: VaR y ES ─────────────────────────────────────────────────────────
-def _peso(w: float) -> str:
-    """Un peso a un decimal sin «−0,0 %»: el optimizador deja restos de −1e-17
-    donde quiso decir cero, y el signo sólo despista."""
-    texto = f"{w:.1%}"
-    return "0.0%" if texto == "-0.0%" else texto
+def _pct(x: float, decimales: int = 1) -> str:
+    """Un porcentaje sin «−0,0 %»: el optimizador deja restos de −1e-17 donde
+    quiso decir cero, y lo mismo las cuotas del ES de un activo sin peso. Si
+    lo que se escribe es cero, el signo sólo despista."""
+    texto = f"{x:.{decimales}%}"
+    if texto.startswith("-") and not any(c in "123456789" for c in texto):
+        return texto[1:]
+    return texto
 
 
 with riesgo_tab:
@@ -1061,7 +1064,7 @@ with riesgo_tab:
         k3.metric("ES 99 % · 1 día", f"{inf.es99:.2%}")
         k4.metric("Zona hoy", ganador.zona_actual.capitalize(),
                   f"{ganador.excepciones_ultimas} excepciones en 250 días",
-                  delta_color="off")
+                  delta_color="off", delta_arrow="off")
         st.caption(
             f"Método: **{ETIQUETAS_RIESGO[inf.elegido]}**, el que más tiempo pasó "
             f"en zona verde ({ganador.fraccion_verde:.0%} de las ventanas de 250 "
@@ -1077,6 +1080,9 @@ with riesgo_tab:
             "Zona hoy": b.zona_actual,
             "Excepciones (250 d)": b.excepciones_ultimas,
             "Tasa total": f"{b.tasa:.2%}",
+            # A la vista porque la regla premia el tiempo en verde, y un método
+            # que sobreestima siempre también vive en verde: lo delata esto.
+            "VaR medio": f"{b.var99.mean():.2%}",
             "Kupiec p": f"{b.kupiec_p:.2f}",
             "Pérdida en cola / ES": f"{b.razon_es:.2f}",
         } for m, b in inf.competencia.items()]), hide_index=True, use_container_width=True)
@@ -1085,14 +1091,18 @@ with riesgo_tab:
                    "ES se queda corto.")
         st.markdown("##### Por activo")
         st.dataframe(pd.DataFrame([{
-            "Ticker": f.ticker, "Peso": _peso(f.peso),
-            "VaR 99 %": f"{f.var99:.2%}", "ES 97,5 %": f"{f.es975:.2%}",
-            "ES 99 %": f"{f.es99:.2%}", "Método": ETIQUETAS_RIESGO[f.metodo],
-            "Zona hoy": f.zona_actual, "Tiempo en verde": f"{f.fraccion_verde:.0%}",
-            "Aporta al ES": f"{f.aportacion_es:.1%}",
+            "Ticker": f.ticker, "Peso": _pct(f.peso),
+            "VaR 99 %": _pct(f.var99, 2), "ES 97,5 %": _pct(f.es975, 2),
+            "ES 99 %": _pct(f.es99, 2), "Método": ETIQUETAS_RIESGO[f.metodo],
+            "Zona hoy": f.zona_actual, "Tiempo en verde": _pct(f.fraccion_verde, 0),
+            "Aporta al ES": _pct(f.aportacion_es),
         } for f in inf.activos]), hide_index=True, use_container_width=True)
+        # Con un solo activo con peso, o con todo muy correlacionado, sale 0 o
+        # un resto negativo de redondeo: «quita un −0 %» no se lee.
         st.caption(f"Diversificar quita un {inf.diversificacion:.0%} del ES que "
-                   "sumarían los activos por separado.")
+                   "sumarían los activos por separado."
+                   if inf.diversificacion > 0
+                   else "Diversificar no reduce el ES de esta cartera.")
         st.plotly_chart(
             plot_backtest_var(inf.fechas, ganador.realizados, ganador.var99,
                               ganador.excepciones),
