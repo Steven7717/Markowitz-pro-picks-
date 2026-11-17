@@ -272,3 +272,83 @@ def test_el_formulario_de_un_ticker_es_el_del_resolver(monkeypatch):
     assert ia.formulario_de("TSM") == "20-F"
     monkeypatch.setattr("analizador.resolver.formularios_sec", lambda t: (None, "sin_red_edgar"))
     assert ia.formulario_de("TSM") is None
+
+
+# --- Guardas que los sabotajes de N3 echaron en falta ----------------------------------
+
+
+def test_una_remision_que_aparece_lejos_del_principio_no_vacia_los_riesgos():
+    # Un Item 1A de verdad puede mencionar «incorporated by reference» (los anexos)
+    # muy adentro: sólo cuenta lo que dice la sección al abrirse.
+    cuerpo = "We face many risks in our business. " * 100 + "Exhibits are incorporated by reference. " + LARGO
+    assert ia.riesgos_10k(cuerpo) == cuerpo
+    item3 = "ITEM 3\n\nD. RISK FACTORS\n\n" + cuerpo
+    assert ia.riesgos_20f(item3).startswith("D. RISK FACTORS")
+
+
+def test_una_mencion_en_una_frase_antes_del_encabezado_no_corta_la_seccion():
+    seccion = (
+        "As described in Management’s Discussion and Analysis below, results vary.\n\n"
+        f"ITEM 7. {ENCABEZADO}\n\n{LARGO}"
+    )
+    assert ia.mdna(seccion, [])[0].startswith("ITEM 7.")
+
+
+def test_caducado_y_con_red_se_vuelve_a_bajar(red, monkeypatch):
+    ia.cargar("MU", "10-K")
+    # Negativa y no cero: el reloj de Windows puede dar la misma hora en las dos lecturas.
+    monkeypatch.setattr(ia, "VALIDEZ", timedelta(seconds=-1))
+    red["crudo"] = _crudo(accession="0000723125-26-000099")
+    informe, motivo = ia.cargar("MU", "10-K")
+    assert motivo == "ok" and informe.accession == "0000723125-26-000099"
+    assert len(red["llamadas"]) == 2
+
+
+# `_descargar` con un `edgar.Company` doble: lo que se pide y lo que se lee.
+
+
+class _Adjunto:
+    def __init__(self, tipo, cuerpo):
+        self.document_type = tipo
+        self._cuerpo = cuerpo
+        self.leido = False
+
+    def text(self):
+        self.leido = True
+        return self._cuerpo
+
+
+def _edgar_doble(monkeypatch, mdna, adjuntos):
+    pedidas = []
+    objeto = type("Objeto", (), {"risk_factors": "Riesgos.", "management_discussion": mdna})()
+    presentacion = type("Presentacion", (), {
+        "filing_date": "2026-10-09", "accession_no": "0000723125-26-000023",
+        "attachments": adjuntos, "obj": lambda self: objeto,
+    })()
+    todas = type("Todas", (), {"__len__": lambda self: 1, "latest": lambda self: presentacion})()
+
+    class _Empresa:
+        def __init__(self, ticker):
+            pass
+
+        def get_filings(self, **filtros):
+            pedidas.append(filtros)
+            return todas
+
+    monkeypatch.setattr("edgar.Company", _Empresa)
+    return pedidas
+
+
+def test_el_informe_se_pide_sin_enmiendas_y_con_el_mdna_en_el_cuerpo_no_se_baja_el_anexo(monkeypatch):
+    anexo = _Adjunto("EX-13", "Annual report body.")
+    pedidas = _edgar_doble(monkeypatch, LARGO, [anexo])
+    crudo = ia._descargar("PGR", "10-K")
+    assert pedidas == [{"form": "10-K", "amendments": False}]
+    assert crudo["anexos_13"] == [] and anexo.leido is False
+
+
+def test_con_el_mdna_remitido_se_baja_el_anexo_13_y_solo_ese(monkeypatch):
+    ex13, ex21 = _Adjunto("EX-13", "Annual report body."), _Adjunto("EX-21", "Subsidiaries.")
+    _edgar_doble(monkeypatch, "Incorporated by reference.", [ex21, ex13])
+    crudo = ia._descargar("PGR", "10-K")
+    assert crudo["anexos_13"] == ["Annual report body."] and ex21.leido is False

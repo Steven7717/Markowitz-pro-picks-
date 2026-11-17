@@ -198,3 +198,26 @@ def test_una_entrada_mala_deja_el_fichero_como_estaba(tmp_path):
         archivo.anotar_tesis(ruta, mala)
     assert ruta.read_text(encoding="utf-8") == antes
     assert archivo.cargar(ruta).tesis == (TESIS,)
+
+
+def test_anotar_no_pisa_un_fichero_cuyas_otras_lecturas_no_se_entienden(tmp_path):
+    # `leer_crudo` sólo exige un objeto JSON: lo que se ve en `tesis` lo comprueba
+    # `cargar`, y sin esa lectura previa se escribiría encima de un historial roto.
+    ruta = tmp_path / "MU.json"
+    archivo.anotar_tesis(ruta, TESIS)
+    crudo = json.loads(ruta.read_text(encoding="utf-8"))
+    crudo["tesis"][0]["riesgos"][0]["verificada"] = "false"
+    roto = json.dumps(crudo)
+    ruta.write_text(roto, encoding="utf-8")
+    with pytest.raises(interprete_archivo.ArchivoIlegible):
+        archivo.anotar_contraste(ruta, CONTRASTE)
+    assert ruta.read_text(encoding="utf-8") == roto
+
+
+@pytest.mark.parametrize("valor", [{}, "", 0, None, {"a": 1}])
+def test_una_clave_que_no_es_una_lista_es_un_fichero_corrupto_sea_lo_que_sea(tmp_path, valor):
+    # Un `{}` o un `""` se recorren sin error y darían «ninguna lectura»: parecería vacío.
+    ruta = tmp_path / "MU.json"
+    ruta.write_text(json.dumps({"hechos": [], "rebalanceo": [], "tesis": valor}), encoding="utf-8")
+    with pytest.raises(interprete_archivo.ArchivoIlegible):
+        archivo.cargar(ruta)

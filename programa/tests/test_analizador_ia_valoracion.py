@@ -172,3 +172,23 @@ def test_el_reintento_pide_la_respuesta_entera_y_no_sólo_lo_corregido():
     iv.explicar(BLOQUE, MAPA, cliente=cliente)
     segundo = vistos[1]["messages"][-1]["content"]
     assert "respuesta completa" in segundo and "sin cambiar" in segundo
+
+
+def test_una_observacion_vacia_se_descarta_y_se_cuenta(monkeypatch):
+    # Un texto en blanco o de caracteres invisibles no es una observación.
+    cliente = _falso([_salida([("A", " \u200b "), ("C", "Sus múltiplos son bajos.")])])
+    explicacion = iv.explicar(BLOQUE, MAPA, cliente=cliente)
+    assert [o.sobre for o in explicacion.observaciones] == ["pares"]
+    assert explicacion.descartadas == 1
+
+
+def test_el_tope_corta_el_reintento_y_se_entrega_lo_limpio(monkeypatch):
+    from interprete import cliente as cliente_mod
+
+    monkeypatch.setattr(cliente_mod, "dentro_del_tope", lambda entrada, salida: False)
+    vistos = []
+    mala = [("A", "Crece un 40 por ciento."), ("C", "Sus múltiplos son bajos.")]
+    cliente = _falso([_salida(mala), _salida(mala)], vistos)
+    explicacion = iv.explicar(BLOQUE, MAPA, cliente=cliente)
+    assert len(vistos) == 1
+    assert explicacion.estado == iv.HECHA and [o.sobre for o in explicacion.observaciones] == ["pares"]

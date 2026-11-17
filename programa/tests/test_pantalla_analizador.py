@@ -849,3 +849,60 @@ def test_sin_informe_se_dice_el_motivo_real_y_no_siempre_sin_red(pantalla, monke
     pantalla.run()
     _pagar_y_confirmar(pantalla, "Redactar la tesis y los riesgos")
     assert llamadas == [] and dicho in _textos(pantalla)
+
+
+def test_una_explicacion_con_los_mismos_votos_pero_otro_veredicto_tambien_es_de_entonces(pantalla, tmp_path):
+    hoy = pantalla.session_state[sesion.CLAVE_ANALISIS]["MU"].valoracion
+    otro = "infravalorada" if hoy.get("veredicto") != "infravalorada" else "sobrevalorada"
+    vieja = archivo_analizador.Explicacion(
+        CUANDO_IA, "claude-sonnet-5", "n1", archivo_analizador.votos_de(hoy), otro,
+        (), (("pares", "Estaba de otra manera.", False),), "",
+    )
+    archivo_analizador.anotar_explicacion(tmp_path / "MU.json", vieja)
+    pantalla.run()
+    assert "con los números de entonces" in _textos(pantalla)
+
+
+@pytest.mark.parametrize("fallo", [OSError("disco lleno"), TypeError("no se sabe escribir")])
+def test_si_el_guardado_lanza_oserror_o_typeerror_la_lectura_pagada_se_ve_igual(pantalla, monkeypatch, fallo):
+    _con_clave(monkeypatch)
+    monkeypatch.setattr("analizador.ia_valoracion.explicar", lambda bloque, mapa, **_resto: _explicacion_hecha())
+
+    def anotar(ruta, explicacion):
+        raise fallo
+
+    monkeypatch.setattr("analizador.archivo.anotar_explicacion", anotar)
+    pantalla.run()
+    _pagar_y_confirmar(pantalla, "Explicar la valoración")
+    assert not pantalla.exception
+    textos = _textos(pantalla)
+    assert "No se pudo guardar la lectura" in textos
+    assert "Depende de que el crecimiento se sostenga." in textos
+
+
+def test_una_tesis_que_salio_de_la_cache_dice_que_no_costo(pantalla, monkeypatch, tmp_path):
+    _con_clave(monkeypatch)
+    _con_informe(monkeypatch)
+    de_cache = ia_tesis.Redaccion(_redaccion().narrativa, True, llm.Gasto(0, 0, 0))
+    monkeypatch.setattr("analizador.ia_tesis.redactar", lambda *a, **k: de_cache)
+    pantalla.run()
+    _pagar_y_confirmar(pantalla, "Redactar la tesis y los riesgos")
+    textos = _textos(pantalla)
+    assert "salió de la caché" in textos and "sin coste" in textos
+    assert "tokens de entrada" not in textos
+
+
+def test_el_contraste_se_hace_con_los_supuestos_movidos_y_lo_dice(pantalla, monkeypatch):
+    _con_clave(monkeypatch)
+    _con_informe(monkeypatch)
+    vistos = []
+
+    def contrastar(ticker, supuesto, documento, **_resto):
+        vistos.append(supuesto)
+        return ia_mdna.Contraste(ia_mdna.HECHA, (), entrada_tokens=1_000, salida_tokens=100)
+
+    monkeypatch.setattr("analizador.ia_mdna.contrastar", contrastar)
+    pantalla.session_state[sesion.clave_deslizador("MU", "beta")] = 2.6
+    pantalla.run()
+    _pagar_y_confirmar(pantalla, "Contrastar con la empresa")
+    assert len(vistos) == 1 and "movió estos supuestos" in vistos[0]

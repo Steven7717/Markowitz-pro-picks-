@@ -118,3 +118,26 @@ def test_con_el_acumulado_al_borde_del_tope_se_reinicia_y_la_tesis_se_redacta(co
     assert redaccion.narrativa is not None
     assert redaccion.gasto == llm.Gasto(llamadas=1, entrada_tokens=1000, salida_tokens=200)
     assert llm.gasto_acumulado().llamadas == 1
+
+
+def test_un_tope_que_ya_estaba_alcanzado_no_se_atribuye_a_esta_llamada(contador_limpio, tmp_path):
+    # Estado de laboratorio: una corrida marcó el tope y quedó holgura. Lo que
+    # ya estaba no es lo que esta pulsación hizo.
+    llm._anotar_gasto(1_000, 100)
+    llm._marcar_tope()
+    redaccion = ia_tesis.redactar(CONTEXTO, RIESGOS, cliente=_falso([_narrativa()]), cache_dir=tmp_path)
+    assert redaccion.narrativa is not None and redaccion.gasto.tope_alcanzado is False
+
+
+def test_el_tope_del_contraste_cuenta_tambien_el_eco_y_el_contexto_de_cada_turno():
+    por_turno = int(informe_anual.TOPE_MDNA / ia_costes.CARACTERES_POR_TOKEN_CON_TABLAS)
+    sin_contexto = cliente_mod.coste(2 * por_turno + cliente_mod.MAX_TOKENS, 2 * cliente_mod.MAX_TOKENS)
+    assert ia_costes.mdna() > sin_contexto
+
+
+def test_el_tope_de_la_valoracion_cuenta_los_dos_turnos_y_su_contexto():
+    solo_la_salida = cliente_mod.coste(cliente_mod.MAX_TOKENS, 2 * cliente_mod.MAX_TOKENS)
+    assert ia_costes.valoracion() > solo_la_salida
+    # Y es más que un solo turno: el reintento reenvía el bloque y la respuesta.
+    un_turno = cliente_mod.coste(ia_costes._TOKENS_DE_CONTEXTO + cliente_mod.MAX_TOKENS, cliente_mod.MAX_TOKENS)
+    assert ia_costes.valoracion() > un_turno

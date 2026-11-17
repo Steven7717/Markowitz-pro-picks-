@@ -138,3 +138,21 @@ def test_el_reintento_pide_la_respuesta_entera_y_no_sólo_lo_corregido():
     im.contrastar("MU", SUPUESTO, DOCUMENTO, cliente=_falso([_salida(INVENTADO, BUENO), _salida(BUENO)], vistos))
     segundo = vistos[1]["messages"][-1]["content"]
     assert "respuesta completa" in segundo and "sin cambiar" in segundo
+
+
+def test_un_juicio_con_la_afirmacion_vacia_se_descarta_y_se_cuenta():
+    cliente = _falso([_salida(("  \u200b ", "respalda", CITA), BUENO)])
+    contraste = im.contrastar("MU", SUPUESTO, DOCUMENTO, cliente=cliente)
+    assert [j.afirmacion for j in contraste.juicios] == [BUENO[0]]
+    assert contraste.descartados == 1
+
+
+def test_el_tope_corta_el_reintento_y_el_juicio_sin_respaldo_sale_marcado(monkeypatch):
+    from interprete import cliente as cliente_mod
+
+    monkeypatch.setattr(cliente_mod, "dentro_del_tope", lambda entrada, salida: False)
+    vistos = []
+    cliente = _falso([_salida(INVENTADO), _salida(INVENTADO)], vistos)
+    contraste = im.contrastar("MU", SUPUESTO, DOCUMENTO, cliente=cliente)
+    assert len(vistos) == 1
+    assert contraste.estado == im.HECHA and contraste.juicios[0].verificada is False
