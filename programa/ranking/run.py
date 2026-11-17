@@ -8,6 +8,8 @@ from pathlib import Path
 import pandas as pd
 
 from fundamentals.run import build_panel
+from macro.criterio import INCLINACION, REGIONES
+from macro.fase import Fase
 from ranking.criterio import TAMANO_TOP, TOPE_POR_SECTOR, TRIMESTRES_VENTANA
 from ranking.fichas import descriptor, ficha_numerica
 from ranking.filings import cargar_riesgos
@@ -15,7 +17,9 @@ from ranking.informe import render
 from ranking.llm import redactar_con_cache
 from ranking.score import (
     aplicar_guardas,
+    ajuste_de,
     compuesto,
+    inclinar,
     marcar_sin_pares,
     media_ventana,
     puntuaciones_por_pilar,
@@ -100,6 +104,8 @@ def construir_ranking(
     tope: int = TOPE_POR_SECTOR,
     cache_dir: Path | None = None,
     con_valoracion: bool = True,
+    macro: "Fase | None" = None,
+    region: "str | None" = None,
 ) -> Resultado:
     """Panel in, ranked candidates out.
 
@@ -114,7 +120,18 @@ def construir_ranking(
     enseña. Si la red o la tasa libre faltan, deja de preguntar: un
     `sin_tasa_libre` corta en el acto y un `sin_red` al segundo seguido, y las
     fichas que quedan heredan ese motivo sin llamar al motor.
+
+    `macro` inclina el compuesto por la fase del ciclo antes de seleccionar
+    (sub-proyecto O). Con `None`, el Top es el de siempre. Con fase, se
+    selecciona dos veces —sin inclinar e inclinado— y la diferencia queda en
+    `corrida["macro"]`, como las desplazadas por el tope: un criterio que
+    reordena la lista tiene que dejarse ver.
     """
+    if macro is not None:
+        if macro.clave is None:
+            raise ValueError(f"una fase sin clave ({macro.motivo}) no puede inclinar el Top")
+        if region not in REGIONES:
+            raise ValueError(f"región desconocida: {region!r}")
     panel, metadatos, cobertura = build_panel(source, con_zscore=True)
     sectores = metadatos["sector_gics"]
 
@@ -130,6 +147,21 @@ def construir_ranking(
     motivos = marcar_sin_pares(motivos, puntos, sectores)
 
     elegidas, desplazadas = seleccionar(puntos, sectores, tope=tope, n=n)
+    bloque_macro = None
+    if macro is not None:
+        neutras = set(elegidas["ticker"])
+        elegidas, desplazadas = seleccionar(
+            inclinar(puntos, sectores, macro.clave), sectores, tope=tope, n=n
+        )
+        inclinadas = set(elegidas["ticker"])
+        bloque_macro = {
+            "region": region,
+            "fase": macro.clave,
+            "mes_dato": macro.mes_dato.isoformat(),
+            "inclinacion": float(INCLINACION),
+            "entradas": sorted(inclinadas - neutras),
+            "salidas": sorted(neutras - inclinadas),
+        }
     mapa = desplazamientos_por_ticker(desplazadas)
 
     # Sin red o sin tasa libre, las quince fallarían igual, y con una red que no
@@ -147,12 +179,13 @@ def construir_ranking(
             ticker=fila.ticker,
             sector=fila.sector,
             puesto=fila.puesto,
-            compuesto=fila.compuesto,
+            compuesto=float(puntos[fila.ticker]),
             pilares=pilares.loc[fila.ticker],
             conteo=conteo.loc[fila.ticker],
             z=z.loc[fila.ticker],
             valores=valores.loc[fila.ticker],
             desplazo_a=mapa.get(fila.ticker, []),
+            ajuste_macro=ajuste_de(fila.sector, macro.clave) if macro is not None else 0.0,
         )
         if con_llm:
             ficha = _con_narrativa(ficha, cache_dir)
@@ -201,6 +234,7 @@ def construir_ranking(
             "tope_por_sector": int(tope),
             "tamano_top": int(n),
             "con_llm": bool(con_llm),
+            "macro": bloque_macro,
         },
         panel=crudo,
     )

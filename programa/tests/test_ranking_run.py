@@ -623,3 +623,72 @@ def test_si_falla_la_escritura_del_panel_se_guardan_las_fichas_sin_panel(
     assert fichas == json.loads(json.dumps(resultado.fichas))
     assert not (tmp_path / "panel.parquet").exists()
     assert "panel" in caplog.text and "PermissionError" in caplog.text
+
+
+# --- La inclinación macro (sub-proyecto O) --------------------------------
+
+from datetime import date as _date
+
+from macro.criterio import INCLINACION
+from macro.fase import Fase
+
+
+def _fase(clave="recuperacion"):
+    return Fase(clave, None, _date(2026, 10, 1), 99.5, 0.3, 4)
+
+
+def test_sin_macro_la_corrida_dice_none_y_nadie_lleva_ajuste(sin_red):
+    sin = construir_ranking(con_llm=False, n=5)
+    assert sin.corrida["macro"] is None
+    assert all(f["ajuste_macro"] == 0.0 for f in sin.fichas)
+
+
+def test_con_macro_la_corrida_registra_region_fase_y_movimientos(sin_red):
+    neutro = construir_ranking(con_llm=False, n=5)
+    con = construir_ranking(con_llm=False, n=5, macro=_fase(), region="usa")
+    bloque = con.corrida["macro"]
+    assert bloque["region"] == "usa" and bloque["fase"] == "recuperacion"
+    assert bloque["mes_dato"] == "2026-10-01" and bloque["inclinacion"] == INCLINACION
+    antes = {f["ticker"] for f in neutro.fichas}
+    despues = {f["ticker"] for f in con.fichas}
+    assert set(bloque["entradas"]) == despues - antes
+    assert set(bloque["salidas"]) == antes - despues
+
+
+def test_con_macro_las_financieras_llevan_su_ajuste_y_el_compuesto_no_cambia(sin_red):
+    neutro = {f["ticker"]: f["compuesto"] for f in construir_ranking(con_llm=False, n=15).fichas}
+    con = construir_ranking(con_llm=False, n=15, macro=_fase(), region="usa")
+    for ficha in con.fichas:
+        esperado = INCLINACION if ficha["sector_gics"] == "Financials" else 0.0
+        assert ficha["ajuste_macro"] == esperado
+        if ficha["ticker"] in neutro:
+            assert ficha["compuesto"] == neutro[ficha["ticker"]]
+
+
+def test_una_inclinacion_grande_mete_financieras_en_el_top(sin_red, monkeypatch):
+    """Con una inclinación exagerada se ve que de verdad se aplica antes de seleccionar."""
+    import ranking.score as score
+
+    monkeypatch.setattr(score, "INCLINACION", 10.0)
+    con = construir_ranking(con_llm=False, n=3, tope=3, macro=_fase(), region="usa")
+    assert {f["sector_gics"] for f in con.fichas} == {"Financials"}
+
+
+def test_una_fase_sin_clave_no_se_acepta(sin_red):
+    with pytest.raises(ValueError):
+        construir_ranking(
+            con_llm=False, n=5,
+            macro=Fase(None, "indeterminada", _date(2026, 10, 1), 100.0, 0.0, 0),
+            region="usa",
+        )
+
+
+def test_una_region_desconocida_no_se_acepta(sin_red):
+    with pytest.raises(ValueError):
+        construir_ranking(con_llm=False, n=5, macro=_fase(), region="marte")
+
+
+def test_la_corrida_con_macro_es_json_estricto(sin_red, tmp_path):
+    guardar(construir_ranking(con_llm=False, n=5, macro=_fase(), region="usa"), tmp_path)
+    corrida = json.loads((tmp_path / "corrida.json").read_text(encoding="utf-8"))
+    assert corrida["macro"]["fase"] == "recuperacion"
