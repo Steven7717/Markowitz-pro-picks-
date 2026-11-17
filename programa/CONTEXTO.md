@@ -1,12 +1,17 @@
 # Contexto del proyecto — para retomar en una sesión nueva
 
-**Última actualización:** 2026-11-12
-**Rama:** `master` (N1 y N2 fusionados el 2026-11-12 desde `feat/analizador-individual`) · **Tests:** 3.494 pasando (`uv run pytest tests/ -q -m "not red"`), 3 omitidos —dos por permisos POSIX en Windows y uno de `test_valoracion_dcf.py` sin `numpy_financial`— más 38 marcados `red`
+**Última actualización:** 2026-11-17
+**Rama:** `claude/macro-economic-analyzer-7a7efd` (sub-proyecto O, **todavía sin fusionar a `master`**; `master` sigue siendo lo publicado y N1 y N2 están fusionados en él desde el 2026-11-12) · **Tests:** 3.630 pasando (`uv run pytest tests/ -q -m "not red"`), 3 omitidos —dos por permisos POSIX en Windows y uno de `test_valoracion_dcf.py` sin `numpy_financial`— más 46 marcados `red`, 8 de ellos del macro
 **Remoto:** `https://github.com/Steven7717/Markowitz-pro-picks-.git` — `master` es lo publicado
 **Estructura:** el programa vive en `programa/`; en la raíz sólo están los dos
 lanzadores y el `README.md`. Los comandos (`uv run pytest`, `uv run streamlit`)
 se ejecutan desde `programa/`, no desde la raíz.
 
+> **Lo último es el sub-proyecto O, el entorno macro**, en la rama
+> `claude/macro-economic-analyzer-7a7efd`, sin fusionar: la pantalla «Entorno
+> macro» y la casilla de Revisar candidatos que inclina el Top por la fase del
+> ciclo. Ver «Resultado del sub-proyecto O».
+>
 > **Al retomar:** N1 y N2, las dos primeras partes del Analizador individual,
 > están hechas y **fusionadas en `master`** (2026-11-12). N1 es el paquete `analizador/`, que analiza cualquier ticker —una
 > empresa de la SEC, una extranjera, una de la BMV o un ETF— con la misma ficha
@@ -96,6 +101,7 @@ El objetivo mayor es construir, **aguas arriba de esa app**, un sistema donde un
 | L | Rendimiento real en pesos (MXN) | TWR/TIR en pesos y reales (Fisher), vía Banxico | ✅ **terminado** |
 | M | Valor intrínseco | Veredicto por cuatro lecturas y tres votos en cada candidato | ✅ **terminado** |
 | N | Analizador individual | La mecánica de candidatos para cualquier ticker, con gráfico, noticias e IA | 🔨 **en curso**: N1 (datos) y N2 (pantalla) hechos; N3 (IA) pendiente |
+| O | Entorno macro | Fase del ciclo por región (CLI OCDE) e inclinación opcional del Top | ✅ **terminado** (rama sin fusionar) |
 
 ## Resultado del sub-proyecto D
 
@@ -233,6 +239,21 @@ estimators.py    Ledoit-Wolf + James-Stein
 validation.py    walk-forward out-of-sample
 charts.py        Plotly
 exporter.py      PDF (fpdf2) + Excel (openpyxl)
+```
+
+### El entorno macro
+```
+macro/
+├── criterio.py   datos congelados: regiones (G4E para la Eurozona), inclinación ±0,25, vigencias
+├── mensual.py    la rejilla de meses de calendario sobre la que se lee todo
+├── fuentes.py    CLI de la OCDE y tres series de FRED, con caché y fallos con nombre
+├── fase.py       la fase: nivel frente a 100 y dirección a tres meses; puro
+├── estado.py     fuente, fase y vigencia juntas: lo único que consumen las vistas
+├── contexto.py   curva, regla de Sahm e inflación de EE. UU.; no entran en la fase
+├── lectura.py    la lectura con IA, por (región, mes), en lecturas_macro/
+└── textos.py     cómo se dice todo: nombres, motivos, avisos; nunca se guarda
+vistas/entorno_macro.py   la pantalla, sin lógica
+lecturas_macro/           lo pagado a la IA, ignorado en git
 ```
 
 ### El libro de posiciones
@@ -1612,6 +1633,81 @@ del spec—. Un veredicto firme de cada seis. No se movió ningún listón.
     por modelo de negocio), así que no pueden salir sobrevaloradas.
   - El beneficio residual está sin medir: el ranking deja fuera a los bancos y a
     las aseguradoras salvo MET.
+
+## Resultado del sub-proyecto O
+
+El entorno macro: en qué fase del ciclo está una región y, si el usuario lo
+pide, un Top inclinado por esa fase. Está en la rama
+`claude/macro-economic-analyzer-7a7efd`, **sin fusionar a `master`**, con la
+suite en 3.630 pasando (3.494 al cerrar N2) y 8 tests `red` contra las fuentes
+reales. Plan: `docs/superpowers/plans/2026-11-16-entorno-macro.md`; spec:
+`docs/superpowers/specs/2026-11-15-entorno-macro-design.md`, con sus enmiendas.
+
+Hay una pantalla nueva, **Entorno macro** (`vistas/entorno_macro.py`), con la
+región, la fase, el contexto de EE. UU. y una lectura con IA opcional; una
+casilla en Revisar candidatos que inclina el Top; y las actas, que dicen si la
+corrida llevaba macro.
+
+### La regla
+
+La fase sale del indicador adelantado compuesto (CLI) de la OCDE, mirando dos
+cosas: el **nivel frente a 100** y la **dirección a tres meses**. Nivel por
+encima de 100 y subiendo es expansión; por encima y bajando, desaceleración;
+por debajo y bajando, contracción; por debajo y subiendo, recuperación. Si el
+último mes desmiente el giro de los tres meses, la fase es `indeterminada` y
+no se inclina nada: elegir un lado por defecto sería inventar una fase. La
+serie se lee en **meses de calendario**, no por posición, porque por posición
+«hace tres meses» pasa a ser «hace cuatro» cuando falta uno; un hueco da
+`serie_con_huecos`. Los números viven en `macro/criterio.py` como datos, con la
+misma disciplina que `ranking/criterio.py`: cambiarlos exige una enmienda
+fechada en el spec.
+
+La Eurozona es **`G4E`**, las cuatro grandes (Alemania, Francia, Italia y
+España), porque el flujo de la OCDE no tiene `EA20`.
+
+### La inclinación
+
+Es de **±0,25 por sector** según la fase, viene **apagada y no se recuerda**:
+la casilla de Revisar candidatos sale desmarcada cada vez, porque inclinar un
+Top es una decisión de cada corrida, no una preferencia. El **compuesto de la
+ficha es el sin inclinar**; el ajuste va aparte, en `ajuste_macro`, y
+`corrida["macro"]` registra la fase, el mes del dato, la región y qué
+candidatos entraron y salieron del Top por la inclinación. Un test golden fija
+que **sin macro el Top es exactamente el de antes**, comprobado contra
+`eca3a11`. Si la fase no puede inclinar (sin red, dato rancio, indeterminada)
+la corrida sale sin macro y la pantalla lo dice; el aviso de pago con IA dice
+que irá inclinada, y la confirmación pasa la misma fase que el botón gratis.
+
+### Lo que encontró la red real
+
+- **User-Agent**: la OCDE, detrás de Cloudflare, da 403 al User-Agent de
+  urllib, y FRED cuelga la conexión con uno desconocido. **Cada fuente usa el
+  suyo.** Si una cambia de criterio, el primer aviso es
+  `tests/test_macro_red.py`; correrlo (`-m red`) antes de dar por rota una
+  fuente.
+- **FRED no tiene octubre de 2025** (el cierre del Gobierno federal). La
+  inflación usa el último mes que tenga a la vez `t` y `t−12` y dice cuál; la
+  regla de Sahm admite 9 de las 12 medias previas en vez de exigir las 12.
+- **`beautifulsoup4`** llega como dependencia de yfinance 1.8.0. Si un
+  `uv run` deja el paquete sin su carpeta por un fallo de hardlinks en
+  Windows, se arregla con
+  `UV_LINK_MODE=copy uv sync --reinstall-package beautifulsoup4`.
+
+### La lectura con IA
+
+Es opcional, explica y no toca el Top. Se guarda **por (región, mes del dato)**
+en `lecturas_macro/`, fuera de git como `analisis/`: con el mismo dato la
+explicación sería la misma, así que preguntar dos veces en un mes no paga dos
+veces.
+
+### Lo que O no resuelve
+
+- **No se ha medido si la inclinación aporta.** Falta un estudio tipo D,
+  **preregistrado**, que compare el Top inclinado con el sin inclinar. Hasta
+  entonces la casilla es una opinión del usuario con la fase delante, no una
+  ventaja demostrada.
+- **La fase no llega al Analizador individual**; sólo está en Entorno macro y
+  en Revisar candidatos.
 
 ## Sub-proyecto N, parte 1: los datos de cualquier ticker
 
