@@ -217,7 +217,7 @@ def plot_backtest_var(fechas, realizados, var99, excepciones) -> go.Figure:
                          marker_color="rgba(120,120,140,0.45)"))
     fig.add_trace(go.Scatter(x=fechas, y=-np.asarray(var99), name="−VaR 99 %",
                              mode="lines", line=dict(width=1.5)))
-    fig.add_trace(go.Scatter(x=fechas[excepciones], y=np.asarray(realizados)[excepciones],
+    fig.add_trace(go.Scatter(x=np.asarray(fechas)[excepciones], y=np.asarray(realizados)[excepciones],
                              name="Excepción", mode="markers",
                              marker=dict(color="crimson", size=7, symbol="x")))
     fig.update_layout(**_base_layout(yaxis_tickformat=".1%", bargap=0))

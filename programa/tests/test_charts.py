@@ -260,3 +260,14 @@ def test_plot_backtest_var_pinta_retornos_var_y_excepciones():
     nombres = [t.name for t in fig.data]
     assert nombres == ["Retorno diario", "−VaR 99 %", "Excepción"]
     assert list(fig.data[2].y) == [-0.03]
+
+
+def test_plot_backtest_var_acepta_fechas_en_lista():
+    import numpy as np
+    import pandas as pd
+    from charts import plot_backtest_var
+
+    fechas = list(pd.bdate_range("2024-01-01", periods=3))
+    fig = plot_backtest_var(fechas, np.array([0.01, -0.03, 0.0]), np.array([0.02] * 3),
+                            np.array([False, True, False]))
+    assert len(fig.data[2].x) == 1

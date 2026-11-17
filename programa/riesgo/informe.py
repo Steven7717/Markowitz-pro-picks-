@@ -59,7 +59,13 @@ def _cuotas_es(ventana: np.ndarray, pesos: np.ndarray) -> np.ndarray:
     cola = rp <= np.quantile(rp, 1 - backtest.NIVEL_ES)
     aporte = -(ventana[cola] * pesos).mean(axis=0)
     total = aporte.sum()
-    return aporte / total if total > 0 else np.full(len(pesos), 1 / len(pesos))
+    if total > 0:
+        return aporte / total
+    # Sin pérdida en la cola no hay nada que repartir: por peso absoluto, y un
+    # activo sin peso no recibe nada.
+    absolutos = np.abs(pesos)
+    suma = absolutos.sum()
+    return absolutos / suma if suma > 0 else np.zeros(len(pesos))
 
 
 def informe_riesgo(retornos: pd.DataFrame, pesos: np.ndarray) -> InformeRiesgo:
@@ -90,7 +96,15 @@ def informe_riesgo(retornos: pd.DataFrame, pesos: np.ndarray) -> InformeRiesgo:
             fraccion_verde=suya[m].fraccion_verde, aportacion_es=float(cuotas[i]),
         ))
 
-    suma_aislados = sum(abs(f.peso) * f.es975 for f in activos)
+    # El denominador usa el mismo método y la misma ventana que el numerador,
+    # sobre la serie con signo de cada posición (w_i·r_i): así un corto se mide
+    # por su cola izquierda real (la de subir el activo) y, al ser el mismo
+    # estimador, la suma de aislados nunca queda por debajo de la cartera.
+    ventana = matriz[-backtest.VENTANA_ESTIMACION:]
+    f = metodos.METODOS[elegido]
+    suma_aislados = sum(
+        f(pesos[i] * ventana[:, i], backtest.NIVEL_ES)[1]
+        for i in range(len(pesos)) if pesos[i] != 0)
     return InformeRiesgo(
         elegido=elegido, competencia=competencia,
         fechas=retornos.index[backtest.VENTANA_ESTIMACION:],

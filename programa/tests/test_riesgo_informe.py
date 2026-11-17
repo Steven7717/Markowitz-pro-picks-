@@ -22,7 +22,7 @@ def test_el_informe_trae_la_cartera_y_cada_activo():
     inf = informe.informe_riesgo(r, np.array([0.5, 0.3, 0.2]))
     assert inf.elegido in inf.competencia
     assert [f.ticker for f in inf.activos] == ["AAA", "BBB", "CCC"]
-    assert inf.es975 >= inf.var99 * 0.9  # mismo orden de magnitud: el ES97,5 ≈ VaR99
+    assert inf.es975 == pytest.approx(inf.var99, rel=0.15)  # el ES97,5 ≈ VaR99
     assert inf.es99 >= inf.var99 > 0
 
 
@@ -48,8 +48,10 @@ def test_diversificar_reduce_el_es():
 
 def test_cada_activo_elige_su_propio_metodo():
     inf = informe.informe_riesgo(_retornos(), np.array([0.5, 0.3, 0.2]))
+    r = _retornos()
     for f in inf.activos:
-        assert f.metodo in inf.competencia  # misma lista de candidatos
+        esperado = backtest.elegir(backtest.competir(r[f.ticker].to_numpy()))
+        assert f.metodo == esperado
 
 
 def test_con_poca_historia_dice_cuanta_hay_y_cuanta_falta():
@@ -69,3 +71,47 @@ def test_retornos_no_finitos_dan_un_error_claro():
     r.iloc[10, 1] = np.nan
     with pytest.raises(ValueError, match="no finitos"):
         informe.informe_riesgo(r, np.array([0.5, 0.3, 0.2]))
+
+
+def _asimetrica(n=900, semilla=3):
+    rng = np.random.default_rng(semilla)
+    base = rng.lognormal(0, 0.9, n) - np.exp(0.9 ** 2 / 2)  # cola derecha larga
+    return pd.DataFrame({"AAA": base * 0.01, "BBB": rng.normal(0, 0.01, n)},
+                        index=pd.bdate_range("2021-01-01", periods=n))
+
+
+def test_un_corto_solo_no_diversifica_nada():
+    inf = informe.informe_riesgo(_asimetrica(), np.array([-1.0, 0.0]))
+    assert inf.diversificacion == pytest.approx(0.0, abs=1e-9)
+
+
+def test_una_cobertura_largo_corto_entre_correlacionadas_diversifica():
+    rng = np.random.default_rng(5)
+    comun = rng.normal(0, 0.01, 900)
+    r = pd.DataFrame({"AAA": comun + rng.normal(0, 0.004, 900),
+                      "BBB": comun + rng.normal(0, 0.004, 900)},
+                     index=pd.bdate_range("2021-01-01", periods=900))
+    inf = informe.informe_riesgo(r, np.array([1.0, -0.8]))
+    assert 0 < inf.diversificacion < 1
+
+
+def test_dos_series_identicas_reparten_el_es_como_los_pesos():
+    x = _retornos()["AAA"]
+    r = pd.DataFrame({"X": x, "Y": x})
+    inf = informe.informe_riesgo(r, np.array([0.6, 0.4]))
+    assert [f.aportacion_es for f in inf.activos] == pytest.approx([0.6, 0.4])
+
+
+def test_la_cuota_del_corto_cubierto_es_negativa():
+    rng = np.random.default_rng(7)
+    a = rng.normal(0, 0.01, 900)
+    r = pd.DataFrame({"AAA": a, "BBB": a + rng.normal(0, 0.002, 900)},
+                     index=pd.bdate_range("2021-01-01", periods=900))
+    inf = informe.informe_riesgo(r, np.array([1.0, -0.5]))
+    assert inf.activos[0].aportacion_es > 1
+    assert inf.activos[1].aportacion_es < 0
+
+
+def test_sin_cola_positiva_el_reparto_es_por_peso_absoluto():
+    cuotas = informe._cuotas_es(np.full((10, 3), 0.01), np.array([0.5, 0.0, 0.5]))
+    assert list(cuotas) == pytest.approx([0.5, 0.0, 0.5])
