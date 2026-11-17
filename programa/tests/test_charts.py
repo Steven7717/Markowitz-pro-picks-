@@ -247,3 +247,16 @@ def test_con_prima_la_leyenda_sigue_dando_el_sharpe():
 
 def test_sin_prima_el_titulo_explica_por_que_el_color_cambia():
     assert "prima" in _bajista(optimal={"sin_prima": True}).layout.title.text.lower()
+
+
+def test_plot_backtest_var_pinta_retornos_var_y_excepciones():
+    import numpy as np
+    import pandas as pd
+    from charts import plot_backtest_var
+
+    fechas = pd.bdate_range("2024-01-01", periods=5)
+    fig = plot_backtest_var(fechas, np.array([0.01, -0.03, 0.0, -0.01, 0.02]),
+                            np.array([0.02] * 5), np.array([False, True, False, False, False]))
+    nombres = [t.name for t in fig.data]
+    assert nombres == ["Retorno diario", "−VaR 99 %", "Excepción"]
+    assert list(fig.data[2].y) == [-0.03]

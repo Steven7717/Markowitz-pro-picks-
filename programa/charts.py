@@ -208,3 +208,17 @@ def plot_comparison(
         **_base_layout(),
     )
     return fig
+
+
+def plot_backtest_var(fechas, realizados, var99, excepciones) -> go.Figure:
+    """Cada día, lo que pasó contra lo que el VaR de la víspera dijo que podía pasar."""
+    fig = go.Figure()
+    fig.add_trace(go.Bar(x=fechas, y=realizados, name="Retorno diario",
+                         marker_color="rgba(120,120,140,0.45)"))
+    fig.add_trace(go.Scatter(x=fechas, y=-np.asarray(var99), name="−VaR 99 %",
+                             mode="lines", line=dict(width=1.5)))
+    fig.add_trace(go.Scatter(x=fechas[excepciones], y=np.asarray(realizados)[excepciones],
+                             name="Excepción", mode="markers",
+                             marker=dict(color="crimson", size=7, symbol="x")))
+    fig.update_layout(**_base_layout(yaxis_tickformat=".1%", bargap=0))
+    return fig
