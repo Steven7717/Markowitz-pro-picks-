@@ -2,6 +2,8 @@
 
 from types import SimpleNamespace
 
+import pytest
+
 from analizador import ia_costes, ia_tesis, informe_anual
 from aprobacion import generacion
 from interprete import cliente as cliente_mod
@@ -78,3 +80,41 @@ def test_ningun_tope_anunciado_pasa_del_tope_duro_de_la_pulsacion():
     # Si pasara, la pantalla anunciaría un gasto que `dentro_del_tope` corta antes.
     for anunciado in (ia_costes.mdna(), ia_costes.valoracion()):
         assert 0 < anunciado < cliente_mod.TOPE_USD_POR_PULSACION
+
+
+# --- El contador de gasto es de todo el proceso: no se reinicia por una pulsación ---
+
+
+@pytest.fixture
+def contador_limpio():
+    llm.reiniciar_gasto()
+    yield
+    llm.reiniciar_gasto()
+
+
+def test_redactar_no_pone_a_cero_el_contador_de_una_corrida_en_marcha(contador_limpio, tmp_path):
+    llm._anotar_gasto(50_000, 4_000)
+    previo = llm.gasto_acumulado()
+    ia_tesis.redactar(CONTEXTO, RIESGOS, cliente=_falso([_narrativa()]), cache_dir=tmp_path)
+    ahora = llm.gasto_acumulado()
+    assert ahora.llamadas == previo.llamadas + 1
+    assert ahora.entrada_tokens == previo.entrada_tokens + 1000
+
+
+def test_el_gasto_devuelto_es_solo_el_de_esta_llamada_aunque_hubiera_acumulado_previo(contador_limpio, tmp_path):
+    llm._anotar_gasto(50_000, 4_000)
+    redaccion = ia_tesis.redactar(CONTEXTO, RIESGOS, cliente=_falso([_narrativa()]), cache_dir=tmp_path)
+    assert redaccion.gasto == llm.Gasto(llamadas=1, entrada_tokens=1000, salida_tokens=200)
+    assert redaccion.de_cache is False
+
+
+def test_con_el_acumulado_al_borde_del_tope_se_reinicia_y_la_tesis_se_redacta(contador_limpio, tmp_path):
+    # Sin sitio para una ficha, `redactar_con_cache` devolvería None sin llamar,
+    # por un tope que no es de esta pulsación.
+    al_borde = int((llm.TOPE_USD_POR_CORRIDA - generacion.coste_peor_caso(1)) / llm.PRECIO_SALIDA * 1_000_000) + 1
+    llm._anotar_gasto(0, al_borde)
+    assert llm.gasto_acumulado().usd + generacion.coste_peor_caso(1) >= llm.TOPE_USD_POR_CORRIDA
+    redaccion = ia_tesis.redactar(CONTEXTO, RIESGOS, cliente=_falso([_narrativa()]), cache_dir=tmp_path)
+    assert redaccion.narrativa is not None
+    assert redaccion.gasto == llm.Gasto(llamadas=1, entrada_tokens=1000, salida_tokens=200)
+    assert llm.gasto_acumulado().llamadas == 1
