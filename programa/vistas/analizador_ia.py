@@ -59,6 +59,34 @@ def _guardar(clave: str, anotar, ruta, lectura, pintar, avisos: list) -> None:
         st.rerun()
 
 
+_FALTA_LA_CLAVE = "Falta la clave de Anthropic. Se pone en **Perfil y ajustes**."
+
+
+def _no_se_pudo(que: str, resultado, sin_gasto: dict) -> None:
+    """El error de una lectura que no llegó a `HECHA`, con lo que costó si algo costó.
+
+    `sin_gasto` dice lo que es cada estado que no es un fallo de la llamada
+    (`SIN_DOCUMENTO`, `SIN_CLAVE`, `SIN_VALORACION`): en ésos no se llamó. Un
+    `FALLO` sí pudo llamar --y el reintento se cobra aunque no salga nada--, así
+    que si trae tokens se dice lo gastado.
+    """
+    explicado = sin_gasto.get(resultado.estado)
+    if explicado is not None:
+        st.error(f"{explicado} **No se ha gastado nada.**")
+        return
+    mensaje = (
+        f"No se pudo {que}: "
+        + texto.plano(resultado.problema or "la llamada no devolvió nada utilizable")
+        + ". **No se ha guardado nada.**"
+    )
+    if resultado.entrada_tokens or resultado.salida_tokens:
+        mensaje += " " + ma.coste_de_lectura(
+            cliente_mod.coste(resultado.entrada_tokens, resultado.salida_tokens),
+            resultado.entrada_tokens, resultado.salida_tokens,
+        )
+    st.error(mensaje)
+
+
 def _informe(ticker: str):
     """El último informe anual, o `None` tras decir por qué no."""
     formulario = informe_anual.formulario_de(ticker)
@@ -225,11 +253,10 @@ def _mdna(analisis, lecturas) -> None:
             return
         contraste = ia_mdna.contrastar(ticker, supuesto, informe.mdna.texto)
     if contraste.estado != ia_mdna.HECHA:
-        st.error(
-            "No se pudo contrastar: "
-            + texto.plano(contraste.problema or "la llamada no devolvió nada utilizable")
-            + ". **No se ha guardado nada.**"
-        )
+        _no_se_pudo("contrastar", contraste, {
+            ia_mdna.SIN_DOCUMENTO: "No había informe de gestión que contrastar.",
+            ia_mdna.SIN_CLAVE: _FALTA_LA_CLAVE,
+        })
         return
     guardable = archivo.Contraste(
         datetime.now(),
@@ -325,11 +352,10 @@ def _valoracion(analisis, lecturas) -> None:
     with st.spinner("Explicando la valoración…"):
         explicacion = ia_valoracion.explicar(bloque, mapa)
     if explicacion.estado != ia_valoracion.HECHA:
-        st.error(
-            "No se pudo explicar la valoración: "
-            + texto.plano(explicacion.problema or "la llamada no devolvió nada utilizable")
-            + ". **No se ha guardado nada.**"
-        )
+        _no_se_pudo("explicar la valoración", explicacion, {
+            ia_valoracion.SIN_VALORACION: "Sin valoración no hay nada que explicar.",
+            ia_valoracion.SIN_CLAVE: _FALTA_LA_CLAVE,
+        })
         return
     guardable = archivo.Explicacion(
         datetime.now(),

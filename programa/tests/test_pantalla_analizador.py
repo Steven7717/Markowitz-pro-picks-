@@ -731,3 +731,52 @@ def test_si_el_guardado_lanza_valueerror_la_lectura_pagada_se_ve_igual(pantalla,
     textos = _textos(pantalla)
     assert "No se pudo guardar la lectura" in textos and "no se podría leer después" in textos
     assert "Depende de que el crecimiento se sostenga." in textos
+
+
+def test_tras_un_fallo_con_tokens_gastados_se_dice_lo_que_costo(pantalla, monkeypatch, tmp_path):
+    _con_clave(monkeypatch)
+    _con_informe(monkeypatch)
+    monkeypatch.setattr(
+        "analizador.ia_valoracion.explicar",
+        lambda bloque, mapa, **_resto: ia_valoracion.Explicacion(
+            ia_valoracion.FALLO, entrada_tokens=1_200, salida_tokens=300, problema="Se cortó la respuesta"
+        ),
+    )
+    monkeypatch.setattr(
+        "analizador.ia_mdna.contrastar",
+        lambda ticker, supuesto, documento, **_resto: ia_mdna.Contraste(
+            ia_mdna.FALLO, entrada_tokens=40_000, salida_tokens=900, problema="Se cortó la respuesta"
+        ),
+    )
+    pantalla.run()
+    _pulsar(pantalla, "Explicar la valoración")
+    _pulsar(pantalla, "Sí, leer con IA")
+    textos = _textos(pantalla)
+    assert "No se pudo explicar la valoración" in textos and "1,200 tokens de entrada" in textos
+    _pulsar(pantalla, "Contrastar con la empresa")
+    _pulsar(pantalla, "Sí, leer con IA")
+    assert "No se pudo contrastar" in _textos(pantalla) and "40,000 tokens de entrada" in _textos(pantalla)
+    assert not (tmp_path / "MU.json").exists()
+
+
+@pytest.mark.parametrize(
+    "modulo, funcion, boton, resultado, dicho",
+    [
+        ("ia_valoracion", "explicar", "Explicar la valoración", ia_valoracion.Explicacion(ia_valoracion.SIN_VALORACION), "Sin valoración"),
+        ("ia_valoracion", "explicar", "Explicar la valoración", ia_valoracion.Explicacion(ia_valoracion.SIN_CLAVE), "Falta la clave"),
+        ("ia_mdna", "contrastar", "Contrastar con la empresa", ia_mdna.Contraste(ia_mdna.SIN_DOCUMENTO), "No había informe de gestión"),
+        ("ia_mdna", "contrastar", "Contrastar con la empresa", ia_mdna.Contraste(ia_mdna.SIN_CLAVE), "Falta la clave"),
+    ],
+)
+def test_un_estado_que_no_es_un_fallo_de_llamada_no_dice_que_la_llamada_fallo(
+    pantalla, monkeypatch, modulo, funcion, boton, resultado, dicho
+):
+    _con_clave(monkeypatch)
+    _con_informe(monkeypatch)
+    monkeypatch.setattr(f"analizador.{modulo}.{funcion}", lambda *a, **k: resultado)
+    pantalla.run()
+    _pulsar(pantalla, boton)
+    _pulsar(pantalla, "Sí, leer con IA")
+    textos = _textos(pantalla)
+    assert dicho in textos and "No se ha gastado nada" in textos
+    assert "la llamada no devolvió nada utilizable" not in textos
