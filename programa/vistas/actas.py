@@ -8,6 +8,7 @@ import streamlit as st
 import medidores_valoracion
 import tema
 from aprobacion.acta import listar_actas, tickers_aprobados, valoracion_de_entrada
+from macro import textos as textos_macro
 
 st.markdown(
     tema.cabecera(
@@ -73,6 +74,9 @@ for guardada in guardadas:
                     f"{corrida.get('n_supervivientes', '?')} supervivientes de "
                     f"{corrida.get('n_panel', '?')} empresas con datos · "
                     + ("con IA" if corrida.get("con_llm") else "sin IA")
+                    # Un acta de antes de O no trae la clave: lee None, «sin macro».
+                    + " · "
+                    + textos_macro.etiqueta_corrida(corrida.get("macro"))
                 )
             else:
                 st.caption(
