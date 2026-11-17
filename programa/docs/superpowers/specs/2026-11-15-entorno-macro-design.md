@@ -293,3 +293,28 @@ bien visible. Lo que no hace es dejar que ese dato mueva el Top.
   analizado. Es un añadido pequeño y natural una vez exista `macro/`, pero toca
   N3, que está en curso.
 - Que la IA pueda proponer otra fase distinta de la del algoritmo.
+
+---
+
+## Enmienda del 2026-11-16 — lo que dijo la API real, y tres precisiones del plan
+
+**Manda sobre el texto de arriba donde se contradigan.**
+
+1. **La Eurozona es `G4E`, no `EA20`.** El flujo del CLI de la OCDE no tiene
+   área `EA20` (comprobado el 2026-11-16 listando todas las áreas con dato en
+   agosto de 2026). La más cercana es `G4E`: Alemania, Francia, Italia y España,
+   las cuatro grandes de la zona. En pantalla se llama «Eurozona (4 grandes)»,
+   para que nadie lea en ella a la zona entera. La clave del flujo es
+   `OECD.SDD.STES,DSD_STES@DF_CLI` con `{area}.M.LI...AA...H`.
+2. **Dos unidades más en `macro/`:** `contexto.py` (curva, Sahm e inflación a
+   partir de las series de FRED; puro) y `estado.py` (une fuente, fase y
+   vigencia en lo que leen las dos vistas). Y `textos.py` para todo lo de
+   pantalla, de modo que `criterio.py` se queda en datos.
+3. **El compuesto de la ficha es el SIN inclinar.** `ficha["compuesto"]` sigue
+   siendo el de siempre y la inclinación va aparte en `ficha["ajuste_macro"]`.
+   Si no, la tarjeta enseñaría un número que mezcla dos juicios sin decirlo.
+4. **Un cambio nulo del último mes no contradice.** Solo hay `indeterminada`
+   cuando el cambio a 3 meses es exactamente 0 o cuando el del último mes tiene
+   signo **contrario**. Un último mes plano no desmiente nada.
+5. **La pantalla es `vistas/entorno_macro.py`, no `vistas/macro.py`.** Así el
+   nombre de la página no puede tapar al paquete `macro`.
