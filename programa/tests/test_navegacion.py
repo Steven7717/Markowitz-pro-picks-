@@ -85,3 +85,12 @@ def test_ningun_texto_de_pantalla_manda_a_noticias():
             if isinstance(n, ast.Constant) and isinstance(n.value, str)
         ]
         assert not any("**Noticias**" in t for t in textos), ruta.name
+
+
+def test_entorno_macro_esta_en_analisis_tras_el_analizador():
+    # `entorno_macro.py` y no `macro.py`: el nombre de la página no puede tapar
+    # al paquete `macro` en ningún `sys.path`.
+    assert "vistas/entorno_macro.py" in _paginas_declaradas()
+    fuente = (RAIZ / "app.py").read_text(encoding="utf-8")
+    analisis = fuente.split('"Análisis":', 1)[1].split('"Cartera":', 1)[0]
+    assert analisis.index("vistas/analizador.py") < analisis.index("vistas/entorno_macro.py")

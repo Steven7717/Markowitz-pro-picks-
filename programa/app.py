@@ -110,6 +110,10 @@ navegacion = st.navigation(
                 "vistas/analizador.py", title="Analizador",
                 icon=":material/query_stats:",
             ),
+            st.Page(
+                "vistas/entorno_macro.py", title="Entorno macro",
+                icon=":material/public:",
+            ),
         ],
         "Cartera": [
             st.Page(
