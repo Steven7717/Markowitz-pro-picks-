@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from datetime import timedelta
 from pathlib import Path
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from interprete import cliente as cliente_ia
 from macro import textos
@@ -74,8 +74,14 @@ def leer(estado, contexto, *, raiz: Path = RAIZ, cliente=None) -> Lectura:
 
     llave = f"{estado.region}_{estado.fase.mes_dato.isoformat()}"
     guardada = cache.leer(raiz, "macro", llave, _PARA_SIEMPRE)
-    if guardada is not None and isinstance(guardada.datos, dict):
-        return Lectura(guardada.datos["explicacion"], tuple(guardada.datos["vigilar"]))
+    if guardada is not None:
+        # Una caché con mala forma (editada, de otra versión) es como no tener caché.
+        try:
+            previa = SalidaLectura.model_validate(guardada.datos)
+        except ValidationError:
+            previa = None
+        if previa is not None:
+            return Lectura(previa.explicacion, tuple(previa.vigilar))
 
     respuesta = cliente_ia.preguntar(
         SISTEMA,
