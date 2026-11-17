@@ -258,9 +258,11 @@ def confirmar(st, clave: str, etiqueta: str, aviso: str, icono: str = ":material
     """Un botón que gasta, con su confirmación. `True` sólo en la pasada en que se confirma.
 
     Es el patrón de Revisar candidatos: la bandera **no es de un widget** y se
-    desarma **antes** de devolver `True`, así que no sobrevive a nada. Si la
-    llamada falla a mitad, hay que volver a pedirla y volver a confirmar: el
-    gasto nunca queda a un clic.
+    desarma **antes** de devolver `True`: se desarma al confirmar y al cancelar.
+    Si se cambia de ticker sin responder sigue armada, y se vuelve a ver la
+    confirmación al volver; **nunca se gasta sin el «Sí»**. Si la llamada falla a
+    mitad, hay que volver a pedirla y volver a confirmar: el gasto nunca queda a
+    un clic.
     """
     bandera = f"{clave}_confirmar"
     if st.button(etiqueta, icon=icono, key=f"{clave}_pedir"):

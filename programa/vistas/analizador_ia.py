@@ -20,7 +20,7 @@ from datetime import datetime
 import streamlit as st
 
 import medidores_analizador as ma
-from analizador import archivo, ia_costes, ia_mdna, ia_tesis, ia_valoracion, informe_anual, palabras, sesion
+from analizador import archivo, ia_costes, ia_mdna, ia_tesis, ia_valoracion, informe_anual, palabras, resolver, sesion
 from interprete import cliente as cliente_mod
 from interprete.archivo import ArchivoIlegible
 from noticias import texto
@@ -96,7 +96,10 @@ def _informe(ticker: str):
     """El último informe anual, o `None` tras decir por qué no."""
     formulario = informe_anual.formulario_de(ticker)
     if formulario is None:
-        st.error(ma.sin_informe("sin_red_edgar"))
+        # `formulario_de` tira el motivo: se pide otra vez (sale de la caché de
+        # `resolver`) para decir el real y no «sin red» por defecto.
+        formularios, motivo = resolver.formularios_sec(ticker)
+        st.error(ma.sin_informe(motivo if formularios is None else "sin_informe"))
         return None
     informe, motivo = informe_anual.cargar(ticker, formulario)
     if informe is None:

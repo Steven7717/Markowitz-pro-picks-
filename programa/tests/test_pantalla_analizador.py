@@ -829,3 +829,23 @@ def test_un_contraste_sin_juicios_y_sin_descartes_si_se_guarda_como_no_hay_nada_
     _pagar_y_confirmar(pantalla, "Contrastar con la empresa")
     assert "no salió nada que decir" in _textos(pantalla)
     assert len(archivo_analizador.cargar(tmp_path / "MU.json").mdna) == 1
+
+
+@pytest.mark.parametrize(
+    "devuelve, dicho",
+    [
+        ((None, "sin_identidad_edgar"), "falta el correo de contacto para la SEC"),
+        ((None, "sin_red_edgar"), "no se pudo consultar la SEC"),
+        (((), "ok"), "la SEC no tiene ningún informe anual suyo"),
+    ],
+)
+def test_sin_informe_se_dice_el_motivo_real_y_no_siempre_sin_red(pantalla, monkeypatch, devuelve, dicho):
+    _con_clave(monkeypatch)
+    monkeypatch.setattr("analizador.informe_anual.formulario_de", lambda ticker: None)
+    monkeypatch.setattr("analizador.resolver.formularios_sec", lambda ticker: devuelve)
+    monkeypatch.setattr("analizador.informe_anual.ultimo_presentado", lambda ticker, formulario: None)
+    llamadas = []
+    monkeypatch.setattr("analizador.ia_tesis.redactar", lambda *a, **k: llamadas.append(1))
+    pantalla.run()
+    _pagar_y_confirmar(pantalla, "Redactar la tesis y los riesgos")
+    assert llamadas == [] and dicho in _textos(pantalla)
