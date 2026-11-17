@@ -697,3 +697,20 @@ def test_una_empresa_fuera_de_la_sec_solo_tiene_la_explicacion(pantalla, monkeyp
     etiquetas = _etiquetas(pantalla)
     assert "Explicar la valoración" in etiquetas
     assert "Redactar la tesis y los riesgos" not in etiquetas and "Contrastar con la empresa" not in etiquetas
+
+
+def test_una_explicacion_recien_pagada_con_deslizadores_movidos_no_sale_como_de_entonces(pantalla, monkeypatch):
+    """Se compara con la valoración que había en pantalla al explicar, no con la del programa."""
+    _con_clave(monkeypatch)
+    monkeypatch.setattr("analizador.ia_valoracion.explicar", lambda bloque, mapa, **_resto: _explicacion_hecha())
+    analisis = pantalla.session_state[sesion.CLAVE_ANALISIS]["MU"]
+    pantalla.session_state[sesion.clave_deslizador("MU", "beta")] = 2.6
+    # El antecedente del test: con la beta movida los votos cambian de verdad.
+    movida, movidos = sesion.valoracion_en_pantalla({sesion.clave_deslizador("MU", "beta"): 2.6}, analisis)
+    assert movidos and archivo_analizador.votos_de(movida) != archivo_analizador.votos_de(analisis.valoracion)
+    pantalla.run()
+    _pulsar(pantalla, "Explicar la valoración")
+    _pulsar(pantalla, "Sí, leer con IA")
+    textos = _textos(pantalla)
+    assert "Se explicó con tus supuestos" in textos
+    assert "con los números de entonces" not in textos

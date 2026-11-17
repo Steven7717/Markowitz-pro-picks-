@@ -247,7 +247,10 @@ def _mdna(analisis, lecturas) -> None:
 
 
 def _pintar_explicacion(explicacion, analisis) -> None:
-    valoracion = analisis.valoracion if isinstance(analisis.valoracion, dict) else {}
+    # Con la valoración que hay en pantalla ahora, no con la del programa: una
+    # explicación hecha con deslizadores movidos guarda los votos de esos supuestos.
+    en_pantalla = sesion.valoracion_en_pantalla(st.session_state, analisis)[0]
+    valoracion = en_pantalla if isinstance(en_pantalla, dict) else {}
     de_hoy = (archivo.votos_de(valoracion), valoracion.get("veredicto"))
     if (explicacion.votos, explicacion.veredicto) != de_hoy:
         st.warning(ma.de_entonces(explicacion.cuando))
