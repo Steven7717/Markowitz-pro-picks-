@@ -207,3 +207,50 @@ def test_la_pantalla_si_sigue_traduciendo_para_mirarla():
     cabecera de la pantalla y en la leyenda de la frontera eficiente.
     """
     assert "STRATEGY_LABELS[corrida[\"estrategia\"]]" in FUENTE
+
+
+# ── Riesgo de cola: VaR y ES ──────────────────────────────────────────────────
+
+def test_el_riesgo_se_calcula_una_vez_en_la_corrida():
+    """Como la validación: repintar no puede volver a descargar ni backtestear."""
+    cuerpo = _cuerpo("_ejecutar")
+    assert "informe_riesgo(" in cuerpo
+    assert '"riesgo":' in cuerpo
+    assert FUENTE.count("informe_riesgo(") == 1
+
+
+def test_la_falta_de_historia_se_explica_y_no_tumba_la_corrida():
+    cuerpo = _cuerpo("_ejecutar")
+    assert "except HistoriaInsuficiente" in cuerpo
+
+
+def test_hay_pestana_de_riesgo():
+    assert '"Riesgo: VaR y ES"' in FUENTE
+
+
+def test_un_ticker_sin_datos_diarios_se_nombra_como_tal():
+    """Con un ticker a 0 sesiones la historia común es 0, y «la que más recorta
+    es X, con 0» manda a quitar historia que no existe: lo que pasa es que
+    yfinance no devolvió ni un día de ese activo, y la pestaña tiene que
+    decirlo así."""
+    assert "sin_datos" in _cuerpo("_ejecutar")
+    assert FUENTE.count("sin_datos") >= 2   # se guarda... y se lee en la pestaña
+
+
+def _manejadores(cuerpo_de: str) -> list[ast.ExceptHandler]:
+    funcion = next(n for n in ast.walk(ARBOL)
+                   if isinstance(n, ast.FunctionDef) and n.name == cuerpo_de)
+    return [n for n in ast.walk(funcion) if isinstance(n, ast.ExceptHandler)]
+
+
+def test_cualquier_otro_fallo_del_riesgo_tampoco_tumba_la_corrida():
+    """Un NaN que se cuele, pesos y columnas que no casen o la red caída en la
+    descarga diaria: el reparto sigue valiendo, así que se guarda el motivo y
+    la pestaña lo enseña. Sin `except:` desnudo, que se tragaría hasta Ctrl+C."""
+    manejadores = _manejadores("_ejecutar")
+    assert all(m.type is not None for m in manejadores)
+    capturados = {ast.get_source_segment(FUENTE, m.type) for m in manejadores}
+    assert "ValueError" in capturados
+    assert "Exception" in capturados
+    assert '"error":' in _cuerpo("_ejecutar")
+    assert 'inf.get("error")' in FUENTE or "inf[\"error\"]" in FUENTE

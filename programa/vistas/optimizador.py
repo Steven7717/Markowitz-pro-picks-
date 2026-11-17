@@ -26,6 +26,7 @@ import historial
 import preferencias as preferencias_mod
 import tema
 from charts import (
+    plot_backtest_var,
     plot_comparison,
     plot_correlation_heatmap,
     plot_efficient_frontier,
@@ -39,6 +40,10 @@ from data import (
     parse_tickers,
 )
 from exporter import to_excel, to_pdf
+from riesgo.backtest import limites_semaforo
+from riesgo.datos import retornos_diarios
+from riesgo.informe import HistoriaInsuficiente, informe_riesgo
+from riesgo.metodos import ETIQUETAS as ETIQUETAS_RIESGO
 from optimizer import (
     STRATEGY_LABELS,
     equal_weight_portfolio,
@@ -477,6 +482,37 @@ def _ejecutar() -> dict | None:
         todas = comparacion["por_estrategia"] if comparacion else {}
         wf = todas.get(strategy)
 
+    with st.spinner("Midiendo el riesgo de cola (VaR y ES)…"):
+        # Diario siempre, sea cual sea el horizonte: el semáforo de Basilea
+        # está definido a un día. Nada de lo que falle aquí para la corrida —el
+        # reparto sigue valiendo—; se guarda el motivo y la pestaña lo dice.
+        try:
+            diarios = retornos_diarios(tuple(valid_tickers))
+        except Exception as error:  # noqa: BLE001
+            # Amplio a propósito: es una descarga de red con yfinance, que
+            # falla de formas que no documenta (timeouts, JSON a medias, una
+            # forma de tabla inesperada). Ninguna justifica perder el reparto.
+            diarios = None
+            riesgo = {"error": f"no se pudo descargar la serie diaria ({error})."}
+        if diarios is not None:
+            try:
+                riesgo = informe_riesgo(
+                    diarios["retornos"].reindex(columns=valid_tickers).dropna(),
+                    optimal["weights"],
+                )
+            except HistoriaInsuficiente as falta:
+                sesiones = diarios["sesiones"]
+                # Un ticker sin un solo día deja la historia común a cero, y
+                # «el que más recorta, con 0» no explica nada: se nombra aparte.
+                sin_datos = [t for t, n in sesiones.items() if n == 0]
+                corto = min(sesiones, key=sesiones.get)
+                riesgo = {"falta": falta, "sin_datos": sin_datos,
+                          "corto": corto, "sesiones": sesiones[corto]}
+            except ValueError as error:
+                # Datos no finitos o pesos que no casan con las columnas: un
+                # defecto que contar, no un motivo para tirar la optimización.
+                riesgo = {"error": str(error)}
+
     benchmark = None
     if not market["benchmark_returns"].empty:
         bm = market["benchmark_returns"]
@@ -498,6 +534,7 @@ def _ejecutar() -> dict | None:
         "todas": todas,
         "comparacion": comparacion,
         "benchmark": benchmark,
+        "riesgo": riesgo,
         "tickers": valid_tickers,
         "horizonte": horizon,
         "estrategia": strategy,
@@ -689,8 +726,9 @@ fig_comp = plot_comparison(
     optimal["annual_vol"], ew["annual_vol"],
 )
 
-resumen, validacion, graficos, exportar = st.tabs(
-    ["Resumen", "Validación fuera de muestra", "Gráficos", "Guardar y exportar"]
+resumen, validacion, graficos, riesgo_tab, exportar = st.tabs(
+    ["Resumen", "Validación fuera de muestra", "Gráficos", "Riesgo: VaR y ES",
+     "Guardar y exportar"]
 )
 
 # ── Resumen ──────────────────────────────────────────────────────────────────
@@ -973,6 +1011,85 @@ with graficos:
     g3, g4 = st.columns(2)
     g3.plotly_chart(fig_corr, use_container_width=True, key="correlacion")
     g4.plotly_chart(fig_pie, use_container_width=True, key="tarta_graficos")
+
+# ── Riesgo: VaR y ES ─────────────────────────────────────────────────────────
+def _peso(w: float) -> str:
+    """Un peso a un decimal sin «−0,0 %»: el optimizador deja restos de −1e-17
+    donde quiso decir cero, y el signo sólo despista."""
+    texto = f"{w:.1%}"
+    return "0.0%" if texto == "-0.0%" else texto
+
+
+with riesgo_tab:
+    inf = corrida.get("riesgo")
+    if inf is None:
+        st.info("Esta corrida es de antes de medir el riesgo. Vuelve a optimizar.")
+    elif isinstance(inf, dict) and inf.get("error"):
+        st.warning(f"No se pudo medir el riesgo de cola: {inf['error']} "
+                   "El reparto de las otras pestañas no depende de esto.")
+    elif isinstance(inf, dict):
+        falta = inf["falta"]
+        if inf.get("sin_datos"):
+            st.warning(
+                "No llegaron datos diarios de "
+                + ", ".join(f"**{t}**" for t in inf["sin_datos"])
+                + ", así que no hay ni una sesión común con la que backtestear el "
+                f"VaR (hacen falta {falta.necesarias}). Comprueba el ticker o "
+                "vuelve a optimizar más tarde."
+            )
+        else:
+            st.warning(
+                f"Para backtestear el VaR hacen falta {falta.necesarias} sesiones "
+                f"diarias comunes y hay {falta.observaciones}. La que más recorta es "
+                f"**{inf['corto']}**, con {inf['sesiones']}: sin ella, o con activos "
+                "con más historia, la pestaña se llena."
+            )
+    else:
+        verde, amarilla = limites_semaforo()
+        ganador = inf.competencia[inf.elegido]
+        k1, k2, k3, k4 = st.columns(4)
+        k1.metric("VaR 99 % · 1 día", f"{inf.var99:.2%}")
+        k2.metric("ES 97,5 % · 1 día", f"{inf.es975:.2%}")
+        k3.metric("ES 99 % · 1 día", f"{inf.es99:.2%}")
+        k4.metric("Zona hoy", ganador.zona_actual.capitalize(),
+                  f"{ganador.excepciones_ultimas} excepciones en 250 días",
+                  delta_color="off")
+        st.caption(
+            f"Método: **{ETIQUETAS_RIESGO[inf.elegido]}**, el que más tiempo pasó "
+            f"en zona verde ({ganador.fraccion_verde:.0%} de las ventanas de 250 "
+            f"días). Verde es 0–{verde} excepciones; amarilla, {verde + 1}–{amarilla}. "
+            f"A 10 días, escalando por √10 como Basilea: VaR {inf.var99 * 10 ** 0.5:.2%}. "
+            "Los pesos se mantienen fijos en todo el historial y son los de esta "
+            "corrida, elegidos con datos de ese mismo periodo."
+        )
+        st.markdown("##### Los seis métodos, medidos sobre esta cartera")
+        st.dataframe(pd.DataFrame([{
+            "Método": ETIQUETAS_RIESGO[m] + (" ✓" if m == inf.elegido else ""),
+            "Tiempo en verde": f"{b.fraccion_verde:.0%}",
+            "Zona hoy": b.zona_actual,
+            "Excepciones (250 d)": b.excepciones_ultimas,
+            "Tasa total": f"{b.tasa:.2%}",
+            "Kupiec p": f"{b.kupiec_p:.2f}",
+            "Pérdida en cola / ES": f"{b.razon_es:.2f}",
+        } for m, b in inf.competencia.items()]), hide_index=True, use_container_width=True)
+        st.caption("«Pérdida en cola / ES»: en los días peores que el VaR 97,5 %, "
+                   "lo que se perdió entre lo que el ES decía. Por encima de 1, el "
+                   "ES se queda corto.")
+        st.markdown("##### Por activo")
+        st.dataframe(pd.DataFrame([{
+            "Ticker": f.ticker, "Peso": _peso(f.peso),
+            "VaR 99 %": f"{f.var99:.2%}", "ES 97,5 %": f"{f.es975:.2%}",
+            "ES 99 %": f"{f.es99:.2%}", "Método": ETIQUETAS_RIESGO[f.metodo],
+            "Zona hoy": f.zona_actual, "Tiempo en verde": f"{f.fraccion_verde:.0%}",
+            "Aporta al ES": f"{f.aportacion_es:.1%}",
+        } for f in inf.activos]), hide_index=True, use_container_width=True)
+        st.caption(f"Diversificar quita un {inf.diversificacion:.0%} del ES que "
+                   "sumarían los activos por separado.")
+        st.plotly_chart(
+            plot_backtest_var(inf.fechas, ganador.realizados, ganador.var99,
+                              ganador.excepciones),
+            use_container_width=True, key="grafico_backtest_var",
+        )
 
 # ── Guardar y exportar ───────────────────────────────────────────────────────
 with exportar:
