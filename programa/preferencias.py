@@ -20,6 +20,7 @@ from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 
 from data import DEFAULT_HORIZON, HORIZON_LABELS, clave_de_horizonte
+from macro.criterio import REGION_POR_DEFECTO, REGIONES
 from optimizer import STRATEGY_LABELS
 
 RUTA = Path.home() / ".markowitz-pro-picks" / "preferencias.json"
@@ -43,6 +44,7 @@ class Preferencias:
     permitir_cortos: bool = False
     shrinkage: bool = True
     guia_vista: bool = False
+    region_macro: str = REGION_POR_DEFECTO
 
     def saneadas(self) -> tuple["Preferencias", list[str]]:
         """A copy with every impossible value replaced, and what was replaced.
@@ -93,6 +95,13 @@ class Preferencias:
             cambios["peso_min"] = minimo
         if maximo != self.peso_max:
             cambios["peso_max"] = maximo
+
+        if self.region_macro not in REGIONES:
+            avisos.append(
+                f"La región macro guardada ({self.region_macro!r}) ya no existe; "
+                "se usa Estados Unidos."
+            )
+            cambios["region_macro"] = REGION_POR_DEFECTO
 
         return (replace(self, **cambios) if cambios else self), avisos
 

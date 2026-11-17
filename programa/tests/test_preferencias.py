@@ -178,3 +178,15 @@ def test_unas_preferencias_de_antes_de_la_clave_se_traducen_sin_avisar(tmp_path)
 
     assert guardadas.horizonte == "1_ano"
     assert avisos == []
+
+
+def test_la_region_macro_por_defecto_es_usa():
+    from preferencias import Preferencias
+    assert Preferencias().region_macro == "usa"
+
+
+def test_una_region_macro_desconocida_cae_a_usa_y_avisa():
+    from preferencias import Preferencias
+    limpias, avisos = Preferencias(region_macro="marte").saneadas()
+    assert limpias.region_macro == "usa"
+    assert any("región" in a for a in avisos)
