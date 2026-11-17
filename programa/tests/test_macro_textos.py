@@ -64,6 +64,15 @@ def test_un_bloque_que_no_es_un_dict_cuenta_como_sin_macro():
     assert textos.lo_que_movio([1])
 
 
+def test_un_dict_sin_fase_valida_cuenta_como_sin_macro():
+    sin_macro = textos.lo_que_movio(None)
+    for bloque in ({"foo": 1}, {"fase": None}, {"fase": ""}, {"fase": ["expansion"]},
+                   {"region": "usa", "mes_dato": "2026-10-01"}):
+        assert not textos.lleva_macro(bloque)
+        assert textos.etiqueta_corrida(bloque) == "sin macro"
+        assert textos.lo_que_movio(bloque) == sin_macro
+
+
 def test_entradas_y_salidas_ausentes_son_listas_vacias():
     bloque = {"region": "usa", "fase": "expansion", "mes_dato": "2026-10-01"}
     assert "no cambió" in textos.lo_que_movio(bloque)

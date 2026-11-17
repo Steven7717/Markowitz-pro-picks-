@@ -3,11 +3,14 @@ from datetime import date
 from types import SimpleNamespace
 
 import pandas as pd
+import pytest
 
+from interprete import cliente as cliente_ia
 from macro import lectura
 from macro.contexto import ContextoUSA
 from macro.estado import Estado
 from macro.fase import Fase
+from noticias import cache
 
 
 def _estado(region="usa"):
@@ -60,14 +63,9 @@ def test_sin_fase_no_se_llama(tmp_path):
 
 
 def test_el_coste_es_el_de_los_tokens_de_la_llamada(tmp_path):
-    from interprete import cliente as cliente_ia
     r = lectura.leer(_estado(), None, raiz=tmp_path, cliente=_Cliente())
     assert r.coste_usd == cliente_ia.coste(1000, 500)
 
-
-import json
-
-import pytest
 
 
 @pytest.mark.parametrize(
@@ -75,7 +73,6 @@ import pytest
     [{"otra": 1}, {"explicacion": "Hola.", "vigilar": None}, {"explicacion": "Hola.", "vigilar": "abc"}],
 )
 def test_una_cache_con_mala_forma_se_trata_como_si_no_hubiera_cache(tmp_path, datos):
-    from noticias import cache
     cache.guardar(tmp_path, "macro", "usa_2026-10-01", datos)
     cliente = _Cliente()
     r = lectura.leer(_estado(), None, raiz=tmp_path, cliente=cliente)

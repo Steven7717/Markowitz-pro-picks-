@@ -112,8 +112,16 @@ def _nombre(tabla: dict, clave) -> str:
         return str(clave)
 
 
+def lleva_macro(bloque) -> bool:
+    """Si el bloque de la corrida trae una fase: un dict sin ella es una corrida sin macro.
+
+    Una fase que ya no existe («caos») sí cuenta: se enseña cruda, no se esconde.
+    """
+    return isinstance(bloque, dict) and isinstance(bloque.get("fase"), str) and bool(bloque["fase"])
+
+
 def etiqueta_corrida(bloque: "dict | None") -> str:
-    if not bloque or not isinstance(bloque, dict):
+    if not lleva_macro(bloque):
         return "sin macro"
     fase, region = bloque.get("fase"), bloque.get("region")
     return (
@@ -127,7 +135,7 @@ def _lista(valor) -> list:
 
 
 def lo_que_movio(bloque: dict) -> str:
-    if not isinstance(bloque, dict):
+    if not lleva_macro(bloque):
         return "Esta corrida no lleva entorno macro."
     cabeza = (
         f"El Top está inclinado por la fase **{_nombre(NOMBRE_FASE, bloque.get('fase'))}** de "

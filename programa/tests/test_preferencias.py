@@ -1,9 +1,12 @@
 import json
 
+import pytest
+
 import preferencias
 from data import DEFAULT_HORIZON, HORIZON_CONFIG
+from macro.criterio import REGION_POR_DEFECTO
 from optimizer import STRATEGY_LABELS
-from preferencias import Preferencias
+from preferencias import ESTRATEGIA_POR_DEFECTO, Preferencias
 
 
 def test_un_usuario_nuevo_no_es_un_error(tmp_path):
@@ -181,27 +184,21 @@ def test_unas_preferencias_de_antes_de_la_clave_se_traducen_sin_avisar(tmp_path)
 
 
 def test_la_region_macro_por_defecto_es_usa():
-    from preferencias import Preferencias
     assert Preferencias().region_macro == "usa"
 
 
 def test_una_region_macro_desconocida_cae_a_usa_y_avisa():
-    from preferencias import Preferencias
     limpias, avisos = Preferencias(region_macro="marte").saneadas()
     assert limpias.region_macro == "usa"
     assert any("región" in a for a in avisos)
 
 
-import pytest
-
-
 @pytest.mark.parametrize("campo", ["region_macro", "estrategia"])
 @pytest.mark.parametrize("valor", [[], {}])
 def test_un_valor_no_hashable_no_revienta_al_cargar(tmp_path, campo, valor):
-    import json
-    from preferencias import cargar
     ruta = tmp_path / "p.json"
     ruta.write_text(json.dumps({campo: valor}), encoding="utf-8")
-    limpias, avisos = cargar(ruta)
-    assert getattr(limpias, campo) in ("usa", limpias.estrategia)
+    limpias, avisos = preferencias.cargar(ruta)
+    por_defecto = {"region_macro": REGION_POR_DEFECTO, "estrategia": ESTRATEGIA_POR_DEFECTO}
+    assert getattr(limpias, campo) == por_defecto[campo]
     assert avisos
