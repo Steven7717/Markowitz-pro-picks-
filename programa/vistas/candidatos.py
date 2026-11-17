@@ -165,7 +165,9 @@ with st.container(border=True):
     inclinar = st.checkbox("Inclinar el Top por la fase macro", value=False, key="inclinar_macro")
     estado_macro = None
     if inclinar:
-        guardadas, _ = preferencias_mod.cargar()
+        guardadas, avisos_preferencias = preferencias_mod.cargar()
+        for aviso in avisos_preferencias:
+            st.warning(aviso)
         claves = list(REGIONES)
         region = st.selectbox(
             "Región del ciclo", claves,
@@ -174,6 +176,8 @@ with st.container(border=True):
             key="region_macro_candidatos",
         )
         estado = _estado_macro(region, date.today())
+        if estado.vieja:
+            st.warning("La OCDE no responde: se usará lo último guardado.")
         if estado.motivo_no_inclinar:
             st.warning(
                 textos_macro.MOTIVO.get(estado.motivo_no_inclinar, estado.motivo_no_inclinar)

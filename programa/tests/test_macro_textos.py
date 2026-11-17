@@ -23,6 +23,22 @@ def test_cada_motivo_tiene_frase():
         assert textos.MOTIVO[motivo].strip()
 
 
+def test_cada_motivo_de_fred_tiene_frase_y_no_nombra_a_la_ocde():
+    for motivo in ("sin_red", "serie_desconocida", "respuesta_ilegible"):
+        assert textos.MOTIVO_FRED[motivo].strip()
+        assert "OCDE" not in textos.MOTIVO_FRED[motivo]
+
+
+def test_indeterminada_vale_para_los_dos_casos():
+    frase = textos.MOTIVO["indeterminada"]
+    assert "no se movió" in frase and "desmiente" in frase
+
+
+def test_meses_en_fase_singular_y_plural():
+    assert textos.lleva_meses(1) == "Lleva 1 mes en esta fase."
+    assert textos.lleva_meses(5) == "Lleva 5 meses en esta fase."
+
+
 def test_resumen_sin_macro():
     assert textos.etiqueta_corrida(None) == "sin macro"
 

@@ -15,6 +15,7 @@ from datetime import date
 import numpy as np
 import pandas as pd
 
+from macro import fuentes
 from macro.mensual import mensual
 
 UMBRAL_SAHM = 0.5
@@ -76,3 +77,13 @@ def calcular(curva, desempleo, ipc) -> ContextoUSA:
         inflacion=inflacion,
         mes_inflacion=mes_inflacion,
     )
+
+
+def traer_contexto() -> "tuple[ContextoUSA, dict]":
+    """El contexto y, por serie, lo que FRED dio (`Serie`: motivo, `vieja`).
+
+    La pantalla necesita los dos: con solo el contexto, «la red cayó» y «la
+    serie es corta» son lo mismo, y una caché vieja parece fresca.
+    """
+    series = {nombre: fuentes.traer_fred(serie) for nombre, serie in SERIES.items()}
+    return calcular(**{nombre: s.datos for nombre, s in series.items()}), series

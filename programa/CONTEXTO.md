@@ -1,7 +1,7 @@
 # Contexto del proyecto — para retomar en una sesión nueva
 
 **Última actualización:** 2026-11-17
-**Rama:** `claude/macro-economic-analyzer-7a7efd` (sub-proyecto O, **todavía sin fusionar a `master`**; `master` sigue siendo lo publicado y N1 y N2 están fusionados en él desde el 2026-11-12) · **Tests:** 3.630 pasando (`uv run pytest tests/ -q -m "not red"`), 3 omitidos —dos por permisos POSIX en Windows y uno de `test_valoracion_dcf.py` sin `numpy_financial`— más 46 marcados `red`, 8 de ellos del macro
+**Rama:** `claude/macro-economic-analyzer-7a7efd` (sub-proyecto O, **todavía sin fusionar a `master`**; `master` sigue siendo lo publicado y N1 y N2 están fusionados en él desde el 2026-11-12) · **Tests:** 3.643 pasando (`uv run pytest tests/ -q -m "not red"`), 3 omitidos —dos por permisos POSIX en Windows y uno de `test_valoracion_dcf.py` sin `numpy_financial`— más 46 marcados `red`, 8 de ellos del macro
 **Remoto:** `https://github.com/Steven7717/Markowitz-pro-picks-.git` — `master` es lo publicado
 **Estructura:** el programa vive en `programa/`; en la raíz sólo están los dos
 lanzadores y el `README.md`. Los comandos (`uv run pytest`, `uv run streamlit`)
@@ -1639,7 +1639,7 @@ del spec—. Un veredicto firme de cada seis. No se movió ningún listón.
 El entorno macro: en qué fase del ciclo está una región y, si el usuario lo
 pide, un Top inclinado por esa fase. Está en la rama
 `claude/macro-economic-analyzer-7a7efd`, **sin fusionar a `master`**, con la
-suite en 3.630 pasando (3.494 al cerrar N2) y 8 tests `red` contra las fuentes
+suite en 3.643 pasando (3.494 al cerrar N2) y 8 tests `red` contra las fuentes
 reales. Plan: `docs/superpowers/plans/2026-11-16-entorno-macro.md`; spec:
 `docs/superpowers/specs/2026-11-15-entorno-macro-design.md`, con sus enmiendas.
 
@@ -1699,6 +1699,14 @@ Es opcional, explica y no toca el Top. Se guarda **por (región, mes del dato)**
 en `lecturas_macro/`, fuera de git como `analisis/`: con el mismo dato la
 explicación sería la misma, así que preguntar dos veces en un mes no paga dos
 veces.
+
+### Una caché vieja puede inclinar
+
+Decisión de `macro/estado.py`: una caché vieja de la OCDE (`vieja=True`) puede
+inclinar el Top si el mes del dato no es rancio, porque lo que importa es la
+antigüedad del dato, no la de la descarga. Las dos pantallas avisan (Entorno
+macro y Revisar candidatos: «La OCDE no responde…»), y el contexto de FRED dice
+por serie si no llegó (con su motivo) o si llegó de una descarga anterior.
 
 ### Lo que O no resuelve
 

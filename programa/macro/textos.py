@@ -71,7 +71,7 @@ POR_QUE = {
 }
 
 MOTIVO = {
-    "indeterminada": "El indicador no se decide: el último mes desmiente la tendencia de tres meses.",
+    "indeterminada": "El indicador no marca dirección: o no se movió en tres meses, o el último mes desmiente la tendencia.",
     "serie_corta": "No hay meses suficientes para leer una dirección.",
     "dato_rancio": "El último dato tiene más de tres meses; no se usa para mover el Top.",
     "sin_red": "La OCDE no responde y no hay nada guardado.",
@@ -79,6 +79,17 @@ MOTIVO = {
     "respuesta_ilegible": "La OCDE respondió algo que no es la tabla esperada.",
     "serie_con_huecos": "Faltan meses en los datos recientes del indicador; no se lee la dirección.",
 }
+
+# Lo mismo para FRED: no puede decir «la OCDE», y es lo que dice la pantalla del
+# contexto de EE. UU. cuando una serie no llega.
+MOTIVO_FRED = {
+    "sin_red": "FRED no responde y no hay nada guardado.",
+    "serie_desconocida": "FRED no tiene esa serie; puede que haya cambiado su catálogo.",
+    "respuesta_ilegible": "FRED respondió algo que no es la tabla esperada.",
+}
+
+AVISO_FRED_VIEJA = "FRED no responde: estos datos son de una descarga anterior."
+SIN_MESES_FRED = "FRED no tiene meses suficientes para calcularlo."
 
 AVISO_EVIDENCIA = (
     "La rotación de sectores por fase del ciclo tiene una evidencia floja: el ciclo "
@@ -92,6 +103,21 @@ _MESES = ("ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", 
 def cifra(valor: float) -> str:
     """Dos decimales con coma, como el resto de la pantalla."""
     return f"{valor:.2f}".replace(".", ",")
+
+
+def lleva_meses(n: int) -> str:
+    return f"Lleva {n} {'mes' if n == 1 else 'meses'} en esta fase."
+
+
+def nota_fred(serie, calculado: bool) -> "str | None":
+    """Qué decir bajo una lectura de FRED que no salió; `None` si salió.
+
+    «No hay meses suficientes» solo si la serie llegó: si no llegó, lo que falta
+    es la red (o el catálogo), no los datos.
+    """
+    if serie.datos is None:
+        return MOTIVO_FRED.get(serie.motivo, f"FRED no dio la serie ({serie.motivo}).")
+    return None if calculado else SIN_MESES_FRED
 
 
 def mes_legible(mes: "date | str") -> str:

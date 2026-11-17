@@ -119,6 +119,29 @@ def test_marcada_dice_la_fase_y_la_pasa_a_la_corrida(pantalla):
     assert llamada["region"] == "usa"
 
 
+def test_una_cache_vieja_que_si_inclina_se_avisa(pantalla):
+    pantalla.mundo["traer"] = lambda region: Serie(_serie(), "ok", vieja=True)
+    _correr(pantalla)
+    pantalla.checkbox(key="inclinar_macro").check().run()
+    assert not pantalla.exception
+    assert "La OCDE no responde: se usará lo último guardado." in [w.value for w in pantalla.warning]
+    assert "Se usará la fase **Expansión**" in _textos(pantalla)
+
+
+def test_una_cache_fresca_no_avisa(pantalla):
+    _correr(pantalla)
+    pantalla.checkbox(key="inclinar_macro").check().run()
+    assert not any("La OCDE no responde" in w.value for w in pantalla.warning)
+
+
+def test_un_aviso_de_preferencias_se_ensena(pantalla, tmp_path):
+    (tmp_path / "preferencias.json").write_text("{no es json", encoding="utf-8")
+    _correr(pantalla)
+    pantalla.checkbox(key="inclinar_macro").check().run()
+    assert not pantalla.exception
+    assert len([w for w in pantalla.warning if "referencias" in w.value]) >= 1
+
+
 @pytest.mark.parametrize(
     "serie, motivo",
     [(Serie(None, "sin_red"), "sin_red"), (Serie(_serie(meses_atras=6), "ok"), "dato_rancio")],

@@ -21,7 +21,7 @@ import preferencias as preferencias_mod
 import tema
 from interprete import cliente as cliente_ia
 from macro import contexto as contexto_mod
-from macro import fuentes, lectura, textos
+from macro import lectura, textos
 from macro.criterio import NIVEL_NEUTRO, REGIONES, SECTORES_POR_FASE
 from macro.estado import leer_region
 from macro.fase import fases_por_mes
@@ -55,11 +55,7 @@ def _estado(region: str, hoy: date):
 
 @st.cache_data(ttl=3600, show_spinner="Descargando FRED...")
 def _contexto_usa():
-    series = {
-        nombre: fuentes.traer_fred(serie).datos
-        for nombre, serie in contexto_mod.SERIES.items()
-    }
-    return contexto_mod.calcular(**series)
+    return contexto_mod.traer_contexto()
 
 
 def _motivo(clave) -> str:
@@ -67,7 +63,9 @@ def _motivo(clave) -> str:
     return textos.MOTIVO.get(clave, f"No se puede leer la fase ({clave}).")
 
 
-guardadas, _ = preferencias_mod.cargar()
+guardadas, avisos_preferencias = preferencias_mod.cargar()
+for aviso in avisos_preferencias:
+    st.warning(aviso)
 claves = list(REGIONES)
 region = st.selectbox(
     "Región",
@@ -97,7 +95,7 @@ with columna_fase:
         st.caption(_motivo(fase.motivo))
     else:
         st.markdown(f"### {textos.NOMBRE_FASE[fase.clave]}")
-        st.caption(f"Lleva {fase.meses_en_fase} meses en esta fase.")
+        st.caption(textos.lleva_meses(fase.meses_en_fase))
 with columna_dato:
     st.metric(
         "Indicador adelantado",
@@ -107,6 +105,8 @@ with columna_dato:
     if fase.mes_dato is not None:
         st.caption(f"Dato de {textos.mes_legible(fase.mes_dato)}.")
 
+if estado.descargada is not None:
+    st.caption(f"Descargado el {estado.descargada.astimezone():%Y-%m-%d} a las {estado.descargada.astimezone():%H:%M}.")
 if estado.vieja:
     st.warning("La OCDE no responde: esto es lo último que se guardó.")
 if estado.motivo_no_inclinar == "dato_rancio":
@@ -158,7 +158,7 @@ st.info(textos.AVISO_EVIDENCIA)
 
 contexto = None
 if region == "usa":
-    contexto = _contexto_usa()
+    contexto, series_fred = _contexto_usa()
     st.markdown("#### Contexto de EE. UU.")
     curva, sahm, inflacion = st.columns(3)
     curva.metric("Curva 10a − 3m", "—" if contexto.curva is None else f"{contexto.curva:+.2f}".replace(".", ","))
@@ -173,10 +173,16 @@ if region == "usa":
     )
     if contexto.mes_inflacion is not None:
         inflacion.caption(f"Dato de {textos.mes_legible(contexto.mes_inflacion)}.")
-    if contexto.sahm is None:
-        sahm.caption("FRED no tiene meses suficientes para calcularlo.")
-    if contexto.inflacion is None:
-        inflacion.caption("FRED no tiene meses suficientes para calcularlo.")
+    for columna, serie, valor in (
+        (curva, "curva", contexto.curva),
+        (sahm, "desempleo", contexto.sahm),
+        (inflacion, "ipc", contexto.inflacion),
+    ):
+        nota = textos.nota_fred(series_fred[serie], valor is not None)
+        if nota:
+            columna.caption(nota)
+    if any(s.vieja and s.datos is not None for s in series_fred.values()):
+        st.warning(textos.AVISO_FRED_VIEJA)
     st.caption("El contexto no entra en la fase: se enseña al lado.")
 else:
     st.caption("El contexto de curva, desempleo e inflación solo está para EE. UU.")

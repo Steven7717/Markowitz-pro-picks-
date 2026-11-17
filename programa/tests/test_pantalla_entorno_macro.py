@@ -175,10 +175,65 @@ def test_la_cache_vieja_se_avisa(pantalla):
     assert any("lo último que se guardó" in w.value for w in pantalla.warning)
 
 
-def test_fred_sin_red_deja_rayas(pantalla, monkeypatch):
+def test_fred_sin_red_deja_rayas_y_dice_que_es_la_red(pantalla, monkeypatch):
     monkeypatch.setattr("macro.fuentes.traer_fred", lambda serie_id: Serie(None, "sin_red"))
-    _correr(pantalla)
+    texto = _correr(pantalla)
     assert [m.value for m in pantalla.metric][-3:] == ["—", "—", "—"]
+    assert texto.count(textos.MOTIVO_FRED["sin_red"]) == 3
+    assert "no tiene meses suficientes" not in texto
+    assert "OCDE" not in textos.MOTIVO_FRED["sin_red"]
+
+
+def test_fred_con_cache_vieja_lo_avisa(pantalla, monkeypatch):
+    def vieja(serie_id):
+        real = _fred(serie_id)
+        return Serie(real.datos, "ok", real.descargada, vieja=True)
+
+    monkeypatch.setattr("macro.fuentes.traer_fred", vieja)
+    _correr(pantalla)
+    assert "FRED no responde: estos datos son de una descarga anterior." in [
+        w.value for w in pantalla.warning
+    ]
+
+
+def test_fred_fresca_no_avisa_de_cache_vieja(pantalla):
+    _correr(pantalla)
+    assert not any("FRED no responde" in w.value for w in pantalla.warning)
+
+
+def test_fred_que_llego_pero_sin_meses_suficientes_lo_dice(pantalla, monkeypatch):
+    def corta(serie_id):
+        real = _fred(serie_id)
+        return Serie(real.datos.iloc[-5:], "ok")
+
+    monkeypatch.setattr("macro.fuentes.traer_fred", corta)
+    texto = _correr(pantalla)
+    assert texto.count("FRED no tiene meses suficientes para calcularlo.") == 2
+    assert not any("FRED no responde" in w.value for w in pantalla.warning)
+    assert "no responde y no hay nada guardado" not in texto
+
+
+def test_enseña_cuando_se_descargo(pantalla):
+    texto = _correr(pantalla)
+    assert "Descargado el " in texto
+
+
+def test_un_mes_en_fase_va_en_singular(pantalla):
+    valores = SUBE[:-5] + [101.0, 100.6, 100.5, 100.4, 100.7]
+    pantalla.mundo["traer"] = lambda region: Serie(_serie(valores), "ok")
+    texto = _correr(pantalla)
+    assert "Lleva 1 mes en esta fase." in texto
+
+
+def test_varios_meses_en_fase_van_en_plural(pantalla):
+    texto = _correr(pantalla)
+    assert "Lleva 1 meses" not in texto and " meses en esta fase." in texto
+
+
+def test_un_aviso_de_preferencias_se_ensena(pantalla, tmp_path):
+    (tmp_path / "preferencias.json").write_text("{no es json", encoding="utf-8")
+    _correr(pantalla)
+    assert pantalla.warning
 
 
 def test_sin_clave_no_hay_boton(pantalla, monkeypatch):

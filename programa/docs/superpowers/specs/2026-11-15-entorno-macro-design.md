@@ -319,3 +319,4 @@ bien visible. Lo que no hace es dejar que ese dato mueva el Top.
 5. **La pantalla es `vistas/entorno_macro.py`, no `vistas/macro.py`.** Así el
    nombre de la página no puede tapar al paquete `macro`.
 6. **Los huecos no se saltan.** La serie se lee en meses de calendario: si falta t, t−1 o t−3, no hay fase y el motivo es `serie_con_huecos`. Comparar por posición habría convertido «hace tres meses» en «hace cuatro» sin decirlo.
+7. **La casilla no se desactiva: avisa.** En «Cuándo no se inclina» el spec decía que la casilla de Revisar candidatos «se desactiva». En el código sigue marcable y, si la fase no puede inclinar, enseña el motivo y avisa de que la corrida saldrá sin macro. Un aviso explica más que una casilla gris (dice *por qué* no se inclina), y el resultado es el mismo: como no se pasa la fase a la corrida, sale sin macro igual.
