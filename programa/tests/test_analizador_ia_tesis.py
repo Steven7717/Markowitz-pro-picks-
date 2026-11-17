@@ -64,10 +64,14 @@ def test_el_tope_de_la_tesis_es_el_de_una_ficha_de_candidatos():
     assert ia_costes.tesis() == generacion.coste_peor_caso(1)
 
 
-def test_el_tope_del_contraste_cuenta_los_dos_turnos_con_el_documento_entero():
-    por_turno = int(informe_anual.TOPE_MDNA / CARACTERES_POR_TOKEN)
+def test_el_tope_del_contraste_usa_la_cota_de_las_tablas_y_no_la_medida_de_la_prosa():
+    # El MD&A lleva tablas, más densas que la prosa en la que se midió 3,30.
+    assert ia_costes.CARACTERES_POR_TOKEN_CON_TABLAS == 2.5 < CARACTERES_POR_TOKEN
+    por_turno = int(informe_anual.TOPE_MDNA / ia_costes.CARACTERES_POR_TOKEN_CON_TABLAS)
     minimo = cliente_mod.coste(2 * por_turno, 2 * cliente_mod.MAX_TOKENS)
     assert ia_costes.mdna() > minimo
+    con_prosa = int(informe_anual.TOPE_MDNA / CARACTERES_POR_TOKEN)
+    assert ia_costes.mdna() > cliente_mod.coste(2 * con_prosa, 2 * cliente_mod.MAX_TOKENS)
 
 
 def test_ningun_tope_anunciado_pasa_del_tope_duro_de_la_pulsacion():

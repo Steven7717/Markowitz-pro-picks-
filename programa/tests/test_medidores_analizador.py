@@ -1006,6 +1006,14 @@ def test_el_coste_de_una_lectura_escapa_el_dolar():
     )
 
 
+def test_el_aviso_de_gasto_redondea_hacia_arriba_al_centimo():
+    # El tope real (0,1046) no puede anunciarse como «hasta 0.10».
+    assert r"hasta 0.11 \$" in ma.aviso_de_gasto(0.1046)
+    # Y un tope que ya es un céntimo exacto no sube por el error de coma flotante.
+    assert r"hasta 0.07 \$" in ma.aviso_de_gasto(0.07)
+    assert r"hasta 0.10 \$" in ma.aviso_de_gasto(0.10)
+
+
 def test_un_informe_que_no_se_pudo_traer_dice_por_que_y_que_no_se_gasto():
     aviso = ma.sin_informe("sin_secciones")
     assert "40-F" in aviso and "No se ha gastado nada" in aviso

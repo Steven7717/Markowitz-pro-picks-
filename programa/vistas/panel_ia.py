@@ -9,6 +9,7 @@ pintarse. En Streamlit `$…$` es LaTeX, y un texto financiero va lleno de
 dolares: es un defecto ya pagado en H.
 """
 
+import medidores_analizador as ma
 from interprete import archivo as archivo_mod
 from interprete import cliente as cliente_mod
 from interprete import documentos, noticias as interprete_noticias
@@ -364,7 +365,7 @@ def interpretar_hechos(
         cuantos = len(nuevos) or len(a_leer)
         st.caption(
             f"Leer {cuantos} documentos cuesta como mucho "
-            f"**{coste_peor_caso(cuantos):.2f} \\$**, y normalmente "
+            f"**{ma.al_centimo_hacia_arriba(coste_peor_caso(cuantos)):.2f} \\$**, y normalmente "
             f"alrededor de **{coste_estimado(cuantos):.2f} \\$**. El "
             "tope cuenta el reintento, que lo dispara el propio documento. Lo "
             "que costó de verdad se dice al terminar."
@@ -374,7 +375,7 @@ def interpretar_hechos(
                 st,
                 f"{clave}_interpretar",
                 etiqueta,
-                f"**Esto cuesta dinero: hasta {coste_peor_caso(cuantos):.2f} \\$** en tu "
+                f"**Esto cuesta dinero: hasta {ma.al_centimo_hacia_arriba(coste_peor_caso(cuantos)):.2f} \\$** en tu "
                 "cuenta de Anthropic. Es el peor caso, con el reintento; lo que "
                 "cueste de verdad se dice aquí mismo al terminar.",
             )

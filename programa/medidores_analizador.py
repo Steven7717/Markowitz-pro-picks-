@@ -18,6 +18,7 @@ libre-- los glosa la pantalla una vez, con los glosarios de `medidores` y de
 `medidores_valoracion`.
 """
 
+import math
 import re
 from datetime import date, datetime, timezone
 
@@ -1205,9 +1206,18 @@ def coste_de_lectura(usd: float, entrada_tokens: int, salida_tokens: int) -> str
     )
 
 
+def al_centimo_hacia_arriba(usd: float) -> float:
+    """Un tope se anuncia redondeado hacia arriba: `:.2f` lo bajaba (0,1046 salía «0.10»).
+
+    El `round` previo quita el error de coma flotante (0,07 * 100 = 7,000…01),
+    para que un céntimo exacto no suba otro.
+    """
+    return math.ceil(round(usd * 100, 6)) / 100
+
+
 def aviso_de_gasto(usd_maximo: float) -> str:
     return (
-        f"**Esto cuesta dinero: hasta {usd_maximo:.2f} \\$** en tu cuenta de "
+        f"**Esto cuesta dinero: hasta {al_centimo_hacia_arriba(usd_maximo):.2f} \\$** en tu cuenta de "
         "Anthropic. Es el peor caso, con el reintento; lo que cueste de verdad "
         "se dice aquí mismo al terminar."
     )

@@ -271,3 +271,13 @@ def test_cancelar_desarma_y_recarga():
 def test_los_8k_del_analizador_piden_confirmacion_y_los_de_seguimiento_no():
     assert "con_confirmacion=True" in (RAIZ / "vistas" / "analizador.py").read_text(encoding="utf-8")
     assert "con_confirmacion" not in (RAIZ / "vistas" / "seguimiento.py").read_text(encoding="utf-8")
+
+
+def test_los_topes_anunciados_de_los_8k_se_redondean_hacia_arriba():
+    """`:.2f` redondea a la baja: un peor caso de 0,1046 se anunciaba como «0.10»."""
+    import ast
+
+    fuente, funcion = _interpretar_hechos()
+    cuerpo = ast.get_source_segment(fuente, funcion)
+    assert "{coste_peor_caso(cuantos):.2f}" not in cuerpo
+    assert cuerpo.count("ma.al_centimo_hacia_arriba(coste_peor_caso(cuantos))") == 2

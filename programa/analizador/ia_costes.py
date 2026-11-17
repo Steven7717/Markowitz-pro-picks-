@@ -9,7 +9,13 @@ dice al terminar, con los tokens que devuelve la API.
 from analizador import informe_anual
 from aprobacion import generacion
 from interprete import cliente as cliente_mod
-from ranking.filings import CARACTERES_POR_TOKEN
+
+# Caracteres por token del MD&A al calcular su tope. **Es una cota prudente, no
+# una medida.** La medida de `ranking/filings.py` (3,30) es de prosa, y su
+# comentario avisa de que un texto con tablas puede pasarse; el MD&A lleva
+# tablas de cifras, más densas en tokens. Con 2,5 el tope anunciado deja margen
+# sin pasar de `cliente.TOPE_USD_POR_PULSACION`.
+CARACTERES_POR_TOKEN_CON_TABLAS = 2.5
 
 # El sistema, el bloque en palabras y las instrucciones: unos cientos de tokens,
 # redondeados hacia arriba.
@@ -23,7 +29,7 @@ def tesis() -> float:
 
 def mdna() -> float:
     """El MD&A al tope, mandado dos veces, más el eco de la primera respuesta."""
-    por_turno = int(informe_anual.TOPE_MDNA / CARACTERES_POR_TOKEN) + _TOKENS_DE_CONTEXTO
+    por_turno = int(informe_anual.TOPE_MDNA / CARACTERES_POR_TOKEN_CON_TABLAS) + _TOKENS_DE_CONTEXTO
     return cliente_mod.coste(
         2 * por_turno + cliente_mod.MAX_TOKENS, 2 * cliente_mod.MAX_TOKENS
     )
