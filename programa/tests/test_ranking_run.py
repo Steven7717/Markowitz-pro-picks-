@@ -691,4 +691,36 @@ def test_una_region_desconocida_no_se_acepta(sin_red):
 def test_la_corrida_con_macro_es_json_estricto(sin_red, tmp_path):
     guardar(construir_ranking(con_llm=False, n=5, macro=_fase(), region="usa"), tmp_path)
     corrida = json.loads((tmp_path / "corrida.json").read_text(encoding="utf-8"))
-    assert corrida["macro"]["fase"] == "recuperacion"
+    bloque = corrida["macro"]
+    assert bloque["fase"] == "recuperacion"
+    assert bloque["mes_dato"] == "2026-10-01"
+    assert bloque["inclinacion"] == INCLINACION
+    assert isinstance(bloque["entradas"], list) and isinstance(bloque["salidas"], list)
+
+
+def test_una_inclinacion_grande_mueve_de_verdad_entradas_y_salidas(sin_red, monkeypatch):
+    import ranking.score as score
+
+    neutro = {f["ticker"] for f in construir_ranking(con_llm=False, n=3, tope=3).fichas}
+    monkeypatch.setattr(score, "INCLINACION", 10.0)
+    con = construir_ranking(con_llm=False, n=3, tope=3, macro=_fase(), region="usa")
+    bloque = con.corrida["macro"]
+    inclinado = {f["ticker"] for f in con.fichas}
+    sector = {f["ticker"]: f["sector_gics"] for f in con.fichas}
+    assert bloque["entradas"] and bloque["salidas"]
+    assert all(sector[t] == "Financials" for t in bloque["entradas"])
+    assert set(bloque["salidas"]) == neutro - inclinado
+    assert bloque["entradas"] == sorted(bloque["entradas"])
+    assert bloque["salidas"] == sorted(bloque["salidas"])
+
+
+def test_con_macro_none_explicito_el_resultado_es_identico(sin_red):
+    base = construir_ranking(con_llm=False, n=15)
+    explicito = construir_ranking(con_llm=False, n=15, macro=None, region=None)
+    assert base.fichas == explicito.fichas
+    pd.testing.assert_frame_equal(base.tabla, explicito.tabla)
+
+
+def test_sin_macro_los_compuestos_de_las_fichas_van_en_orden_no_creciente(sin_red):
+    compuestos = [f["compuesto"] for f in construir_ranking(con_llm=False, n=15).fichas]
+    assert compuestos == sorted(compuestos, reverse=True)
