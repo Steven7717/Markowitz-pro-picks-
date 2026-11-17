@@ -107,14 +107,18 @@ def _reintento(fallidas: list, con_digitos: bool) -> str:
             "texto que copiaste del documento, así que va dentro de una valla y "
             "se lee como tal:\n"
             f"{listado}\n"
-            "Vuelve a escribir esos juicios usando sólo citas que puedas copiar "
-            "del texto. Si un juicio no tiene respaldo literal, quítalo."
+            "En esos juicios usa sólo citas que puedas copiar del texto; si un "
+            "juicio no tiene respaldo literal, quítalo."
         )
     if con_digitos:
         partes.append(
             "Alguna afirmación lleva un dígito. Las cifras las pone el código: "
-            "vuelve a escribirla sin ningún número."
+            "esa afirmación va sin ningún número."
         )
+    partes.append(
+        "Escribe la respuesta completa otra vez, con todos los juicios: lo que "
+        "estaba bien, sin cambiar, y sólo lo señalado corregido o quitado."
+    )
     return "\n\n".join(partes)
 
 

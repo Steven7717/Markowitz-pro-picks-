@@ -164,3 +164,11 @@ def test_el_detector_marca_las_formas_de_recomendar(frase):
 @pytest.mark.parametrize("frase", NO_DEBE_MARCAR)
 def test_el_detector_no_marca_frases_descriptivas(frase):
     assert not iv.recomienda(frase), frase
+
+
+def test_el_reintento_pide_la_respuesta_entera_y_no_sólo_lo_corregido():
+    vistos = []
+    cliente = _falso([_salida([("A", "Crece un 40 por ciento.")]), _salida([("A", "Crece mucho.")])], vistos)
+    iv.explicar(BLOQUE, MAPA, cliente=cliente)
+    segundo = vistos[1]["messages"][-1]["content"]
+    assert "respuesta completa" in segundo and "sin cambiar" in segundo

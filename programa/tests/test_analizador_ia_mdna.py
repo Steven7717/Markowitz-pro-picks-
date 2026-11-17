@@ -131,3 +131,10 @@ def test_el_sistema_no_lleva_ni_un_digito():
     from ranking.verificacion import sin_digitos
 
     assert sin_digitos(im.SISTEMA)
+
+
+def test_el_reintento_pide_la_respuesta_entera_y_no_sólo_lo_corregido():
+    vistos = []
+    im.contrastar("MU", SUPUESTO, DOCUMENTO, cliente=_falso([_salida(INVENTADO, BUENO), _salida(BUENO)], vistos))
+    segundo = vistos[1]["messages"][-1]["content"]
+    assert "respuesta completa" in segundo and "sin cambiar" in segundo

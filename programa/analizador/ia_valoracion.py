@@ -215,7 +215,9 @@ def explicar(
                 "role": "user",
                 "content": (
                     "Alguna observación lleva un dígito. Las cifras las pone el "
-                    "código: vuelve a escribirla sin ningún número."
+                    "código. Escribe la respuesta completa otra vez, con todas las "
+                    "observaciones y el párrafo de conjunto: lo que estaba bien, "
+                    "sin cambiar, y sólo lo señalado corregido, sin ningún número."
                 ),
             },
         ]
