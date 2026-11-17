@@ -32,11 +32,44 @@ HECHA = "hecha"
 # No es una clave de caché: es la procedencia que se anota con cada explicación.
 VERSION_PROMPT = "n1"
 
-# Las raíces del spec (`compr`, `vend`, `recomiend`, `aconsej`), afinadas: `compr`
-# a secas marcaba «comprende» y «compromiso», y a `recomiend` se le escapaba
-# «recomendación». Con límite de palabra delante, «recompra» no cuenta.
+# El detector de recomendaciones. Una raíz suelta (`compr`, `vend`) marcaba
+# frases que describen («la empresa vende memoria», «los clientes compran
+# menos»), así que se cubren **formas**, no raíces. Prioridad: no dar falsos
+# positivos en frases descriptivas; lo dudoso se deja pasar.
+#
+# 1. Palabras que sólo se usan para recomendar, en cualquier forma:
+#    recomiendo/recomendación/recomendable, aconseja/aconsejable/desaconsejable,
+#    sugiero.
+# 2. Formas de primera o segunda persona de comprar y vender, que se dirigen a
+#    alguien: condicional (comprarías, vendería), futuro (compraré, venderé),
+#    subjuntivo (compremos, compres), presente en primera persona (compro, vendo)
+#    e imperativo con pronombre (cómprala, compradla, véndelo). No las de tercera
+#    persona (vende, compran, venderán), que describen.
+# 3. «Esperaría» (yo esperaría), salvo que lleve complemento («esperaría más
+#    crecimiento»): `espera`/`esperan` a secas describen lo que se espera.
+# 4. Un disparador de consejo (conviene, deberías, hay que, mejor, momento de/para,
+#    hora de) seguido de un verbo de operar (comprar, vender, adquirir, acumular,
+#    invertir, deshacerse, esperar, mantener la posición, y entrar/salir si cierran
+#    la frase o hablan del valor). «Conviene recordar que…» no basta.
+# 5. Sustantivos de operación: oportunidad/señal/momento de compra o de venta.
+_CL = r"(?:l[aeo]s?|me|te|se|nos)"
+_OPERAR = (
+    rf"(?:(?:comprar|vender|adquirir|acumular|invertir){_CL}?|deshacerse|esperar"
+    r"|mantener\s+(?:la|su|tu|esa|esta)\s+posici[oó]n"
+    r"|(?:entrar|salir)(?=\s*(?:[.,;:!?]|$|ya\b|ahora\b|del\s+valor|de\s+la\s+(?:acci|posici))))"
+)
 _RECOMIENDA = re.compile(
-    r"\b(?:compr(?:a|ar|as|an|e|es|en|o|ó|aría|ando)\b|vend\w*|recomiend\w*|recomend\w*|aconsej\w*)",
+    r"(?<!\w)(?:"
+    r"(?:des)?aconsej\w*|recomiend\w*|recomend\w*|sugiero"
+    r"|comprar(?:ía|ías|íamos|é|ás|emos)|vender(?:ía|ías|íamos|é|ás|emos)"
+    r"|compremos|compres|vendamos|compro|vendo"
+    rf"|c[oó]mpr(?:a|e){_CL}|comprad{_CL}|v[eé]nd(?:e|a){_CL}|vended{_CL}"
+    r"|esperar(?:ía|ías|íamos)(?!\s+(?:que|más|mucho|menos|poco|un|una|el|la|los|las|algo)\b)"
+    rf"|(?:(?<!\ble )(?<!\bles )conviene|convendría|convenga|deberías|deberíamos|hay\s+que|habría\s+que)"
+    rf"[\s,]+(?:\w+[\s,]+){{0,3}}?{_OPERAR}"
+    rf"|(?:lo\s+mejor\s+es|es\s+mejor|mejor|momento\s+(?:de|para)|hora\s+de)\s+{_OPERAR}"
+    r"|(?:oportunidad|señal|momento)\s+de\s+(?:compra|venta)"
+    r")(?!\w)",
     re.IGNORECASE,
 )
 

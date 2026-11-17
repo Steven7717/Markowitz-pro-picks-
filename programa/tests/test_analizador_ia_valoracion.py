@@ -1,5 +1,7 @@
 """El guardarraíl de la explicación de la valoración, con un cliente doble y sin red."""
 
+import pytest
+
 from analizador import ia_valoracion as iv
 
 BLOQUE = "Empresa: MU, sector Tech.\n[A] Flujos descontados: no se inclina a ningún lado."
@@ -133,3 +135,32 @@ def test_el_sistema_no_lleva_ni_un_digito():
     from ranking.verificacion import sin_digitos
 
     assert sin_digitos(iv.SISTEMA)
+
+
+DEBE_MARCAR = [
+    "Conviene adquirir acciones.", "Lo mejor es deshacerse de ellas.", "Conviene mantener la posición.",
+    "Deberías comprarla ya.", "Cómprala.", "Compradla.", "¿Comprarías a este precio?", "Compraré más.",
+    "Compremos.", "Es desaconsejable entrar.", "Yo esperaría.", "Te sugiero entrar ahora.",
+    "Es buen momento para invertir.", "Hay que acumular.", "Mejor salir del valor.", "Yo vendería.",
+    "Es momento de comprar.", "Se aconseja prudencia.", "Mi recomendación es clara.",
+    "Con estos múltiplos conviene comprar.", "Te recomiendo esperar.", "En conjunto, recomiendo vender.",
+    "Es una oportunidad de compra.", "COMPRARÍA sin dudar.", "Es recomendable.", "Es aconsejable.",
+]
+NO_DEBE_MARCAR = [
+    "La empresa vende memoria.", "Depende de que venda más.", "El vendedor de chips.", "Las ventas vendrán.",
+    "Vendrán tiempos mejores.", "Si los clientes compran menos, cae.", "La compra de un competidor ayudó.",
+    "El precio comprende mucho crecimiento.", "Hay un compromiso entre margen y volumen.",
+    "Las ventas sostienen el valor.", "La recompra de acciones ayuda.", "Tiene ventaja frente a sus compradores.",
+    "El precio espera mucho crecimiento.", "Se mantiene el margen.", "Los inversores esperan más.",
+    "La empresa invierte en capacidad.", "Conviene recordar que el crecimiento no está asegurado.",
+]
+
+
+@pytest.mark.parametrize("frase", DEBE_MARCAR)
+def test_el_detector_marca_las_formas_de_recomendar(frase):
+    assert iv.recomienda(frase), frase
+
+
+@pytest.mark.parametrize("frase", NO_DEBE_MARCAR)
+def test_el_detector_no_marca_frases_descriptivas(frase):
+    assert not iv.recomienda(frase), frase
