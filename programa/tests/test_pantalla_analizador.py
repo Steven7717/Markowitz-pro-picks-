@@ -780,3 +780,52 @@ def test_un_estado_que_no_es_un_fallo_de_llamada_no_dice_que_la_llamada_fallo(
     textos = _textos(pantalla)
     assert dicho in textos and "No se ha gastado nada" in textos
     assert "la llamada no devolvió nada utilizable" not in textos
+
+
+def _pagar_y_confirmar(pantalla, boton):
+    _pulsar(pantalla, boton)
+    _pulsar(pantalla, "Sí, leer con IA")
+
+
+def test_una_explicacion_sin_nada_utilizable_no_se_guarda_ni_tapa_la_anterior(pantalla, monkeypatch, tmp_path):
+    _con_clave(monkeypatch)
+    hoy = pantalla.session_state[sesion.CLAVE_ANALISIS]["MU"].valoracion
+    buena = archivo_analizador.Explicacion(
+        CUANDO_IA, "claude-sonnet-5", "n1", archivo_analizador.votos_de(hoy), hoy.get("veredicto"),
+        (), (("flujos", "La buena de antes.", False),), "",
+    )
+    archivo_analizador.anotar_explicacion(tmp_path / "MU.json", buena)
+    vacia = ia_valoracion.Explicacion(
+        ia_valoracion.HECHA, descartadas=2, entrada_tokens=900, salida_tokens=300
+    )
+    monkeypatch.setattr("analizador.ia_valoracion.explicar", lambda bloque, mapa, **_resto: vacia)
+    pantalla.run()
+    _pagar_y_confirmar(pantalla, "Volver a explicar la valoración")
+    textos = _textos(pantalla)
+    assert "no quedó nada utilizable" in textos and "2 observaciones" in textos
+    assert "Esta lectura costó" in textos and "La buena de antes." in textos
+    assert len(archivo_analizador.cargar(tmp_path / "MU.json").valoracion) == 1
+
+
+def test_un_contraste_sin_juicios_porque_se_descartaron_no_se_guarda(pantalla, monkeypatch, tmp_path):
+    _con_clave(monkeypatch)
+    _con_informe(monkeypatch)
+    descartado = ia_mdna.Contraste(ia_mdna.HECHA, (), descartados=3, entrada_tokens=18_000, salida_tokens=400)
+    monkeypatch.setattr("analizador.ia_mdna.contrastar", lambda ticker, supuesto, documento, **_resto: descartado)
+    pantalla.run()
+    _pagar_y_confirmar(pantalla, "Contrastar con la empresa")
+    textos = _textos(pantalla)
+    assert "3 juicios" in textos and "se descartaron" in textos and "Esta lectura costó" in textos
+    assert "no salió nada que decir" not in textos
+    assert not (tmp_path / "MU.json").exists()
+
+
+def test_un_contraste_sin_juicios_y_sin_descartes_si_se_guarda_como_no_hay_nada_que_decir(pantalla, monkeypatch, tmp_path):
+    _con_clave(monkeypatch)
+    _con_informe(monkeypatch)
+    limpio = ia_mdna.Contraste(ia_mdna.HECHA, (), descartados=0, entrada_tokens=18_000, salida_tokens=100)
+    monkeypatch.setattr("analizador.ia_mdna.contrastar", lambda ticker, supuesto, documento, **_resto: limpio)
+    pantalla.run()
+    _pagar_y_confirmar(pantalla, "Contrastar con la empresa")
+    assert "no salió nada que decir" in _textos(pantalla)
+    assert len(archivo_analizador.cargar(tmp_path / "MU.json").mdna) == 1

@@ -62,6 +62,14 @@ def _guardar(clave: str, anotar, ruta, lectura, pintar, avisos: list) -> None:
 _FALTA_LA_CLAVE = "Falta la clave de Anthropic. Se pone en **Perfil y ajustes**."
 
 
+def _coste_de(resultado) -> str:
+    """Lo que costó una lectura, de los tokens que devolvió la API."""
+    return ma.coste_de_lectura(
+        cliente_mod.coste(resultado.entrada_tokens, resultado.salida_tokens),
+        resultado.entrada_tokens, resultado.salida_tokens,
+    )
+
+
 def _no_se_pudo(que: str, resultado, sin_gasto: dict) -> None:
     """El error de una lectura que no llegó a `HECHA`, con lo que costó si algo costó.
 
@@ -80,10 +88,7 @@ def _no_se_pudo(que: str, resultado, sin_gasto: dict) -> None:
         + ". **No se ha guardado nada.**"
     )
     if resultado.entrada_tokens or resultado.salida_tokens:
-        mensaje += " " + ma.coste_de_lectura(
-            cliente_mod.coste(resultado.entrada_tokens, resultado.salida_tokens),
-            resultado.entrada_tokens, resultado.salida_tokens,
-        )
+        mensaje += " " + _coste_de(resultado)
     st.error(mensaje)
 
 
@@ -258,6 +263,17 @@ def _mdna(analisis, lecturas) -> None:
             ia_mdna.SIN_CLAVE: _FALTA_LA_CLAVE,
         })
         return
+    if not contraste.juicios and contraste.descartados:
+        # «Se leyó y no decía nada» sólo es verdad si no se descartó nada: guardar
+        # esto taparía con una lectura vacía la anterior, que sí decía algo.
+        st.error(
+            f"El modelo respondió, pero los {contraste.descartados} juicios que "
+            "escribió **se descartaron** (llevaban una cifra o una postura que no "
+            "es de las tres, o sobraban). **No se ha guardado nada**: guardarlo "
+            "diría que se leyó y no había nada que decir, y no es lo que pasó. "
+            + _coste_de(contraste)
+        )
+        return
     guardable = archivo.Contraste(
         datetime.now(),
         cliente_mod.MODELO,
@@ -356,6 +372,16 @@ def _valoracion(analisis, lecturas) -> None:
             ia_valoracion.SIN_VALORACION: "Sin valoración no hay nada que explicar.",
             ia_valoracion.SIN_CLAVE: _FALTA_LA_CLAVE,
         })
+        return
+    if not explicacion.observaciones and not explicacion.en_conjunto:
+        st.error(
+            "El modelo respondió y **no quedó nada utilizable**"
+            + (f": se descartaron {explicacion.descartadas} observaciones" if explicacion.descartadas else "")
+            + (" y el párrafo de conjunto" if explicacion.conjunto_descartado else "")
+            + ". **No se ha guardado nada**, para no tapar una explicación anterior "
+            "que sí se podía leer. "
+            + _coste_de(explicacion)
+        )
         return
     guardable = archivo.Explicacion(
         datetime.now(),
