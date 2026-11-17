@@ -160,10 +160,11 @@ def test_dentro_del_dominio_no_cambia_nada(muestra, alpha):
 @pytest.mark.parametrize("semilla", range(6))
 def test_a_una_normal_el_borde_de_abajo_casi_no_la_toca(semilla):
     """Media muestra normal cae con K un pelo por debajo de 0, fuera del
-    dominio por el borde de abajo, y subirla al suelo (≈ 0) la mueve. Poco: en
-    200 muestras de 5.000 el cambio máximo fue un 3,8 %, y en tres de cada
-    cuatro casos el valor proyectado quedó igual o más cerca del normal
-    teórico. Es ruido de curtosis, no información."""
+    dominio por el borde de abajo, y subirla al suelo (≈ 0) la mueve. Poco con
+    5.000 datos (máximo 4,2 % en 400 muestras). Con las 500 sesiones del
+    backtest se mueven seis de cada diez ventanas, hasta un 12,5 % en el VaR
+    99 %, y el error medio contra el normal teórico apenas cambia (3,9 % con
+    proyección, 4,1 % sin ella). Es ruido de curtosis, no información."""
     r = np.random.default_rng(semilla).normal(0, 0.01, 5000)
     for alpha in (0.99, 0.975):
         nuevo, viejo = metodos.cornish_fisher(r, alpha), _cf_sin_proyectar(r, alpha)

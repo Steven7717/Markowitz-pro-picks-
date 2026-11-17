@@ -2196,7 +2196,8 @@ de la rama: 3.632 pasando. No se tocaron `vistas/candidatos.py`,
   filtrada y Cornish-Fisher. **El criterio lo eligió el usuario.**
 - **8. Por activo:** VaR/ES del activo solo con su propia competencia, su zona,
   su aportación al ES de la cartera (Euler por escenarios, en cuotas que suman
-  100 %) y el beneficio de diversificación `1 − ES_cartera / Σ|w_i|·ES_i`.
+  100 %) y el beneficio de diversificación `1 − ES_cartera / Σ ES(w_i·r_i)`, con el método de la cartera sobre
+  la serie con signo de cada posición.
 - **10. Fuera de alcance:** PDF, Excel y el JSON guardado del portafolio.
 
 ### Tres defectos que encontró la revisión

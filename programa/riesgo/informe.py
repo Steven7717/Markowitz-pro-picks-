@@ -36,7 +36,7 @@ class InformeRiesgo:
     var99: float
     es975: float
     es99: float
-    diversificacion: float     # 1 − ES_cartera / Σ|w|·ES_activo
+    diversificacion: float     # 1 − ES_cartera / Σ ES(w_i·r_i), con el método de la cartera
     activos: list[FilaActivo]
     observaciones: int
 
