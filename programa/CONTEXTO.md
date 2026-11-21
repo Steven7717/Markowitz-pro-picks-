@@ -1,13 +1,26 @@
 # Contexto del proyecto — para retomar en una sesión nueva
 
 **Última actualización:** 2026-11-21
-**Rama:** `master` (las mejoras del informe PDF —VaR/ES, entorno macro y la tarta que salía negra— fusionadas el 2026-11-21 desde `claude/pdf-generation-improvements-3037ce`; el sub-proyecto P, el entorno macro, fusionado el 2026-11-17 desde `claude/macro-economic-analyzer-7a7efd`; N3 el mismo día desde `feat/analizador-n3-ia`; el sub-proyecto O, también ese día, desde `claude/portfolio-optimizer-var-es-dbe5f0`; N1 y N2 el 2026-11-12) · **Tests:** 4.027 pasando (`uv run pytest tests/ -q -m "not red"`), 3 omitidos —dos por permisos POSIX en Windows y uno de `test_valoracion_dcf.py` sin `numpy_financial`— más 52 marcados `red`, 8 de ellos del macro
+**Rama:** `master` (la coherencia de retornos en la identificabilidad fusionada el 2026-11-21 desde `claude/markowitz-returns-consistency-548bd3`; las mejoras del informe PDF —VaR/ES, entorno macro y la tarta que salía negra— fusionadas el 2026-11-21 desde `claude/pdf-generation-improvements-3037ce`; el sub-proyecto P, el entorno macro, fusionado el 2026-11-17 desde `claude/macro-economic-analyzer-7a7efd`; N3 el mismo día desde `feat/analizador-n3-ia`; el sub-proyecto O, también ese día, desde `claude/portfolio-optimizer-var-es-dbe5f0`; N1 y N2 el 2026-11-12) · **Tests:** 4.040 pasando (`uv run pytest tests/ -q -m "not red"`), 3 omitidos —dos por permisos POSIX en Windows y uno de `test_valoracion_dcf.py` sin `numpy_financial`— más 52 marcados `red`, 8 de ellos del macro
 **Remoto:** `https://github.com/Steven7717/Markowitz-pro-picks-.git` — `master` es lo publicado
 **Estructura:** el programa vive en `programa/`; en la raíz sólo están los dos
 lanzadores y el `README.md`. Los comandos (`uv run pytest`, `uv run streamlit`)
 se ejecutan desde `programa/`, no desde la raíz.
 
-> **Lo último que entró son las mejoras del informe PDF** (2026-11-21, desde
+> **Lo último que entró es la coherencia de retornos en «Identificabilidad de
+> los pesos»** (2026-11-21, desde `claude/markowitz-returns-consistency-548bd3`,
+> ya borrada). La prueba medía la brecha con la media muestral (MU−EIX 121,5% ±
+> 57,1%) mientras la tabla enseñaba la robusta (70,24% y 15,69%). Ahora
+> `validation.identificabilidad` escala brecha y error por `1−δ` (el `t` no
+> cambia), mide en la ventana común, y no corre en paridad de riesgo ni mínima
+> varianza (`usa_retornos_esperados`), que no miran las medias. Los ficheros
+> viejos se reescalan al leerlos; `ident_shrinkage` marca los nuevos. El ± del
+> «Retorno anual esperado» sale de `retorno_esperado_stderr` (la mezcla
+> `(1−δ)w + δ/n`). Pendiente si se quiere: una prueba de estabilidad de la
+> covarianza para las dos estrategias que ya no llevan aviso, y el S&P de la
+> frontera, que sigue con media muestral junto a puntos robustos.
+>
+> **Antes entraron las mejoras del informe PDF** (2026-11-21, desde
 > `claude/pdf-generation-improvements-3037ce`, ya borrada). El PDF del
 > optimizador trae ahora una sección «Riesgo de cola: VaR y Expected
 > Shortfall» (las cifras de la pestaña Riesgo, la tabla por activo y el
