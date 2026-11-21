@@ -869,7 +869,8 @@ def test_un_fichero_viejo_no_finge_un_aviso_que_nadie_midio():
 def test_sin_medicion_los_huecos_se_guardan_vacios_y_no_a_cero():
     guardado = metricas_de_identificabilidad(None)
     assert set(guardado) == {
-        "ident_mejor", "ident_peor", "ident_brecha", "ident_stderr", "ident_anos"
+        "ident_mejor", "ident_peor", "ident_brecha", "ident_stderr", "ident_anos",
+        "ident_shrinkage",
     }
     assert all(v is None for v in guardado.values())
 
@@ -889,3 +890,109 @@ def test_el_titular_corto_dice_lo_mismo_que_la_frase_larga():
     assert titular_veredicto(True) == "Supera a repartir por igual"
     assert titular_veredicto(False) == "Queda por debajo de repartir por igual"
     assert "ndistinguible" in titular_veredicto(None)
+
+
+# ── La prueba de identificabilidad usa las medias que usó el optimizador ─────
+#
+# Informe del 2026-11-21, paridad de riesgo con estimación robusta (δ = 55,1%):
+# «MU y EIX: 121,5% ± 57,1%» —media muestral— al lado de una tabla con 70,24%
+# y 15,69% —media encogida—. Y la prueba ni siquiera aplicaba: paridad de
+# riesgo no mira las medias.
+
+from estimators import estimate_moments  # noqa: E402
+from validation import retorno_esperado_stderr, retorno_stderr  # noqa: E402
+
+
+def _cartera(seed: int = 5) -> pd.DataFrame:
+    rng = np.random.default_rng(seed)
+    medias = np.array([0.05, 0.10, 0.40, 0.20]) / 252
+    return pd.DataFrame(
+        rng.normal(medias, 0.25 / np.sqrt(252), (500, 4)),
+        columns=["AAA", "BBB", "CCC", "DDD"],
+    )
+
+
+def test_la_brecha_es_la_de_las_medias_robustas_de_la_tabla():
+    datos = _cartera()
+    momentos = estimate_moments(datos, shrinkage=True)
+    mu = pd.Series(momentos["mean"] * 252, index=datos.columns)
+    dato = identificabilidad(datos, 252, mean_shrinkage=momentos["mean_shrinkage"])
+    assert dato["brecha"] == pytest.approx(mu[dato["mejor"]] - mu[dato["peor"]])
+    assert (dato["mejor"], dato["peor"]) == (mu.idxmax(), mu.idxmin())
+
+
+def test_encoger_las_medias_no_cambia_la_conclusion_solo_las_cifras():
+    datos = _cartera()
+    crudo = identificabilidad(datos, 252)
+    robusto = identificabilidad(datos, 252, mean_shrinkage=0.55)
+    assert robusto["t"] == pytest.approx(crudo["t"])
+    assert robusto["identificada"] == crudo["identificada"]
+    assert robusto["brecha"] == pytest.approx(0.45 * crudo["brecha"])
+    assert robusto["stderr"] == pytest.approx(0.45 * crudo["stderr"])
+
+
+@pytest.mark.parametrize("estrategia", ["risk_parity", "min_variance",
+                                        "Paridad de riesgo", "Mínima varianza"])
+def test_sin_retornos_esperados_la_prueba_no_se_hace(estrategia):
+    assert identificabilidad(_cartera(), 252, estrategia=estrategia) is None
+
+
+def test_maximo_sharpe_si_hace_la_prueba():
+    assert identificabilidad(_cartera(), 252, estrategia="max_sharpe") is not None
+
+
+def test_un_fichero_de_paridad_de_riesgo_no_repite_el_aviso():
+    dato = identificabilidad(_cartera(), 252)
+    metricas = {"strategy": "risk_parity", **metricas_de_identificabilidad(dato)}
+    assert identificabilidad_guardada(metricas) is None
+
+
+def test_un_fichero_anterior_se_lleva_al_vector_robusto_que_guarda():
+    """El del 2026-11-21: brecha muestral 121,46% y error 57,15%, δ = 55,09%."""
+    metricas = {
+        "strategy": "max_sharpe", "mean_shrinkage": 0.5508781531596815,
+        "ident_mejor": "MU", "ident_peor": "EIX", "ident_brecha": 1.2145806211952457,
+        "ident_stderr": 0.5714803035644164, "ident_anos": 1.9841269841269842,
+    }
+    dato = identificabilidad_guardada(metricas)
+    assert dato["brecha"] == pytest.approx(0.5455, abs=1e-4)
+    assert dato["t"] == pytest.approx(1.2145806211952457 / 0.5714803035644164)
+    assert "54,5%" in frase_identificabilidad(dato)
+
+
+def test_un_fichero_nuevo_no_se_encoge_dos_veces():
+    dato = identificabilidad(_cartera(), 252, mean_shrinkage=0.5)
+    metricas = {"mean_shrinkage": 0.5, **metricas_de_identificabilidad(dato)}
+    assert identificabilidad_guardada(metricas)["brecha"] == pytest.approx(dato["brecha"])
+
+
+def test_por_pares_la_brecha_se_mide_en_la_ventana_comun_de_las_medias():
+    datos = _cartera()
+    amplios = datos.copy()
+    amplios.iloc[:200, 0] = np.nan
+    comun = datos.iloc[200:]
+    momentos = estimate_moments(amplios, shrinkage=False, pairwise=True)
+    mu = pd.Series(momentos["mean"] * 252, index=datos.columns)
+    dato = identificabilidad(amplios, 252)
+    assert dato["brecha"] == pytest.approx(mu.max() - mu.min())
+    assert dato["anos"] == pytest.approx(len(comun) / 252)
+
+
+def test_sin_shrinkage_el_error_del_retorno_es_el_de_siempre():
+    datos = _cartera()
+    w = np.array([0.1, 0.2, 0.3, 0.4])
+    vol = float((datos.to_numpy() @ w).std(ddof=1) * np.sqrt(252))
+    assert retorno_esperado_stderr(datos, w, 0.0, 252) == pytest.approx(
+        retorno_stderr(vol, len(datos), 252)
+    )
+
+
+def test_con_shrinkage_el_error_es_el_de_la_mezcla_con_un_enesimo():
+    """`w'μ_robusta` es `w̃'μ̂` con `w̃ = (1-δ)w + δ/n`: su error es el de w̃."""
+    datos = _cartera()
+    w = np.array([0.7, 0.1, 0.1, 0.1])
+    mezcla = 0.4 * w + 0.6 / 4
+    vol = float((datos.to_numpy() @ mezcla).std(ddof=1) * np.sqrt(252))
+    assert retorno_esperado_stderr(datos, w, 0.6, 252) == pytest.approx(
+        retorno_stderr(vol, len(datos), 252)
+    )

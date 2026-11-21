@@ -57,7 +57,7 @@ from validation import (
     medida_veredicto,
     metricas_de_identificabilidad,
     metricas_de_validacion,
-    retorno_stderr,
+    retorno_esperado_stderr,
     walk_forward_comparison,
 )
 
@@ -662,7 +662,16 @@ _vol_usada = np.sqrt(np.diag(np.asarray(optimal["cov"], dtype=float))) * np.sqrt
 # nada avisaba. Esto es la versión barata de esa comprobación; el porqué de
 # preferirla a pagar el bootstrap en cada corrida está en
 # `validation.identificabilidad`.
-_identificabilidad = identificabilidad(_serie_de, periods_per_year)
+#
+# **Sobre las mismas medias que la columna «Retorno Esperado».** Se calculaba
+# con la media muestral mientras la tabla enseñaba la encogida: el informe del
+# 2026-11-21 decía «MU y EIX 121,5% ± 57,1%» al lado de 70,24% y 15,69%. Y sólo
+# para las estrategias que usan medias: en paridad de riesgo y mínima varianza
+# no se pinta, porque sus pesos no dependen de ellas.
+_identificabilidad = identificabilidad(
+    _serie_de, periods_per_year,
+    mean_shrinkage=optimal["mean_shrinkage"], estrategia=corrida["estrategia"],
+)
 
 weights_df = pd.DataFrame({
     "Ticker": valid_tickers,
@@ -766,11 +775,20 @@ with resumen:
     # de toda la optimización media-varianza —por eso `estimators` la encoge más
     # que la covarianza— y enseñarla desnuda con dos decimales promete una
     # precisión que no existe.
-    _se_retorno = retorno_stderr(optimal["annual_vol"], n_obs, periods_per_year)
+    #
+    # Y del estimador que dio el número: con estimación robusta el retorno es
+    # el encogido, y su error no es el de la media muestral de la cartera sino
+    # el de su mezcla con 1/N (`validation.retorno_esperado_stderr`). Salía
+    # ±12,8% sobre un 27,7% robusto cuando el error coherente es otro.
+    _se_retorno = retorno_esperado_stderr(
+        _serie_de, optimal["weights"], optimal["mean_shrinkage"], periods_per_year
+    )
     k2.metric(
         "Retorno anual esperado",
         f"{optimal['annual_return']:.1%} ± {_se_retorno:.1%}",
-        help="Media aritmética anualizada (μ×períodos), la convención de Markowitz. "
+        help="Media aritmética anualizada (μ×períodos), la convención de Markowitz"
+        + (", con las medias de la estimación robusta —las de la tabla—. "
+           if corrida["shrinkage"] else ". ") +
         "No es un CAGR: no es la tasa a la que capitaliza una inversión. El ± es un "
         "error estándar —cuánto bailaría esta cifra si la midieras sobre otra "
         f"muestra— sobre {n_obs} observaciones; el intervalo al 95% son dos, "

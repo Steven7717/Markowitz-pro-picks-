@@ -668,6 +668,56 @@ def veredicto_guardado(metricas: dict) -> dict | None:
 
 _MINIMO_IDENTIFICABILIDAD = 3
 
+# **Sólo las estrategias cuyo reparto depende de los retornos esperados.**
+# Mínima varianza y paridad de riesgo deciden con la covarianza y nada más
+# (`optimizer.optimize_min_variance` y `optimize_risk_parity` no leen la media),
+# así que una brecha entre medias no dice nada de sus pesos: el informe del
+# 2026-11-21, paridad de riesgo, escribía «el orden de los pesos se sostiene»
+# sobre MU y EIX cuando el reparto se había decidido sin mirar ninguna de las
+# dos medias. Su incertidumbre es la de la covarianza, que esta prueba no mide.
+ESTRATEGIAS_CON_RETORNOS = frozenset({"max_sharpe"})
+
+
+def usa_retornos_esperados(estrategia) -> bool:
+    """¿Los pesos de esta estrategia dependen de las medias?
+
+    Acepta la clave y la etiqueta de pantalla, porque hay ficheros guardados
+    con la etiqueta (ver `exporter.etiqueta_estrategia`). Sin estrategia —los
+    ficheros anteriores a guardarla— es máximo Sharpe, que era la única.
+    """
+    if estrategia is None:
+        return True
+    return estrategia in ESTRATEGIAS_CON_RETORNOS or str(estrategia).startswith(
+        "Máximo Sharpe"
+    )
+
+
+def retorno_esperado_stderr(
+    returns: pd.DataFrame,
+    weights: np.ndarray,
+    mean_shrinkage: float,
+    periods_per_year: int,
+) -> float:
+    """El error estándar del retorno esperado de la cartera, del estimador que se usó.
+
+    Con estimación robusta, cada media es `(1-δ)·μ̂ᵢ + δ·μ̄`, y como los pesos
+    suman 1 el retorno de la cartera es `w̃'μ̂` con `w̃ = (1-δ)·w + δ/n`: la
+    cartera real mezclada con 1/N. Su error es el de la media muestral de ESA
+    combinación, no el de `w` — que es lo que se pintaba al lado del retorno
+    encogido. Con `δ = 0` es exactamente el de antes.
+
+    Toma `δ` como fijo: no cuenta el error de estimar la propia intensidad, y
+    un error estándar no mide el sesgo que el encogimiento introduce a cambio
+    de reducir la varianza.
+    """
+    comun = returns.dropna(how="any")
+    n = comun.shape[1]
+    w = np.asarray(weights, dtype=float)
+    mezcla = (1.0 - mean_shrinkage) * w + mean_shrinkage / n
+    serie = comun.to_numpy(dtype=float) @ mezcla
+    vol_anual = float(serie.std(ddof=1) * np.sqrt(periods_per_year))
+    return retorno_stderr(vol_anual, len(serie), periods_per_year)
+
 
 def _dictamen_identificabilidad(
     mejor: str,
@@ -703,8 +753,25 @@ def identificabilidad(
     returns: pd.DataFrame,
     periods_per_year: int,
     sigmas: float = _SIGMAS_VEREDICTO,
+    *,
+    mean_shrinkage: float = 0.0,
+    estrategia: str | None = None,
 ) -> dict | None:
     """¿Hay señal para preferir un reparto a otro? El test más barato que es honesto.
+
+    **Sobre el mismo vector de medias que usó el optimizador.** Con estimación
+    robusta las medias son `(1-δ)·μ̂ + δ·μ̄`, así que la brecha entre dos activos
+    es `(1-δ)` veces la muestral y su error también: se escalan los dos. El
+    informe del 2026-11-21 decía «MU y EIX: 121,5% ± 57,1%» —la media muestral—
+    junto a una tabla con 70,24% y 15,69%, una diferencia de 54,6% —la robusta,
+    con δ = 55,1%—. El cociente `t`, y con él la conclusión, no cambia: las dos
+    cifras se encogen por el mismo factor. Lo que no cuadraba eran los números
+    impresos. Las medias, sobre la ventana común, que es de donde las saca
+    `estimators.estimate_moments` también en el modo por pares.
+
+    Devuelve None para las estrategias que no usan retornos esperados
+    (`usa_retornos_esperados`): ahí la brecha entre medias no dice nada de los
+    pesos.
 
     **Mide la brecha de retorno esperado entre el activo que más promete y el
     que menos, y la compara con su propio error estándar.** Si ni siquiera la
@@ -736,9 +803,16 @@ def identificabilidad(
     Devuelve None cuando no hay ni dos activos ni observaciones suficientes para
     una desviación típica: ahí no se inventa una medida.
     """
+    if not usa_retornos_esperados(estrategia):
+        return None
     if returns is None or getattr(returns, "shape", (0, 0))[1] < 2:
         return None
+    # Con δ = 1 todas las medias valen lo mismo: no hay orden que probar.
+    factor = 1.0 - float(mean_shrinkage)
+    if not factor > 0:
+        return None
 
+    returns = returns.dropna(how="any")
     medias = returns.mean(skipna=True).dropna()
     if medias.size < 2:
         return None
@@ -752,38 +826,63 @@ def identificabilidad(
 
     n_obs = int(diferencia.size)
     vol_anual = float(diferencia.std(ddof=1) * np.sqrt(periods_per_year))
-    return _dictamen_identificabilidad(
+    dato = _dictamen_identificabilidad(
         mejor,
         peor,
-        float(diferencia.mean() * periods_per_year),
-        retorno_stderr(vol_anual, n_obs, periods_per_year),
+        factor * float(diferencia.mean() * periods_per_year),
+        factor * retorno_stderr(vol_anual, n_obs, periods_per_year),
         n_obs / periods_per_year,
         sigmas,
     )
+    if dato is not None:
+        dato["shrinkage"] = float(mean_shrinkage)
+    return dato
 
 
 # Se guarda la MEDICIÓN y no la conclusión, por la misma razón que el veredicto:
 # `identificada` depende de `_SIGMAS_VEREDICTO`, que es una decisión viva. Y se
-# guarda plano —cinco campos sueltos, no un diccionario anidado— porque
+# guarda plano —campos sueltos, no un diccionario anidado— porque
 # `cartera._serializable` convierte a `str(...)` lo que no sabe serializar, y un
 # dict anidado volvería del JSON como la cadena "{'mejor': 'MSFT', ...}".
-_CAMPOS_IDENTIFICABILIDAD = ("mejor", "peor", "brecha", "stderr", "anos")
+# `shrinkage` es la δ ya aplicada a brecha y error; los ficheros anteriores no
+# lo llevan y guardan la medición sobre la media muestral.
+_CAMPOS_IDENTIFICABILIDAD = ("mejor", "peor", "brecha", "stderr", "anos", "shrinkage")
 
 
 def metricas_de_identificabilidad(dato: dict | None) -> dict:
-    """Los cinco campos que un fichero necesita para repetir el aviso."""
+    """Los campos que un fichero necesita para repetir el aviso."""
     return {
-        f"ident_{campo}": (dato[campo] if dato else None)
+        f"ident_{campo}": (dato.get(campo) if dato else None)
         for campo in _CAMPOS_IDENTIFICABILIDAD
     }
 
 
 def identificabilidad_guardada(metricas: dict) -> dict | None:
-    """El aviso de un portafolio guardado, re-dictado. None si no se midió."""
+    """El aviso de un portafolio guardado, re-dictado. None si no se midió.
+
+    None también para mínima varianza y paridad de riesgo, aunque el fichero
+    traiga la medición: se guardaba para todas las estrategias. Y un fichero
+    anterior a `ident_shrinkage` midió sobre la media muestral, así que su
+    brecha y su error se llevan aquí al vector robusto con el `mean_shrinkage`
+    que el mismo fichero guarda — el `t` no cambia, las cifras sí.
+    """
+    if not usa_retornos_esperados(metricas.get("strategy")):
+        return None
     crudo = {c: metricas.get(f"ident_{c}") for c in _CAMPOS_IDENTIFICABILIDAD}
     if any(crudo[c] is None for c in ("brecha", "stderr", "anos")):
         return None
-    return _dictamen_identificabilidad(**crudo)
+    aplicado = crudo.pop("shrinkage")
+    if aplicado is None:
+        aplicado = float(metricas.get("mean_shrinkage") or 0.0)
+        factor = 1.0 - aplicado
+        if not factor > 0:
+            return None
+        crudo["brecha"] = factor * float(crudo["brecha"])
+        crudo["stderr"] = factor * float(crudo["stderr"])
+    dato = _dictamen_identificabilidad(**crudo)
+    if dato is not None:
+        dato["shrinkage"] = float(aplicado)
+    return dato
 
 
 def _pct(x: float, decimales: int = 1) -> str:
