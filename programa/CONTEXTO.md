@@ -17,7 +17,9 @@ se ejecutan desde `programa/`, no desde la raíz.
 > su plantilla de Plotly, cuyos colores son marcadores `#000001…` que sólo el
 > navegador sustituye; kaleido los pintaba tal cual. `exporter._figura_para_pdf`
 > exporta una copia con `plotly_dark`. La comparativa ya no dice «Max Sharpe»
-> fijo: nombra la estrategia de la corrida.
+> fijo: nombra la estrategia de la corrida. El backtest del VaR salía casi
+> negro (unas 700 barras de menos de un píxel, tapadas por el borde que la
+> plantilla pone a cada una): ahora van sin borde y opacas, y la leyenda abajo.
 >
 > **Antes entró el sub-proyecto P, el entorno macro** (2026-11-17,
 > desde `claude/macro-economic-analyzer-7a7efd`, ya borrada): la pantalla

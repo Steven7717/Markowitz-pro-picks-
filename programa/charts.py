@@ -215,13 +215,26 @@ def plot_comparison(
 
 def plot_backtest_var(fechas, realizados, var99, excepciones) -> go.Figure:
     """Cada día, lo que pasó contra lo que el VaR de la víspera dijo que podía pasar."""
+    # **Sin borde y opacas.** Son unas 700 barras en 900 px, menos de un píxel
+    # cada una: el borde oscuro que la plantilla pone a cada barra se comía el
+    # relleno gris translúcido y la serie salía casi negra sobre el fondo.
     fig = go.Figure()
     fig.add_trace(go.Bar(x=fechas, y=realizados, name="Retorno diario",
-                         marker_color="rgba(120,120,140,0.45)"))
+                         marker=dict(color="rgba(160,175,205,0.85)",
+                                     line=dict(width=0))))
     fig.add_trace(go.Scatter(x=fechas, y=-np.asarray(var99), name="−VaR 99 %",
-                             mode="lines", line=dict(width=1.5)))
+                             mode="lines", line=dict(width=2, color=_ORANGE)))
     fig.add_trace(go.Scatter(x=np.asarray(fechas)[excepciones], y=np.asarray(realizados)[excepciones],
                              name="Excepción", mode="markers",
-                             marker=dict(color="crimson", size=7, symbol="x")))
-    fig.update_layout(**_base_layout(yaxis_tickformat=".1%", bargap=0))
+                             marker=dict(color="#ff4d6d", size=9, symbol="x",
+                                         line=dict(width=1, color="white"))))
+    fig.update_layout(**_base_layout(bargap=0))
+    fig.update_layout(
+        yaxis=dict(tickformat=".1%", zeroline=True,
+                   zerolinecolor="rgba(255,255,255,0.35)"),
+        # Debajo y en horizontal: a la derecha le roba ancho a 700 días, y
+        # arriba pisa el título que le pone el PDF.
+        legend=dict(orientation="h", x=0, y=-0.12, xanchor="left", yanchor="top"),
+        margin=dict(l=40, r=20, t=50, b=70),
+    )
     return fig
