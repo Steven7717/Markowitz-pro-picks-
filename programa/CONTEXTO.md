@@ -1,7 +1,7 @@
 # Contexto del proyecto — para retomar en una sesión nueva
 
 **Última actualización:** 2026-11-21
-**Rama:** `master` (las mejoras del informe PDF —VaR/ES, entorno macro y la tarta que salía negra— fusionadas el 2026-11-21 desde `claude/pdf-generation-improvements-3037ce`; el sub-proyecto P, el entorno macro, fusionado el 2026-11-17 desde `claude/macro-economic-analyzer-7a7efd`; N3 el mismo día desde `feat/analizador-n3-ia`; el sub-proyecto O, también ese día, desde `claude/portfolio-optimizer-var-es-dbe5f0`; N1 y N2 el 2026-11-12) · **Tests:** 4.013 pasando (`uv run pytest tests/ -q -m "not red"`), 3 omitidos —dos por permisos POSIX en Windows y uno de `test_valoracion_dcf.py` sin `numpy_financial`— más 52 marcados `red`, 8 de ellos del macro
+**Rama:** `master` (las mejoras del informe PDF —VaR/ES, entorno macro y la tarta que salía negra— fusionadas el 2026-11-21 desde `claude/pdf-generation-improvements-3037ce`; el sub-proyecto P, el entorno macro, fusionado el 2026-11-17 desde `claude/macro-economic-analyzer-7a7efd`; N3 el mismo día desde `feat/analizador-n3-ia`; el sub-proyecto O, también ese día, desde `claude/portfolio-optimizer-var-es-dbe5f0`; N1 y N2 el 2026-11-12) · **Tests:** 4.027 pasando (`uv run pytest tests/ -q -m "not red"`), 3 omitidos —dos por permisos POSIX en Windows y uno de `test_valoracion_dcf.py` sin `numpy_financial`— más 52 marcados `red`, 8 de ellos del macro
 **Remoto:** `https://github.com/Steven7717/Markowitz-pro-picks-.git` — `master` es lo publicado
 **Estructura:** el programa vive en `programa/`; en la raíz sólo están los dos
 lanzadores y el `README.md`. Los comandos (`uv run pytest`, `uv run streamlit`)
