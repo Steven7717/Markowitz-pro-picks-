@@ -361,6 +361,24 @@ def test_el_excel_tambien_escribe_la_palabra_y_no_el_booleano():
     assert True not in valores
 
 
+def _texto_del_pdf(datos: bytes) -> str:
+    """El texto que el PDF escribe, sin depender de un lector de PDF.
+
+    fpdf2 comprime cada página con zlib y escribe el texto en latin-1 entre
+    paréntesis: basta descomprimir los flujos y buscar ahí.
+    """
+    import re
+    import zlib
+
+    trozos = []
+    for flujo in re.findall(rb"stream\r?\n(.*?)\r?\nendstream", datos, re.S):
+        try:
+            trozos.append(zlib.decompress(flujo).decode("latin-1"))
+        except zlib.error:
+            pass
+    return "\n".join(trozos)
+
+
 # ── Las gráficas del PDF y el riesgo de cola ─────────────────────────────────
 
 def test_la_figura_del_pdf_no_hereda_la_plantilla_de_streamlit():
@@ -399,7 +417,6 @@ def _informe():
 
 
 def test_el_pdf_lleva_el_var_y_el_es():
-    from pypdf import PdfReader
     from exporter import filas_riesgo
 
     inf = _informe()
@@ -409,12 +426,11 @@ def test_el_pdf_lleva_el_var_y_el_es():
     assert etiquetas["ES 97,5 % (1 día)"] == f"{inf.es975:.2%}"
 
     datos = to_pdf(_weights_df(), _metrics(), [], riesgo=inf)
-    texto = "".join(p.extract_text() for p in PdfReader(io.BytesIO(datos)).pages)
+    texto = _texto_del_pdf(datos)
     assert "VaR 99 %" in texto and "Expected Shortfall" in texto
 
 
 def test_el_pdf_explica_por_que_no_hay_var():
-    from pypdf import PdfReader
     from riesgo.informe import HistoriaInsuficiente
 
     falta = {"falta": HistoriaInsuficiente(120, 750), "sin_datos": [], "corto": "X",
@@ -422,13 +438,12 @@ def test_el_pdf_explica_por_que_no_hay_var():
     for riesgo, esperado in ((falta, "hacen falta 750"),
                              ({"error": "sin red."}, "sin red")):
         datos = to_pdf(_weights_df(), _metrics(), [], riesgo=riesgo)
-        texto = "".join(p.extract_text() for p in PdfReader(io.BytesIO(datos)).pages)
+        texto = _texto_del_pdf(datos)
         assert esperado in texto
 
 
 def test_el_pdf_lleva_el_entorno_macro():
     from datetime import date
-    from pypdf import PdfReader
     from macro import informe
     from macro.estado import Estado
     from macro.fase import Fase
@@ -439,6 +454,6 @@ def test_el_pdf_lleva_el_entorno_macro():
     entorno = informe.EntornoPDF("mex", Estado("mex", serie, fase, None, None, False))
 
     datos = to_pdf(_weights_df(), _metrics(), [], macro=entorno)
-    texto = "".join(p.extract_text() for p in PdfReader(io.BytesIO(datos)).pages)
+    texto = _texto_del_pdf(datos)
     assert "Entorno macro" in texto
-    assert "xico" in texto  # «México», con la tilde que pypdf lee a su manera
+    assert "México" in texto
