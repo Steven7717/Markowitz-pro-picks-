@@ -1,13 +1,25 @@
 # Contexto del proyecto — para retomar en una sesión nueva
 
-**Última actualización:** 2026-11-17
-**Rama:** `master` (el sub-proyecto P, el entorno macro, fusionado el 2026-11-17 desde `claude/macro-economic-analyzer-7a7efd`; N3 el mismo día desde `feat/analizador-n3-ia`; el sub-proyecto O, también ese día, desde `claude/portfolio-optimizer-var-es-dbe5f0`; N1 y N2 el 2026-11-12) · **Tests:** 4.013 pasando (`uv run pytest tests/ -q -m "not red"`), 3 omitidos —dos por permisos POSIX en Windows y uno de `test_valoracion_dcf.py` sin `numpy_financial`— más 52 marcados `red`, 8 de ellos del macro
+**Última actualización:** 2026-11-21
+**Rama:** `master` (las mejoras del informe PDF —VaR/ES, entorno macro y la tarta que salía negra— fusionadas el 2026-11-21 desde `claude/pdf-generation-improvements-3037ce`; el sub-proyecto P, el entorno macro, fusionado el 2026-11-17 desde `claude/macro-economic-analyzer-7a7efd`; N3 el mismo día desde `feat/analizador-n3-ia`; el sub-proyecto O, también ese día, desde `claude/portfolio-optimizer-var-es-dbe5f0`; N1 y N2 el 2026-11-12) · **Tests:** 4.013 pasando (`uv run pytest tests/ -q -m "not red"`), 3 omitidos —dos por permisos POSIX en Windows y uno de `test_valoracion_dcf.py` sin `numpy_financial`— más 52 marcados `red`, 8 de ellos del macro
 **Remoto:** `https://github.com/Steven7717/Markowitz-pro-picks-.git` — `master` es lo publicado
 **Estructura:** el programa vive en `programa/`; en la raíz sólo están los dos
 lanzadores y el `README.md`. Los comandos (`uv run pytest`, `uv run streamlit`)
 se ejecutan desde `programa/`, no desde la raíz.
 
-> **Lo último que entró es el sub-proyecto P, el entorno macro** (2026-11-17,
+> **Lo último que entró son las mejoras del informe PDF** (2026-11-21, desde
+> `claude/pdf-generation-improvements-3037ce`, ya borrada). El PDF del
+> optimizador trae ahora una sección «Riesgo de cola: VaR y Expected
+> Shortfall» (las cifras de la pestaña Riesgo, la tabla por activo y el
+> backtest del VaR) y otra «Entorno macro» (`macro/informe.py`: `recoger` no
+> paga nunca y sólo usa la lectura de IA ya pagada, vía `lectura.guardada`).
+> **La tarta de pesos salía entera en negro** porque Streamlit pone por defecto
+> su plantilla de Plotly, cuyos colores son marcadores `#000001…` que sólo el
+> navegador sustituye; kaleido los pintaba tal cual. `exporter._figura_para_pdf`
+> exporta una copia con `plotly_dark`. La comparativa ya no dice «Max Sharpe»
+> fijo: nombra la estrategia de la corrida.
+>
+> **Antes entró el sub-proyecto P, el entorno macro** (2026-11-17,
 > desde `claude/macro-economic-analyzer-7a7efd`, ya borrada): la pantalla
 > «Entorno macro» y la casilla de Revisar candidatos que inclina el Top por la
 > fase del ciclo. Ver «Resultado del sub-proyecto P». Se escribió como «O» y se

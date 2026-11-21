@@ -359,3 +359,86 @@ def test_el_excel_tambien_escribe_la_palabra_y_no_el_booleano():
     valores = [c.value for fila in libro["Métricas"].iter_rows() for c in fila]
     assert "Sí" in valores
     assert True not in valores
+
+
+# ── Las gráficas del PDF y el riesgo de cola ─────────────────────────────────
+
+def test_la_figura_del_pdf_no_hereda_la_plantilla_de_streamlit():
+    """Streamlit pone su plantilla por defecto, con colores marcador
+    (#000001…) que kaleido pinta en negro: la tarta salía entera negra."""
+    import numpy as np
+    import plotly.graph_objects as go
+    import plotly.io as pio
+    import streamlit.elements.plotly_chart  # noqa: F401  (registra la plantilla)
+    from charts import plot_weights_pie
+    from exporter import _figura_para_pdf
+
+    anterior = pio.templates.default
+    pio.templates.default = "streamlit"
+    try:
+        fig = plot_weights_pie(np.array([0.5, 0.5]), ["A", "B"])
+        copia = _figura_para_pdf(fig)
+    finally:
+        pio.templates.default = anterior
+    colores = copia.layout.template.layout.colorway
+    assert colores and not any(c.startswith("#0000") for c in colores)
+    # La de la pantalla no se toca.
+    assert fig.layout.template.layout.colorway != colores
+
+
+def _informe():
+    import numpy as np
+    from riesgo import backtest
+    from riesgo.informe import informe_riesgo
+
+    rng = np.random.default_rng(0)
+    n = backtest.MINIMO_OBSERVACIONES + 50
+    r = pd.DataFrame(rng.normal(0, 0.01, (n, 3)), columns=["AAPL", "MSFT", "GOOGL"],
+                     index=pd.bdate_range("2023-01-02", periods=n))
+    return informe_riesgo(r, np.array([0.5, 0.3, 0.2]))
+
+
+def test_el_pdf_lleva_el_var_y_el_es():
+    from pypdf import PdfReader
+    from exporter import filas_riesgo
+
+    inf = _informe()
+    filas, _ = filas_riesgo(inf)
+    etiquetas = dict(filas)
+    assert etiquetas["VaR 99 % (1 día)"] == f"{inf.var99:.2%}"
+    assert etiquetas["ES 97,5 % (1 día)"] == f"{inf.es975:.2%}"
+
+    datos = to_pdf(_weights_df(), _metrics(), [], riesgo=inf)
+    texto = "".join(p.extract_text() for p in PdfReader(io.BytesIO(datos)).pages)
+    assert "VaR 99 %" in texto and "Expected Shortfall" in texto
+
+
+def test_el_pdf_explica_por_que_no_hay_var():
+    from pypdf import PdfReader
+    from riesgo.informe import HistoriaInsuficiente
+
+    falta = {"falta": HistoriaInsuficiente(120, 750), "sin_datos": [], "corto": "X",
+             "sesiones": 120}
+    for riesgo, esperado in ((falta, "hacen falta 750"),
+                             ({"error": "sin red."}, "sin red")):
+        datos = to_pdf(_weights_df(), _metrics(), [], riesgo=riesgo)
+        texto = "".join(p.extract_text() for p in PdfReader(io.BytesIO(datos)).pages)
+        assert esperado in texto
+
+
+def test_el_pdf_lleva_el_entorno_macro():
+    from datetime import date
+    from pypdf import PdfReader
+    from macro import informe
+    from macro.estado import Estado
+    from macro.fase import Fase
+
+    serie = pd.Series([100.5, 100.6, 100.7, 100.8],
+                      index=pd.period_range("2026-07", periods=4, freq="M").to_timestamp())
+    fase = Fase("expansion", None, date(2026, 10, 1), 100.8, 0.3, 4)
+    entorno = informe.EntornoPDF("mex", Estado("mex", serie, fase, None, None, False))
+
+    datos = to_pdf(_weights_df(), _metrics(), [], macro=entorno)
+    texto = "".join(p.extract_text() for p in PdfReader(io.BytesIO(datos)).pages)
+    assert "Entorno macro" in texto
+    assert "xico" in texto  # «México», con la tilde que pypdf lee a su manera

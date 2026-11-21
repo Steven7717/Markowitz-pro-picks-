@@ -68,20 +68,37 @@ def contexto_prompt(estado, contexto) -> str:
     return "\n".join(lineas)
 
 
+def _llave(estado) -> str:
+    return f"{estado.region}_{estado.fase.mes_dato.isoformat()}"
+
+
+def guardada(estado, *, raiz: Path = RAIZ) -> "Lectura | None":
+    """La lectura que ya se pagó para esta región y este mes del dato, o None.
+
+    Nunca llama a la IA: es lo que usa el informe PDF, que no puede gastar
+    dinero del usuario sin que éste pulse un botón que lo diga.
+    """
+    if estado.fase is None or estado.fase.clave is None or estado.fase.mes_dato is None:
+        return None
+    previa = cache.leer(raiz, "macro", _llave(estado), _PARA_SIEMPRE)
+    if previa is None:
+        return None
+    # Una caché con mala forma (editada, de otra versión) es como no tener caché.
+    try:
+        salida = SalidaLectura.model_validate(previa.datos)
+    except ValidationError:
+        return None
+    return Lectura(salida.explicacion, tuple(salida.vigilar))
+
+
 def leer(estado, contexto, *, raiz: Path = RAIZ, cliente=None) -> Lectura:
     if estado.fase is None or estado.fase.clave is None:
         return Lectura(problema="Sin una fase determinada no hay nada que leer.")
 
-    llave = f"{estado.region}_{estado.fase.mes_dato.isoformat()}"
-    guardada = cache.leer(raiz, "macro", llave, _PARA_SIEMPRE)
-    if guardada is not None:
-        # Una caché con mala forma (editada, de otra versión) es como no tener caché.
-        try:
-            previa = SalidaLectura.model_validate(guardada.datos)
-        except ValidationError:
-            previa = None
-        if previa is not None:
-            return Lectura(previa.explicacion, tuple(previa.vigilar))
+    llave = _llave(estado)
+    previa = guardada(estado, raiz=raiz)
+    if previa is not None:
+        return previa
 
     respuesta = cliente_ia.preguntar(
         SISTEMA,

@@ -255,11 +255,169 @@ def notas_pdf(metrics: dict) -> list[str]:
     return notas
 
 
+def _figura_para_pdf(fig: go.Figure) -> go.Figure:
+    """Una copia de la figura que kaleido sepa pintar.
+
+    **Streamlit cambia la plantilla por defecto de Plotly al importarse**
+    (`pio.templates.default = "streamlit"`), y los colores de esa plantilla no
+    son colores: son marcadores `#000001`, `#000002`… que sólo el navegador
+    sustituye por la paleta del tema. Kaleido los pinta tal cual, así que la
+    tarta de pesos salía entera en negro, y la leyenda de la frontera se montaba
+    encima de la barra de color. Una copia, para no tocar la que ve la pantalla.
+    """
+    copia = go.Figure(fig)
+    copia.update_layout(template="plotly_dark")
+    # Dos cosas a la derecha (barra de color y leyenda) se pisan en una imagen
+    # fija; en la pantalla no se nota porque la leyenda se puede ocultar.
+    # `colorscale` y no `showscale`: la frontera no fija `showscale`, y Plotly
+    # enseña la barra igual en cuanto el color es una escala.
+    def _con_barra(traza) -> bool:
+        marcador = getattr(traza, "marker", None)
+        return (getattr(marcador, "colorscale", None) is not None
+                and getattr(marcador, "showscale", None) is not False)
+
+    if any(_con_barra(t) for t in copia.data):
+        copia.update_layout(legend=dict(orientation="h", x=0, y=-0.18,
+                                        xanchor="left", yanchor="top"),
+                            margin=dict(b=110))
+    return copia
+
+
+def _pct(x: float, decimales: int = 2) -> str:
+    """Un porcentaje sin «-0,00 %» para los restos de -1e-17 del optimizador."""
+    texto = f"{x:.{decimales}%}"
+    if texto.startswith("-") and not any(c in "123456789" for c in texto):
+        return texto[1:]
+    return texto
+
+
+def filas_riesgo(informe) -> tuple[list[tuple[str, str]], str]:
+    """La tabla del riesgo de cola, con las mismas cifras que la pestaña
+    «Riesgo», y la frase con los límites de las zonas que va debajo."""
+    from riesgo.backtest import limites_semaforo
+    from riesgo.metodos import ETIQUETAS
+
+    verde, amarilla = limites_semaforo()
+    ganador = informe.competencia[informe.elegido]
+    return [
+        ("VaR 99 % (1 día)", _pct(informe.var99)),
+        ("ES 97,5 % (1 día)", _pct(informe.es975)),
+        ("ES 99 % (1 día)", _pct(informe.es99)),
+        ("VaR 99 % (10 días, escalado por raíz de 10)", _pct(informe.var99 * 10 ** 0.5)),
+        ("Método elegido", ETIQUETAS[informe.elegido]),
+        ("Tiempo en zona verde (ventanas de 250 días)", _pct(ganador.fraccion_verde, 0)),
+        ("Zona hoy", f"{ganador.zona_actual.capitalize()} "
+                     f"({ganador.excepciones_ultimas} excepciones en 250 días)"),
+        ("Tasa de excepciones del backtest", _pct(ganador.tasa)),
+        ("Kupiec p", f"{ganador.kupiec_p:.2f}"),
+        ("Reducción del ES por diversificar",
+         _pct(informe.diversificacion, 0) if informe.diversificacion > 0 else "Ninguna"),
+        ("Sesiones diarias usadas", _conteo(informe.observaciones)),
+    ], f"Zonas de Basilea: verde 0-{verde} excepciones; amarilla {verde + 1}-{amarilla}."
+
+
+def nota_sin_riesgo(riesgo) -> str | None:
+    """Por qué el informe no trae VaR, si la corrida lo intentó y no pudo."""
+    if not isinstance(riesgo, dict):
+        return None
+    if riesgo.get("error"):
+        return f"No se pudo medir el riesgo de cola: {str(riesgo['error']).rstrip('.')}."
+    falta = riesgo.get("falta")
+    if falta is not None:
+        return (
+            f"No hay VaR ni ES: para backtestearlos hacen falta {falta.necesarias} "
+            f"sesiones diarias comunes y hay {falta.observaciones}."
+        )
+    return None
+
+
+def _seccion_riesgo(pdf: FPDF, riesgo, tmpdir: str) -> None:
+    if riesgo is None:
+        return
+    pdf.set_font("Helvetica", "B", 11)
+    pdf.cell(0, 8, texto_pdf("Riesgo de cola: VaR y Expected Shortfall"),
+             new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+
+    nota = nota_sin_riesgo(riesgo)
+    if nota is not None or isinstance(riesgo, dict):
+        pdf.set_font("Helvetica", "", 9)
+        pdf.multi_cell(0, 5, texto_pdf(nota or "Sin medición del riesgo de cola."))
+        pdf.ln(4)
+        return
+
+    filas, pie = filas_riesgo(riesgo)
+    pdf.set_font("Helvetica", "", 10)
+    for label, value in filas:
+        pdf.cell(100, 7, texto_pdf(label), border=1)
+        pdf.cell(80, 7, texto_pdf(value), border=1, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+    pdf.set_font("Helvetica", "", 8)
+    pdf.multi_cell(0, 5, texto_pdf(
+        f"{pie} Pérdidas expresadas como fracción del valor de la cartera. Los "
+        "pesos se mantienen fijos en todo el historial y son los de esta corrida."
+    ))
+    pdf.ln(2)
+
+    pdf.set_font("Helvetica", "B", 10)
+    pdf.cell(0, 7, texto_pdf("Por activo"), new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+    cabecera = ["Ticker", "Peso", "VaR 99 %", "ES 97,5 %", "ES 99 %", "Aporta al ES"]
+    ancho = 180 / len(cabecera)
+    pdf.set_font("Helvetica", "B", 9)
+    for col in cabecera:
+        pdf.cell(ancho, 7, texto_pdf(col), border=1)
+    pdf.ln()
+    pdf.set_font("Helvetica", "", 9)
+    for f in riesgo.activos:
+        for val in (f.ticker, _pct(f.peso), _pct(f.var99), _pct(f.es975),
+                    _pct(f.es99), _pct(f.aportacion_es, 1)):
+            pdf.cell(ancho, 6, texto_pdf(val), border=1)
+        pdf.ln()
+    pdf.ln(3)
+
+    from charts import plot_backtest_var
+
+    ganador = riesgo.competencia[riesgo.elegido]
+    fig = plot_backtest_var(riesgo.fechas, ganador.realizados, ganador.var99,
+                            ganador.excepciones)
+    fig.update_layout(title="Backtest del VaR 99 %: retorno diario contra el VaR previsto")
+    ruta = os.path.join(tmpdir, "backtest_var.png")
+    _figura_para_pdf(fig).write_image(ruta, width=900, height=450, scale=1.5)
+    pdf.image(ruta, w=180)
+    pdf.ln(3)
+
+
+def _seccion_macro(pdf: FPDF, macro) -> None:
+    """Las declaraciones del entorno macro, con las palabras de su pantalla."""
+    if macro is None:
+        return
+    from macro.informe import declaraciones
+
+    filas, parrafos = declaraciones(macro)
+    pdf.set_font("Helvetica", "B", 11)
+    pdf.cell(0, 8, texto_pdf("Entorno macro"), new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+    pdf.set_font("Helvetica", "", 10)
+    for label, value in filas:
+        pdf.cell(100, 7, texto_pdf(label), border=1)
+        # `multi_cell`: la lista de sectores puede no caber en 80 mm.
+        pdf.multi_cell(80, 7, texto_pdf(value), border=1,
+                       new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+    pdf.ln(2)
+    pdf.set_font("Helvetica", "", 9)
+    for parrafo in parrafos:
+        pdf.multi_cell(0, 5, texto_pdf(parrafo))
+        pdf.ln(1)
+    pdf.ln(3)
+
+
 def to_pdf(
     weights_df: pd.DataFrame,
     metrics: dict,
     figures: list[go.Figure],
+    riesgo=None,
+    macro=None,
 ) -> bytes:
+    """El informe. `riesgo` es lo que la corrida guardó en `corrida["riesgo"]`:
+    un `InformeRiesgo`, un dict que explica por qué no lo hay, o None. `macro`
+    es un `macro.informe.EntornoPDF`, o None para no imprimir la sección."""
     pdf = FPDF()
     pdf.set_auto_page_break(auto=True, margin=15)
     pdf.add_page()
@@ -315,13 +473,19 @@ def to_pdf(
         pdf.ln()
     pdf.ln(4)
 
-    # Charts
-    pdf.set_font("Helvetica", "B", 11)
-    pdf.cell(0, 8, texto_pdf("Gráficas"), new_x=XPos.LMARGIN, new_y=YPos.NEXT)
     with tempfile.TemporaryDirectory() as tmpdir:
+        _seccion_riesgo(pdf, riesgo, tmpdir)
+        _seccion_macro(pdf, macro)
+
+        # Charts. Si la primera gráfica (180 mm de ancho → 100 de alto) no cabe,
+        # el título baja con ella en vez de quedarse huérfano al pie.
+        if pdf.get_y() + 110 > pdf.h - pdf.b_margin:
+            pdf.add_page()
+        pdf.set_font("Helvetica", "B", 11)
+        pdf.cell(0, 8, texto_pdf("Gráficas"), new_x=XPos.LMARGIN, new_y=YPos.NEXT)
         for i, fig in enumerate(figures):
             img_path = os.path.join(tmpdir, f"chart_{i}.png")
-            fig.write_image(img_path, width=900, height=500, scale=1.5)
+            _figura_para_pdf(fig).write_image(img_path, width=900, height=500, scale=1.5)
             pdf.image(img_path, w=180)
             pdf.ln(3)
 

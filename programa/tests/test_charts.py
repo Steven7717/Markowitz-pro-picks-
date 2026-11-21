@@ -271,3 +271,12 @@ def test_plot_backtest_var_acepta_fechas_en_lista():
     fig = plot_backtest_var(fechas, np.array([0.01, -0.03, 0.0]), np.array([0.02] * 3),
                             np.array([False, True, False]))
     assert len(fig.data[2].x) == 1
+
+
+def test_la_comparativa_nombra_la_estrategia_de_la_corrida():
+    """Con paridad de riesgo la leyenda decía «Max Sharpe»."""
+    fig = plot_comparison(
+        ["A", "B"], np.array([0.6, 0.4]), np.array([0.5, 0.5]),
+        0.1, 0.1, 0.1, 0.1, strategy_label="Paridad de riesgo",
+    )
+    assert [t.name for t in fig.data] == ["Equal Weight", "Paridad de riesgo"]

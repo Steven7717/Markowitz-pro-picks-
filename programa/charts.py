@@ -179,6 +179,7 @@ def plot_comparison(
     ew_ret: float,
     opt_vol: float,
     ew_vol: float,
+    strategy_label: str = "Óptimo",
 ) -> go.Figure:
     fig = go.Figure()
     fig.add_trace(go.Bar(
@@ -190,7 +191,9 @@ def plot_comparison(
         hovertemplate="%{y}: %{x:.2%}<extra></extra>",
     ))
     fig.add_trace(go.Bar(
-        name="Max Sharpe",
+        # La estrategia de la corrida, no «Max Sharpe» fijo: con paridad de
+        # riesgo o mínima varianza la leyenda nombraba un criterio que no se usó.
+        name=strategy_label,
         x=opt_weights,
         y=tickers,
         orientation="h",

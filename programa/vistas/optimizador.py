@@ -730,6 +730,7 @@ fig_comp = plot_comparison(
     valid_tickers, optimal["weights"], ew["weights"],
     optimal["annual_return"], ew["annual_return"],
     optimal["annual_vol"], ew["annual_vol"],
+    strategy_label=STRATEGY_LABELS[corrida["estrategia"]],
 )
 
 resumen, validacion, graficos, riesgo_tab, exportar = st.tabs(
@@ -1245,11 +1246,22 @@ with exportar:
         if col_pdf.button("Preparar PDF", use_container_width=True,
                           icon=":material/picture_as_pdf:"):
             with st.spinner("Generando el PDF (tarda unos segundos)…"):
+                # El entorno macro no puede tumbar el informe: `recoger` ya no
+                # lanza, y esto cubre lo que pasara antes de llegar a él.
+                try:
+                    from datetime import date as _date
+                    from macro import informe as informe_macro
+                    _macro = informe_macro.recoger(
+                        preferencias_mod.cargar()[0].region_macro, _date.today())
+                except Exception:
+                    _macro = None
                 st.session_state.pdf_informe = {
                     "firma": _firma_pdf,
                     "datos": to_pdf(
                         weights_df, metrics,
                         [fig_frontier, fig_pie, fig_corr, fig_comp],
+                        riesgo=corrida.get("riesgo"),
+                        macro=_macro,
                     ),
                 }
             st.rerun()
