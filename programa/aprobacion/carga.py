@@ -1,4 +1,5 @@
 import json
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -284,6 +285,53 @@ def resumen_corrida(corrida: dict | None) -> str:
         f"Estos candidatos salen de {corrida['n_panel']} empresas con datos, de "
         f"las que sobrevivieron {corrida['n_supervivientes']} a las guardas. "
         f"Quedaron excluidas {excluidas}: {por_motivo}."
+    )
+
+
+def _trimestre_en_castellano(trimestre: "str | None") -> str:
+    """'2026Q3' -> 'hasta el 3T 2026'. Un formato inesperado se dice tal cual."""
+    if not trimestre:
+        return "sin trimestre conocido"
+    partes = re.fullmatch(r"(\d{4})Q([1-4])", str(trimestre))
+    if partes is None:
+        return f"hasta «{trimestre}»"
+    return f"hasta el {partes.group(2)}T {partes.group(1)}"
+
+
+def linea_datos_sec(corrida: "dict | None") -> "tuple[str, bool] | None":
+    """De cuándo son los datos de la SEC, en una línea, y si hay que avisar.
+
+    Sub-proyecto Q. Devuelve (texto, es_aviso), o None si la corrida es
+    anterior a Q y no trae el bloque. Es aviso cuando alguna empresa se sirvió
+    con sus cifras viejas porque la SEC no contestó: el revisor decide sobre
+    esas cifras, y tiene que saberlo.
+    """
+    datos = (corrida or {}).get("datos_sec")
+    if not isinstance(datos, dict):
+        return None
+    actualizadas = datos.get("actualizadas", 0)
+    caducadas = datos.get("servidas_caducadas", 0)
+    partes = [
+        f"Datos de la SEC {_trimestre_en_castellano(datos.get('ultimo_trimestre'))}",
+        (
+            "1 empresa actualizada en esta corrida"
+            if actualizadas == 1
+            else f"{actualizadas} empresas actualizadas en esta corrida"
+        ),
+        f"{caducadas} servidas sin actualizar",
+    ]
+    texto = " · ".join(partes)
+    if not caducadas:
+        return texto + ".", False
+    antigua = datos.get("descarga_mas_antigua")
+    motivo = datos.get("motivo_sin_red")
+    return (
+        texto
+        + ": la SEC no respondió al pedir sus informes nuevos, así que sus cifras son "
+        + "las de su última descarga"
+        + (f" (la más antigua, del {antigua})." if antigua else ".")
+        + (f" Motivo: {motivo}" if motivo else ""),
+        True,
     )
 
 

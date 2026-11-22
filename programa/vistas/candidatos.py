@@ -33,6 +33,7 @@ from aprobacion.carga import (
     FaltanFichas,
     cargar_candidatos,
     kpis_con_dato,
+    linea_datos_sec,
     resumen_corrida,
     valoracion_de,
 )
@@ -303,6 +304,12 @@ except ContratoRoto as error:
     st.stop()
 
 st.info(resumen_corrida(candidatos.corrida))
+# Sub-proyecto Q: de cuándo son las cifras. Es aviso si alguna se sirvió vieja
+# porque la SEC no contestó, que es justo cuando el revisor tiene que saberlo.
+_datos_sec = linea_datos_sec(candidatos.corrida)
+if _datos_sec is not None:
+    _texto_sec, _aviso_sec = _datos_sec
+    (st.warning if _aviso_sec else st.info)(_texto_sec)
 _bloque_macro = (candidatos.corrida or {}).get("macro")
 _con_macro = textos_macro.lleva_macro(_bloque_macro)
 if _con_macro:

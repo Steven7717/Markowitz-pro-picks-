@@ -748,3 +748,26 @@ def test_con_macro_none_explicito_el_resultado_es_identico(sin_red):
 def test_sin_macro_los_compuestos_de_las_fichas_van_en_orden_no_creciente(sin_red):
     compuestos = [f["compuesto"] for f in construir_ranking(con_llm=False, n=15).fichas]
     assert compuestos == sorted(compuestos, reverse=True)
+
+
+def test_la_corrida_lleva_el_bloque_de_datos_de_la_sec():
+    from fundamentals.fetch import CoverageReport
+
+    panel, metadatos = panel_y_metadatos()
+    cobertura = CoverageReport(
+        included=list(metadatos.index),
+        actualizadas=[metadatos.index[0]],
+        descargado_el={t: "2026-11-22" for t in metadatos.index},
+    )
+    with patch("ranking.run.build_panel", return_value=(panel, metadatos, cobertura)):
+        corrida = construir_ranking(con_llm=False, con_valoracion=False).corrida
+    assert corrida["datos_sec"]["ultimo_trimestre"] == str(panel["trimestre"].max())
+    assert corrida["datos_sec"]["actualizadas"] == 1
+    assert corrida["datos_sec"]["servidas_caducadas"] == 0
+
+
+def test_sin_cobertura_la_corrida_lleva_datos_sec_nulo():
+    panel, metadatos = panel_y_metadatos()
+    with patch("ranking.run.build_panel", return_value=(panel, metadatos, None)):
+        corrida = construir_ranking(con_llm=False, con_valoracion=False).corrida
+    assert corrida["datos_sec"] is None

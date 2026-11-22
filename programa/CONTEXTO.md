@@ -1,7 +1,7 @@
 # Contexto del proyecto — para retomar en una sesión nueva
 
 **Última actualización:** 2026-11-21
-**Rama:** `master` (la coherencia de retornos en la identificabilidad fusionada el 2026-11-21 desde `claude/markowitz-returns-consistency-548bd3`; las mejoras del informe PDF —VaR/ES, entorno macro y la tarta que salía negra— fusionadas el 2026-11-21 desde `claude/pdf-generation-improvements-3037ce`; el sub-proyecto P, el entorno macro, fusionado el 2026-11-17 desde `claude/macro-economic-analyzer-7a7efd`; N3 el mismo día desde `feat/analizador-n3-ia`; el sub-proyecto O, también ese día, desde `claude/portfolio-optimizer-var-es-dbe5f0`; N1 y N2 el 2026-11-12) · **Tests:** 4.040 pasando (`uv run pytest tests/ -q -m "not red"`), 3 omitidos —dos por permisos POSIX en Windows y uno de `test_valoracion_dcf.py` sin `numpy_financial`— más 52 marcados `red`, 8 de ellos del macro
+**Rama:** `master` (el sub-proyecto Q, la caducidad de la caché de la SEC, fusionado el 2026-11-22 desde `caducidad-cache-sec`; la coherencia de retornos en la identificabilidad fusionada el 2026-11-21 desde `claude/markowitz-returns-consistency-548bd3`; las mejoras del informe PDF —VaR/ES, entorno macro y la tarta que salía negra— fusionadas el 2026-11-21 desde `claude/pdf-generation-improvements-3037ce`; el sub-proyecto P, el entorno macro, fusionado el 2026-11-17 desde `claude/macro-economic-analyzer-7a7efd`; N3 el mismo día desde `feat/analizador-n3-ia`; el sub-proyecto O, también ese día, desde `claude/portfolio-optimizer-var-es-dbe5f0`; N1 y N2 el 2026-11-12) · **Tests:** 4.131 pasando (`uv run pytest tests/ -q -m "not red"`), 3 omitidos —dos por permisos POSIX en Windows y uno de `test_valoracion_dcf.py` sin `numpy_financial`— más 52 marcados `red`, 8 de ellos del macro
 **Remoto:** `https://github.com/Steven7717/Markowitz-pro-picks-.git` — `master` es lo publicado
 **Estructura:** el programa vive en `programa/`; en la raíz sólo están los dos
 lanzadores y el `README.md`. Los comandos (`uv run pytest`, `uv run streamlit`)
@@ -136,6 +136,8 @@ El objetivo mayor es construir, **aguas arriba de esa app**, un sistema donde un
 | N | Analizador individual | La mecánica de candidatos para cualquier ticker, con gráfico, noticias e IA | ✅ **terminado**: N1, N2 y N3 en `master`; el recorrido de pago de N3, a medias |
 | O | VaR y ES en el optimizador | VaR 99 % y ES 97,5/99 % de la cartera y por activo, método elegido por el semáforo de Basilea | ✅ terminado |
 | P | Entorno macro | Fase del ciclo por región (CLI OCDE) e inclinación opcional del Top | ✅ **terminado** |
+| Q | Caducidad de la caché de la SEC | Se vuelven a pedir los informes nuevos; sin red, lo guardado y un aviso | ✅ **terminado** |
+| R | Ranking value small/mid | S&P 400+600, filtro duro de 6 reglas, z sectorial con pesos GARP e insiders | 📝 spec escrito (`2026-11-22-ranking-value-design.md`), sin plan |
 
 ## Resultado del sub-proyecto D
 
@@ -3084,3 +3086,38 @@ Los tests marcados `red` contrastan los KPIs nativos contra yfinance y necesitan
 ```bash
 EDGAR_IDENTITY="tu@correo.com" pytest tests/ -q -m red
 ```
+
+## Resultado del sub-proyecto Q
+
+**Caducidad de la caché de la SEC** (2026-11-22). Spec
+`docs/superpowers/specs/2026-11-22-caducidad-cache-sec-design.md`, plan
+`docs/superpowers/plans/2026-11-22-caducidad-cache-sec.md`.
+
+Hasta aquí `fundamentals/.cache` no caducaba nunca: los 503 ficheros de la
+máquina del autor eran del 2026-08-30 y el ranking no veía el tercer trimestre,
+sin que ninguna guarda lo dijera (`datos_rancios` mide contra el panel, no
+contra hoy).
+
+- **La regla** (`fundamentals/fetch.py:caducado`): un fichero se vuelve a pedir
+  si su último cierre trimestral o anual tiene más de 75 días **y** el fichero
+  más de 7. Medido el 2026-11-22 con 5 empresas: 4 se actualizaron y trajeron
+  el 3T; la segunda corrida no pidió nada.
+- **Sin red no se pierde nada.** Un caducado cuya descarga falla se sirve viejo
+  (`servidas_caducadas`, sigue en `included`); su fallo cuenta para los
+  cortacircuitos, y cuando saltan —o llega un fallo que aborta, como la
+  identidad rechazada— se entra en «modo sin red»: los caducados se sirven sin
+  preguntar y las que no tienen fichero se anotan en `failed_download` **sin
+  pedirlas**. Antes de que salte, una sin fichero aborta como siempre.
+  `motivo_sin_red` guarda por qué se dejó de preguntar.
+- **Un 404 permanente** sobre un caducado toca el mtime: se vuelve a mirar en
+  una semana, no en cada corrida.
+- **Se ve:** `corrida.json` trae `datos_sec` (`fundamentals.fetch.resumen_datos_sec`)
+  y Revisar candidatos pinta «Datos de la SEC hasta el 3T 2026 · …», como aviso
+  si alguna se sirvió vieja, con el motivo.
+
+**Defecto que encontró la revisión, y venía del plan:** con la racha en el tope
+tras los caducados, una empresa nueva sin fichero abortaba la corrida o no
+según su posición en la lista. Se arregló no pidiendo nada en modo sin red
+(`test_el_orden_de_una_empresa_sin_fichero_no_cambia_el_resultado` en
+`tests/test_fundamentals_caducidad.py`).
+
