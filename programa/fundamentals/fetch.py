@@ -148,6 +148,10 @@ class CoverageReport:
     actualizadas: list[str] = field(default_factory=list)
     servidas_caducadas: list[str] = field(default_factory=list)
     descargado_el: dict[str, str] = field(default_factory=dict)
+    # Por qué se dejó de preguntar a la SEC (`sin_red`): la `explicacion` del
+    # fallo que saltó el cortacircuitos. None si no saltó. Sin esto, el aviso de
+    # «servidas sin actualizar» dice que la SEC no respondió pero no por qué.
+    motivo_sin_red: "str | None" = None
 
     def summary(self) -> str:
         return (
@@ -412,10 +416,16 @@ class Intento:
     segundos_de_red: float = 0.0
     caducado: bool = False
     descargado_el: "date | None" = None
+    # True si no se llegó a pedir porque `sin_red` está activo y no hay fichero.
+    omitido: bool = False
 
 
 def _load_one(
-    ticker: str, cache_dir: Path, refresh: bool, hoy: date, sin_red: bool = False
+    ticker: str,
+    cache_dir: Path,
+    refresh: bool,
+    hoy: date,
+    sin_red: "Fallo | None" = None,
 ) -> Intento:
     """Un intento por ticker; el reintento de lo transitorio es de edgartools.
 
@@ -429,9 +439,14 @@ def _load_one(
     justamente lo que un bucle de fuera no puede distinguir.
 
     Un fichero caducado (`caducado`) se vuelve a pedir. Si la petición falla, se
-    devuelve el fichero viejo junto con el fallo. Con `sin_red`, que
-    `load_facts` activa cuando salta un cortacircuitos, un caducado se sirve
-    directamente sin preguntar.
+    devuelve el fichero viejo junto con el fallo. Si ese fallo prueba que la SEC
+    contesta (`fuente_viva`, p. ej. un 404), se toca el mtime para no volver a
+    preguntar hasta dentro de `DIAS_ENTRE_COMPROBACIONES`; uno transitorio lo
+    deja como está, para reintentar en la próxima corrida.
+
+    `sin_red` es el fallo que hizo saltar el cortacircuitos de `load_facts`, o
+    None. Con él, un caducado se sirve directamente sin preguntar y un ticker
+    sin fichero se devuelve como `omitido` con ese mismo fallo, sin pedirlo.
     """
     path = _cache_path(cache_dir, ticker)
     guardado = None
@@ -446,23 +461,29 @@ def _load_one(
     if guardado is not None:
         descargado_el = date.fromtimestamp(path.stat().st_mtime)
         viejo = caducado(guardado, descargado_el, hoy)
-        if not viejo or sin_red:
+        if not viejo or sin_red is not None:
             return Intento(
                 guardado, None, desde_cache=True, caducado=viejo,
                 descargado_el=descargado_el,
             )
+
+    if sin_red is not None:
+        return Intento(None, sin_red, omitido=True)
 
     comenzo = _ahora()
     try:
         frame = _fetch_facts(ticker)
     except Exception as exc:
         segundos = _ahora() - comenzo
+        fallo = clasificar(exc)
         if guardado is not None:
+            if fallo.fuente_viva:
+                os.utime(path)  # la SEC contestó: se vuelve a mirar en una semana
             return Intento(
-                guardado, clasificar(exc), desde_cache=True, segundos_de_red=segundos,
+                guardado, fallo, desde_cache=True, segundos_de_red=segundos,
                 caducado=True, descargado_el=descargado_el,
             )
-        return Intento(None, clasificar(exc), segundos_de_red=segundos)
+        return Intento(None, fallo, segundos_de_red=segundos)
     segundos = _ahora() - comenzo
 
     cache_dir.mkdir(parents=True, exist_ok=True)
@@ -513,7 +534,11 @@ def load_facts(
     A stale entry whose re-download fails is served from disk and listed in
     `servidas_caducadas`. Its failure still advances the circuit breakers.
     When they trip, stale entries stop asking (`sin_red`) instead of aborting
-    the run, because they have data. Only a ticker with no file can abort.
+    the run, because they have data. While `sin_red` is not active, a ticker
+    with no file can still abort the run, as before Q. Once it is active, a
+    ticker with no file is not requested: it is recorded in `failed_download`
+    and the run goes on, so the result does not depend on the order of the
+    tickers. `CoverageReport.motivo_sin_red` keeps why requests stopped.
 
     Un ticker que falla se registra y se salta. Que fallen todos por la misma
     causa no es un ticker que falla: es que no hay fuente, y entonces levanta
@@ -534,7 +559,7 @@ def load_facts(
     """
     cache_dir = cache_dir or _DEFAULT_CACHE
     hoy = hoy or date.today()
-    sin_red = False
+    sin_red: "Fallo | None" = None
     cobertura = CoverageReport(requested=list(tickers))
     hechos: dict[str, pd.DataFrame] = {}
     racha = desconocidos = 0
@@ -562,12 +587,15 @@ def load_facts(
             # pierde ni aborta. Pero se preguntó a la SEC, así que el fallo
             # avanza los cortacircuitos igual que cualquier otro. Cuando
             # saltan, en vez de abortar se deja de preguntar por los
-            # caducados (`sin_red`). Las empresas sin fichero siguen
-            # preguntando, y con la racha ya en el tope, su primer fallo
-            # aborta, como antes de Q.
+            # caducados (`sin_red`), y tampoco por las que no tienen fichero:
+            # esas se anotan en `failed_download` sin pedirlas. Mientras
+            # `sin_red` no salta, una sin fichero sí puede abortar, como antes
+            # de Q (`test_un_fallo_en_un_caducado_cuenta_para_la_racha`).
             fallo = intento.fallo
             if fallo.aborta:
-                sin_red = True
+                if sin_red is None:
+                    sin_red = fallo
+                    cobertura.motivo_sin_red = fallo.explicacion
                 continue
             if fallo.fuente_viva:
                 racha = desconocidos = 0
@@ -580,11 +608,15 @@ def load_facts(
                 desconocidos += 1
             segundos_perdidos += intento.segundos_de_red
             if racha >= RACHA_MAXIMA or segundos_perdidos >= SIN_RESPUESTA_MAXIMO:
-                sin_red = True
+                if sin_red is None:
+                    sin_red = fallo
+                    cobertura.motivo_sin_red = _sin_fuente(racha, desconocidos, fallo)
             continue
 
         fallo = intento.fallo
         _anotar(cobertura, ticker, fallo)
+        if intento.omitido:
+            continue
 
         if fallo.aborta:
             raise CorridaAbortada(fallo.causa, fallo.explicacion, cobertura)
@@ -629,4 +661,5 @@ def resumen_datos_sec(
         "descarga_mas_reciente": fechas[-1] if fechas else None,
         "actualizadas": len(cobertura.actualizadas),
         "servidas_caducadas": len(cobertura.servidas_caducadas),
+        "motivo_sin_red": cobertura.motivo_sin_red,
     }

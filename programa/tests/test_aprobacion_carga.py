@@ -345,6 +345,18 @@ def test_con_servidas_caducadas_la_linea_es_un_aviso_y_dice_por_que():
     assert "2026-08-30" in texto
 
 
+def test_con_servidas_caducadas_el_aviso_lleva_el_motivo():
+    datos = {**DATOS_SEC, "servidas_caducadas": 12, "motivo_sin_red": "La SEC rechazó la identidad."}
+    texto, _ = linea_datos_sec({**CORRIDA, "datos_sec": datos})
+    assert texto.endswith(" Motivo: La SEC rechazó la identidad.")
+
+
+def test_sin_motivo_el_aviso_no_lo_menciona():
+    datos = {**DATOS_SEC, "servidas_caducadas": 12, "motivo_sin_red": None}
+    texto, _ = linea_datos_sec({**CORRIDA, "datos_sec": datos})
+    assert "Motivo" not in texto
+
+
 def test_en_singular_con_una_empresa():
     texto, _ = linea_datos_sec({**CORRIDA, "datos_sec": {**DATOS_SEC, "actualizadas": 1}})
     assert "1 empresa actualizada en esta corrida" in texto

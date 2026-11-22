@@ -324,11 +324,13 @@ def linea_datos_sec(corrida: "dict | None") -> "tuple[str, bool] | None":
     if not caducadas:
         return texto + ".", False
     antigua = datos.get("descarga_mas_antigua")
+    motivo = datos.get("motivo_sin_red")
     return (
         texto
         + ": la SEC no respondió al pedir sus informes nuevos, así que sus cifras son "
         + "las de su última descarga"
-        + (f" (la más antigua, del {antigua})." if antigua else "."),
+        + (f" (la más antigua, del {antigua})." if antigua else ".")
+        + (f" Motivo: {motivo}" if motivo else ""),
         True,
     )
 

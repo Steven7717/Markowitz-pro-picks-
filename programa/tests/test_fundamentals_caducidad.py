@@ -225,15 +225,82 @@ def test_un_fallo_en_un_caducado_cuenta_para_la_racha(cache_dir):
     assert error.value.cobertura.servidas_caducadas == caducados
 
 
-def test_en_modo_sin_red_una_empresa_sin_fichero_aborta_como_hoy(cache_dir):
+def test_en_modo_sin_red_una_empresa_sin_fichero_se_anota_sin_pedirla(cache_dir):
     caducados = [f"C{i:03d}" for i in range(RACHA_MAXIMA)]
     _sembrar(cache_dir, caducados, dias=10)
     with patch(
         "fundamentals.fetch._fetch_facts", side_effect=httpx.ConnectTimeout("sin red")
+    ) as red:
+        hechos, cobertura = load_facts(
+            caducados + ["NUEVO"], cache_dir=cache_dir, hoy=HOY
+        )
+    assert sorted(hechos) == caducados
+    assert cobertura.included == caducados
+    assert cobertura.failed_download == ["NUEVO"]
+    # Ni una petición para NUEVO: sólo las que dispararon el cortacircuitos.
+    assert red.call_count == RACHA_MAXIMA
+
+
+def test_el_orden_de_una_empresa_sin_fichero_no_cambia_el_resultado(cache_dir):
+    caducados = [f"C{i:03d}" for i in range(RACHA_MAXIMA + 5)]
+    _sembrar(cache_dir, caducados, dias=10)
+    resultados = []
+    for orden in (["NUEVO"] + caducados, caducados + ["NUEVO"]):
+        with patch(
+            "fundamentals.fetch._fetch_facts",
+            side_effect=httpx.ConnectTimeout("sin red"),
+        ):
+            _, cobertura = load_facts(orden, cache_dir=cache_dir, hoy=HOY)
+        resultados.append(
+            (sorted(cobertura.included), sorted(cobertura.failed_download))
+        )
+    assert resultados[0] == resultados[1]
+    assert resultados[0] == (sorted(caducados), ["NUEVO"])
+
+
+def test_con_identidad_rechazada_una_empresa_sin_fichero_tampoco_aborta(cache_dir):
+    from tests.test_fundamentals_fetch import _status
+
+    _sembrar(cache_dir, ["AAA"], dias=10)
+    with patch("fundamentals.fetch._fetch_facts", side_effect=_status(403)) as red:
+        hechos, cobertura = load_facts(
+            ["AAA", "NUEVO"], cache_dir=cache_dir, hoy=HOY
+        )
+    assert list(hechos) == ["AAA"]
+    assert cobertura.failed_download == ["NUEVO"]
+    assert red.call_count == 1
+
+
+def test_el_motivo_de_sin_red_se_guarda(cache_dir):
+    from tests.test_fundamentals_fetch import _status
+
+    _sembrar(cache_dir, ["AAA", "BBB"], dias=10)
+    with patch("fundamentals.fetch._fetch_facts", side_effect=_status(403)):
+        _, cobertura = load_facts(["AAA", "BBB"], cache_dir=cache_dir, hoy=HOY)
+    assert "identidad" in cobertura.motivo_sin_red
+
+
+def test_sin_cortacircuitos_no_hay_motivo_de_sin_red(cache_dir):
+    _sembrar(cache_dir, ["AAA"], dias=10)
+    with patch("fundamentals.fetch._fetch_facts", side_effect=httpx.ConnectTimeout("x")):
+        _, cobertura = load_facts(["AAA"], cache_dir=cache_dir, hoy=HOY)
+    assert cobertura.motivo_sin_red is None
+
+
+def test_un_caducado_que_da_404_se_marca_como_comprobado(cache_dir):
+    """La SEC contestó: no se le vuelve a preguntar hasta dentro de una semana."""
+    from edgar.exceptions import CompanyFactsNotFoundError
+
+    _sembrar(cache_dir, ["AAA"], dias=10)
+    antes = _cache_path(cache_dir, "AAA").stat().st_mtime
+    with patch(
+        "fundamentals.fetch._fetch_facts",
+        side_effect=CompanyFactsNotFoundError(cik=1),
     ):
-        with pytest.raises(CorridaAbortada) as error:
-            load_facts(caducados + ["NUEVO"], cache_dir=cache_dir, hoy=HOY)
-    assert error.value.cobertura.failed_download == ["NUEVO"]
+        hechos, cobertura = load_facts(["AAA"], cache_dir=cache_dir, hoy=HOY)
+    assert "AAA" in hechos
+    assert cobertura.servidas_caducadas == ["AAA"]
+    assert _cache_path(cache_dir, "AAA").stat().st_mtime > antes
 
 
 def test_en_modo_sin_red_los_recientes_siguen_saliendo_de_la_cache(cache_dir):
@@ -285,6 +352,7 @@ def test_el_resumen_dice_hasta_cuando_y_cuantas_se_actualizaron():
         "descarga_mas_reciente": "2026-11-22",
         "actualizadas": 1,
         "servidas_caducadas": 1,
+        "motivo_sin_red": None,
     }
 
 
