@@ -314,3 +314,50 @@ def test_un_fichas_json_sin_valoracion_sigue_cargando(tmp_path: Path):
     candidatos = cargar_candidatos(directorio)
     assert [f["ticker"] for f in candidatos.fichas] == ["AAA"]
     assert valoracion_de(candidatos.fichas[0]) is None
+
+
+from aprobacion.carga import linea_datos_sec
+
+DATOS_SEC = {
+    "ultimo_trimestre": "2026Q3",
+    "descarga_mas_antigua": "2026-11-20",
+    "descarga_mas_reciente": "2026-11-22",
+    "actualizadas": 41,
+    "servidas_caducadas": 0,
+}
+
+
+def test_la_linea_dice_hasta_que_trimestre_y_cuantas_se_actualizaron():
+    texto, aviso = linea_datos_sec({**CORRIDA, "datos_sec": DATOS_SEC})
+    assert texto == (
+        "Datos de la SEC hasta el 3T 2026 · 41 empresas actualizadas en esta "
+        "corrida · 0 servidas sin actualizar."
+    )
+    assert aviso is False
+
+
+def test_con_servidas_caducadas_la_linea_es_un_aviso_y_dice_por_que():
+    datos = {**DATOS_SEC, "servidas_caducadas": 12, "descarga_mas_antigua": "2026-08-30"}
+    texto, aviso = linea_datos_sec({**CORRIDA, "datos_sec": datos})
+    assert aviso is True
+    assert "12 servidas sin actualizar" in texto
+    assert "la SEC no respondió" in texto
+    assert "2026-08-30" in texto
+
+
+def test_en_singular_con_una_empresa():
+    texto, _ = linea_datos_sec({**CORRIDA, "datos_sec": {**DATOS_SEC, "actualizadas": 1}})
+    assert "1 empresa actualizada en esta corrida" in texto
+
+
+def test_sin_bloque_no_hay_linea():
+    assert linea_datos_sec(CORRIDA) is None
+    assert linea_datos_sec(None) is None
+    assert linea_datos_sec({**CORRIDA, "datos_sec": None}) is None
+
+
+def test_sin_trimestre_lo_dice():
+    texto, _ = linea_datos_sec(
+        {**CORRIDA, "datos_sec": {**DATOS_SEC, "ultimo_trimestre": None}}
+    )
+    assert texto.startswith("Datos de la SEC sin trimestre conocido")
