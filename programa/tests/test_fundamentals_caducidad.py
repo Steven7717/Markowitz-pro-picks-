@@ -108,3 +108,73 @@ def test_caduca_solo_con_las_dos_condiciones(dias_desde_cierre, dias_desde_desca
 def test_un_fichero_sin_cierre_medible_no_caduca():
     hoy = CIERRE + timedelta(days=400)
     assert caducado(pd.DataFrame(), hoy - timedelta(days=30), hoy) is False
+
+
+# --- Un ticker ---------------------------------------------------------------
+
+HOY = CIERRE + timedelta(days=90)  # el cierre tiene 90 días: más de 75
+
+
+def _sembrar(cache_dir: Path, tickers, dias: int = 10, hoy: date = HOY) -> None:
+    """Escribe en caché los `tickers` y los envejece `dias` días."""
+    with patch("fundamentals.fetch._fetch_facts", side_effect=lambda t: _facts(t)):
+        load_facts(list(tickers), cache_dir=cache_dir, hoy=hoy)
+    for ticker in tickers:
+        _envejecer(cache_dir, ticker, dias, hoy)
+
+
+def test_un_fichero_reciente_se_sirve_sin_red(cache_dir):
+    _sembrar(cache_dir, ["AAA"], dias=3)
+    with patch("fundamentals.fetch._fetch_facts") as red:
+        _, cobertura = load_facts(["AAA"], cache_dir=cache_dir, hoy=HOY)
+    red.assert_not_called()
+    assert cobertura.included == ["AAA"]
+    assert cobertura.actualizadas == []
+    assert cobertura.servidas_caducadas == []
+
+
+def test_un_fichero_caducado_se_vuelve_a_pedir_y_se_reescribe(cache_dir):
+    _sembrar(cache_dir, ["AAA"], dias=10)
+    nuevo = _facts(ultimo=date(2026, 3, 31))
+    with patch("fundamentals.fetch._fetch_facts", return_value=nuevo) as red:
+        hechos, cobertura = load_facts(["AAA"], cache_dir=cache_dir, hoy=HOY)
+    red.assert_called_once_with("AAA")
+    assert ultimo_cierre(hechos["AAA"]) == date(2026, 3, 31)
+    assert cobertura.actualizadas == ["AAA"]
+    assert cobertura.descargado_el["AAA"] == HOY.isoformat()
+
+
+def test_un_caducado_cuya_descarga_falla_se_sirve_desde_la_cache(cache_dir):
+    _sembrar(cache_dir, ["AAA"], dias=10)
+    with patch("fundamentals.fetch._fetch_facts", side_effect=httpx.ConnectTimeout("x")):
+        hechos, cobertura = load_facts(["AAA"], cache_dir=cache_dir, hoy=HOY)
+    assert ultimo_cierre(hechos["AAA"]) == CIERRE
+    assert cobertura.included == ["AAA"]
+    assert cobertura.servidas_caducadas == ["AAA"]
+    assert cobertura.failed_download == []
+    assert cobertura.descargado_el["AAA"] == (HOY - timedelta(days=10)).isoformat()
+
+
+def test_un_caducado_que_falla_no_toca_el_fichero(cache_dir):
+    """Sin mtime nuevo, la próxima corrida lo vuelve a intentar."""
+    _sembrar(cache_dir, ["AAA"], dias=10)
+    antes = _cache_path(cache_dir, "AAA").stat().st_mtime
+    with patch("fundamentals.fetch._fetch_facts", side_effect=httpx.ConnectTimeout("x")):
+        load_facts(["AAA"], cache_dir=cache_dir, hoy=HOY)
+    assert _cache_path(cache_dir, "AAA").stat().st_mtime == antes
+
+
+def test_refresh_sigue_forzando_la_descarga_de_un_fichero_reciente(cache_dir):
+    _sembrar(cache_dir, ["AAA"], dias=1)
+    with patch("fundamentals.fetch._fetch_facts", side_effect=lambda t: _facts(t)) as red:
+        load_facts(["AAA"], cache_dir=cache_dir, refresh=True, hoy=HOY)
+    red.assert_called_once()
+
+
+def test_sin_hoy_se_usa_la_fecha_de_hoy(cache_dir):
+    """Un fichero recién escrito no caduca con la fecha real."""
+    with patch("fundamentals.fetch._fetch_facts", side_effect=lambda t: _facts(t)):
+        load_facts(["AAA"], cache_dir=cache_dir)
+    with patch("fundamentals.fetch._fetch_facts") as red:
+        load_facts(["AAA"], cache_dir=cache_dir)
+    red.assert_not_called()
