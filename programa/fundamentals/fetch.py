@@ -2,6 +2,7 @@ import hashlib
 import os
 import time
 from dataclasses import dataclass, field
+from datetime import date
 from pathlib import Path
 
 import pandas as pd
@@ -57,6 +58,53 @@ RACHA_MAXIMA = 10
 # eso; cobrando sólo el tiempo de petición sobra, porque un acierto de caché
 # aporta cero segundos, que es lo que aportó a la espera.
 SIN_RESPUESTA_MAXIMO = 180.0
+
+# **Sub-proyecto Q, 2026-11-22: la caché caduca.** Hasta aquí un fichero de
+# `.cache` no se volvía a pedir nunca: `refresh=False` era el valor por defecto
+# y ninguna pantalla pedía `refresh=True`. Medido ese día, los 503 ficheros eran
+# del 2026-08-30 y el ranking no veía ningún 10-Q del tercer trimestre.
+#
+# Un fichero se vuelve a pedir cuando las dos cosas son ciertas:
+#   - su último cierre de periodo tiene más de DIAS_HASTA_INFORME_NUEVO días. Un
+#     10-Q se presenta en los 40-45 días siguientes al cierre y un 10-K en
+#     60-90: 75 cubre el 10-Q de cualquier empresa sin ir antes de tiempo.
+#   - el fichero se escribió hace más de DIAS_ENTRE_COMPROBACIONES días. Sin
+#     esto, una empresa que se retrasa en presentar se pediría en cada corrida;
+#     con esto, como mucho una vez por semana.
+# El razonamiento entero está en
+# docs/superpowers/specs/2026-11-22-caducidad-cache-sec-design.md.
+DIAS_HASTA_INFORME_NUEVO = 75
+DIAS_ENTRE_COMPROBACIONES = 7
+
+_PERIODOS_FISCALES = frozenset({"Q1", "Q2", "Q3", "Q4", "FY"})
+
+
+def ultimo_cierre(facts: pd.DataFrame) -> "date | None":
+    """El cierre de periodo más reciente del fichero, o None si no hay ninguno medible.
+
+    Solo cuentan las filas trimestrales o anuales (`fiscal_period` en Q1-Q4/FY):
+    los hechos del documento (`dei:*`) traen fechas que no son cierres y alguna
+    va por delante del calendario.
+    """
+    if facts.empty or not {"period_end", "fiscal_period"} <= set(facts.columns):
+        return None
+    filas = facts[facts["fiscal_period"].isin(_PERIODOS_FISCALES)]
+    fechas = pd.to_datetime(filas["period_end"], errors="coerce").dropna()
+    return None if fechas.empty else fechas.max().date()
+
+
+def caducado(facts: pd.DataFrame, descargado_el: date, hoy: date) -> bool:
+    """Si toca volver a pedir este fichero a la SEC.
+
+    Un fichero sin cierre medible no caduca: no hay forma de saber si existe un
+    informe nuevo, y pedirlo cada semana no lo arreglaría.
+    """
+    cierre = ultimo_cierre(facts)
+    if cierre is None:
+        return False
+    return (hoy - cierre).days > DIAS_HASTA_INFORME_NUEVO and (
+        hoy - descargado_el
+    ).days > DIAS_ENTRE_COMPROBACIONES
 
 
 @dataclass
