@@ -1,7 +1,7 @@
 # Caducidad de la caché de la SEC
 
 **Fecha:** 2026-11-22
-**Estado:** diseño, pendiente de plan
+**Estado:** implementado (2026-11-22)
 **Sub-proyecto:** Q (va antes que R, el ranking value, que se apoya en él)
 
 ## El problema
