@@ -178,3 +178,89 @@ def test_sin_hoy_se_usa_la_fecha_de_hoy(cache_dir):
     with patch("fundamentals.fetch._fetch_facts") as red:
         load_facts(["AAA"], cache_dir=cache_dir)
     red.assert_not_called()
+
+
+# --- Los cortacircuitos ------------------------------------------------------
+
+
+def test_sin_red_y_con_todo_caducado_la_corrida_no_aborta(cache_dir):
+    """Con la caché llena y sin conexión, todas tienen datos: ninguna se pierde."""
+    tickers = [f"T{i:03d}" for i in range(RACHA_MAXIMA + 5)]
+    _sembrar(cache_dir, tickers, dias=10)
+    with patch(
+        "fundamentals.fetch._fetch_facts", side_effect=httpx.ConnectTimeout("sin red")
+    ) as red:
+        hechos, cobertura = load_facts(tickers, cache_dir=cache_dir, hoy=HOY)
+    assert sorted(hechos) == tickers
+    assert cobertura.servidas_caducadas == tickers
+    # Tras saltar el cortacircuitos deja de preguntar.
+    assert red.call_count == RACHA_MAXIMA
+
+
+def test_una_identidad_rechazada_en_un_caducado_tampoco_aborta(cache_dir):
+    from tests.test_fundamentals_fetch import _status
+
+    tickers = ["AAA", "BBB", "CCC"]
+    _sembrar(cache_dir, tickers, dias=10)
+    with patch("fundamentals.fetch._fetch_facts", side_effect=_status(403)) as red:
+        hechos, cobertura = load_facts(tickers, cache_dir=cache_dir, hoy=HOY)
+    assert sorted(hechos) == tickers
+    assert cobertura.servidas_caducadas == tickers
+    assert red.call_count == 1
+
+
+def test_un_fallo_en_un_caducado_cuenta_para_la_racha(cache_dir):
+    """Se preguntó a la red, así que cuenta. Tras los caducados, las que no
+    tienen fichero abortan antes de llegar a RACHA_MAXIMA fallos propios."""
+    caducados = [f"C{i:03d}" for i in range(RACHA_MAXIMA - 1)]
+    _sembrar(cache_dir, caducados, dias=10)
+    nuevos = ["N001", "N002", "N003"]
+    with patch(
+        "fundamentals.fetch._fetch_facts", side_effect=httpx.ConnectTimeout("sin red")
+    ) as red:
+        with pytest.raises(CorridaAbortada) as error:
+            load_facts(caducados + nuevos, cache_dir=cache_dir, hoy=HOY)
+    assert red.call_count == RACHA_MAXIMA
+    assert error.value.cobertura.failed_download == ["N001"]
+    assert error.value.cobertura.servidas_caducadas == caducados
+
+
+def test_en_modo_sin_red_una_empresa_sin_fichero_aborta_como_hoy(cache_dir):
+    caducados = [f"C{i:03d}" for i in range(RACHA_MAXIMA)]
+    _sembrar(cache_dir, caducados, dias=10)
+    with patch(
+        "fundamentals.fetch._fetch_facts", side_effect=httpx.ConnectTimeout("sin red")
+    ):
+        with pytest.raises(CorridaAbortada) as error:
+            load_facts(caducados + ["NUEVO"], cache_dir=cache_dir, hoy=HOY)
+    assert error.value.cobertura.failed_download == ["NUEVO"]
+
+
+def test_en_modo_sin_red_los_recientes_siguen_saliendo_de_la_cache(cache_dir):
+    caducados = [f"C{i:03d}" for i in range(RACHA_MAXIMA)]
+    _sembrar(cache_dir, caducados, dias=10)
+    _sembrar(cache_dir, ["RECIENTE"], dias=1)
+    with patch(
+        "fundamentals.fetch._fetch_facts", side_effect=httpx.ConnectTimeout("sin red")
+    ):
+        hechos, cobertura = load_facts(
+            caducados + ["RECIENTE"], cache_dir=cache_dir, hoy=HOY
+        )
+    assert "RECIENTE" in hechos
+    assert "RECIENTE" not in cobertura.servidas_caducadas
+
+
+def test_un_exito_tras_caducados_fallidos_reinicia_la_racha(cache_dir):
+    caducados = [f"C{i:03d}" for i in range(RACHA_MAXIMA - 1)]
+    _sembrar(cache_dir, caducados, dias=10)
+
+    def falla_salvo_ok(ticker):
+        if ticker == "OK":
+            return _facts(ticker)
+        raise httpx.ConnectTimeout("sin red")
+
+    tickers = caducados + ["OK"] + [f"N{i:03d}" for i in range(RACHA_MAXIMA - 1)]
+    with patch("fundamentals.fetch._fetch_facts", side_effect=falla_salvo_ok):
+        hechos, cobertura = load_facts(tickers, cache_dir=cache_dir, hoy=HOY)
+    assert "OK" in hechos
+    assert len(cobertura.failed_download) == RACHA_MAXIMA - 1

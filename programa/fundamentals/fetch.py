@@ -502,10 +502,18 @@ def load_facts(
 ) -> tuple[dict[str, pd.DataFrame], CoverageReport]:
     """Download SEC's long fact table per ticker, caching each to disk.
 
-    `refresh` re-downloads even when a cache entry exists. It defaults to False
-    on purpose: quarterly reports arrive staggered, and a cache that refreshed
-    itself would change the numbers between two runs without anyone asking. Like
-    the universe snapshot, refreshing is a deliberate act.
+    `refresh` re-downloads even when a cache entry exists. Without it, a cache
+    entry is re-requested only when `caducado` says a new report is probably
+    out (sub-proyecto Q). Before Q the cache never expired, on the theory that
+    refreshing should be a deliberate act. But no screen ever asked for it, and
+    the ranking ran on three-month-old data without anything saying so.
+    Reproducibility now rests on `CoverageReport.descargado_el`: two runs that
+    used files written on the same dates used the same figures.
+
+    A stale entry whose re-download fails is served from disk and listed in
+    `servidas_caducadas`. Its failure still advances the circuit breakers.
+    When they trip, stale entries stop asking (`sin_red`) instead of aborting
+    the run, because they have data. Only a ticker with no file can abort.
 
     Un ticker que falla se registra y se salta. Que fallen todos por la misma
     causa no es un ticker que falla: es que no hay fuente, y entonces levanta
@@ -550,8 +558,29 @@ def load_facts(
                     racha = desconocidos = 0
                     segundos_perdidos = 0.0
                 continue
-            # Task 3 añade aquí lo que hace un caducado que falló con los
-            # cortacircuitos.
+            # Un caducado cuya descarga falló: tiene datos, así que no se
+            # pierde ni aborta. Pero se preguntó a la SEC, así que el fallo
+            # avanza los cortacircuitos igual que cualquier otro. Cuando
+            # saltan, en vez de abortar se deja de preguntar por los
+            # caducados (`sin_red`). Las empresas sin fichero siguen
+            # preguntando, y con la racha ya en el tope, su primer fallo
+            # aborta, como antes de Q.
+            fallo = intento.fallo
+            if fallo.aborta:
+                sin_red = True
+                continue
+            if fallo.fuente_viva:
+                racha = desconocidos = 0
+                segundos_perdidos = 0.0
+                continue
+            if not fallo.cuenta_racha:
+                continue
+            racha += 1
+            if fallo.causa == UNKNOWN:
+                desconocidos += 1
+            segundos_perdidos += intento.segundos_de_red
+            if racha >= RACHA_MAXIMA or segundos_perdidos >= SIN_RESPUESTA_MAXIMO:
+                sin_red = True
             continue
 
         fallo = intento.fallo
