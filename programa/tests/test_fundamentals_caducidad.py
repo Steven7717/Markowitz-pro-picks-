@@ -264,3 +264,36 @@ def test_un_exito_tras_caducados_fallidos_reinicia_la_racha(cache_dir):
         hechos, cobertura = load_facts(tickers, cache_dir=cache_dir, hoy=HOY)
     assert "OK" in hechos
     assert len(cobertura.failed_download) == RACHA_MAXIMA - 1
+
+
+# --- El resumen ---------------------------------------------------------------
+
+from fundamentals.fetch import CoverageReport, resumen_datos_sec
+
+
+def test_el_resumen_dice_hasta_cuando_y_cuantas_se_actualizaron():
+    cobertura = CoverageReport(
+        requested=["AAA", "BBB", "CCC"],
+        included=["AAA", "BBB", "CCC"],
+        actualizadas=["AAA"],
+        servidas_caducadas=["CCC"],
+        descargado_el={"AAA": "2026-11-22", "BBB": "2026-11-20", "CCC": "2026-08-30"},
+    )
+    assert resumen_datos_sec(cobertura, "2026Q3") == {
+        "ultimo_trimestre": "2026Q3",
+        "descarga_mas_antigua": "2026-08-30",
+        "descarga_mas_reciente": "2026-11-22",
+        "actualizadas": 1,
+        "servidas_caducadas": 1,
+    }
+
+
+def test_sin_cobertura_no_hay_resumen():
+    assert resumen_datos_sec(None, "2026Q3") is None
+
+
+def test_sin_fechas_el_resumen_no_inventa_ninguna():
+    resumen = resumen_datos_sec(CoverageReport(), None)
+    assert resumen["descarga_mas_antigua"] is None
+    assert resumen["descarga_mas_reciente"] is None
+    assert resumen["ultimo_trimestre"] is None

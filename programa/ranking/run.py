@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pandas as pd
 
+from fundamentals.fetch import CoverageReport, resumen_datos_sec
 from fundamentals.run import build_panel
 from macro.criterio import INCLINACION, REGIONES
 from macro.fase import Fase
@@ -235,6 +236,10 @@ def construir_ranking(
             "tamano_top": int(n),
             "con_llm": bool(con_llm),
             "macro": bloque_macro,
+            "datos_sec": resumen_datos_sec(
+                cobertura if isinstance(cobertura, CoverageReport) else None,
+                None if panel.empty else trimestre_max,
+            ),
         },
         panel=crudo,
     )

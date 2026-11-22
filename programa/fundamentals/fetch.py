@@ -609,3 +609,24 @@ def load_facts(
             )
 
     return hechos, cobertura
+
+
+def resumen_datos_sec(
+    cobertura: "CoverageReport | None", ultimo_trimestre: "str | None"
+) -> "dict | None":
+    """De cuándo son los datos de la SEC de una corrida, para `corrida.json`.
+
+    `ultimo_trimestre` es el trimestre natural más reciente del panel. Lo pasa
+    quien tiene el panel, porque la cobertura no lo sabe. Sin cobertura (los
+    dobles de test de `build_panel` devuelven None) no hay nada que resumir.
+    """
+    if cobertura is None:
+        return None
+    fechas = sorted(cobertura.descargado_el.values())
+    return {
+        "ultimo_trimestre": ultimo_trimestre,
+        "descarga_mas_antigua": fechas[0] if fechas else None,
+        "descarga_mas_reciente": fechas[-1] if fechas else None,
+        "actualizadas": len(cobertura.actualizadas),
+        "servidas_caducadas": len(cobertura.servidas_caducadas),
+    }
