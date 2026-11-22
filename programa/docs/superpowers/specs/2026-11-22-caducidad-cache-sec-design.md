@@ -58,6 +58,8 @@ descarga no puede costar la empresa, ni la corrida.
 - Si falla la descarga de una empresa caducada, se usa su fichero viejo y se
   anota en un campo nuevo de `CoverageReport`, `servidas_caducadas`. La empresa
   sigue en `included`.
+- Un fallo que hoy aborta en el acto (identidad rechazada) tampoco aborta si
+  ocurre en un caducado: activa el modo sin red descrito abajo.
 - Si salta un cortacircuitos (`RACHA_MAXIMA` o `SIN_RESPUESTA_MAXIMO`), la
   corrida **no** aborta mientras queden ficheros que servir. Deja de preguntar a
   la red durante el resto de la corrida (`sin_red_en_esta_corrida = True`) y
